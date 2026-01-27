@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /user/
+Disallow: /detective/dashboard
+
+Sitemap: https://finddetectives.com/sitemap.xml

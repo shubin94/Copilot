@@ -1,0 +1,505 @@
+import { Navbar } from "@/components/layout/navbar";
+import { Footer } from "@/components/layout/footer";
+import { ServiceCard } from "@/components/home/service-card";
+import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Slider } from "@/components/ui/slider";
+import { Search, MapPin, Filter, ChevronDown, Star, Check, Globe, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Link, useLocation } from "wouter";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { SEO } from "@/components/seo";
+import { useSearchServices, useServiceCategories } from "@/lib/hooks";
+import { COUNTRY_STATES } from "@/lib/geo";
+import { useCurrency } from "@/lib/currency-context";
+import { WORLD_COUNTRIES } from "@/lib/world-countries";
+import type { Service, Detective } from "@shared/schema";
+
+function mapServiceToCard(service: Service & { detective: Detective; avgRating: number; reviewCount: number }) {
+  
+
+  const badges: string[] = [];
+  if (service.detective.isVerified) badges.push("verified");
+  if (service.detective.subscriptionPlan === "agency") badges.push("recommended");
+  if (service.detective.subscriptionPlan === "pro") badges.push("pro");
+
+  const detectiveName = service.detective.businessName || "Unknown Detective";
+
+  // Use actual database images - NO MOCK DATA
+  const images = service.images && service.images.length > 0 ? service.images : undefined;
+  const serviceImage = images ? images[0] : undefined;
+  const detectiveLogo = service.detective.logo || undefined;
+  
+  return {
+    id: service.id,
+    detectiveId: service.detective.id,
+    images,
+    image: serviceImage,
+    avatar: detectiveLogo || "",
+    name: detectiveName,
+    level: service.detective.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1",
+    levelValue: (() => { const m = String(service.detective.level || "level1").match(/\d+/); return m ? parseInt(m[0], 10) : 1; })(),
+    plan: service.detective.subscriptionPlan,
+    category: service.category,
+    badges,
+    title: service.title,
+    rating: service.avgRating,
+    reviews: service.reviewCount,
+    price: Number(service.basePrice),
+    offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
+    countryCode: service.detective.country,
+    location: service.detective.location || "",
+  };
+}
+
+export default function SearchPage() {
+  const [_, setLocation] = useLocation();
+  const searchParams = new URLSearchParams(window.location.search);
+  const query = searchParams.get("q") || "All Services";
+  const countryFilter = searchParams.get("country");
+  const [countryInput, setCountryInput] = useState<string>("");
+  const countryInputRef = useRef<HTMLInputElement | null>(null);
+  const [countryFilterState, setCountryFilterState] = useState<string | undefined>(countryFilter || undefined);
+  const [stateInput, setStateInput] = useState<string>(searchParams.get("state") || "");
+  const [appliedState, setAppliedState] = useState<string>(searchParams.get("state") || "");
+  const [pendingCountryCode, setPendingCountryCode] = useState<string | undefined>(undefined);
+  const [pendingState, setPendingState] = useState<string>("");
+  const [stateQuery, setStateQuery] = useState<string>("");
+  const stateInputRef = useRef<HTMLInputElement | null>(null);
+  const [countrySuggestions, setCountrySuggestions] = useState<Array<{ name: string; code: string }>>([]);
+  const [loadingCountry, setLoadingCountry] = useState(false);
+  const [allCountries, setAllCountries] = useState<Array<{ name: string; code: string }>>([]);
+  
+  
+  const [minRating, setMinRating] = useState<number | undefined>(() => {
+    const mr = searchParams.get("minRating");
+    return mr ? parseFloat(mr) : undefined;
+  });
+  const [selectedCategory, setSelectedCategory] = useState<string | undefined>(searchParams.get("category") || undefined);
+  const [minPriceInput, setMinPriceInput] = useState<string>(searchParams.get("minPrice") || "");
+  const [maxPriceInput, setMaxPriceInput] = useState<string>(searchParams.get("maxPrice") || "");
+  const [minPrice, setMinPrice] = useState<number | undefined>(() => {
+    const mp = searchParams.get("minPrice");
+    return mp ? parseFloat(mp) : undefined;
+  });
+  const [maxPrice, setMaxPrice] = useState<number | undefined>(() => {
+    const mp = searchParams.get("maxPrice");
+    return mp ? parseFloat(mp) : undefined;
+  });
+  const [proOnly, setProOnly] = useState<boolean>((searchParams.get("proOnly") === "1") || false);
+  const [agencyOnly, setAgencyOnly] = useState<boolean>((searchParams.get("agencyOnly") === "1") || false);
+  const [localOnly, setLocalOnly] = useState<boolean>((searchParams.get("localOnly") === "1") || false);
+  const [level1Only, setLevel1Only] = useState<boolean>((searchParams.get("lvl1") === "1") || false);
+  const [level2Only, setLevel2Only] = useState<boolean>((searchParams.get("lvl2") === "1") || false);
+  const [sortBy, setSortBy] = useState<string>(searchParams.get("sortBy") || "popular");
+  const { selectedCountry, convertPriceFromTo } = useCurrency();
+  const { data: servicesData, isLoading } = useSearchServices({
+    search: selectedCategory ? undefined : (query !== "All Services" ? query : undefined),
+    country: countryFilterState || undefined,
+    category: selectedCategory,
+    minRating,
+    limit: 50,
+  });
+
+  const { data: categoriesData } = useServiceCategories(true);
+  const categories = categoriesData?.categories || [];
+  const [openSections, setOpenSections] = useState<string[]>(["category", "location"]);
+
+  const results = servicesData?.services?.map(mapServiceToCard) || [];
+  const resultsWithImages = results.filter((s: any) => Array.isArray(s.images) && s.images.length > 0);
+  const filteredByBudget = resultsWithImages.filter((s) => {
+    if (minPrice === undefined && maxPrice === undefined) return true;
+    const converted = convertPriceFromTo(s.price, (s as any).countryCode, selectedCountry.code);
+    if (minPrice !== undefined && converted < minPrice) return false;
+    if (maxPrice !== undefined && converted > maxPrice) return false;
+    return true;
+  });
+  const filteredByState = filteredByBudget.filter((s) => {
+    if (!appliedState.trim()) return true;
+    const loc = ((s as any).location || "").toLowerCase();
+    return loc.startsWith(appliedState.trim().toLowerCase());
+  });
+  const filteredByOptions = filteredByState.filter((s: any) => {
+    if (proOnly && (s.plan !== "pro")) return false;
+    if (agencyOnly && (s.plan !== "agency")) return false;
+    if (level1Only && s.levelValue !== 1) return false;
+    if (level2Only && s.levelValue !== 2) return false;
+    return true;
+  });
+  let finalResults = filteredByOptions.slice();
+  if (sortBy === "price_low") {
+    finalResults.sort((a: any, b: any) => a.price - b.price);
+  } else if (sortBy === "price_high") {
+    finalResults.sort((a: any, b: any) => b.price - a.price);
+  } else if (sortBy === "rating") {
+    finalResults.sort((a: any, b: any) => b.rating - a.rating);
+  }
+  const hasActiveFilters = !!(selectedCategory || minRating !== undefined || countryFilterState || minPrice !== undefined || maxPrice !== undefined || appliedState.trim() || proOnly || agencyOnly || localOnly || level1Only || level2Only);
+
+  // Clear all filters whenever the main search query changes
+  useEffect(() => {
+    setSelectedCategory(undefined);
+    setMinRating(undefined);
+    setCountryFilterState(undefined);
+    setMinPrice(undefined);
+    setMaxPrice(undefined);
+    setMinPriceInput("");
+    setMaxPriceInput("");
+    setStateInput("");
+    setAppliedState("");
+    setProOnly(false);
+    setAgencyOnly(false);
+    setLocalOnly(false);
+    setLevel1Only(false);
+    setLevel2Only(false);
+    setSortBy("popular");
+  }, [query]);
+
+  // Persist filters to URL for shareable links
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (!selectedCategory && query !== "All Services") params.set("q", query);
+    if (countryFilterState) params.set("country", countryFilterState);
+    if (selectedCategory) params.set("category", selectedCategory);
+    if (minRating !== undefined) params.set("minRating", String(minRating));
+    if (minPrice !== undefined) params.set("minPrice", String(minPrice));
+    if (maxPrice !== undefined) params.set("maxPrice", String(maxPrice));
+    if (appliedState.trim()) params.set("state", appliedState.trim());
+    if (proOnly) params.set("proOnly", "1");
+    if (agencyOnly) params.set("agencyOnly", "1");
+    if (localOnly) params.set("localOnly", "1");
+    if (level1Only) params.set("lvl1", "1");
+    if (level2Only) params.set("lvl2", "1");
+    if (sortBy) params.set("sortBy", sortBy);
+    const url = `/search?${params.toString()}`;
+    window.history.replaceState(null, "", url);
+  }, [selectedCategory, minRating, countryFilterState, minPrice, maxPrice, appliedState, proOnly, agencyOnly, localOnly, level1Only, level2Only, sortBy, query]);
+
+  // removed remote country fetch; using local COUNTRIES list
+
+  const FilterContent = () => (
+     <Accordion type="multiple" value={openSections} onValueChange={(v: any) => setOpenSections(Array.isArray(v) ? v : [])} className="w-full">
+       <AccordionItem value="category">
+         <AccordionTrigger className="font-bold text-sm">Category</AccordionTrigger>
+         <AccordionContent>
+              <div className="space-y-2">
+                {categories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    className={`flex items-center justify-between w-full text-left px-2 py-1 rounded ${selectedCategory === cat.name ? 'bg-green-50 text-green-700 border border-green-200' : 'hover:bg-gray-50 text-gray-700'}`}
+                    onClick={() => setSelectedCategory(selectedCategory === cat.name ? undefined : cat.name)}
+                    data-testid={`checkbox-category-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <span className="text-sm font-medium">{cat.name}</span>
+                    {selectedCategory === cat.name && <Check className="h-4 w-4" />}
+                  </button>
+                ))}
+                {selectedCategory && (
+                  <button className="text-xs text-gray-500 mt-2 underline" onClick={() => setSelectedCategory(undefined)} data-testid="filter-category-clear">Clear</button>
+                )}
+              </div>
+         </AccordionContent>
+       </AccordionItem>
+
+      <AccordionItem value="budget">
+        <AccordionTrigger className="font-bold text-sm">Budget</AccordionTrigger>
+        <AccordionContent>
+           <div className="space-y-3">
+             <div className="grid grid-cols-2 gap-2">
+               <div className="space-y-1">
+                 <Label className="text-xs text-gray-500">MIN ({selectedCountry.currencySymbol})</Label>
+                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-min-price" value={minPriceInput} onChange={(e) => setMinPriceInput(e.target.value)} />
+               </div>
+               <div className="space-y-1">
+                 <Label className="text-xs text-gray-500">MAX ({selectedCountry.currencySymbol})</Label>
+                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-max-price" value={maxPriceInput} onChange={(e) => setMaxPriceInput(e.target.value)} />
+               </div>
+             </div>
+             <div className="flex gap-2">
+               <Button size="sm" variant="outline" className="h-8" data-testid="button-apply-price" onClick={() => {
+                 const min = parseFloat(minPriceInput);
+                 const max = parseFloat(maxPriceInput);
+                 setMinPrice(isNaN(min) ? undefined : min);
+                 setMaxPrice(isNaN(max) ? undefined : max);
+               }}>Apply Price</Button>
+               <Button size="sm" variant="ghost" className="h-8" onClick={() => { setMinPriceInput(""); setMaxPriceInput(""); setMinPrice(undefined); setMaxPrice(undefined); }}>Clear</Button>
+             </div>
+           </div>
+         </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="rating">
+        <AccordionTrigger className="font-bold text-sm">Star Rating</AccordionTrigger>
+        <AccordionContent>
+          <div className="flex flex-col gap-2">
+            {[5,4,3,2,1].map(r => (
+              <button
+                key={r}
+                className={`flex items-center gap-2 text-sm px-2 py-1 rounded ${minRating === r ? 'bg-green-50 text-green-700 border border-green-200' : 'hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => setMinRating(minRating === r ? undefined : r)}
+                data-testid={`filter-rating-${r}`}
+              >
+                <span className="flex items-center gap-1">
+                  {Array.from({ length: r }).map((_, i) => (<Star key={i} className="h-4 w-4 fill-yellow-500 text-yellow-500" />))}
+                </span>
+                <span className="ml-1">&nbsp;and up</span>
+                {minRating === r && <Check className="h-4 w-4 ml-auto text-green-600" />}
+              </button>
+            ))}
+            <button className="text-xs text-gray-500 mt-2 underline" onClick={() => setMinRating(undefined)} data-testid="filter-rating-clear">Clear</button>
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+       <AccordionItem value="location">
+         <AccordionTrigger className="font-bold text-sm">Location</AccordionTrigger>
+         <AccordionContent>
+           <div className="space-y-3">
+             <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">Country</Label>
+              <Input ref={countryInputRef} placeholder="Type to search…" className="h-8 text-sm" data-testid="input-country-filter" value={countryInput} onChange={(e) => { setCountryInput(e.target.value); setPendingCountryCode(undefined); setPendingState(""); setStateQuery(""); }} />
+              {countryInput.trim().length >= 2 && (
+                <div className="border rounded-md mt-1 max-h-48 overflow-auto">
+                  {WORLD_COUNTRIES.filter(c => c.name.toLowerCase().includes(countryInput.toLowerCase()) || c.code.toLowerCase().includes(countryInput.toLowerCase())).map(c => (
+                    <div
+                      key={c.code}
+                      role="option"
+                      tabIndex={-1}
+                      className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50 cursor-pointer"
+                      onPointerDown={(e) => { e.preventDefault(); setCountryInput(c.name); setPendingCountryCode(c.code); setPendingState(""); setStateQuery(""); countryInputRef.current?.focus(); }}
+                    >
+                      {c.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+             </div>
+             <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">State / City</Label>
+              <Input ref={stateInputRef} placeholder="Type to search state" className="h-8 text-sm" value={stateQuery} onChange={(e) => setStateQuery(e.target.value)} />
+              <div className="border rounded-md mt-1 max-h-48 overflow-auto">
+                {(COUNTRY_STATES[pendingCountryCode || countryFilterState || ""] || []).filter(s => s.toLowerCase().includes(stateQuery.toLowerCase())).map(s => (
+                  <div
+                    key={s}
+                    role="option"
+                    tabIndex={-1}
+                    className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50 cursor-pointer"
+                    onPointerDown={(e) => { e.preventDefault(); setPendingState(s); setStateQuery(s); stateInputRef.current?.focus(); }}
+                  >
+                    {s}
+                  </div>
+                ))}
+              </div>
+             </div>
+             <div className="flex gap-2 pt-2">
+               <Button size="sm" variant="outline" className="h-8" onClick={() => { setCountryFilterState(pendingCountryCode); setAppliedState(pendingState); }}>Apply</Button>
+               <Button size="sm" variant="ghost" className="h-8" onClick={() => { setCountryFilterState(undefined); setCountryInput(""); setPendingCountryCode(undefined); setPendingState(""); setStateQuery(""); setAppliedState(""); }}>Clear</Button>
+             </div>
+            
+            <div className="flex items-center space-x-2 pt-2">
+              <Switch id="local-only" data-testid="switch-local-only" checked={localOnly} onCheckedChange={(v: boolean) => { setLocalOnly(v); if (v && selectedCountry.code !== 'ALL') { setCountryFilterState(selectedCountry.code); } }} />
+              <Label htmlFor="local-only" className="text-sm">Local Sellers Only</Label>
+            </div>
+           </div>
+         </AccordionContent>
+       </AccordionItem>
+
+       <AccordionItem value="options">
+         <AccordionTrigger className="font-bold text-sm">Service Options</AccordionTrigger>
+         <AccordionContent>
+          <div className="space-y-2">
+            <div className="flex items-center space-x-2">
+              <Switch id="pro-only" data-testid="switch-pro-only" checked={proOnly} onCheckedChange={(v: boolean) => { setProOnly(v); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
+              <Label htmlFor="pro-only" className="text-sm font-semibold text-gray-700">Pro Detectives</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch id="agency-only" data-testid="switch-agency-only" checked={agencyOnly} onCheckedChange={(v: boolean) => { setAgencyOnly(v); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
+              <Label htmlFor="agency-only" className="text-sm font-semibold text-gray-700">Agency Verified</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch id="level-1" data-testid="switch-level-1" checked={level1Only} onCheckedChange={(v: boolean) => { setLevel1Only(v); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
+              <Label htmlFor="level-1" className="text-sm font-semibold text-gray-700">Level 1</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch id="level-2" data-testid="switch-level-2" checked={level2Only} onCheckedChange={(v: boolean) => { setLevel2Only(v); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
+              <Label htmlFor="level-2" className="text-sm font-semibold text-gray-700">Level 2</Label>
+            </div>
+          </div>
+         </AccordionContent>
+       </AccordionItem>
+
+       <AccordionItem value="seller">
+         <AccordionTrigger className="font-bold text-sm">Seller Details</AccordionTrigger>
+         <AccordionContent>
+           <div className="space-y-3">
+             <div>
+               <Label className="text-xs font-semibold text-gray-500 mb-1.5 block">Language</Label>
+               <div className="space-y-1.5">
+                 <div className="flex items-center space-x-2">
+                   <Checkbox id="lang-en" data-testid="checkbox-lang-english" />
+                   <label htmlFor="lang-en" className="text-sm text-gray-600">English</label>
+                 </div>
+                 <div className="flex items-center space-x-2">
+                   <Checkbox id="lang-es" data-testid="checkbox-lang-spanish" />
+                   <label htmlFor="lang-es" className="text-sm text-gray-600">Spanish</label>
+                 </div>
+                 <div className="flex items-center space-x-2">
+                   <Checkbox id="lang-fr" data-testid="checkbox-lang-french" />
+                   <label htmlFor="lang-fr" className="text-sm text-gray-600">French</label>
+                 </div>
+               </div>
+             </div>
+           </div>
+         </AccordionContent>
+       </AccordionItem>
+     </Accordion>
+  );
+
+  return (
+    <div className="min-h-screen flex flex-col font-sans text-gray-900 bg-white">
+      <SEO 
+        title={`Search Results for "${query}" | FindDetectives`}
+        description={`Find the best private investigators for ${query}. Compare ratings, reviews, and prices from verified professionals.`}
+      />
+      <Navbar />
+      
+      <main className="flex-1 pt-2">
+        <div className="border-b border-gray-200 bg-white sticky top-20 z-40">
+          <div className="container mx-auto px-6 md:px-12 lg:px-16">
+            <ScrollArea className="w-full whitespace-nowrap py-1.5 md:py-2">
+              <div className="flex w-max space-x-4">
+                {categories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors border ${selectedCategory === cat.name ? 'bg-green-50 text-green-700 border-green-300' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 border-gray-200'}`}
+                    data-testid={`button-category-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
+                    onClick={() => setSelectedCategory(selectedCategory === cat.name ? undefined : cat.name)}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
+          </div>
+        </div>
+
+        <div className="container mx-auto px-6 md:px-12 lg:px-16 py-8">
+          <div className="flex flex-col lg:flex-row gap-8">
+            <div className="lg:hidden mb-2">
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button variant="outline" className="w-full flex gap-2 border-gray-300" data-testid="button-filter-mobile">
+                    <Filter className="h-4 w-4" /> Filter Results
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-[300px] overflow-y-auto">
+                   <div className="flex items-center gap-2 font-bold text-lg pb-4 border-b mb-4">
+                     <Filter className="h-5 w-5" /> Filters
+                   </div>
+                   <FilterContent />
+                </SheetContent>
+              </Sheet>
+            </div>
+
+            <aside className="hidden lg:block w-64 flex-shrink-0 space-y-6">
+               <div className="flex items-center gap-2 font-bold text-lg pb-2 border-b">
+                 <Filter className="h-5 w-5" /> Filters
+               </div>
+               <FilterContent />
+            </aside>
+
+            <div className="flex-1">
+              <div className="mb-6">
+                <h1 className="text-3xl font-bold font-heading mb-2" data-testid="text-search-heading">Results for "{query}"</h1>
+                <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2 text-gray-500 text-sm">
+               <span className="font-semibold text-gray-900" data-testid="text-results-count">{isLoading ? '...' : finalResults.length}</span> services available
+                   </div>
+                   
+                   <div className="flex items-center gap-2 text-sm">
+                      <span className="text-gray-500">Sort by:</span>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                           <span className="font-bold cursor-pointer flex items-center gap-1" data-testid="button-sort-dropdown">{sortBy === 'popular' ? 'Recommended' : sortBy === 'recent' ? 'Newest Arrivals' : sortBy === 'rating' ? 'Best Rated' : sortBy === 'price_low' ? 'Price: Low to High' : 'Price: High to Low'} <ChevronDown className="h-3 w-3" /></span>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                           <DropdownMenuCheckboxItem checked={sortBy === 'popular'} onClick={() => setSortBy('popular')} data-testid="sort-recommended">Recommended</DropdownMenuCheckboxItem>
+                           <DropdownMenuCheckboxItem checked={sortBy === 'recent'} onClick={() => setSortBy('recent')} data-testid="sort-newest">Newest Arrivals</DropdownMenuCheckboxItem>
+                           <DropdownMenuCheckboxItem checked={sortBy === 'rating'} onClick={() => setSortBy('rating')} data-testid="sort-best-selling">Best Rated</DropdownMenuCheckboxItem>
+                           <DropdownMenuCheckboxItem checked={sortBy === 'price_low'} onClick={() => setSortBy('price_low')} data-testid="sort-price-low">Price: Low to High</DropdownMenuCheckboxItem>
+                           <DropdownMenuCheckboxItem checked={sortBy === 'price_high'} onClick={() => setSortBy('price_high')} data-testid="sort-price-high">Price: High to Low</DropdownMenuCheckboxItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                   </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {isLoading ? (
+                  [1, 2, 3, 4, 5, 6].map((i) => (
+                    <ServiceCardSkeleton key={i} />
+                  ))
+                ) : finalResults.length > 0 ? (
+                  finalResults.map((service) => (
+                    <ServiceCard key={service.id} {...service} />
+                  ))
+                ) : (
+                  <div className="col-span-full flex flex-col items-center justify-center py-16 text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200" data-testid="empty-search-results">
+                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-4">
+                      <Globe className="h-8 w-8 text-gray-400" />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">No detectives found here</h3>
+                    <p className="text-gray-500 mb-6 text-center max-w-md">
+                      We couldn't find any detectives matching your search for "{query}"{countryFilter ? ` in ${countryFilter}` : ""}.
+                    </p>
+                    <Button 
+                      onClick={() => {
+                        setSelectedCategory(undefined);
+                        setMinRating(undefined);
+                        setCountryFilterState(undefined);
+                        setMinPrice(undefined);
+                        setMaxPrice(undefined);
+                        setMinPriceInput("");
+                        setMaxPriceInput("");
+                        setStateInput("");
+                        setAppliedState("");
+                        window.location.href = "/search";
+                      }}
+                      variant="outline"
+                      data-testid="button-clear-filters"
+                    >
+                      {hasActiveFilters ? "Clear Filters & Search All" : "Search All Services"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+                {!isLoading && resultsWithImages.length > 0 && (
+                 <div className="mt-12 flex justify-center">
+                   <Button variant="outline" className="px-8 border-black text-black hover:bg-gray-50" data-testid="button-load-more">Load More</Button>
+                 </div>
+               )}
+            </div>
+          </div>
+        </div>
+      </main>
+      
+      <Footer />
+    </div>
+  );
+}

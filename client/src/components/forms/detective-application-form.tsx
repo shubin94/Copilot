@@ -1,0 +1,1069 @@
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Check, Upload, Shield, ArrowRight, ArrowLeft, Loader2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useServiceCategories, useCreateApplication } from "@/lib/hooks";
+import { useToast } from "@/hooks/use-toast";
+import type { InsertDetectiveApplication } from "@shared/schema";
+
+const COUNTRIES = [
+  {
+    name: "United States",
+    code: "US",
+    currency: "$",
+    currencyCode: "USD",
+    phoneCode: "+1",
+    states: ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"]
+  },
+  {
+    name: "United Kingdom",
+    code: "UK",
+    currency: "£",
+    currencyCode: "GBP",
+    phoneCode: "+44",
+    states: ["England", "Scotland", "Wales", "Northern Ireland"]
+  },
+  {
+    name: "India",
+    code: "IN",
+    currency: "₹",
+    currencyCode: "INR",
+    phoneCode: "+91",
+    states: ["Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal", "Delhi"]
+  },
+  {
+    name: "Canada",
+    code: "CA",
+    currency: "CA$",
+    currencyCode: "CAD",
+    phoneCode: "+1",
+    states: ["Alberta", "British Columbia", "Manitoba", "New Brunswick", "Newfoundland and Labrador", "Nova Scotia", "Ontario", "Prince Edward Island", "Quebec", "Saskatchewan"]
+  },
+  {
+    name: "Australia",
+    code: "AU",
+    currency: "AU$",
+    currencyCode: "AUD",
+    phoneCode: "+61",
+    states: ["New South Wales", "Queensland", "South Australia", "Tasmania", "Victoria", "Western Australia", "Australian Capital Territory", "Northern Territory"]
+  },
+  {
+    name: "Germany",
+    code: "DE",
+    currency: "€",
+    currencyCode: "EUR",
+    phoneCode: "+49",
+    states: ["Baden-Württemberg", "Bavaria", "Berlin", "Brandenburg", "Bremen", "Hamburg", "Hesse", "Lower Saxony", "Mecklenburg-Vorpommern", "North Rhine-Westphalia", "Rhineland-Palatinate", "Saarland", "Saxony", "Saxony-Anhalt", "Schleswig-Holstein", "Thuringia"]
+  },
+  {
+    name: "France",
+    code: "FR",
+    currency: "€",
+    currencyCode: "EUR",
+    phoneCode: "+33",
+    states: ["Île-de-France", "Auvergne-Rhône-Alpes", "Bourgogne-Franche-Comté", "Brittany", "Centre-Val de Loire", "Corsica", "Grand Est", "Hauts-de-France", "Normandy", "Nouvelle-Aquitaine", "Occitanie", "Pays de la Loire", "Provence-Alpes-Côte d'Azur"]
+  },
+];
+
+interface DetectiveApplicationFormProps {
+  mode: "public" | "admin";
+  onSuccess?: (data: any) => void;
+}
+
+export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicationFormProps) {
+  const [step, setStep] = useState(1);
+  const [showLiabilityDialog, setShowLiabilityDialog] = useState(false);
+  const { toast } = useToast();
+  const [countryQuery, setCountryQuery] = useState("");
+  const [stateQuery, setStateQuery] = useState("");
+  const [countrySuggestions, setCountrySuggestions] = useState<Array<{ name: string; code: string }>>([]);
+  const [loadingCountry, setLoadingCountry] = useState(false);
+  
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    phoneCountryCode: "+1",
+    phoneNumber: "",
+    businessType: "individual" as "individual" | "agency",
+    companyName: "",
+    businessWebsite: "",
+    logo: "",
+    banner: "",
+    businessDocuments: [] as string[],
+    country: "US",
+    state: "",
+    city: "",
+    fullAddress: "",
+    pincode: "",
+    yearsExperience: "",
+    licenseNumber: "",
+    about: "",
+    serviceCategories: [] as string[],
+    categoryPricing: [] as Array<{category: string; price: string; currency: string}>,
+    documents: [] as string[],
+    isClaimable: false,
+  });
+
+  const createApplication = useCreateApplication();
+  const { data: categoriesData } = useServiceCategories();
+  const serviceCategories = categoriesData?.categories?.filter(cat => cat.isActive) || [];
+
+  const validateStep = (currentStep: number): boolean => {
+    if (currentStep === 1) {
+      const missingFields = [];
+      if (!formData.firstName) missingFields.push("First Name");
+      if (!formData.lastName) missingFields.push("Last Name");
+      if (!formData.email) missingFields.push("Email");
+      if (!formData.password) missingFields.push("Password");
+      if (!formData.confirmPassword) missingFields.push("Confirm Password");
+      if (!formData.phoneNumber) missingFields.push("Phone Number");
+      if (formData.businessType === "agency") {
+        if (!formData.companyName) missingFields.push("Business Name");
+        if (!formData.businessWebsite) missingFields.push("Business Website");
+        if (!formData.businessDocuments || formData.businessDocuments.length === 0) missingFields.push("Business Supporting Document");
+      } else {
+        if (!formData.documents || formData.documents.length === 0) missingFields.push("Government ID");
+      }
+      
+      if (missingFields.length > 0) {
+        toast({
+          title: "Missing Required Fields",
+          description: `Please fill in: ${missingFields.join(", ")}`,
+          variant: "destructive",
+        });
+        return false;
+      }
+      
+      if (formData.password.length < 8) {
+        toast({
+          title: "Invalid Password",
+          description: "Password must be at least 8 characters long",
+          variant: "destructive",
+        });
+        return false;
+      }
+      
+      if (formData.password !== formData.confirmPassword) {
+        toast({
+          title: "Passwords Don't Match",
+          description: "Please make sure both passwords match",
+          variant: "destructive",
+        });
+        return false;
+      }
+    } else if (currentStep === 2) {
+      const missingFields = [];
+      if (!formData.city) missingFields.push("City");
+      if (!formData.state) missingFields.push("State");
+      if (!formData.fullAddress) missingFields.push("Full Address");
+      if (!formData.pincode) missingFields.push("Pincode");
+      if (!formData.yearsExperience) missingFields.push("Years of Experience");
+      if (!formData.about) missingFields.push("About Your Services");
+      
+      if (missingFields.length > 0) {
+        toast({
+          title: "Missing Required Fields",
+          description: `Please fill in: ${missingFields.join(", ")}`,
+          variant: "destructive",
+        });
+        return false;
+      }
+    } else if (currentStep === 3) {
+      if (!formData.logo) {
+        toast({
+          title: "Logo Required",
+          description: "Please upload a business logo or photo. This will be your display picture on the platform.",
+          variant: "destructive",
+        });
+        return false;
+      }
+    }
+    return true;
+  };
+
+  useEffect(() => {
+    const q = countryQuery.trim();
+    if (q.length < 2) {
+      setCountrySuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingCountry(true);
+        const res = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(q)}?fields=name,cca2`);
+        if (!res.ok) throw new Error("Failed to fetch countries");
+        const data = await res.json();
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data.map((c: any) => ({ name: c?.name?.common || "", code: (c?.cca2 || "").toUpperCase() })).filter((c: any) => c.name && c.code) : [];
+        setCountrySuggestions(list);
+      } catch {
+        if (!cancelled) setCountrySuggestions([]);
+      } finally {
+        if (!cancelled) setLoadingCountry(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [countryQuery]);
+
+  const nextStep = () => {
+    if (validateStep(step)) {
+      setStep(step + 1);
+    }
+  };
+  
+  const prevStep = () => setStep(step - 1);
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>, field: 'logo' | 'banner' | 'documents' | 'businessDocuments') => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file) => {
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File Too Large",
+          description: `${file.name} exceeds the 5MB limit.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        if (field === 'logo') {
+          setFormData(prev => ({ ...prev, logo: dataUrl }));
+        } else if (field === 'banner') {
+          setFormData(prev => ({ ...prev, banner: dataUrl }));
+        } else if (field === 'documents') {
+          setFormData(prev => ({ ...prev, documents: [...prev.documents, dataUrl] }));
+        } else if (field === 'businessDocuments') {
+          setFormData(prev => ({ ...prev, businessDocuments: [...prev.businessDocuments, dataUrl] }));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeDocument = (field: 'documents' | 'businessDocuments', index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: prev[field].filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleSubmit = () => {
+    console.log("=== FORM SUBMISSION STARTED ===");
+    console.log("Form data:", {
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      phoneNumber: formData.phoneNumber,
+      city: formData.city,
+      state: formData.state,
+      yearsExperience: formData.yearsExperience,
+      about: formData.about ? `${formData.about.substring(0, 50)}...` : null,
+      serviceCategories: formData.serviceCategories,
+      categoryPricing: formData.categoryPricing,
+      logo: formData.logo ? "Present" : "Missing",
+      businessType: formData.businessType,
+      companyName: formData.companyName,
+      businessWebsite: formData.businessWebsite,
+    });
+
+    const missingFields = [];
+    if (!formData.firstName) missingFields.push("First Name");
+    if (!formData.lastName) missingFields.push("Last Name");
+    if (!formData.email) missingFields.push("Email");
+    if (!formData.phoneNumber) missingFields.push("Phone Number");
+    if (!formData.city) missingFields.push("City");
+    if (!formData.state) missingFields.push("State");
+    if (!formData.yearsExperience) missingFields.push("Years of Experience");
+    if (!formData.about) missingFields.push("About Your Services");
+    if (formData.serviceCategories.length === 0) missingFields.push("At least one Service Category");
+    if (!formData.logo) missingFields.push("Business Logo/Photo");
+    if (formData.businessType === "agency") {
+      if (!formData.companyName) missingFields.push("Business Name");
+      if (!formData.businessWebsite) missingFields.push("Business Website");
+    }
+
+    console.log("Missing fields:", missingFields);
+
+    const categoriesWithoutPrice = formData.categoryPricing.filter(p => !p.price || parseFloat(p.price) <= 0);
+    console.log("Categories without price:", categoriesWithoutPrice);
+    
+    if (categoriesWithoutPrice.length > 0) {
+      console.log("VALIDATION FAILED: Missing pricing");
+      toast({
+        title: "Missing Pricing Information",
+        description: "Please set a starting price for all selected service categories.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (missingFields.length > 0) {
+      console.log("VALIDATION FAILED: Missing fields");
+      toast({
+        title: "Missing Required Information",
+        description: `Please fill in: ${missingFields.join(", ")}`,
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    console.log("VALIDATION PASSED - Opening liability dialog");
+    setShowLiabilityDialog(true);
+  };
+
+  const handleAgree = async () => {
+    setShowLiabilityDialog(false);
+    
+    try {
+      console.log("Starting application submission...");
+      
+      const applicationData: InsertDetectiveApplication = {
+        fullName: `${formData.firstName} ${formData.lastName}`.trim(),
+        email: formData.email,
+        password: formData.password,
+        phoneCountryCode: formData.phoneCountryCode,
+        phoneNumber: formData.phoneNumber,
+        businessType: formData.businessType,
+        companyName: formData.companyName || undefined,
+        businessWebsite: formData.businessWebsite || undefined,
+        logo: formData.logo || undefined,
+        banner: formData.banner || undefined,
+        businessDocuments: formData.businessDocuments.length > 0 ? formData.businessDocuments : undefined,
+        country: formData.country || undefined,
+        state: formData.state || undefined,
+        city: formData.city || undefined,
+        fullAddress: formData.fullAddress,
+        pincode: formData.pincode,
+        yearsExperience: formData.yearsExperience || undefined,
+        serviceCategories: formData.serviceCategories.length > 0 ? formData.serviceCategories : undefined,
+        categoryPricing: formData.categoryPricing.length > 0 ? formData.categoryPricing : undefined,
+        about: formData.about || undefined,
+        licenseNumber: formData.licenseNumber || undefined,
+        documents: formData.documents.length > 0 ? formData.documents : undefined,
+        isClaimable: mode === "admin" ? formData.isClaimable : false,
+      };
+
+      console.log("Application data prepared:", {
+        ...applicationData,
+        logo: applicationData.logo ? `${applicationData.logo.substring(0, 50)}... (${applicationData.logo.length} chars)` : undefined,
+        businessDocuments: applicationData.businessDocuments?.map((d: string) => `${d.substring(0, 50)}... (${d.length} chars)`),
+        documents: applicationData.documents?.map((d: string) => `${d.substring(0, 50)}... (${d.length} chars)`)
+      });
+
+      console.log("Calling mutation...");
+      await createApplication.mutateAsync(applicationData);
+      console.log("Mutation successful!");
+      
+      toast({
+        title: mode === "admin" ? "Detective Added!" : "Application Submitted!",
+        description: mode === "admin" 
+          ? "The detective application has been submitted for review." 
+          : "Your application is under review. We'll notify you within 24-48 hours.",
+      });
+      
+      if (onSuccess) {
+        onSuccess(applicationData);
+      }
+    } catch (error: any) {
+      console.error("Submission error:", error);
+      toast({
+        title: "Submission Failed",
+        description: error.message || "Please try again later.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <>
+      <div className="mb-8">
+        <div className="flex items-center justify-between relative">
+          <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-gray-200 -z-10"></div>
+          
+          {[1, 2, 3].map((s) => (
+            <div key={s} className={`flex flex-col items-center gap-2 bg-gray-50 px-2`}>
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold border-2 transition-colors ${
+                step >= s ? "bg-green-600 border-green-600 text-white" : "bg-white border-gray-300 text-gray-400"
+              }`}>
+                {step > s ? <Check className="h-5 w-5" /> : s}
+              </div>
+              <span className={`text-xs font-semibold ${step >= s ? "text-green-700" : "text-gray-500"}`}>
+                {s === 1 ? "Account" : s === 2 ? "Profile" : "Verification"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Card className="border-none shadow-lg">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl font-heading">
+            {step === 1 && "Create your Detective Account"}
+            {step === 2 && "Build your Professional Profile"}
+            {step === 3 && "Verify your Credentials"}
+          </CardTitle>
+          <CardDescription>
+            {step === 1 && "Let's get started with your login details."}
+            {step === 2 && "Tell clients about your experience and skills."}
+            {step === 3 && "Upload your license and ID for verification."}
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="space-y-6">
+          {step === 1 && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">First Name *</Label>
+                  <Input 
+                    id="firstName" 
+                    placeholder="Sherlock"
+                    value={formData.firstName}
+                    onChange={(e) => handleInputChange("firstName", e.target.value)}
+                    data-testid="input-firstName"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">Last Name *</Label>
+                  <Input 
+                    id="lastName" 
+                    placeholder="Holmes"
+                    value={formData.lastName}
+                    onChange={(e) => handleInputChange("lastName", e.target.value)}
+                    data-testid="input-lastName"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email Address *</Label>
+                <Input 
+                  id="email" 
+                  type="email" 
+                  placeholder="sherlock@bakerstreet.com"
+                  value={formData.email}
+                  onChange={(e) => handleInputChange("email", e.target.value)}
+                  data-testid="input-email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password *</Label>
+                <Input 
+                  id="password" 
+                  type="password" 
+                  placeholder="Create a secure password (min 8 characters)"
+                  value={formData.password}
+                  onChange={(e) => handleInputChange("password", e.target.value)}
+                  data-testid="input-password"
+                />
+                <p className="text-xs text-gray-500">Must be at least 8 characters long</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password *</Label>
+                <Input 
+                  id="confirmPassword" 
+                  type="password" 
+                  placeholder="Re-enter your password"
+                  value={formData.confirmPassword}
+                  onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
+                  data-testid="input-confirmPassword"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number *</Label>
+                <div className="flex gap-2">
+                  <Select 
+                    value={formData.phoneCountryCode} 
+                    onValueChange={(value) => handleInputChange("phoneCountryCode", value)}
+                  >
+                    <SelectTrigger className="w-32" data-testid="select-phoneCountryCode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COUNTRIES.map((country) => (
+                        <SelectItem key={country.code} value={country.phoneCode}>
+                          {country.phoneCode} {country.code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input 
+                    id="phone" 
+                    type="tel" 
+                    placeholder="5551234567"
+                    value={formData.phoneNumber}
+                    onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
+                    data-testid="input-phoneNumber"
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="businessType">Business Type *</Label>
+                <Select 
+                  value={formData.businessType} 
+                  onValueChange={(value) => handleInputChange("businessType", value)}
+                >
+                  <SelectTrigger data-testid="select-businessType">
+                    <SelectValue placeholder="Select business type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="individual">Individual Detective</SelectItem>
+                    <SelectItem value="agency">Detective Agency</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {formData.businessType === "agency" ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="companyName">Business Name *</Label>
+                    <Input 
+                      id="companyName" 
+                      placeholder="e.g. Holmes Investigations Ltd."
+                      value={formData.companyName}
+                      onChange={(e) => handleInputChange("companyName", e.target.value)}
+                      data-testid="input-companyName"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="businessWebsite">Business Website *</Label>
+                    <Input 
+                      id="businessWebsite" 
+                      type="url"
+                      placeholder="https://www.yourdetectiveagency.com"
+                      value={formData.businessWebsite}
+                      onChange={(e) => handleInputChange("businessWebsite", e.target.value)}
+                      data-testid="input-businessWebsite"
+                    />
+                    <p className="text-xs text-gray-500">Enter the full URL including https://</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Business Supporting Document *</Label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-md p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm text-gray-600">Upload images or PDF</div>
+                        <div>
+                          <input
+                            id="businessDocuments-upload"
+                            type="file"
+                            accept="image/*,.pdf"
+                            multiple
+                            onChange={(e) => handleFileUpload(e, 'businessDocuments')}
+                            className="hidden"
+                            data-testid="input-businessDocuments"
+                          />
+                          <Button type="button" variant="outline" onClick={() => document.getElementById('businessDocuments-upload')?.click()}>Upload Files</Button>
+                        </div>
+                      </div>
+                      {formData.businessDocuments.length > 0 ? (
+                        <div className="mt-3 space-y-2">
+                          <p className="text-xs text-green-600">{formData.businessDocuments.length} file(s) selected</p>
+                          <div className="space-y-1">
+                            {formData.businessDocuments.map((_, idx) => (
+                              <div key={idx} className="flex items-center justify-between text-xs bg-gray-50 border rounded px-2 py-1">
+                                <span>Document #{idx + 1}</span>
+                                <Button type="button" variant="ghost" size="sm" onClick={() => removeDocument('businessDocuments', idx)}>Remove</Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-red-600 mt-2">Upload required</p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Government ID *</Label>
+                  <div className="border-2 border-dashed border-gray-300 rounded-md p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-gray-600">Upload image or PDF</div>
+                      <div>
+                        <input
+                          id="governmentId-upload"
+                          type="file"
+                          accept="image/*,.pdf"
+                          multiple
+                          onChange={(e) => handleFileUpload(e, 'documents')}
+                          className="hidden"
+                          data-testid="input-governmentId"
+                        />
+                        <Button type="button" variant="outline" onClick={() => document.getElementById('governmentId-upload')?.click()}>Upload Files</Button>
+                      </div>
+                    </div>
+                    {formData.documents.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs text-green-600">{formData.documents.length} file(s) selected</p>
+                        <div className="space-y-1">
+                          {formData.documents.map((_, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-xs bg-gray-50 border rounded px-2 py-1">
+                              <span>ID Document #{idx + 1}</span>
+                              <Button type="button" variant="ghost" size="sm" onClick={() => removeDocument('documents', idx)}>Remove</Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-red-600 mt-2">Upload required</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-4 flex gap-3">
+                <Shield className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-blue-800">
+                  <p className="font-bold">Tell us about your experience</p>
+                  <p>Share your background as a detective to help us evaluate your application.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="country">Country *</Label>
+                  <Select 
+                    value={formData.country} 
+                    onValueChange={(value) => {
+                      handleInputChange("country", value);
+                      handleInputChange("state", "");
+                      setCountryQuery("");
+                      setStateQuery("");
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-country">
+                      <SelectValue placeholder="Select country" />
+                    </SelectTrigger>
+                    <SelectContent>
+                     <div className="px-2 py-2">
+                        <Input
+                          placeholder="Type to search…"
+                          value={countryQuery}
+                          onChange={(e) => setCountryQuery(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          autoFocus
+                        />
+                      </div>
+                      {COUNTRIES.map((country) => (
+                        country.name.toLowerCase().includes(countryQuery.toLowerCase()) && (
+                          <SelectItem key={country.code} value={country.code}>
+                            {country.name}
+                          </SelectItem>
+                        )
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="state">State/Province *</Label>
+                  <Select 
+                    value={formData.state} 
+                    onValueChange={(value) => handleInputChange("state", value)}
+                  >
+                    <SelectTrigger data-testid="select-state">
+                      <SelectValue placeholder="Select state" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <div className="px-2 py-2">
+                        <Input
+                          placeholder="Type to search…"
+                          value={stateQuery}
+                          onChange={(e) => setStateQuery(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          autoFocus
+                        />
+                      </div>
+                      {COUNTRIES.find(c => c.code === formData.country)?.states
+                        .filter((s) => s.toLowerCase().includes(stateQuery.toLowerCase()))
+                        .map((state) => (
+                          <SelectItem key={state} value={state}>
+                            {state}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="city">City *</Label>
+                <Input 
+                  id="city" 
+                  placeholder="e.g. New York"
+                  value={formData.city}
+                  onChange={(e) => handleInputChange("city", e.target.value)}
+                  data-testid="input-city"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="fullAddress">Full Address *</Label>
+                <Textarea 
+                  id="fullAddress"
+                  placeholder="Street, Area, Landmark..."
+                  rows={3}
+                  value={formData.fullAddress}
+                  onChange={(e) => handleInputChange("fullAddress", e.target.value)}
+                  data-testid="input-fullAddress"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="pincode">Pincode *</Label>
+                <Input 
+                  id="pincode"
+                  placeholder="e.g. 560001"
+                  value={formData.pincode}
+                  onChange={(e) => handleInputChange("pincode", e.target.value)}
+                  data-testid="input-pincode"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="yearsExperience">Years of Experience *</Label>
+                <Input 
+                  id="yearsExperience" 
+                  type="number"
+                  placeholder="e.g. 5"
+                  value={formData.yearsExperience}
+                  onChange={(e) => handleInputChange("yearsExperience", e.target.value)}
+                  data-testid="input-yearsExperience"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="about">About Your Services *</Label>
+                <Textarea 
+                  id="about" 
+                  placeholder="Tell us about your investigative services, expertise, and what makes you unique..."
+                  rows={4}
+                  value={formData.about}
+                  onChange={(e) => handleInputChange("about", e.target.value)}
+                  data-testid="input-about"
+                />
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-4 flex gap-3">
+                <Shield className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-blue-800">
+                  <p className="font-bold">Service Categories & Verification</p>
+                  <p>Select up to 2 service categories and set your starting prices.</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <Label>Service Categories You'll Offer (Max 2) *</Label>
+                <p className="text-xs text-gray-500">Select up to 2 categories and set your starting price for each</p>
+                <div className="space-y-3">
+                  {serviceCategories.map((category) => {
+                    const isSelected = formData.serviceCategories.includes(category.name);
+                    const pricing = formData.categoryPricing.find(p => p.category === category.name);
+                    const selectedCountry = COUNTRIES.find(c => c.code === formData.country);
+                    
+                    return (
+                      <div key={category.id} className="border rounded-md p-3">
+                        <label className="flex items-start space-x-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                if (formData.serviceCategories.length >= 2) {
+                                  toast({
+                                    title: "Maximum Limit Reached",
+                                    description: "You can add more categories after your account is approved.",
+                                    variant: "default",
+                                  });
+                                  return;
+                                }
+                                setFormData(prev => ({ 
+                                  ...prev, 
+                                  serviceCategories: [...prev.serviceCategories, category.name],
+                                  categoryPricing: [...prev.categoryPricing, {
+                                    category: category.name,
+                                    price: "",
+                                    currency: selectedCountry?.currencyCode || "USD"
+                                  }]
+                                }));
+                              } else {
+                                setFormData(prev => ({ 
+                                  ...prev, 
+                                  serviceCategories: prev.serviceCategories.filter(c => c !== category.name),
+                                  categoryPricing: prev.categoryPricing.filter(p => p.category !== category.name)
+                                }));
+                              }
+                            }}
+                            className="rounded border-gray-300 mt-1"
+                            data-testid={`checkbox-category-${category.id}`}
+                          />
+                          <div className="flex-1">
+                            <span className="text-sm font-medium">{category.name}</span>
+                            {isSelected && (
+                              <div className="mt-2 flex items-center gap-2">
+                                <span className="text-sm text-gray-600">Starting Price:</span>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-sm font-medium">{selectedCountry?.currency || "$"}</span>
+                                  <Input 
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    placeholder="100"
+                                    value={pricing?.price || ""}
+                                    onChange={(e) => {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        categoryPricing: prev.categoryPricing.map(p => 
+                                          p.category === category.name 
+                                            ? { ...p, price: e.target.value }
+                                            : p
+                                        )
+                                      }));
+                                    }}
+                                    className="w-32"
+                                    data-testid={`input-price-${category.id}`}
+                                  />
+                                  <span className="text-xs text-gray-500">{selectedCountry?.currencyCode || "USD"}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="licenseNumber">Private Investigator License Number (Optional)</Label>
+                <Input 
+                  id="licenseNumber" 
+                  placeholder="e.g. PI-123456"
+                  value={formData.licenseNumber}
+                  onChange={(e) => handleInputChange("licenseNumber", e.target.value)}
+                  data-testid="input-licenseNumber"
+                />
+                <p className="text-xs text-gray-500">If you have a license, provide the number here for verification.</p>
+              </div>
+
+              {mode === "admin" && (
+                <div className="space-y-2 border border-blue-200 bg-blue-50 rounded-md p-4">
+                  <div className="flex items-start space-x-3">
+                    <Checkbox 
+                      id="isClaimable"
+                      checked={formData.isClaimable}
+                      onCheckedChange={(checked) => setFormData(prev => ({ ...prev, isClaimable: checked as boolean }))}
+                      data-testid="checkbox-isClaimable"
+                    />
+                    <div className="space-y-1">
+                      <Label htmlFor="isClaimable" className="font-medium cursor-pointer">
+                        Allow this profile to be claimed
+                      </Label>
+                      <p className="text-xs text-gray-600">
+                        If enabled, the business owner can submit a claim request to take ownership of this profile.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-4 mt-4">
+                <p className="text-sm text-amber-800">
+                  <strong>Note:</strong> After submitting, your application will be reviewed by our admin team. You'll be notified once approved (usually within 24-48 hours).
+                </p>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-6">
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-base font-semibold flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Business Logo / Photo *
+                  </Label>
+                  <p className="text-sm text-gray-500 mb-3">
+                    Upload your business logo or a professional photo. This will be your display picture across the platform.
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-green-500 transition-colors cursor-pointer">
+                      <input
+                        type="file"
+                        id="logo-upload"
+                        accept="image/*"
+                        onChange={(e) => handleFileUpload(e, 'logo')}
+                        className="hidden"
+                        data-testid="input-logo"
+                      />
+                      <label htmlFor="logo-upload" className="cursor-pointer">
+                        {formData.logo ? (
+                          <div className="space-y-2">
+                            <img 
+                              src={formData.logo} 
+                              alt="Logo preview" 
+                              className="w-32 h-32 object-cover rounded-full mx-auto border-4 border-green-100"
+                            />
+                            <p className="text-sm font-medium text-green-700">Logo uploaded ✓</p>
+                            <p className="text-xs text-gray-500">Click to change</p>
+                          </div>
+                        ) : (
+                          <div>
+                            <Upload className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                            <p className="text-sm font-medium text-gray-700">Click to upload logo</p>
+                            <p className="text-xs text-gray-500">PNG, JPG up to 5MB</p>
+                          </div>
+                        )}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-base font-semibold flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Service Banner (used by all services initially)
+                  </Label>
+                  <p className="text-sm text-gray-500 mb-3">
+                    Upload one banner image to be used across all your services until you change it.
+                  </p>
+                  <div className="space-y-3">
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-green-500 transition-colors cursor-pointer">
+                      <input
+                        type="file"
+                        id="banner-upload"
+                        accept="image/*"
+                        onChange={(e) => handleFileUpload(e, 'banner')}
+                        className="hidden"
+                        data-testid="input-banner"
+                      />
+                      <label htmlFor="banner-upload" className="cursor-pointer">
+                        {formData.banner ? (
+                          <div className="space-y-2">
+                            <img 
+                              src={formData.banner} 
+                              alt="Banner preview" 
+                              className="w-full max-w-xl h-40 object-cover rounded mx-auto border-4 border-green-100"
+                            />
+                            <p className="text-sm font-medium text-green-700">Banner uploaded ✓</p>
+                            <p className="text-xs text-gray-500">Click to change</p>
+                          </div>
+                        ) : (
+                          <div>
+                            <Upload className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                            <p className="text-sm font-medium text-gray-700">Click to upload banner</p>
+                            <p className="text-xs text-gray-500">PNG, JPG up to 5MB</p>
+                          </div>
+                        )}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-green-50 border border-green-200 rounded-md p-4">
+                <p className="text-sm text-green-800">
+                  <strong>Almost done!</strong> Review your information and submit your application for approval.
+                </p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+
+        <CardFooter className="flex justify-between border-t p-6">
+          {step > 1 ? (
+            <Button variant="outline" onClick={prevStep}>
+              <ArrowLeft className="mr-2 h-4 w-4" /> Back
+            </Button>
+          ) : (
+            <div></div>
+          )}
+
+          {step < 3 ? (
+            <Button onClick={nextStep} className="bg-green-600 hover:bg-green-700">
+              Continue <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          ) : (
+            <Button 
+              className="bg-green-600 hover:bg-green-700" 
+              onClick={handleSubmit}
+              disabled={createApplication.isPending}
+              data-testid="button-submit-application"
+            >
+              {createApplication.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                "Submit Application"
+              )}
+            </Button>
+          )}
+        </CardFooter>
+      </Card>
+
+      <Dialog open={showLiabilityDialog} onOpenChange={setShowLiabilityDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Submit Application?</DialogTitle>
+            <DialogDescription className="space-y-4 pt-4">
+              <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded">
+                <p className="text-amber-800 font-medium">Important Declaration</p>
+              </div>
+              <p>
+                All the information provided is accurate and complete to the best of my knowledge. I understand that false information may result in application rejection.
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLiabilityDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handleAgree} 
+              className="bg-green-600 hover:bg-green-700"
+              disabled={createApplication.isPending}
+            >
+              {createApplication.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                "I Agree & Submit"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
