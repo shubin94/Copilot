@@ -136,16 +136,26 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           </div>
 
           <div className="flex items-center gap-4">
-             {role === 'detective' && (
+             {role === 'detective' && detective?.subscriptionPackageId && (
                <div className="hidden lg:flex items-center gap-6 text-sm mr-4 bg-gray-50 px-4 py-2 rounded-full border border-gray-200">
                  <div className="flex flex-col items-end leading-tight">
                    <span className="text-gray-500 text-xs font-medium">Next Renewal</span>
-                   <span className="font-bold text-gray-900">Dec 01, 2025</span>
+                   <span className="font-bold text-gray-900">
+                     {detective.subscriptionExpiresAt 
+                       ? new Date(detective.subscriptionExpiresAt).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+                       : 'N/A'
+                     }
+                   </span>
                  </div>
                  <div className="h-8 w-px bg-gray-200"></div>
                  <div className="flex flex-col items-end leading-tight">
                    <span className="text-gray-500 text-xs font-medium">Amount Due</span>
-                   <span className="font-bold text-green-600">$29.00</span>
+                   <span className="font-bold text-green-600">
+                     {detective.subscriptionPackage && detective.billingCycle
+                       ? `${detective.subscriptionPackage.currency}${detective.billingCycle === 'yearly' ? detective.subscriptionPackage.yearlyPrice : detective.subscriptionPackage.monthlyPrice}`
+                       : '$0.00'
+                     }
+                   </span>
                  </div>
                </div>
              )}
@@ -159,7 +169,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                   {role === "admin" ? "Super Admin" : role === "detective" ? (detective?.businessName || "Detective") : "John Doe"}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {role === "admin" ? "System Owner" : role === "detective" ? (detective?.subscriptionPlan === "agency" ? "Agency" : detective?.subscriptionPlan === "pro" ? "Pro Member" : "Free Member") : "Member"}
+                  {role === "admin" ? "System Owner" : role === "detective" ? `${(detective?.subscriptionPlan || "free").charAt(0).toUpperCase() + (detective?.subscriptionPlan || "free").slice(1)} Member` : "Member"}
                 </div>
               </div>
               <Avatar>

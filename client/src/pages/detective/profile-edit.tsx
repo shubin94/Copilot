@@ -191,7 +191,8 @@ export default function DetectiveProfileEdit() {
 
     try {
       const requiredFields: string[] = ["contactEmail"];
-      const isPremiumPlan = detective.subscriptionPlan === "pro" || detective.subscriptionPlan === "agency";
+      // TODO: Fetch plan features from API instead of hardcoded name check
+      const isPremiumPlan = !!detective.subscriptionPackageId;
       if (isPremiumPlan) requiredFields.push("phone");
       const newErrors: Record<string, string> = {};
       requiredFields.forEach((f) => {
@@ -220,8 +221,8 @@ export default function DetectiveProfileEdit() {
       const validRecognitions = recognitions.filter(r => r.title && r.issuer && r.year && r.image);
       updateData.recognitions = validRecognitions;
 
-      // Only include phone/whatsapp if plan is Pro or Agency
-      if (detective.subscriptionPlan === "pro" || detective.subscriptionPlan === "agency") {
+      // Only include phone/whatsapp if plan is not free (TODO: check features instead)
+      if (detective.subscriptionPackageId) {
         updateData.phone = formData.phone;
         updateData.whatsapp = formData.whatsapp;
       }
@@ -284,9 +285,10 @@ export default function DetectiveProfileEdit() {
   }
 
   const subscriptionPlan = detective.subscriptionPlan;
-  const isPro = subscriptionPlan === "pro";
-  const isAgency = subscriptionPlan === "agency";
-  const isPremium = isPro || isAgency;
+  // PAID FEATURE CHECK: Use subscriptionPackageId presence, NOT plan name
+  // If subscriptionPackageId is set, detective has paid package
+  const hasPaidPackage = !!detective.subscriptionPackageId;
+  const isPremium = hasPaidPackage;
 
   return (
     <DashboardLayout role="detective">
@@ -301,7 +303,7 @@ export default function DetectiveProfileEdit() {
           </Badge>
         </div>
 
-        {subscriptionPlan === "free" && (
+        {!hasPaidPackage && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Upgrade to Unlock More Features</AlertTitle>

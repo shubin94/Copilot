@@ -15,9 +15,37 @@ function mapServiceToCard(service: Service & { detective: Detective; avgRating: 
   
 
   const badges: string[] = [];
-  if (service.detective.isVerified) badges.push("verified");
-  if (service.detective.subscriptionPlan === "agency") badges.push("recommended");
-  if (service.detective.subscriptionPlan === "pro") badges.push("pro");
+  
+  // BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified
+  
+  // Blue Tick Badge - FIRST
+  if (service.detective.hasBlueTick && service.detective.subscriptionPackageId) {
+    badges.push("blueTick");
+  }
+  
+  // Pro Badge - SECOND (from package badges)
+  if (service.detective.subscriptionPackageId && service.detective.subscriptionPackage?.badges) {
+    if (typeof service.detective.subscriptionPackage.badges === 'object' && !Array.isArray(service.detective.subscriptionPackage.badges)) {
+      if (service.detective.subscriptionPackage.badges['pro']) {
+        badges.push("pro");
+      }
+      if (service.detective.subscriptionPackage.badges['recommended']) {
+        badges.push("recommended");
+      }
+    } else if (Array.isArray(service.detective.subscriptionPackage.badges)) {
+      if (service.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro')) {
+        badges.push("pro");
+      }
+      if (service.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended')) {
+        badges.push("recommended");
+      }
+    }
+  }
+  
+  // Verified Badge - FOURTH
+  if (service.detective.isVerified) {
+    badges.push("verified");
+  }
 
   const detectiveName = service.detective.businessName || "Unknown Detective";
 
@@ -50,8 +78,8 @@ export default function Home() {
   const categories = categoriesData?.categories || [];
 
   const { data: popularServicesData, isLoading: isLoadingPopular } = useSearchServices({ 
-    limit: 4, 
-    sortBy: "popular" 
+    limit: 8, 
+    sortBy: "recent" 
   });
 
   const popularServices = popularServicesData?.services?.map(mapServiceToCard) || [];
@@ -147,7 +175,7 @@ export default function Home() {
 
         <section className="py-12 container mx-auto px-6 md:px-12 lg:px-24 bg-gray-50/50">
           <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-bold font-heading">Popular Services</h2>
+            <h2 className="text-3xl font-bold font-heading">Latest Services</h2>
             <Link href="/search">
               <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50" data-testid="button-view-all-popular">
                 View All <ArrowRight className="ml-2 h-4 w-4" />
@@ -166,7 +194,7 @@ export default function Home() {
             ) : (
               <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200" data-testid="empty-popular-services">
                 <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
-                <p className="text-sm">No popular services or detectives available yet.</p>
+                <p className="text-sm">No services available yet.</p>
               </div>
             )}
           </div>

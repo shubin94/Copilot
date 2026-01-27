@@ -225,7 +225,7 @@ export default function AdminDetectives() {
                           {((detective as any).level || "level1").replace("level", "Level ") === "pro" ? "Pro Level" : ((detective as any).level || "level1").replace("level", "Level ")}
                         </Badge>
                       </TableCell>
-                      <TableCell className="capitalize">{detective.subscriptionPlan}</TableCell>
+                      <TableCell className="capitalize">{(detective as any).subscriptionPackage?.displayName || (detective as any).subscriptionPackage?.name || detective.subscriptionPlan}</TableCell>
 
                       <TableCell>
                         <Badge className={detective.status === "active" ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-red-100 text-red-700 hover:bg-red-200"} data-testid={`badge-status-${detective.id}`}>
@@ -324,7 +324,7 @@ export default function AdminDetectives() {
                   <div>
                     <p className="text-sm font-medium text-gray-500">Plan</p>
                     <p className="text-lg font-semibold capitalize" data-testid="text-plan">
-                      {selectedDetective.subscriptionPlan}
+                      {(selectedDetective as any).subscriptionPackage?.displayName || (selectedDetective as any).subscriptionPackage?.name || selectedDetective.subscriptionPlan}
                     </p>
                   </div>
                   <div>

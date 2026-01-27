@@ -27,7 +27,8 @@ async function createTestDetective() {
       userId: user.id,
       businessName: "Wilson Investigation Services",
       bio: "Licensed private investigator with over 15 years of experience in corporate investigations, background checks, and surveillance operations. Specializing in insurance fraud cases, infidelity investigations, and missing persons. Former law enforcement officer with extensive training in evidence collection and legal compliance. Available 24/7 for urgent cases.",
-      subscriptionPlan: "pro",
+      subscriptionPlan: "free", // TODO: Remove in v3.0 - legacy field only
+      subscriptionPackageId: null, // Explicitly NULL - no paid subscription by default
       status: "active",
       isVerified: true,
       country: "United States",

@@ -38,7 +38,7 @@ export default function DetectiveDashboard() {
   const [showPasswordDialog, setShowPasswordDialog] = useState(mustChange);
   const [showPlanDialog, setShowPlanDialog] = useState(false);
   const [showCategoriesDialog, setShowCategoriesDialog] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<"free" | "pro" | "agency">("free");
+  const [selectedPlan, setSelectedPlan] = useState<string>("free");
   const [isAnnual, setIsAnnual] = useState(false);
   const { data: categoriesData } = useServiceCategories(true);
   const [selectedServices, setSelectedServices] = useState<Array<{ category: string; basePrice: string; offerPrice?: string; title?: string; description?: string; images?: string[] }>>([]);
@@ -46,8 +46,8 @@ export default function DetectiveDashboard() {
   const [savingServices, setSavingServices] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const { data: limitsData } = useSubscriptionLimits();
-  const getPlanLimits = (plan: "free" | "pro" | "agency") => {
-    const max = limitsData?.limits?.[plan] ?? ({ free: 2, pro: 4, agency: 1000 } as any)[plan];
+  const getPlanLimits = (plan: string) => {
+    const max = limitsData?.limits?.[plan] ?? 2;
     return { min: 1, max };
   };
 
@@ -108,7 +108,8 @@ export default function DetectiveDashboard() {
 
   const handleSavePlan = async () => {
     try {
-      await api.detectives.update(detective!.id, { subscriptionPlan: selectedPlan, onboardingPlanSelected: true });
+      // Only update onboardingPlanSelected flag - subscriptionPlan is read-only
+      await api.detectives.update(detective!.id, { onboardingPlanSelected: true });
       setShowPlanDialog(false);
       setSelectedServices([]);
       setShowCategoriesDialog(true);

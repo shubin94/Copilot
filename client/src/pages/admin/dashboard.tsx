@@ -171,7 +171,7 @@ export default function AdminDashboard() {
                               {detective.status}
                             </Badge>
                             <Badge variant="outline" className="text-[10px] h-5">
-                              {detective.subscriptionPlan}
+                              {(detective as any).subscriptionPackage?.displayName || (detective as any).subscriptionPackage?.name || detective.subscriptionPlan}
                             </Badge>
                           </div>
                         </div>
