@@ -1,0 +1,526 @@
+import { sql } from "drizzle-orm";
+import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pgEnum, serial, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import { z } from "zod";
+
+export const userRoleEnum = pgEnum("user_role", ["user", "detective", "admin"]);
+export const subscriptionPlanEnum = pgEnum("subscription_plan", ["free", "pro", "agency"]);
+export const orderStatusEnum = pgEnum("order_status", ["pending", "in_progress", "completed", "cancelled", "refunded"]);
+export const claimStatusEnum = pgEnum("claim_status", ["pending", "under_review", "approved", "rejected"]);
+export const detectiveStatusEnum = pgEnum("detective_status", ["pending", "active", "suspended", "inactive"]);
+export const createdByEnum = pgEnum("created_by", ["admin", "self"]);
+export const detectiveLevelEnum = pgEnum("detective_level", ["level1", "level2", "level3", "pro"]);
+
+export const users = pgTable("users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  name: text("name").notNull(),
+  role: userRoleEnum("role").notNull().default("user"),
+  avatar: text("avatar"),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  emailIdx: index("users_email_idx").on(table.email),
+  roleIdx: index("users_role_idx").on(table.role),
+}));
+
+export const detectives = pgTable("detectives", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  businessName: text("business_name"),
+  bio: text("bio"),
+  logo: text("logo"),
+  defaultServiceBanner: text("default_service_banner"),
+  location: text("location"),
+  country: text("country").notNull(),
+  address: text("address"),
+  pincode: text("pincode"),
+  phone: text("phone"),
+  whatsapp: text("whatsapp"),
+  contactEmail: text("contact_email"),
+  languages: text("languages").array().default(sql`ARRAY['English']::text[]`),
+  yearsExperience: text("years_experience"),
+  businessWebsite: text("business_website"),
+  licenseNumber: text("license_number"),
+  businessType: text("business_type"),
+  businessDocuments: text("business_documents").array().default(sql`ARRAY[]::text[]`),
+  identityDocuments: text("identity_documents").array().default(sql`ARRAY[]::text[]`),
+  recognitions: jsonb("recognitions").default(sql`'[]'::jsonb`),
+  memberSince: timestamp("member_since").notNull().defaultNow(),
+  subscriptionPlan: subscriptionPlanEnum("subscription_plan").notNull().default("free"),
+  status: detectiveStatusEnum("status").notNull().default("pending"),
+  level: detectiveLevelEnum("level").notNull().default("level1"),
+  isVerified: boolean("is_verified").notNull().default(false),
+  isClaimed: boolean("is_claimed").notNull().default(false),
+  isClaimable: boolean("is_claimable").notNull().default(false),
+  mustCompleteOnboarding: boolean("must_complete_onboarding").notNull().default(true),
+  onboardingPlanSelected: boolean("onboarding_plan_selected").notNull().default(false),
+  createdBy: createdByEnum("created_by").notNull().default("self"),
+  avgResponseTime: integer("avg_response_time"),
+  lastActive: timestamp("last_active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  userIdIdx: index("detectives_user_id_idx").on(table.userId),
+  countryIdx: index("detectives_country_idx").on(table.country),
+  statusIdx: index("detectives_status_idx").on(table.status),
+  planIdx: index("detectives_plan_idx").on(table.subscriptionPlan),
+  phoneUniqueIdx: uniqueIndex("detectives_phone_unique").on(table.phone),
+}));
+
+export const serviceCategories = pgTable("service_categories", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  nameIdx: index("service_categories_name_idx").on(table.name),
+  activeIdx: index("service_categories_active_idx").on(table.isActive),
+}));
+
+export const services = pgTable("services", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id, { onDelete: "cascade" }),
+  category: text("category").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  images: text("images").array().default(sql`ARRAY[]::text[]`),
+  basePrice: decimal("base_price", { precision: 10, scale: 2 }).notNull(),
+  offerPrice: decimal("offer_price", { precision: 10, scale: 2 }),
+  isActive: boolean("is_active").notNull().default(true),
+  viewCount: integer("view_count").notNull().default(0),
+  orderCount: integer("order_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  detectiveIdIdx: index("services_detective_id_idx").on(table.detectiveId),
+  categoryIdx: index("services_category_idx").on(table.category),
+  activeIdx: index("services_active_idx").on(table.isActive),
+  orderCountIdx: index("services_order_count_idx").on(table.orderCount),
+}));
+
+export const servicePackages = pgTable("service_packages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceId: varchar("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  offerPrice: decimal("offer_price", { precision: 10, scale: 2 }),
+  features: text("features").array().notNull(),
+  deliveryTime: integer("delivery_time"),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  tierLevel: integer("tier_level").notNull(),
+}, (table) => ({
+  serviceIdIdx: index("service_packages_service_id_idx").on(table.serviceId),
+}));
+
+export const reviews = pgTable("reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceId: varchar("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  orderId: varchar("order_id"),
+  rating: integer("rating").notNull(),
+  comment: text("comment"),
+  isPublished: boolean("is_published").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  serviceIdIdx: index("reviews_service_id_idx").on(table.serviceId),
+  userIdIdx: index("reviews_user_id_idx").on(table.userId),
+  ratingIdx: index("reviews_rating_idx").on(table.rating),
+}));
+
+export const orders = pgTable("orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderNumber: text("order_number").notNull().unique(),
+  serviceId: varchar("service_id").notNull().references(() => services.id),
+  packageId: varchar("package_id").references(() => servicePackages.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  status: orderStatusEnum("status").notNull().default("pending"),
+  requirements: text("requirements"),
+  deliveryDate: timestamp("delivery_date"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  orderNumberIdx: index("orders_order_number_idx").on(table.orderNumber),
+  userIdIdx: index("orders_user_id_idx").on(table.userId),
+  detectiveIdIdx: index("orders_detective_id_idx").on(table.detectiveId),
+  statusIdx: index("orders_status_idx").on(table.status),
+  createdAtIdx: index("orders_created_at_idx").on(table.createdAt),
+}));
+
+export const favorites = pgTable("favorites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  serviceId: varchar("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  userServiceIdx: index("favorites_user_service_idx").on(table.userId, table.serviceId),
+}));
+
+export const detectiveApplications = pgTable("detective_applications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  banner: text("banner"),
+  phoneCountryCode: text("phone_country_code"),
+  phoneNumber: text("phone_number"),
+  businessType: text("business_type").notNull(),
+  companyName: text("company_name"),
+  businessWebsite: text("business_website"),
+  logo: text("logo"),
+  businessDocuments: text("business_documents").array().default(sql`ARRAY[]::text[]`),
+  country: text("country"),
+  state: text("state"),
+  city: text("city"),
+  fullAddress: text("full_address"),
+  pincode: text("pincode"),
+  yearsExperience: text("years_experience"),
+  serviceCategories: text("service_categories").array().default(sql`ARRAY[]::text[]`),
+  categoryPricing: jsonb("category_pricing"),
+  about: text("about"),
+  licenseNumber: text("license_number"),
+  documents: text("documents").array().default(sql`ARRAY[]::text[]`),
+  isClaimable: boolean("is_claimable").default(false),
+  status: claimStatusEnum("status").notNull().default("pending"),
+  reviewNotes: text("review_notes"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  emailIdx: index("detective_applications_email_idx").on(table.email),
+  statusIdx: index("detective_applications_status_idx").on(table.status),
+  phoneUniqueIdx: uniqueIndex("detective_applications_phone_unique").on(table.phoneCountryCode, table.phoneNumber),
+}));
+
+export const profileClaims = pgTable("profile_claims", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id),
+  claimantName: text("claimant_name").notNull(),
+  claimantEmail: text("claimant_email").notNull(),
+  claimantPhone: text("claimant_phone"),
+  documents: text("documents").array().default(sql`ARRAY[]::text[]`),
+  details: text("details"),
+  status: claimStatusEnum("status").notNull().default("pending"),
+  reviewNotes: text("review_notes"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  detectiveIdIdx: index("profile_claims_detective_id_idx").on(table.detectiveId),
+  statusIdx: index("profile_claims_status_idx").on(table.status),
+}));
+
+export const billingHistory = pgTable("billing_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id, { onDelete: "cascade" }),
+  invoiceNumber: text("invoice_number").notNull().unique(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  plan: text("plan").notNull(),
+  paymentMethod: text("payment_method"),
+  status: text("status").notNull(),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  detectiveIdIdx: index("billing_history_detective_id_idx").on(table.detectiveId),
+  invoiceNumberIdx: index("billing_history_invoice_number_idx").on(table.invoiceNumber),
+}));
+
+export const session = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+}, (table) => ({
+  expireIdx: index("session_expire_idx").on(table.expire),
+}));
+
+export const siteSettings = pgTable("site_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  logoUrl: text("logo_url"), // Legacy field, kept for backward compatibility
+  headerLogoUrl: text("header_logo_url"),
+  stickyHeaderLogoUrl: text("sticky_header_logo_url"),
+  footerLogoUrl: text("footer_logo_url"),
+  footerLinks: jsonb("footer_links").default(sql`'[]'::jsonb`), // Legacy field
+  footerSections: jsonb("footer_sections").default(sql`'[]'::jsonb`), // New structured footer
+  socialLinks: jsonb("social_links").default(sql`'{}'::jsonb`), // Social media links
+  copyrightText: text("copyright_text"), // Copyright/credit text
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const searchStats = pgTable("search_stats", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  query: text("query").notNull(),
+  count: integer("count").notNull().default(1),
+  lastSearchedAt: timestamp("last_searched_at").notNull().defaultNow(),
+}, (table) => ({
+  queryUnique: uniqueIndex("search_stats_query_uq").on(table.query),
+}));
+
+export const appPolicies = pgTable("app_policies", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  monthlyPrice: decimal("monthly_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  yearlyPrice: decimal("yearly_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  description: text("description"),
+  features: text("features").array().default(sql`ARRAY[]::text[]`),
+  badges: jsonb("badges").default(sql`'{}'::jsonb`),
+  serviceLimit: integer("service_limit").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  nameIdx: index("subscription_plans_name_idx").on(table.name),
+  activeIdx: index("subscription_plans_active_idx").on(table.isActive),
+}));
+
+// Zod Schemas for validation
+export const insertUserSchema = createInsertSchema(users, {
+  email: z.string().email(),
+  password: z.string().min(8),
+  name: z.string().min(2),
+}).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertDetectiveSchema = createInsertSchema(detectives, {
+  country: z.string().min(2),
+  phone: z.string().optional(),
+  bio: z.string().optional(),
+}).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertServiceSchema = createInsertSchema(services, {
+  title: z.string().min(10).max(200),
+  description: z.string().min(50),
+  category: z.string().min(3),
+  basePrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  offerPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
+  images: z.array(z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
+    message: "Image must be a valid data URL or HTTP URL"
+  })).optional(),
+}).omit({ id: true, createdAt: true, updatedAt: true, viewCount: true, orderCount: true });
+
+export const insertReviewSchema = createInsertSchema(reviews, {
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().min(10).optional(),
+}).omit({ id: true, createdAt: true });
+
+export const insertOrderSchema = createInsertSchema(orders, {
+  amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  requirements: z.string().optional(),
+}).omit({ id: true, orderNumber: true, createdAt: true, updatedAt: true });
+
+export const insertFavoriteSchema = createInsertSchema(favorites).omit({ id: true, createdAt: true });
+
+export const insertDetectiveApplicationSchema = createInsertSchema(detectiveApplications, {
+  email: z.string().email(),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  fullName: z.string().min(2),
+  businessType: z.enum(["individual", "agency"]),
+  banner: z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
+    message: "Banner must be a valid data URL or HTTP URL"
+  }).optional(),
+  phoneCountryCode: z.string().min(1),
+  phoneNumber: z.string().min(1),
+  country: z.string().optional(),
+  state: z.string().optional(),
+  city: z.string().optional(),
+  fullAddress: z.string().min(5),
+  pincode: z.string().min(3),
+  yearsExperience: z.string().optional(),
+  serviceCategories: z.array(z.string()).max(2).optional(),
+  categoryPricing: z.array(z.object({
+    category: z.string(),
+    price: z.string(),
+    currency: z.string(),
+  })).max(2).optional(),
+  about: z.string().optional(),
+  companyName: z.string().optional(),
+  businessWebsite: z.string().url().optional(),
+  businessDocuments: z.array(z.string()).optional(),
+  documents: z.array(z.string()).optional(),
+}).omit({ id: true, createdAt: true, reviewedAt: true }).refine((data) => {
+  if (data.businessType === 'agency') {
+    return Array.isArray((data as any).businessDocuments) && (data as any).businessDocuments.length > 0;
+  }
+  return Array.isArray((data as any).documents) && (data as any).documents.length > 0;
+}, { message: 'Government ID (Individual) or Business Document (Agency) is required' });
+
+export const insertProfileClaimSchema = createInsertSchema(profileClaims, {
+  claimantEmail: z.string().email(),
+  claimantName: z.string().min(2),
+}).omit({ id: true, createdAt: true, reviewedAt: true });
+
+// Update schemas - whitelist only allowed fields for security
+export const updateUserSchema = z.object({
+  name: z.string().min(2).optional(),
+  avatar: z.string().url().optional(),
+}).strict();
+
+export const updateDetectiveSchema = z.object({
+  businessName: z.string().optional(),
+  bio: z.string().optional(),
+  location: z.string().optional(),
+  country: z.string().optional(),
+  address: z.string().optional(),
+  pincode: z.string().optional(),
+  phone: z.string().optional(),
+  whatsapp: z.string().optional(),
+  contactEmail: z.string().email().optional(),
+  languages: z.array(z.string()).optional(),
+  subscriptionPlan: z.enum(["free", "pro", "agency"]).optional(),
+  mustCompleteOnboarding: z.boolean().optional(),
+  onboardingPlanSelected: z.boolean().optional(),
+  logo: z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
+    message: "Logo must be a valid data URL or HTTP URL"
+  }).optional(),
+  defaultServiceBanner: z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
+    message: "Banner must be a valid data URL or HTTP URL"
+  }).optional(),
+  businessDocuments: z.array(z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
+    message: "Documents must be valid data URLs or HTTP URLs"
+  })).optional(),
+  identityDocuments: z.array(z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
+    message: "Documents must be valid data URLs or HTTP URLs"
+  })).optional(),
+  yearsExperience: z.string().optional(),
+  businessWebsite: z.string().url().optional(),
+  licenseNumber: z.string().optional(),
+  businessType: z.string().optional(),
+  recognitions: z.array(z.object({
+    title: z.string(),
+    issuer: z.string(),
+    year: z.string(),
+    image: z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
+      message: "Image must be a valid data URL or HTTP URL"
+    }),
+  })).optional(),
+}).strict();
+
+export const updateServiceSchema = z.object({
+  title: z.string().min(10).max(200).optional(),
+  description: z.string().min(50).optional(),
+  category: z.string().min(3).optional(),
+  basePrice: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+  offerPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
+  images: z.array(z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
+    message: "Image must be a valid data URL or HTTP URL"
+  })).optional(),
+  isActive: z.boolean().optional(),
+}).strict();
+
+export const updateReviewSchema = z.object({
+  rating: z.number().int().min(1).max(5).optional(),
+  comment: z.string().min(10).optional(),
+  isPublished: z.boolean().optional(),
+}).strict();
+
+export const updateOrderSchema = z.object({
+  status: z.enum(["pending", "in_progress", "completed", "cancelled", "refunded"]).optional(),
+  requirements: z.string().optional(),
+  deliveryDate: z.string().datetime().optional(),
+}).strict();
+
+// Type exports
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+
+export type Detective = typeof detectives.$inferSelect;
+export type InsertDetective = z.infer<typeof insertDetectiveSchema>;
+
+export const insertServiceCategorySchema = createInsertSchema(serviceCategories, {
+  name: z.string().min(3).max(100),
+  description: z.string().optional(),
+}).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const updateServiceCategorySchema = z.object({
+  name: z.string().min(3).max(100).optional(),
+  description: z.string().optional(),
+  isActive: z.boolean().optional(),
+}).strict();
+
+// Footer link schema
+const footerLinkSchema = z.object({
+  label: z.string().min(1, "Link label is required"),
+  url: z.string().min(1, "URL is required").refine((val) => {
+    // Allow relative URLs (starting with /) or absolute URLs
+    return val.startsWith('/') || val.startsWith('http://') || val.startsWith('https://');
+  }, "URL must be relative (e.g., /about) or absolute (e.g., https://example.com)"),
+  openInNewTab: z.boolean().default(false),
+  enabled: z.boolean().default(true),
+  order: z.number().int().min(0),
+});
+
+// Footer section schema
+const footerSectionSchema = z.object({
+  id: z.string(),
+  title: z.string().min(1, "Section title is required"),
+  links: z.array(footerLinkSchema),
+  enabled: z.boolean().default(true),
+  order: z.number().int().min(0),
+});
+
+// Social links schema
+const socialLinksSchema = z.object({
+  facebook: z.string().optional().nullable(),
+  instagram: z.string().optional().nullable(),
+  twitter: z.string().optional().nullable(),
+  linkedin: z.string().optional().nullable(),
+  youtube: z.string().optional().nullable(),
+});
+
+export const updateSiteSettingsSchema = z.object({
+  logoUrl: z.string().optional(),
+  headerLogoUrl: z.string().optional(),
+  stickyHeaderLogoUrl: z.string().optional(),
+  footerLogoUrl: z.string().optional(),
+  footerLinks: z.array(z.object({
+    label: z.string(),
+    href: z.string(),
+  })).optional(),
+  footerSections: z.array(footerSectionSchema).optional(),
+  socialLinks: z.record(z.string().optional()).optional(),
+  copyrightText: z.string().optional(),
+});
+
+export const recordSearchSchema = z.object({
+  query: z.string().min(1),
+}).strict();
+
+export type ServiceCategory = typeof serviceCategories.$inferSelect;
+export type InsertServiceCategory = z.infer<typeof insertServiceCategorySchema>;
+export type SiteSettings = typeof siteSettings.$inferSelect;
+export type SearchStat = typeof searchStats.$inferSelect;
+
+export type Service = typeof services.$inferSelect;
+export type InsertService = z.infer<typeof insertServiceSchema>;
+
+export type ServicePackage = typeof servicePackages.$inferSelect;
+
+export type Review = typeof reviews.$inferSelect;
+export type InsertReview = z.infer<typeof insertReviewSchema>;
+
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+
+export type Favorite = typeof favorites.$inferSelect;
+export type InsertFavorite = z.infer<typeof insertFavoriteSchema>;
+
+export type DetectiveApplication = typeof detectiveApplications.$inferSelect;
+export type InsertDetectiveApplication = z.infer<typeof insertDetectiveApplicationSchema>;
+
+export type ProfileClaim = typeof profileClaims.$inferSelect;
+export type InsertProfileClaim = z.infer<typeof insertProfileClaimSchema>;
+
+export type BillingHistory = typeof billingHistory.$inferSelect;

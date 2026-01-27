@@ -1,0 +1,84 @@
+Project Overview:
+Build a private detectives web portal similar in design and user experience to Fiverr, with three distinct user logins (Super Admin, Subscriber/Detective, and Customer/User) and a publicly accessible frontend.
+
+Mandatory Development Principles:
+
+Design files must be completely separated from backend code to ensure UI changes do not affect functionality.
+
+Backend architecture must be robust, secure, and scalable to handle millions of records efficiently.
+
+All data must be stored securely in a database; no data should be stored in browser local storage or caches.
+
+Each page or feature should be developed and maintained as a separate file or component for easy editing and modular updates.
+
+Security best practices must be followed to protect data, authentication, and authorization at all layers.
+
+User Roles & Features:
+
+1. Super Admin Portal:
+
+Sidebar navigation layout.
+
+Dashboard with real-time analytical widgets and charts for metrics such as total detectives (active/suspended/deleted), new signups (pending approval), subscription plans usage, and revenue trends.
+
+Manage New Signups: list pending detective applications, detailed inspection with document viewing, approve/reject with automatic notification emails to detectives.
+
+Approved Detectives List: searchable/filterable with quick suspend/reactivate/delete options. Suspension requires mandatory reason visible on profile, with email alert.
+
+Individual Detective Profiles: editable details, uploaded document management, subscription plan overview, reviews moderation.
+
+Subscription Management: create/edit/delete plans, flexible pricing (monthly/yearly/custom), assign benefits such as verified badge, contact options.
+
+Homepage Slider Management: upload, edit, activate/deactivate slider content dynamically.
+
+2. Detective (Subscriber) Portal:
+
+Multi-step signup including personal/business details, document uploads, services selection with pricing ranges.
+
+Dashboard/Profile: edit permitted fields, reply to reviews, view subscription details, and self-manage subscription upgrades or downgrades.
+
+Contact methods on profile change dynamically per subscription level (free plan: email only; paid plans: phone, WhatsApp, and verified badge).
+
+3. User (Customer) Frontend:
+
+Fiverr-like interface for searching and filtering private detectives by services, location, verification, reviews, subscription status.
+
+Detailed detective profile pages with company info, services, pricing, and contact options shown according to subscription.
+
+Contact limited to WhatsApp, phone, and email; no payment or booking via platform.
+
+Additional Requirements:
+
+Automated emails for signup approval, account suspension, subscription expiry, and review replies.
+
+Reviews can only be posted by logged-in users and moderated by the super admin.
+
+Admin has full control to manage subscription plans and dynamic service categories anytime.
+
+UI/UX for all portals must strictly follow Fiverr’s layout and style, including internal dashboards and pages.
+
+All pages and components must be separately maintained for clarity and modularity.
+
+Suggested Tech Stack (optional to propose to AI):
+
+Backend: Node.js with Express or Python with Flask/Django for scalability.
+
+Database: PostgreSQL or MongoDB for secure, scalable data storage.
+
+Frontend: React/Vue with component-based architecture.
+
+Email: SMTP or services like SendGrid for automated notifications.
+
+Guidance for Development Workflow:
+
+Start by scaffolding the project with separated design and backend folders.
+
+Implement authentication modules first for all user roles.
+
+Develop Super Admin features in incremental checkpoints, starting from Dashboard, Signup management, Detective profiles, and Subscription controls.
+
+Parallelly initiate Subscriber signup and profile modules.
+
+Build the public frontend interface last, focused on search and profile views.
+
+Use version control check-ins after completing each logical module for safe rollback and iterative refinement.
