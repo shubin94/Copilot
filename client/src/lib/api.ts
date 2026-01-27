@@ -183,7 +183,7 @@ export const api = {
     search: async (params?: {
       country?: string;
       status?: "active" | "pending" | "suspended" | "inactive";
-      plan?: "free" | "pro" | "agency";
+      plan?: string;
       search?: string;
       limit?: number;
       offset?: number;

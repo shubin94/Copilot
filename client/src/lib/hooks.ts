@@ -88,7 +88,7 @@ export function useDetectivesByCountry(country: string | null | undefined) {
 export function useSearchDetectives(params?: {
   country?: string;
   status?: "active" | "pending" | "suspended" | "inactive";
-  plan?: "free" | "pro" | "agency";
+  plan?: string;
   search?: string;
   limit?: number;
   offset?: number;

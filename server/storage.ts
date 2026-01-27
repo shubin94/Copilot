@@ -7,6 +7,7 @@ import {
   type Service, type InsertService,
   type Review, type InsertReview,
   type Order, type InsertOrder,
+  paymentOrders, type PaymentOrder, type InsertPaymentOrder,
   type Favorite, type InsertFavorite,
   type DetectiveApplication, type InsertDetectiveApplication,
   type ProfileClaim, type InsertProfileClaim,
@@ -79,6 +80,12 @@ export interface IStorage {
   createOrder(order: InsertOrder): Promise<Order>;
   updateOrder(id: string, updates: Partial<Order>): Promise<Order | undefined>;
   deleteOrder(id: string): Promise<boolean>;
+
+  // Payment orders (subscriptions)
+  createPaymentOrder(order: InsertPaymentOrder): Promise<PaymentOrder>;
+  getPaymentOrderByRazorpayOrderId(razorpayOrderId: string): Promise<PaymentOrder | undefined>;
+  markPaymentOrderPaid(id: string, data: { paymentId: string; signature: string }): Promise<PaymentOrder | undefined>;
+  getPaymentOrdersByDetectiveId(detectiveId: string): Promise<PaymentOrder[]>;
 
   // Favorite operations
   getFavoritesByUser(userId: string): Promise<Array<Favorite & { service: Service }>>;
@@ -188,13 +195,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Detective operations
-  async getDetective(id: string): Promise<(Detective & { email?: string }) | undefined> {
+  async getDetective(id: string): Promise<(Detective & { email?: string; subscriptionPackage?: any }) | undefined> {
     const [result] = await db.select({
       detective: detectives,
       email: users.email,
+      package: subscriptionPlans,
     })
     .from(detectives)
     .leftJoin(users, eq(detectives.userId, users.id))
+    .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
     .where(eq(detectives.id, id))
     .limit(1);
     
@@ -203,24 +212,39 @@ export class DatabaseStorage implements IStorage {
     return {
       ...result.detective,
       email: result.email || undefined,
+      subscriptionPackage: result.package || undefined,
     };
   }
 
-  async getDetectiveByUserId(userId: string): Promise<(Detective & { email?: string }) | undefined> {
+  async getDetectiveByUserId(userId: string): Promise<(Detective & { email?: string; subscriptionPackage?: any; pendingPackage?: any }) | undefined> {
     const [result] = await db.select({
       detective: detectives,
       email: users.email,
+      package: subscriptionPlans,
     })
     .from(detectives)
     .leftJoin(users, eq(detectives.userId, users.id))
+    .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
     .where(eq(detectives.userId, userId))
     .limit(1);
     
     if (!result) return undefined;
     
+    // Fetch pending package separately if it exists
+    let pendingPackage = null;
+    if (result.detective.pendingPackageId) {
+      const [pending] = await db.select()
+        .from(subscriptionPlans)
+        .where(eq(subscriptionPlans.id, result.detective.pendingPackageId))
+        .limit(1);
+      pendingPackage = pending || null;
+    }
+    
     return {
       ...result.detective,
       email: result.email || undefined,
+      subscriptionPackage: result.package || undefined,
+      pendingPackage: pendingPackage || undefined,
     };
   }
 
@@ -240,7 +264,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateDetective(id: string, updates: Partial<Detective>): Promise<Detective | undefined> {
     // Whitelist only allowed fields - prevent modification of protected columns
-    const allowedFields: (keyof Detective)[] = ['businessName', 'bio', 'location', 'country', 'address', 'pincode', 'phone', 'whatsapp', 'contactEmail', 'languages', 'subscriptionPlan', 'mustCompleteOnboarding', 'onboardingPlanSelected', 'logo', 'businessDocuments', 'identityDocuments', 'yearsExperience', 'businessWebsite', 'licenseNumber', 'businessType', 'recognitions'];
+    const allowedFields: (keyof Detective)[] = ['businessName', 'bio', 'location', 'country', 'address', 'pincode', 'phone', 'whatsapp', 'contactEmail', 'languages', 'mustCompleteOnboarding', 'onboardingPlanSelected', 'logo', 'businessDocuments', 'identityDocuments', 'yearsExperience', 'businessWebsite', 'licenseNumber', 'businessType', 'recognitions'];
     const safeUpdates: Partial<Detective> = {};
     
     for (const key of allowedFields) {
@@ -256,12 +280,16 @@ export class DatabaseStorage implements IStorage {
     return detective;
   }
 
-  // Admin-only detective update - allows changing status, subscription plan, verification, etc.
+  // Admin-only detective update - allows changing status, verification, etc.
+  // Note: subscriptionPlan is LEGACY and READ-ONLY. Use subscriptionPackageId via payment verification only.
   async updateDetectiveAdmin(id: string, updates: Partial<Detective>): Promise<Detective | undefined> {
-    // Admin can update more fields including status, plan, verification
+    // Admin can update more fields including status, verification, and subscription info
     const allowedFields: (keyof Detective)[] = [
       'businessName', 'bio', 'location', 'phone', 'whatsapp', 'languages',
-      'status', 'subscriptionPlan', 'isVerified', 'country', 'level'
+      'status', 'isVerified', 'country', 'level', 'planActivatedAt', 'planExpiresAt',
+      'subscriptionPackageId', 'billingCycle', 'subscriptionActivatedAt', 'subscriptionExpiresAt',
+      'pendingPackageId', 'pendingBillingCycle'
+      // TODO: Add back 'hasBlueTick', 'blueTickActivatedAt' when migration is applied
     ];
     const safeUpdates: Partial<Detective> = {};
     
@@ -297,12 +325,21 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getAllDetectives(limit: number = 50, offset: number = 0): Promise<Detective[]> {
-    return await db.select()
-      .from(detectives)
-      .orderBy(desc(detectives.createdAt))
-      .limit(limit)
-      .offset(offset);
+  async getAllDetectives(limit: number = 50, offset: number = 0): Promise<(Detective & { subscriptionPackage?: any })[]> {
+    const results = await db.select({
+      detective: detectives,
+      package: subscriptionPlans,
+    })
+    .from(detectives)
+    .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
+    .orderBy(desc(detectives.createdAt))
+    .limit(limit)
+    .offset(offset);
+    
+    return results.map((r: any) => ({
+      ...r.detective,
+      subscriptionPackage: r.package || undefined,
+    }));
   }
 
   async searchDetectives(filters: {
@@ -310,39 +347,19 @@ export class DatabaseStorage implements IStorage {
     status?: string;
     plan?: string;
     searchQuery?: string;
-  }, limit: number = 50, offset: number = 0): Promise<Detective[]> {
+  }, limit: number = 50, offset: number = 0): Promise<(Detective & { subscriptionPackage?: any })[]> {
     let query = db.select({
-      id: detectives.id,
-      businessName: detectives.businessName,
-      bio: detectives.bio,
-      logo: detectives.logo,
-      defaultServiceBanner: detectives.defaultServiceBanner,
-      location: detectives.location,
-      country: detectives.country,
-      address: detectives.address,
-      pincode: detectives.pincode,
-      phone: detectives.phone,
-      whatsapp: detectives.whatsapp,
-      contactEmail: detectives.contactEmail,
-      languages: detectives.languages,
-      yearsExperience: detectives.yearsExperience,
-      businessWebsite: detectives.businessWebsite,
-      licenseNumber: detectives.licenseNumber,
-      businessType: detectives.businessType,
-      recognitions: detectives.recognitions,
-      memberSince: detectives.memberSince,
-      subscriptionPlan: detectives.subscriptionPlan,
-      status: detectives.status,
-      level: detectives.level,
-      isVerified: detectives.isVerified,
-      avgResponseTime: detectives.avgResponseTime,
-      lastActive: detectives.lastActive,
-    }).from(detectives);
+      detective: detectives,
+      package: subscriptionPlans,
+    })
+    .from(detectives)
+    .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id));
 
     const conditions = [];
     if (filters.country) conditions.push(eq(detectives.country, filters.country));
     if (filters.status) conditions.push(eq(detectives.status, filters.status as any));
-    if (filters.plan) conditions.push(eq(detectives.subscriptionPlan, filters.plan as any));
+    // REMOVED: Legacy subscriptionPlan filter - no longer used
+    // if (filters.plan) conditions.push(eq(detectives.subscriptionPlan, filters.plan as any));
     if (filters.searchQuery) {
       const searchCondition = or(
         ilike(detectives.businessName, `%${filters.searchQuery}%`),
@@ -362,7 +379,13 @@ export class DatabaseStorage implements IStorage {
       query = (query.where(eq(detectives.status, "active" as any)) as any);
     }
 
-    return await query.orderBy(desc(detectives.createdAt)).limit(limit).offset(offset);
+    const results = await query.orderBy(desc(detectives.createdAt)).limit(limit).offset(offset);
+    
+    // Map results to include package data
+    return results.map((r: any) => ({
+      ...r.detective,
+      subscriptionPackage: r.package || undefined,
+    }));
   }
 
   // Service operations
@@ -444,13 +467,20 @@ export class DatabaseStorage implements IStorage {
     
     const conditions = [ eq(services.isActive, true) ];
     const [policyRow] = await db.select().from(appPolicies).where(eq(appPolicies.key, "visibility_requirements")).limit(1);
-    const reqs = (policyRow as any)?.value || { requireImages: true, requireActiveDetective: true };
+    const reqs = (policyRow as any)?.value || { requireImages: false, requireActiveDetective: true };
+    
+    console.log('[searchServices] Visibility requirements:', reqs);
+    
     if (reqs.requireActiveDetective) {
       conditions.push(eq(detectives.status, 'active') as any);
     }
+    // TEMPORARILY RELAXED: Allow services without images for testing
     if (reqs.requireImages) {
+      // Only require images if explicitly set to true in policy
       conditions.push(sql<boolean>`cardinality(${services.images}) > 0`);
     }
+    
+    console.log('[searchServices] Applied conditions count:', conditions.length);
     
     if (filters.category) {
       const cat = `%${filters.category.trim()}%`;
@@ -500,6 +530,8 @@ export class DatabaseStorage implements IStorage {
     }
 
     const results = await query.limit(limit).offset(offset);
+    
+    console.log('[searchServices] Results count:', results.length, 'sortBy:', sortBy);
     
     return results.map((r: any) => ({
       ...r.service,
@@ -577,6 +609,26 @@ export class DatabaseStorage implements IStorage {
     isActive: boolean;
   } | undefined> {
     const [plan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.name, name)).limit(1);
+    return plan as any;
+  }
+
+  /**
+   * ACTIVE SUBSCRIPTION METHOD
+   * Get subscription package by ID - use this for all access control
+   */
+  async getSubscriptionPlanById(id: string): Promise<{
+    id: string;
+    name: string;
+    displayName: string;
+    monthlyPrice: string;
+    yearlyPrice: string;
+    description: string | null;
+    features: string[] | null;
+    badges: any | null;
+    serviceLimit: number;
+    isActive: boolean;
+  } | undefined> {
+    const [plan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, id)).limit(1);
     return plan as any;
   }
 
@@ -745,6 +797,35 @@ export class DatabaseStorage implements IStorage {
   async deleteOrder(id: string): Promise<boolean> {
     const result = await db.delete(orders).where(eq(orders.id, id));
     return result.rowCount! > 0;
+  }
+
+  // Payment order operations (Razorpay subscriptions)
+  async createPaymentOrder(insertPayment: InsertPaymentOrder): Promise<PaymentOrder> {
+    const [row] = await db.insert(paymentOrders).values(insertPayment as any).returning();
+    return row;
+  }
+
+  async getPaymentOrderByRazorpayOrderId(razorpayOrderId: string): Promise<PaymentOrder | undefined> {
+    const [row] = await db.select().from(paymentOrders).where(eq(paymentOrders.razorpayOrderId, razorpayOrderId)).limit(1);
+    return row as any;
+  }
+
+  async markPaymentOrderPaid(id: string, data: { paymentId: string; signature: string }): Promise<PaymentOrder | undefined> {
+    const [row] = await db.update(paymentOrders)
+      .set({
+        razorpayPaymentId: data.paymentId,
+        razorpaySignature: data.signature,
+        status: "paid",
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(paymentOrders.id, id))
+      .returning();
+    return row as any;
+  }
+
+  async getPaymentOrdersByDetectiveId(detectiveId: string): Promise<PaymentOrder[]> {
+    const rows = await db.select().from(paymentOrders).where(eq(paymentOrders.detectiveId, detectiveId)).orderBy((po) => desc(po.createdAt));
+    return rows as any;
   }
 
   // Favorite operations

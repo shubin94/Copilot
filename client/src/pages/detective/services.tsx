@@ -387,7 +387,7 @@ export default function DetectiveServices() {
         </Alert>
 
         {/* Plan Limit Warning */}
-        {!canAddMore && subscriptionPlan !== "agency" && (
+        {!canAddMore && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Service Limit Reached</AlertTitle>

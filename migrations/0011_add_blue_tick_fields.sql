@@ -1,0 +1,2 @@
+ALTER TABLE detectives ADD COLUMN IF NOT EXISTS has_blue_tick BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE detectives ADD COLUMN IF NOT EXISTS blue_tick_activated_at TIMESTAMP;

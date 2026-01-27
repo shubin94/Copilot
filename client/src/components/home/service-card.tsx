@@ -171,39 +171,61 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
                 <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{name[0]}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col overflow-hidden">
-                <div className="flex items-center gap-1 flex-wrap">
-                  <span className="text-sm font-bold text-gray-900 hover:underline truncate">{name}</span>
+                <div className="flex items-start gap-2 flex-wrap">
+                  <span className="text-sm font-bold text-gray-900 hover:underline">{name}</span>
                   
-                  {/* Badges */}
-                  <div className="flex items-center gap-1">
+                  {/* Badges Container - Allow wrapping */}
+                  <div className="flex items-center gap-1 flex-wrap">
                     {isUnclaimed ? (
-                      <Badge variant="outline" className="text-[10px] h-5 bg-gray-100 text-gray-500 border-gray-300">Unclaimed</Badge>
+                      <Badge variant="outline" className="text-[10px] h-5 bg-gray-100 text-gray-500 border-gray-300 whitespace-nowrap">Unclaimed</Badge>
                     ) : (
                       <>
+                        {/* Blue Tick Badge - FIRST */}
+                        {badges.includes('blueTick') && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center gap-0.5 bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap">
+                                  <BadgeCheck className="h-3.5 w-3.5 fill-blue-600 text-blue-600" />
+                                  Blue Tick
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Blue Tick Verified</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+
+                        {/* Pro Badge - SECOND */}
+                        {badges.includes('pro') && (
+                          <span className="bg-yellow-100 text-yellow-700 text-[10px] px-1.5 py-0.5 rounded font-bold border border-yellow-200 whitespace-nowrap">
+                            ⚡ PRO
+                          </span>
+                        )}
+
+                        {/* Recommended Badge - THIRD */}
+                        {badges.includes('recommended') && (
+                          <span className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap">
+                            ✓ Recommended
+                          </span>
+                        )}
+
+                        {/* Verified Badge - FOURTH */}
                         {badges.includes('verified') && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                {/* Twitter/Facebook Style Blue Tick */}
-                                <BadgeCheck className="h-4 w-4 text-blue-500 fill-blue-500 text-white flex-shrink-0" />
+                                <span className="inline-flex items-center gap-0.5 bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap">
+                                  <BadgeCheck className="h-3.5 w-3.5 fill-blue-600 text-blue-600" />
+                                  Verified
+                                </span>
                               </TooltipTrigger>
                               <TooltipContent>
                                 <p>Verified Detective</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
-                        )}
-
-                        {badges.includes('recommended') && (
-                          <span className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0.5 rounded font-bold">
-                            Recommended
-                          </span>
-                        )}
-
-                        {badges.includes('pro') && (
-                          <span className="text-blue-600 text-[10px] font-black border border-blue-200 px-1 rounded bg-blue-50">
-                            PRO
-                          </span>
                         )}
                       </>
                     )}
