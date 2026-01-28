@@ -602,3 +602,29 @@ export type InsertClaimToken = typeof claimTokens.$inferInsert;
 
 export const insertClaimTokenSchema = createInsertSchema(claimTokens);
 export const selectClaimTokenSchema = createSelectSchema(claimTokens);
+
+// Email Template Management System
+// Centralized storage for all email templates
+// Allows Super Admin to manage email content without code changes
+export const emailTemplates = pgTable("email_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: varchar("key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  sendpulseTemplateId: integer("sendpulse_template_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  keyIdx: index("email_templates_key_idx").on(table.key),
+  isActiveIdx: index("email_templates_is_active_idx").on(table.isActive),
+  createdAtIdx: index("email_templates_created_at_idx").on(table.createdAt),
+}));
+
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
+
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates);
+export const selectEmailTemplateSchema = createSelectSchema(emailTemplates);

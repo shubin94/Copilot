@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
+import { DashboardLayout } from "@/components/layout/dashboard-layout";
 
 interface VisibilityRecord {
   detectiveId: string;
@@ -151,13 +152,14 @@ export default function RankingVisibilityPage() {
   const visibility = data?.visibility || [];
 
   return (
-    <div className="container mx-auto py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">Ranking & Visibility Management</h1>
-        <p className="text-gray-600 mt-2">
-          Control detective visibility and ranking across the platform
-        </p>
-      </div>
+    <DashboardLayout role="admin">
+      <div className="container mx-auto py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold">Ranking & Visibility Management</h1>
+          <p className="text-gray-600 mt-2">
+            Control detective visibility and ranking across the platform
+          </p>
+        </div>
 
       <Card>
         <CardHeader>
@@ -391,6 +393,7 @@ export default function RankingVisibilityPage() {
           </p>
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }

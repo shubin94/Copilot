@@ -465,22 +465,14 @@ export class DatabaseStorage implements IStorage {
     ratingMin?: number;
   }, limit: number = 50, offset: number = 0, sortBy: string = 'recent'): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number }>> {
     
+    // ONLY filter by active services - NO visibility restrictions
     const conditions = [ eq(services.isActive, true) ];
-    const [policyRow] = await db.select().from(appPolicies).where(eq(appPolicies.key, "visibility_requirements")).limit(1);
-    const reqs = (policyRow as any)?.value || { requireImages: false, requireActiveDetective: true };
     
-    console.log('[searchServices] Visibility requirements:', reqs);
+    // REMOVED: requireImages check - services visible regardless of images
+    // REMOVED: requireActiveDetective check - treat missing as active
+    // Images and detective status affect RANKING only, not VISIBILITY
     
-    if (reqs.requireActiveDetective) {
-      conditions.push(eq(detectives.status, 'active') as any);
-    }
-    // TEMPORARILY RELAXED: Allow services without images for testing
-    if (reqs.requireImages) {
-      // Only require images if explicitly set to true in policy
-      conditions.push(sql<boolean>`cardinality(${services.images}) > 0`);
-    }
-    
-    console.log('[searchServices] Applied conditions count:', conditions.length);
+    console.log('[searchServices] Base conditions (isActive only):', conditions.length);
     
     if (filters.category) {
       const cat = `%${filters.category.trim()}%`;
@@ -510,7 +502,7 @@ export class DatabaseStorage implements IStorage {
       reviewCount: count(reviews.id).as('review_count'),
     })
     .from(services)
-    .innerJoin(detectives, eq(services.detectiveId, detectives.id))
+    .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
     .leftJoin(reviews, and(eq(reviews.serviceId, services.id), eq(reviews.isPublished, true)))
     .where(and(...conditions))
     .groupBy(services.id, detectives.id);
@@ -531,7 +523,7 @@ export class DatabaseStorage implements IStorage {
 
     const results = await query.limit(limit).offset(offset);
     
-    console.log('[searchServices] Results count:', results.length, 'sortBy:', sortBy);
+    console.log('[searchServices] FINAL services count:', results.length, 'sortBy:', sortBy);
     
     return results.map((r: any) => ({
       ...r.service,

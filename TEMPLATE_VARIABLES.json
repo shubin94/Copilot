@@ -1,0 +1,164 @@
+{
+  "DETECTIVE_APPLICATION_SUBMITTED": {
+    "variables": [
+      "businessName",
+      "country",
+      "detectiveName",
+      "submittedAt"
+    ],
+    "subject": "Application Received — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nThank you for applying to join Ask Detectives!\n\nWe have received your application and our team will review it within 24-48 hours.\n\nApplication Details:\n- Business Name: {{businessName}}\n- Country: {{country}}\n- Submitted: {{submittedAt}}\n\nYou will receive an email once your application is reviewed.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "DETECTIVE_APPLICATION_APPROVED": {
+    "variables": [
+      "dashboardUrl",
+      "detectiveName",
+      "loginUrl",
+      "supportEmail"
+    ],
+    "subject": "Application Approved! Welcome to Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nCongratulations! Your application has been approved.\n\nYou can now log in and start setting up your profile:\n\nLogin: {{loginUrl}}\nDashboard: {{dashboardUrl}}\n\nNext steps:\n1. Complete your detective profile\n2. Add your services\n3. Set your pricing\n\nIf you need help, contact us at {{supportEmail}}.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "DETECTIVE_APPLICATION_REJECTED": {
+    "variables": [
+      "detectiveName",
+      "rejectionReason",
+      "supportEmail"
+    ],
+    "subject": "Application Update — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nThank you for your interest in Ask Detectives.\n\nAfter careful review, we are unable to approve your application at this time.\n\nReason: {{rejectionReason}}\n\nYou may reapply after addressing the concerns mentioned above.\n\nIf you have questions, contact us at {{supportEmail}}.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "CLAIMABLE_ACCOUNT_INVITATION": {
+    "variables": [
+      "claimLink",
+      "detectiveName"
+    ],
+    "subject": "Your Account Has Been Added — Claim It Now",
+    "body": "Hello {{detectiveName}},\n\nCongratulations! Your account has been added to Ask Detectives.\n\nClaim your account: {{claimLink}}\n\nThis link expires in 48 hours.\n\nAfter claiming, you will receive your login credentials.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "CLAIMABLE_ACCOUNT_CREDENTIALS": {
+    "variables": [
+      "detectiveName",
+      "loginEmail",
+      "loginUrl",
+      "supportEmail",
+      "tempPassword"
+    ],
+    "subject": "You Can Now Log In — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nYour account has been successfully claimed!\n\nLogin Details:\nEmail: {{loginEmail}}\nTemporary Password: {{tempPassword}}\n\nLogin: {{loginUrl}}\n\nPlease change your password after logging in for security.\n\nIf you have any questions, contact us at {{supportEmail}}.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "CLAIMABLE_ACCOUNT_FINALIZED": {
+    "variables": [
+      "detectiveName",
+      "loginEmail",
+      "loginUrl",
+      "supportEmail"
+    ],
+    "subject": "Your Account is Ready — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nGreat news! Your account claim has been finalized.\n\nYour account is now fully active and ready to use.\n\nLogin Email: {{loginEmail}}\nLogin: {{loginUrl}}\n\nIf you need assistance, contact us at {{supportEmail}}.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "SUBSCRIPTION_ACTIVATED": {
+    "variables": [
+      "billingCycle",
+      "detectiveName",
+      "expiresAt",
+      "features",
+      "planName",
+      "subscriptionUrl"
+    ],
+    "subject": "Subscription Activated — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nYour subscription has been activated!\n\nPlan: {{planName}}\nBilling Cycle: {{billingCycle}}\nExpires: {{expiresAt}}\n\nFeatures:\n{{features}}\n\nManage your subscription: {{subscriptionUrl}}\n\nBest regards,\nAsk Detectives Team"
+  },
+  "SUBSCRIPTION_EXPIRED": {
+    "variables": [
+      "detectiveName",
+      "expiredAt",
+      "planName",
+      "renewUrl",
+      "supportEmail"
+    ],
+    "subject": "Your Subscription Has Expired — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nYour subscription has expired.\n\nPrevious Plan: {{planName}}\nExpired: {{expiredAt}}\n\nRenew your subscription to continue accessing premium features:\n\nRenew: {{renewUrl}}\n\nIf you have questions, contact us at {{supportEmail}}.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "SUBSCRIPTION_RENEWING_SOON": {
+    "variables": [
+      "amount",
+      "detectiveName",
+      "planName",
+      "renewsAt",
+      "subscriptionUrl"
+    ],
+    "subject": "Your Subscription Will Renew Soon — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nYour subscription will renew soon.\n\nPlan: {{planName}}\nRenews: {{renewsAt}}\nAmount: {{amount}}\n\nYour payment method will be charged automatically.\n\nManage subscription: {{subscriptionUrl}}\n\nBest regards,\nAsk Detectives Team"
+  },
+  "PAYMENT_SUCCESS": {
+    "variables": [
+      "amount",
+      "detectiveName",
+      "paymentDate",
+      "planName",
+      "receiptUrl",
+      "transactionId"
+    ],
+    "subject": "Payment Received — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nWe have received your payment.\n\nTransaction Details:\nAmount: {{amount}}\nPlan: {{planName}}\nDate: {{paymentDate}}\nTransaction ID: {{transactionId}}\n\nReceipt: {{receiptUrl}}\n\nBest regards,\nAsk Detectives Team"
+  },
+  "PAYMENT_FAILURE": {
+    "variables": [
+      "amount",
+      "detectiveName",
+      "failureReason",
+      "paymentUrl",
+      "supportEmail"
+    ],
+    "subject": "Payment Failed — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nWe were unable to process your payment.\n\nAmount: {{amount}}\nReason: {{failureReason}}\n\nPlease update your payment method: {{paymentUrl}}\n\nIf you have questions, contact us at {{supportEmail}}.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "BLUE_TICK_PURCHASE": {
+    "variables": [
+      "activatedAt",
+      "amount",
+      "detectiveName",
+      "profileUrl"
+    ],
+    "subject": "Blue Tick Verification Activated — Ask Detectives",
+    "body": "Hello {{detectiveName}},\n\nYour Blue Tick verification has been activated!\n\nThis badge appears on your profile and indicates verified status.\n\nPayment Details:\nAmount: {{amount}}\nDate: {{activatedAt}}\n\nView your profile: {{profileUrl}}\n\nBest regards,\nAsk Detectives Team"
+  },
+  "ADMIN_NEW_SIGNUP": {
+    "variables": [
+      "businessName",
+      "country",
+      "detectiveName",
+      "email",
+      "reviewUrl",
+      "submittedAt"
+    ],
+    "subject": "[Admin] New Detective Signup",
+    "body": "New detective application submitted:\n\nDetective: {{detectiveName}}\nBusiness: {{businessName}}\nEmail: {{email}}\nCountry: {{country}}\nSubmitted: {{submittedAt}}\n\nReview application: {{reviewUrl}}\n\n- Ask Detectives Admin System"
+  },
+  "SIGNUP_WELCOME": {
+    "variables": [
+      "loginUrl",
+      "supportEmail",
+      "userName"
+    ],
+    "subject": "Welcome to Ask Detectives!",
+    "body": "Hello {{userName}},\n\nWelcome to Ask Detectives! Your account has been created successfully.\n\nGet started by exploring our services or completing your profile.\n\nLogin: {{loginUrl}}\n\nIf you have any questions, contact us at {{supportEmail}}.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "EMAIL_VERIFICATION": {
+    "variables": [
+      "userName",
+      "verificationLink"
+    ],
+    "subject": "Verify Your Email — Ask Detectives",
+    "body": "Hello {{userName}},\n\nPlease verify your email address by clicking the link below:\n\n{{verificationLink}}\n\nThis link will expire in 24 hours.\n\nIf you didn't create this account, please ignore this email.\n\nBest regards,\nAsk Detectives Team"
+  },
+  "PASSWORD_RESET": {
+    "variables": [
+      "resetLink",
+      "userName"
+    ],
+    "subject": "Reset Your Password — Ask Detectives",
+    "body": "Hello {{userName}},\n\nWe received a request to reset your password.\n\nReset your password: {{resetLink}}\n\nThis link will expire in 1 hour.\n\nIf you didn't request this, please ignore this email.\n\nBest regards,\nAsk Detectives Team"
+  }
+}

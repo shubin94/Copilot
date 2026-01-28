@@ -115,49 +115,53 @@ class SendPulseEmailService {
     variables: EmailVariable
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      // Development mode: log instead of sending
-      if (!this.isProd && !this.enabled) {
-        console.log("[SendPulse] DEV MODE - Email not sent:", {
+      // Validate recipient email first
+      if (!to || to === "undefined" || to === "null") {
+        console.error("[SendPulse] ❌ Cannot send email: Recipient email is undefined or invalid", {
           to,
           templateId,
-          variables,
         });
-        return { success: true }; // Non-blocking
+        return { success: false, error: "Recipient email is undefined" };
       }
 
-      // Validate inputs
-      if (!to || !templateId) {
-        console.error("[SendPulse] Missing required fields:", { to, templateId });
-        return { success: false, error: "Missing email or template ID" };
+      // Validate template ID
+      if (!templateId) {
+        console.error("[SendPulse] Missing template ID", { to, templateId });
+        return { success: false, error: "Missing template ID" };
       }
 
+      // Check if SendPulse is enabled
       if (!this.enabled) {
-        console.warn(`[SendPulse] Email sending disabled. Skipping email to ${to}`);
-        return { success: true }; // Non-blocking
+        console.log("[SendPulse] ⚠️ SendPulse is disabled in config. Skipping email.");
+        return { success: true, mocked: true };
       }
 
       const token = await this.getAccessToken();
 
+      // ✅ CORRECT structure for SendPulse SMTP API with email wrapper
       const payload = {
         email: {
-          subject: "", // Subject comes from template
-          from: {
-            name: this.senderName,
-            email: this.senderEmail,
-          },
-          to: [
-            {
-              email: to,
-            },
-          ],
+          subject: "Welcome to Ask Detectives",
           template: {
             id: templateId,
             variables: this.sanitizeVariables(variables),
           },
+          from: {
+            name: this.senderName,
+            email: this.senderEmail, // MUST be contact@askdetectives.com
+          },
+          to: [
+            {
+              email: to,
+              name: this.extractNameFromVariables(variables),
+            },
+          ],
         },
       };
 
-      const response = await fetch("https://api.sendpulse.com/mailing/send", {
+      console.log("[SendPulse] Sending with payload:", JSON.stringify(payload, null, 2));
+
+      const response = await fetch("https://api.sendpulse.com/smtp/emails", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -167,57 +171,83 @@ class SendPulseEmailService {
       });
 
       if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(`SendPulse API error: ${response.statusText} - ${errorData}`);
+        let errorData: any;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = await response.text();
+        }
+        
+        console.error(`[SendPulse] HTTP ${response.status} Error`, {
+          templateId,
+          recipient: to,
+          statusText: response.statusText,
+          error: errorData,
+          timestamp: new Date().toISOString(),
+        });
+        
+        throw new Error(`SendPulse API error: ${response.statusText}`);
       }
 
       const result = (await response.json()) as SendPulseEmailResponse;
 
       if (result.result?.status) {
         console.log(
-          `[SendPulse] Email sent successfully to ${to} (Template: ${templateId})`
+          `[SendPulse] ✅ Email sent successfully to ${to} (Template: ${templateId})`
         );
         return { success: true };
       } else {
         console.error(
-          `[SendPulse] API returned failure for ${to}:`,
-          result
+          `[SendPulse] ❌ API returned failure:`,
+          {
+            templateId,
+            recipient: to,
+            apiResponse: result,
+            timestamp: new Date().toISOString(),
+          }
         );
         return { success: false, error: "API returned failure status" };
       }
     } catch (error) {
       // Non-blocking: log error but don't throw
       console.error(
-        `[SendPulse] Failed to send email to ${to}:`,
-        error instanceof Error ? error.message : String(error)
+        `[SendPulse] ❌ Email send failed (attempt 1/2):`,
+        {
+          templateId,
+          recipient: to,
+          error: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString(),
+        }
       );
 
       // Retry once on failure
       try {
-        console.log(`[SendPulse] Retrying email to ${to}...`);
+        console.log(`[SendPulse] 🔄 Retrying email to ${to}...`);
         this.accessToken = null; // Clear token to force refresh
         const token = await this.getAccessToken();
 
+        // ✅ CORRECT structure for SendPulse SMTP API with email wrapper
         const payload = {
           email: {
-            subject: "",
-            from: {
-              name: this.senderName,
-              email: this.senderEmail,
-            },
-            to: [
-              {
-                email: to,
-              },
-            ],
+            subject: "Welcome to Ask Detectives",
             template: {
               id: templateId,
               variables: this.sanitizeVariables(variables),
             },
+            from: {
+              name: this.senderName,
+              email: this.senderEmail, // MUST be contact@askdetectives.com
+            },
+            to: [
+              {
+                email: to,
+                name: this.extractNameFromVariables(variables),
+              },
+            ],
           },
         };
 
-        const retryResponse = await fetch("https://api.sendpulse.com/mailing/send", {
+        const retryResponse = await fetch("https://api.sendpulse.com/smtp/emails", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -229,20 +259,38 @@ class SendPulseEmailService {
         if (retryResponse.ok) {
           const result = (await retryResponse.json()) as SendPulseEmailResponse;
           if (result.result?.status) {
-            console.log(`[SendPulse] Retry successful for ${to}`);
+            console.log(`[SendPulse] ✅ Retry successful for ${to} (Template: ${templateId})`);
             return { success: true };
           }
         }
       } catch (retryError) {
         console.error(
-          `[SendPulse] Retry failed for ${to}:`,
-          retryError instanceof Error ? retryError.message : String(retryError)
+          `[SendPulse] ❌ Retry failed (attempt 2/2):`,
+          {
+            templateId,
+            recipient: to,
+            error: retryError instanceof Error ? retryError.message : String(retryError),
+            timestamp: new Date().toISOString(),
+          }
         );
       }
 
-      // Return success anyway - email failures should not block main flow
-      return { success: true };
+      // Return failure - email sending did not succeed
+      return { success: false, error: "Failed to send email after 2 attempts" };
     }
+  }
+
+  /**
+   * Extract recipient name from template variables
+   * Tries common name fields: userName, detectiveName, name
+   */
+  private extractNameFromVariables(variables: EmailVariable): string {
+    return (
+      (variables.userName as string) ||
+      (variables.detectiveName as string) ||
+      (variables.name as string) ||
+      "Valued Customer"
+    );
   }
 
   /**

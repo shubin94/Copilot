@@ -61,6 +61,13 @@ export const config = {
     smtpPass: process.env.SMTP_PASS || "",
     smtpFromEmail: process.env.SMTP_FROM_EMAIL || "",
   },
+  sendpulse: {
+    apiId: process.env.SENDPULSE_API_ID || "",
+    apiSecret: process.env.SENDPULSE_API_SECRET || "",
+    senderEmail: process.env.SENDPULSE_SENDER_EMAIL || "",
+    senderName: process.env.SENDPULSE_SENDER_NAME || "",
+    enabled: process.env.SENDPULSE_ENABLED === "true",
+  },
   supabase: {
     url: isProd ? requireEnv("SUPABASE_URL") : (process.env.SUPABASE_URL || ""),
     serviceRoleKey: isProd ? requireEnv("SUPABASE_SERVICE_ROLE_KEY") : (process.env.SUPABASE_SERVICE_ROLE_KEY || ""),
@@ -90,8 +97,9 @@ export function validateConfig() {
     // Email: require at least one provider configured fully
     const hasSendgrid = !!config.email.sendgridApiKey && !!config.email.sendgridFromEmail;
     const hasSmtp = !!config.email.smtpHost && !!config.email.smtpFromEmail;
-    if (!hasSendgrid && !hasSmtp) {
-      throw new Error("Email not configured: set SENDGRID_API_KEY + SENDGRID_FROM_EMAIL or SMTP_HOST + SMTP_FROM_EMAIL");
+    const hasSendpulse = !!config.sendpulse.apiId && !!config.sendpulse.apiSecret && !!config.sendpulse.senderEmail;
+    if (!hasSendgrid && !hasSmtp && !hasSendpulse) {
+      throw new Error("Email not configured: set SENDGRID_API_KEY + SENDGRID_FROM_EMAIL or SMTP_HOST + SMTP_FROM_EMAIL or SENDPULSE_API_ID + SENDPULSE_API_SECRET + SENDPULSE_SENDER_EMAIL");
     }
 
     // Supabase required for asset storage

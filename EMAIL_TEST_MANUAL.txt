@@ -1,0 +1,129 @@
+📧 EMAIL SYSTEM VERIFICATION CHECKLIST
+=====================================
+
+Detective: Changappa A K
+ID: 23dac06d-afc2-41f3-b941-eb48b0641d45
+Email: contact@askdetectives.com
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔍 HOW TO TEST EMAIL TRIGGERS:
+
+Step 1: Make an API call that triggers an event
+────────────────────────────────────────────────
+
+Example: Update detective profile
+
+  curl -X PATCH http://localhost:5000/api/detectives/23dac06d-afc2-41f3-b941-eb48b0641d45 \
+    -H "Content-Type: application/json" \
+    -H "X-Requested-With: XMLHttpRequest" \
+    -d '{"about": "Testing email system"}'
+
+Step 2: Check server console logs
+───────────────────────────────────
+
+Look for messages like:
+
+  ✅ SUCCESS:
+     [SendPulse] Email sent successfully to contact@askdetectives.com
+     [SendPulse] Template ID: XXXX
+
+  ⚠️  DEV MODE (not production):
+     [SendPulse] DEV MODE - Email not sent: { ... }
+
+  ❌ FAILURE:
+     [SendPulse] Failed to send email to contact@askdetectives.com: ...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 EVENTS THAT TRIGGER EMAILS FOR DETECTIVE:
+
+1️⃣  PROFILE UPDATE
+   Endpoint: PATCH /api/detectives/{detectiveId}
+   Body: { "about": "...", "businessWebsite": "...", etc }
+   Email: Profile update notification
+
+2️⃣  SERVICE UPDATE
+   Endpoint: POST /api/detectives/{detectiveId}/services
+   Body: { "categoryId": "...", "pricePerHour": 100, ... }
+   Email: Service update notification
+
+3️⃣  VISIBILITY/RANKING CHANGE (Admin only)
+   Endpoint: POST /api/admin/visibility
+   Body: { "detectiveId": "...", "isVisible": true, ... }
+   Email: Admin notification of change
+
+4️⃣  APPLICATION STATUS CHANGE (if in application stage)
+   Endpoint: PATCH /api/applications/{appId}
+   Body: { "status": "approved" }
+   Email: Application approval/rejection
+
+5️⃣  SUBSCRIPTION CHANGE
+   Endpoint: POST /api/subscriptions
+   Body: { "detectiveId": "...", "plan": "pro", ... }
+   Email: Subscription confirmation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚙️ CURRENT EMAIL SYSTEM STATUS:
+
+Email Service: SendPulse
+Location: server/services/sendpulseEmail.ts
+
+Configuration Check:
+─────────────────────
+Required Environment Variables:
+  SENDPULSE_API_ID       → $(process.env.SENDPULSE_API_ID || "NOT SET")
+  SENDPULSE_API_SECRET   → $(process.env.SENDPULSE_API_SECRET || "NOT SET")
+  SENDPULSE_ENABLED      → $(process.env.SENDPULSE_ENABLED || "NOT SET")
+  NODE_ENV               → $(process.env.NODE_ENV || "development")
+
+If in DEVELOPMENT mode (NODE_ENV !== "production"):
+  → Emails are NOT sent unless SENDPULSE_ENABLED=true
+  → Server will log "DEV MODE - Email not sent"
+
+If in PRODUCTION mode:
+  → Emails are sent via SendPulse API
+  → Requires valid API credentials
+  → Will retry once if first attempt fails
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ WHAT WORKING EMAILS LOOK LIKE IN LOGS:
+
+[SendPulse] Email sent successfully to contact@askdetectives.com (Template: 1001)
+[SendPulse] DEV MODE - Email not sent: { to: '...', templateId: 1001, variables: {...} }
+[SendPulse] Token request succeeded
+[SendPulse] Retry successful for contact@askdetectives.com
+
+❌ WHAT FAILING EMAILS LOOK LIKE:
+
+[SendPulse] Failed to send email to contact@askdetectives.com: SendPulse API error: Not Found
+[SendPulse] Warning: Email sending disabled
+[SendPulse] Failed to get access token: ...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📌 QUICK TEST COMMAND:
+
+For quick testing, run this PowerShell script:
+
+$detectiveId = "23dac06d-afc2-41f3-b941-eb48b0641d45"
+$response = Invoke-WebRequest -Uri "http://localhost:5000/api/detectives/$detectiveId" `
+  -Method PATCH `
+  -Headers @{"Content-Type"="application/json";"X-Requested-With"="XMLHttpRequest"} `
+  -Body '{"about":"Email test"}' `
+  -SkipCertificateCheck
+
+Write-Host "Response: $($response.StatusCode)"
+Write-Host "Now check server logs for [SendPulse] messages"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔗 EMAIL TEMPLATE SYSTEM ENDPOINT:
+
+If you want to test ALL templates at once:
+  POST /api/admin/email-templates/test-all
+  
+This is the endpoint we just created to batch test all email templates!
+See EMAIL_TESTING_GUIDE.md for details.
