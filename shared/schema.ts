@@ -78,6 +78,7 @@ export const detectives = pgTable("detectives", {
   createdBy: createdByEnum("created_by").notNull().default("self"),
   avgResponseTime: integer("avg_response_time"),
   lastActive: timestamp("last_active"),
+  claimCompletedAt: timestamp("claim_completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -85,6 +86,7 @@ export const detectives = pgTable("detectives", {
   countryIdx: index("detectives_country_idx").on(table.country),
   statusIdx: index("detectives_status_idx").on(table.status),
   planIdx: index("detectives_plan_idx").on(table.subscriptionPlan),
+  claimCompletedAtIdx: index("detectives_claim_completed_at_idx").on(table.claimCompletedAt),
   phoneUniqueIdx: uniqueIndex("detectives_phone_unique").on(table.phone),
 }));
 
@@ -580,3 +582,23 @@ export const detectiveVisibility = pgTable("detective_visibility", {
 
 export type DetectiveVisibility = typeof detectiveVisibility.$inferSelect;
 export type InsertDetectiveVisibility = typeof detectiveVisibility.$inferInsert;
+
+export const claimTokens = pgTable("claim_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  detectiveIdIdx: index("claim_tokens_detective_id_idx").on(table.detectiveId),
+  expiresAtIdx: index("claim_tokens_expires_at_idx").on(table.expiresAt),
+  usedAtIdx: index("claim_tokens_used_at_idx").on(table.usedAt),
+}));
+
+export type ClaimToken = typeof claimTokens.$inferSelect;
+export type InsertClaimToken = typeof claimTokens.$inferInsert;
+
+export const insertClaimTokenSchema = createInsertSchema(claimTokens);
+export const selectClaimTokenSchema = createSelectSchema(claimTokens);

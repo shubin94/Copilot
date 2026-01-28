@@ -17,6 +17,7 @@ const Home = lazy(() => import("@/pages/home"));
 const DetectiveProfile = lazy(() => import("@/pages/detective-profile"));
 const DetectivePublicPage = lazy(() => import("@/pages/detective"));
 const ClaimProfile = lazy(() => import("@/pages/claim-profile"));
+const ClaimAccount = lazy(() => import("@/pages/claim-account"));
 const Login = lazy(() => import("@/pages/auth/login"));
 const DetectiveSignup = lazy(() => import("@/pages/detective-signup"));
 const ApplicationUnderReview = lazy(() => import("@/pages/application-under-review"));
@@ -91,6 +92,7 @@ function Router() {
           <Route path="/" component={Home} />
           <Route path="/service/:id" component={DetectiveProfile} />
           <Route path="/claim-profile/:id" component={ClaimProfile} />
+          <Route path="/claim-account" component={ClaimAccount} />
           <Route path="/login" component={Login} />
           <Route path="/signup" component={Login} />
           <Route path="/detective-signup" component={DetectiveSignup} />
