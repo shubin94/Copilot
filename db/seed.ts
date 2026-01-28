@@ -70,7 +70,8 @@ async function seed() {
     country: "US",
     location: "Austin, TX",
     phone: "+1 512-555-0199",
-    subscriptionPlan: "pro",
+    subscriptionPlan: "free", // TODO: Remove in v3.0 - legacy field only
+    subscriptionPackageId: null, // Explicitly NULL - no paid subscription by default
     status: "active",
     isVerified: true,
     isClaimed: true,

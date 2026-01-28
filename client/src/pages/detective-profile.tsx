@@ -264,23 +264,70 @@ export default function DetectiveProfile() {
                 )}
               </Avatar>
               <div>
-                <div className="font-bold text-lg flex items-center gap-2" data-testid="text-detective-name">
+                <div className="font-bold text-lg flex items-center gap-2 flex-wrap" data-testid="text-detective-name">
                   <Link href={`/p/${detective.id}`}>
                     <span className="hover:underline cursor-pointer">{detectiveName}</span>
                   </Link>
+                  
+                  {/* BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified */}
+                  
+                  {/* Blue Tick Badge - FIRST */}
+                  {detective.hasBlueTick && detective.subscriptionPackageId && (
+                    <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-1 border border-blue-300 flex items-center whitespace-nowrap" data-testid="badge-blue-tick">
+                      <ShieldCheck className="h-3.5 w-3.5 fill-blue-600 text-blue-600" /> Blue Tick
+                    </Badge>
+                  )}
+                  
+                  {/* Pro Badge - SECOND (from package badges) */}
+                  {detective.subscriptionPackageId && detective.subscriptionPackage?.badges && (
+                    <>
+                      {/* Handle object format - Pro badge only */}
+                      {typeof detective.subscriptionPackage.badges === 'object' && !Array.isArray(detective.subscriptionPackage.badges) && 
+                        detective.subscriptionPackage.badges['pro'] && (
+                          <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100 gap-1 text-xs px-2 py-1 border border-yellow-300 whitespace-nowrap" data-testid="badge-pro">
+                            ⚡ PRO
+                          </Badge>
+                        )
+                      }
+                      
+                      {/* Handle array format - Pro badge only */}
+                      {Array.isArray(detective.subscriptionPackage.badges) &&
+                        detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro') && (
+                          <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100 gap-1 text-xs px-2 py-1 border border-yellow-300 whitespace-nowrap" data-testid="badge-pro">
+                            ⚡ PRO
+                          </Badge>
+                        )
+                      }
+                    </>
+                  )}
+                  
+                  {/* Recommended Badge - THIRD (from package badges) */}
+                  {detective.subscriptionPackageId && detective.subscriptionPackage?.badges && (
+                    <>
+                      {/* Handle object format - Recommended badge only */}
+                      {typeof detective.subscriptionPackage.badges === 'object' && !Array.isArray(detective.subscriptionPackage.badges) && 
+                        detective.subscriptionPackage.badges['recommended'] && (
+                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-1 border border-green-300 whitespace-nowrap" data-testid="badge-recommended">
+                            ✓ Recommended
+                          </Badge>
+                        )
+                      }
+                      
+                      {/* Handle array format - Recommended badge only */}
+                      {Array.isArray(detective.subscriptionPackage.badges) &&
+                        detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended') && (
+                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-1 border border-green-300 whitespace-nowrap" data-testid="badge-recommended">
+                            ✓ Recommended
+                          </Badge>
+                        )
+                      }
+                    </>
+                  )}
+                  
+                  {/* Verified Badge - FOURTH */}
                   {detective.isVerified && (
-                     <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-verified">
-                        <ShieldCheck className="h-3 w-3" /> Verified
-                     </Badge>
-                  )}
-                  {detectiveTier === "agency" && (
-                     <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recommended">
-                        Recommended
-                     </Badge>
-                  )}
-                  {detectiveTier === "pro" && (
-                     <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-pro">
-                        PRO
+                     <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-1 border border-blue-300 flex items-center whitespace-nowrap" data-testid="badge-verified">
+                        <ShieldCheck className="h-3.5 w-3.5 fill-blue-600 text-blue-600" /> Verified
                      </Badge>
                   )}
                 </div>

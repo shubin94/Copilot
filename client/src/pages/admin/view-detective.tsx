@@ -90,7 +90,7 @@ export default function ViewDetective() {
     : (publicServicesData?.services || [])).filter(Boolean);
   const categories = categoriesData?.categories || [];
   const freeLimit = limitsData?.limits?.free;
-  const canAddService = !!detective && detective.createdBy === "admin" && detective.isClaimable && detective.subscriptionPlan === "free" && services.length < freeLimit;
+  const canAddService = !!detective && detective.createdBy === "admin" && detective.isClaimable && !detective.subscriptionPackageId && services.length < freeLimit;
 
   const adminCreateService = useAdminCreateServiceForDetective();
   const adminUpdateService = useAdminUpdateService();
@@ -412,7 +412,7 @@ export default function ViewDetective() {
                       className="capitalize"
                       data-testid="badge-plan"
                     >
-                      {detective.subscriptionPlan} Plan
+                      {detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || detective.subscriptionPlan} Plan
                     </Badge>
                   </div>
                 </div>
@@ -898,7 +898,7 @@ export default function ViewDetective() {
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label>Current Plan</Label>
-                    <p className="text-2xl font-bold capitalize">{detective.subscriptionPlan}</p>
+                    <p className="text-2xl font-bold capitalize">{detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || detective.subscriptionPlan}</p>
                   </div>
 
                   <div className="space-y-2">

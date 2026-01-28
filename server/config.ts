@@ -76,6 +76,10 @@ export const config = {
           ],
     ),
   },
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID || "",
+    keySecret: process.env.RAZORPAY_KEY_SECRET || "",
+  },
 };
 
 export function validateConfig() {
@@ -93,6 +97,10 @@ export function validateConfig() {
     // Supabase required for asset storage
     if (!config.supabase.url || !config.supabase.serviceRoleKey) {
       throw new Error("Supabase not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
+    }
+
+    if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+      throw new Error("Razorpay not configured: set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
     }
   }
 }

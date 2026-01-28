@@ -4,7 +4,6 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const userRoleEnum = pgEnum("user_role", ["user", "detective", "admin"]);
-export const subscriptionPlanEnum = pgEnum("subscription_plan", ["free", "pro", "agency"]);
 export const orderStatusEnum = pgEnum("order_status", ["pending", "in_progress", "completed", "cancelled", "refunded"]);
 export const claimStatusEnum = pgEnum("claim_status", ["pending", "under_review", "approved", "rejected"]);
 export const detectiveStatusEnum = pgEnum("detective_status", ["pending", "active", "suspended", "inactive"]);
@@ -49,7 +48,24 @@ export const detectives = pgTable("detectives", {
   identityDocuments: text("identity_documents").array().default(sql`ARRAY[]::text[]`),
   recognitions: jsonb("recognitions").default(sql`'[]'::jsonb`),
   memberSince: timestamp("member_since").notNull().defaultNow(),
-  subscriptionPlan: subscriptionPlanEnum("subscription_plan").notNull().default("free"),
+  // TODO: REMOVE in v3.0 - Legacy field, kept only for backward compatibility with old data
+  // DEPRECATED: subscriptionPlan is READ-ONLY and unused by business logic
+  // ALL NEW CODE MUST USE subscriptionPackageId (via payment verification flow)
+  // Never: Compare to strings ("free", "pro", "agency"), use for access control, or update via API
+  subscriptionPlan: text("subscription_plan").notNull().default("free"),
+  // ACTIVE: Use these fields for all subscription logic
+  subscriptionPackageId: text("subscription_package_id"),
+  billingCycle: text("billing_cycle"),
+  subscriptionActivatedAt: timestamp("subscription_activated_at"),
+  subscriptionExpiresAt: timestamp("subscription_expires_at"),
+  // PENDING DOWNGRADE: Downgrade scheduled to apply after current package expires
+  pendingPackageId: text("pending_package_id"),
+  pendingBillingCycle: text("pending_billing_cycle"),
+  planActivatedAt: timestamp("plan_activated_at"),
+  planExpiresAt: timestamp("plan_expires_at"),
+  // BLUE TICK: Separate add-on subscription (independent of package) - TODO: uncomment when migration applied
+  // hasBlueTick: boolean("has_blue_tick").notNull().default(false),
+  // blueTickActivatedAt: timestamp("blue_tick_activated_at"),
   status: detectiveStatusEnum("status").notNull().default("pending"),
   level: detectiveLevelEnum("level").notNull().default("level1"),
   isVerified: boolean("is_verified").notNull().default(false),
@@ -287,6 +303,23 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   activeIdx: index("subscription_plans_active_idx").on(table.isActive),
 }));
 
+export const paymentOrders = pgTable("payment_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id),
+  plan: text("plan").notNull(),
+  packageId: text("package_id"),
+  billingCycle: text("billing_cycle"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("INR"),
+  razorpayOrderId: text("razorpay_order_id").notNull().unique(),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  razorpaySignature: text("razorpay_signature"),
+  status: text("status").notNull().default("created"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Zod Schemas for validation
 export const insertUserSchema = createInsertSchema(users, {
   email: z.string().email(),
@@ -379,7 +412,7 @@ export const updateDetectiveSchema = z.object({
   whatsapp: z.string().optional(),
   contactEmail: z.string().email().optional(),
   languages: z.array(z.string()).optional(),
-  subscriptionPlan: z.enum(["free", "pro", "agency"]).optional(),
+  // REMOVED: subscriptionPlan is READ-ONLY, use subscriptionPackageId instead
   mustCompleteOnboarding: z.boolean().optional(),
   onboardingPlanSelected: z.boolean().optional(),
   logo: z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
@@ -513,6 +546,8 @@ export type InsertReview = z.infer<typeof insertReviewSchema>;
 
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type PaymentOrder = typeof paymentOrders.$inferSelect;
+export type InsertPaymentOrder = typeof paymentOrders.$inferInsert;
 
 export type Favorite = typeof favorites.$inferSelect;
 export type InsertFavorite = z.infer<typeof insertFavoriteSchema>;

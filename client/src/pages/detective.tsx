@@ -119,26 +119,46 @@ export default function DetectivePublicPage() {
             </div>
           ) : services.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {services.map((service: any) => (
-                <ServiceCard
-                  key={service.id}
-                  id={service.id}
-                  detectiveId={detectiveId!}
-                  images={service.images}
-                  avatar={detective?.logo || ""}
-                  name={detective?.businessName || `${(detective as any)?.firstName || ''} ${(detective as any)?.lastName || ''}`}
-                  level={service.detective?.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1"}
-                  category={service.category}
-                  badges={[]}
-                  title={service.title}
-                  rating={service.avgRating}
-                  reviews={service.reviewCount}
-                  price={Number(service.basePrice)}
-                  offerPrice={service.offerPrice ? Number(service.offerPrice) : null}
-                  isUnclaimed={false}
-                  countryCode={service.detective?.country}
-                />
-              ))}
+              {services.map((service: any) => {
+                // Compute badges for service card
+                const badges: string[] = [];
+                
+                // BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified
+                if (detective?.hasBlueTick && detective?.subscriptionPackageId) {
+                  badges.push("blueTick");
+                }
+                if (detective?.subscriptionPackageId && detective?.subscriptionPackage?.badges) {
+                  if (typeof detective.subscriptionPackage.badges === 'object' && !Array.isArray(detective.subscriptionPackage.badges)) {
+                    if (detective.subscriptionPackage.badges['pro']) badges.push("pro");
+                    if (detective.subscriptionPackage.badges['recommended']) badges.push("recommended");
+                  } else if (Array.isArray(detective.subscriptionPackage.badges)) {
+                    if (detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro')) badges.push("pro");
+                    if (detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended')) badges.push("recommended");
+                  }
+                }
+                if (detective?.isVerified) badges.push("verified");
+                
+                return (
+                  <ServiceCard
+                    key={service.id}
+                    id={service.id}
+                    detectiveId={detectiveId!}
+                    images={service.images}
+                    avatar={detective?.logo || ""}
+                    name={detective?.businessName || `${(detective as any)?.firstName || ''} ${(detective as any)?.lastName || ''}`}
+                    level={service.detective?.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1"}
+                    category={service.category}
+                    badges={badges}
+                    title={service.title}
+                    rating={service.avgRating}
+                    reviews={service.reviewCount}
+                    price={Number(service.basePrice)}
+                    offerPrice={service.offerPrice ? Number(service.offerPrice) : null}
+                    isUnclaimed={false}
+                    countryCode={service.detective?.country}
+                  />
+                );
+              })}
             </div>
           ) : (
             <div className="text-gray-600">No services found for this detective.</div>

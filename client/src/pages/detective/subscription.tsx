@@ -24,6 +24,22 @@ type PlanRecord = {
 };
 
 export default function DetectiveSubscription() {
+  /**
+   * SUBSCRIPTION SYSTEM
+   * 
+   * This page handles package upgrades using:
+   *   - packageId: Actual database ID of the subscription package
+   *   - billingCycle: "monthly" or "yearly"
+   * 
+   * Payment flow:
+   *   1. User selects package + billing cycle
+   *   2. Create order with packageId + billingCycle
+   *   3. Razorpay checkout
+   *   4. Verify payment (server sets subscriptionPackageId)
+   *   5. Detective profile updated with new package
+   * 
+   * LEGACY: subscriptionPlan field is for display only.
+   */
   const { toast } = useToast();
   const { data: currentData } = useCurrentDetective();
   const detective = currentData?.detective;
@@ -34,7 +50,8 @@ export default function DetectiveSubscription() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const currentPlan = detective?.subscriptionPlan || "free";
+  // Use subscriptionPackageId to detect current plan (not legacy subscriptionPlan)
+  const currentPackageId = detective?.subscriptionPackageId || null;
 
   useEffect(() => {
     (async () => {
@@ -49,21 +66,420 @@ export default function DetectiveSubscription() {
     })();
   }, []);
 
-  const handleSelectPlan = async (planId: string) => {
+  const handleSelectPlan = async (packageId: string, packageName: string) => {
     if (!detective) return;
-    if (planId === currentPlan) {
-      toast({ title: "Already on this plan", description: `You are already using the ${planId} plan.` });
+    
+    // Compare by packageId, not by plan name
+    if (packageId === currentPackageId) {
+      toast({ title: "Already on this plan", description: `You are already using the ${packageName} plan.` });
       return;
     }
 
     try {
-      setIsUpdating(planId);
-      await updateDetective.mutateAsync({ id: detective.id, data: { subscriptionPlan: planId as any } });
-      toast({ title: "Plan updated", description: `Your subscription has been changed to ${planId}.` });
+      setIsUpdating(packageId);
+      
+      // Determine billing cycle from toggle (default to monthly)
+      const billingCycle = isAnnual ? "yearly" : "monthly";
+      
+      // Find the selected plan to check its price
+      const selectedPlan = plans.find(p => p.id === packageId);
+      if (!selectedPlan) {
+        throw new Error("Plan not found");
+      }
+
+      const newPrice = billingCycle === "yearly" 
+        ? parseFloat(String(selectedPlan.yearlyPrice ?? 0))
+        : parseFloat(String(selectedPlan.monthlyPrice ?? 0));
+
+      // Get current package price for comparison
+      const currentPackage = detective.subscriptionPackageId 
+        ? plans.find(p => p.id === detective.subscriptionPackageId)
+        : null;
+      const currentPrice = currentPackage
+        ? (billingCycle === "yearly" 
+          ? parseFloat(String(currentPackage.yearlyPrice ?? 0))
+          : parseFloat(String(currentPackage.monthlyPrice ?? 0)))
+        : 0;
+
+      // Check if this is a downgrade (lower price)
+      const isDowngrade = newPrice < currentPrice;
+
+      // Show confirmation for downgrade
+      if (isDowngrade) {
+        console.log(`[subscription] Downgrade detected: ₹${currentPrice} -> ₹${newPrice}`);
+        
+        // Simple alert-style popup
+        const confirmed = window.confirm(
+          "Your downgrade will be applied after your current package expires."
+        );
+        
+        if (!confirmed) {
+          setIsUpdating(null);
+          return;
+        }
+
+        // Schedule downgrade
+        const downgradeRes = await fetch('/api/payments/schedule-downgrade', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ 
+            packageId: packageId,
+            billingCycle: billingCycle
+          }),
+        });
+
+        if (!downgradeRes.ok) {
+          const err = await downgradeRes.json();
+          throw new Error(err.error || 'Failed to schedule downgrade');
+        }
+
+        const downgradeData = await downgradeRes.json();
+        console.log('[subscription] Downgrade scheduled:', downgradeData);
+        
+        toast({ 
+          title: "Downgrade scheduled!", 
+          description: `You will be downgraded to the ${packageName} plan after your current package expires.`,
+        });
+
+        // Refresh profile
+        window.location.reload();
+        return;
+      }
+
+      // FREE PLAN: Direct upgrade without payment
+      if (newPrice === 0) {
+        console.log(`[subscription] FREE plan detected (${packageName}, price=₹0), upgrading directly`);
+        console.log('[subscription] Request details:', {
+          url: '/api/payments/upgrade-plan',
+          packageId,
+          billingCycle,
+          isAnnual
+        });
+        
+        const upgradeRes = await fetch('/api/payments/upgrade-plan', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ 
+            packageId: packageId,
+            billingCycle: billingCycle
+          }),
+        });
+        
+        console.log('[subscription] Upgrade response status:', upgradeRes.status, upgradeRes.statusText);
+        console.log('[subscription] Response headers:', Object.fromEntries(upgradeRes.headers.entries()));
+        
+        // Check if response is JSON
+        const contentType = upgradeRes.headers.get('content-type');
+        console.log('[subscription] Content-Type:', contentType);
+        
+        if (!contentType || !contentType.includes('application/json')) {
+          const rawText = await upgradeRes.text();
+          console.error('[subscription] Expected JSON but got:', contentType);
+          console.error('[subscription] Status:', upgradeRes.status);
+          console.error('[subscription] Raw response (first 1000 chars):', rawText.substring(0, 1000));
+          console.error('[subscription] Full URL:', upgradeRes.url);
+          console.error('[subscription] Request was:', { packageId, billingCycle });
+          throw new Error(`Server returned ${contentType || 'unknown content type'} instead of JSON. Status: ${upgradeRes.status}. Check browser console for full response.`);
+        }
+        
+        if (!upgradeRes.ok) {
+          const err = await upgradeRes.json();
+          console.error('[subscription] Error response:', err);
+          throw new Error(err.error || 'Failed to upgrade to free plan');
+        }
+        
+        const upgradeData = await upgradeRes.json();
+        console.log('[subscription] Free plan upgrade response:', upgradeData);
+        
+        toast({ 
+          title: "Plan updated!", 
+          description: `You have been upgraded to the ${packageName} plan.`,
+        });
+        
+        // Refresh profile
+        window.location.reload();
+        return;
+      }
+
+      // PAID PLAN: Initiate Razorpay payment
+      console.log(`[subscription] PAID plan detected (${packageName}, price=₹${newPrice}), initiating Razorpay`);
+      
+      // Step 1: Create payment order
+      const orderRes = await fetch('/api/payments/create-order', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          packageId: packageId,
+          billingCycle: billingCycle
+        }),
+      });
+      
+      if (!orderRes.ok) {
+        const err = await orderRes.json();
+        throw new Error(err.error || 'Failed to create payment order');
+      }
+      
+      const { orderId, amount, currency, key } = await orderRes.json();
+      
+      // Step 2: Open Razorpay checkout
+      const options = {
+        key,
+        amount,
+        currency,
+        name: 'AskDetective',
+        description: `${packageName.toUpperCase()} Plan Subscription (${billingCycle})`,
+        order_id: orderId,
+        handler: async (response: any) => {
+          try {
+            // Step 3: Verify payment
+            const verifyRes = await fetch('/api/payments/verify', {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              credentials: 'include',
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+            
+            if (!verifyRes.ok) {
+              const err = await verifyRes.json();
+              throw new Error(err.error || 'Payment verification failed');
+            }
+            
+            const verifyData = await verifyRes.json();
+            console.log('[subscription] Payment verified, response:', verifyData);
+            
+            // Verify response contains updated detective
+            if (!verifyData.detective) {
+              console.warn('[subscription] Verify response missing detective object, refetching...');
+            }
+            
+            toast({ 
+              title: "Payment successful!", 
+              description: `You are now on the ${packageName} plan with ${isAnnual ? 'yearly' : 'monthly'} billing.`,
+            });
+            
+            console.log('[subscription] Refetching detective profile after successful payment verification');
+            // Re-fetch detective data to ensure UI reflects new package and billing cycle
+            try {
+              const profileRes = await api.detectives.me();
+              if (profileRes?.detective) {
+                console.log('[subscription] Detective profile refetched:', {
+                  subscriptionPackageId: profileRes.detective.subscriptionPackageId,
+                  billingCycle: profileRes.detective.billingCycle,
+                  subscriptionActivatedAt: profileRes.detective.subscriptionActivatedAt,
+                });
+              }
+            } catch (refetchError) {
+              console.error('[subscription] Failed to refetch detective profile:', refetchError);
+              // Still proceed - will refresh on next page load
+            }
+            
+            // Refresh billing page data and show updated status
+            window.location.reload();
+          } catch (error: any) {
+            console.error('[subscription] Payment verification error:', error);
+            toast({ 
+              title: "Verification failed", 
+              description: error.message, 
+              variant: "destructive" 
+            });
+          } finally {
+            setIsUpdating(null);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setIsUpdating(null);
+            toast({ 
+              title: "Payment cancelled", 
+              description: "You cancelled the payment", 
+              variant: "destructive" 
+            });
+          }
+        },
+        theme: {
+          color: '#16a34a',
+        },
+      };
+      
+      // Load Razorpay script if not already loaded
+      if (!(window as any).Razorpay) {
+        const script = document.createElement('script');
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        script.async = true;
+        script.onload = () => {
+          const rzp = new (window as any).Razorpay(options);
+          rzp.open();
+        };
+        script.onerror = () => {
+          setIsUpdating(null);
+          toast({ 
+            title: "Payment gateway error", 
+            description: "Failed to load payment gateway", 
+            variant: "destructive" 
+          });
+        };
+        document.body.appendChild(script);
+      } else {
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      }
     } catch (error: any) {
-      toast({ title: "Update failed", description: error.message || "Unable to change plan", variant: "destructive" });
-    } finally {
       setIsUpdating(null);
+      toast({ 
+        title: "Payment failed", 
+        description: error.message || "Unable to initiate payment", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  const handleBlueTick = async (billingCycle: 'monthly' | 'yearly') => {
+    if (!detective || !detective.subscriptionPackageId) {
+      toast({ 
+        title: "Active subscription required", 
+        description: "You need an active subscription to add Blue Tick",
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    if (detective.hasBlueTick) {
+      toast({ title: "Already active", description: "You already have Blue Tick verification." });
+      return;
+    }
+
+    try {
+      setIsUpdating('blue-tick');
+      
+      // Step 1: Create Blue Tick payment order
+      const orderRes = await fetch('/api/payments/create-blue-tick-order', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ billingCycle }),
+      });
+      
+      if (!orderRes.ok) {
+        const err = await orderRes.json();
+        throw new Error(err.error || 'Failed to create payment order');
+      }
+      
+      const { orderId, amount, key } = await orderRes.json();
+      
+      // Step 2: Open Razorpay checkout
+      const options = {
+        key,
+        amount,
+        currency: 'INR',
+        name: 'AskDetective',
+        description: `Blue Tick Verification (${billingCycle})`,
+        order_id: orderId,
+        handler: async (response: any) => {
+          try {
+            // Step 3: Verify Blue Tick payment
+            const verifyRes = await fetch('/api/payments/verify-blue-tick', {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              credentials: 'include',
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+            
+            if (!verifyRes.ok) {
+              const err = await verifyRes.json();
+              throw new Error(err.error || 'Payment verification failed');
+            }
+            
+            toast({ 
+              title: "Blue Tick activated!", 
+              description: "Your verified badge is now live on your profile.",
+            });
+            
+            // Refresh profile
+            window.location.reload();
+          } catch (error: any) {
+            console.error('[blue-tick] Verification error:', error);
+            toast({ 
+              title: "Verification failed", 
+              description: error.message, 
+              variant: "destructive" 
+            });
+          } finally {
+            setIsUpdating(null);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setIsUpdating(null);
+            toast({ 
+              title: "Payment cancelled", 
+              description: "You cancelled the payment", 
+              variant: "destructive" 
+            });
+          }
+        },
+        theme: {
+          color: '#2563eb',
+        },
+      };
+      
+      // Load Razorpay script if not already loaded
+      if (!(window as any).Razorpay) {
+        const script = document.createElement('script');
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        script.async = true;
+        script.onload = () => {
+          const rzp = new (window as any).Razorpay(options);
+          rzp.open();
+        };
+        script.onerror = () => {
+          setIsUpdating(null);
+          toast({ 
+            title: "Payment gateway error", 
+            description: "Failed to load payment gateway", 
+            variant: "destructive" 
+          });
+        };
+        document.body.appendChild(script);
+      } else {
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      }
+    } catch (error: any) {
+      setIsUpdating(null);
+      toast({ 
+        title: "Payment failed", 
+        description: error.message || "Unable to initiate payment", 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -77,7 +493,12 @@ export default function DetectiveSubscription() {
           {detective && (
             <div className="flex items-center justify-center gap-2">
               <span className="text-sm text-gray-600">Current Plan:</span>
-              <Badge className="capitalize bg-gray-100 text-gray-700">{currentPlan}</Badge>
+              <Badge className="capitalize bg-gray-100 text-gray-700">
+                {detective.subscriptionPackageId 
+                  ? (plans.find(p => p.id === detective.subscriptionPackageId)?.name || 'unknown').toUpperCase()
+                  : 'FREE'
+                }
+              </Badge>
             </div>
           )}
           
@@ -101,8 +522,8 @@ export default function DetectiveSubscription() {
           ) : plans.filter(p => p.isActive !== false).map((plan) => {
             const price = isAnnual ? parseFloat(String(plan.yearlyPrice ?? 0)) : parseFloat(String(plan.monthlyPrice ?? 0));
             const period = isAnnual ? "/year" : "/month";
-            const planId = (plan.name || "").toLowerCase();
-            const isCurrent = planId === currentPlan;
+            const planId = plan.id; // Use package ID
+            const isCurrent = planId === currentPackageId; // Compare by packageId
             const isLoading = isUpdating === planId || updateDetective.isPending;
             const inactive = false;
             
@@ -142,7 +563,126 @@ export default function DetectiveSubscription() {
                 </CardHeader>
                 
                 <CardContent className="flex-1">
+                  {/* SERVICE LIMITS - TOP PRIORITY */}
+                  {plan.serviceLimit !== undefined && plan.serviceLimit !== null && (
+                    <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Service Limit</p>
+                          <p className="text-2xl font-bold text-blue-600 mt-1">
+                            {plan.serviceLimit === 999 ? '∞ Unlimited' : plan.serviceLimit}
+                          </p>
+                        </div>
+                        <Shield className="h-8 w-8 text-blue-400" />
+                      </div>
+                      <p className="text-xs text-blue-700 mt-2">Maximum services you can list</p>
+                    </div>
+                  )}
+                  
+                  {/* PLAN BADGES */}
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {plan.badges && typeof plan.badges === 'object' && (
+                      <>
+                        {/* Handle object format: { popular: true, pro: true } */}
+                        {typeof plan.badges === 'object' && !Array.isArray(plan.badges) && Object.entries(plan.badges).map(([key, value]) => {
+                          if (!value) return null;
+                          const badgeKey = key.toLowerCase();
+                          
+                          if (badgeKey === 'popular') {
+                            return (
+                              <Badge key={key} className="bg-green-100 text-green-700 border-green-300">
+                                <Crown className="h-3 w-3 mr-1" /> Popular
+                              </Badge>
+                            );
+                          }
+                          if (badgeKey === 'recommended') {
+                            return (
+                              <Badge key={key} className="bg-blue-100 text-blue-700 border-blue-300">
+                                <Star className="h-3 w-3 mr-1" /> Recommended
+                              </Badge>
+                            );
+                          }
+                          if (badgeKey === 'bestvalue' || badgeKey === 'best_value') {
+                            return (
+                              <Badge key={key} className="bg-purple-100 text-purple-700 border-purple-300">
+                                <Zap className="h-3 w-3 mr-1" /> Best Value
+                              </Badge>
+                            );
+                          }
+                          if (badgeKey === 'pro') {
+                            return (
+                              <Badge key={key} className="bg-yellow-100 text-yellow-700 border-yellow-300">
+                                <Zap className="h-3 w-3 mr-1" /> PRO
+                              </Badge>
+                            );
+                          }
+                          if (badgeKey === 'premium') {
+                            return (
+                              <Badge key={key} className="bg-indigo-100 text-indigo-700 border-indigo-300">
+                                <Crown className="h-3 w-3 mr-1" /> Premium
+                              </Badge>
+                            );
+                          }
+                          // Generic badge for unknown types
+                          return (
+                            <Badge key={key} className="bg-gray-100 text-gray-700 border-gray-300">
+                              {key.charAt(0).toUpperCase() + key.slice(1)}
+                            </Badge>
+                          );
+                        })}
+                        
+                        {/* Handle array format: ["popular", "pro"] */}
+                        {Array.isArray(plan.badges) && plan.badges.map((badge: string) => {
+                          const badgeKey = badge.toLowerCase();
+                          
+                          if (badgeKey === 'popular') {
+                            return (
+                              <Badge key={badge} className="bg-green-100 text-green-700 border-green-300">
+                                <Crown className="h-3 w-3 mr-1" /> Popular
+                              </Badge>
+                            );
+                          }
+                          if (badgeKey === 'recommended') {
+                            return (
+                              <Badge key={badge} className="bg-blue-100 text-blue-700 border-blue-300">
+                                <Star className="h-3 w-3 mr-1" /> Recommended
+                              </Badge>
+                            );
+                          }
+                          if (badgeKey === 'bestvalue' || badgeKey === 'best_value') {
+                            return (
+                              <Badge key={badge} className="bg-purple-100 text-purple-700 border-purple-300">
+                                <Zap className="h-3 w-3 mr-1" /> Best Value
+                              </Badge>
+                            );
+                          }
+                          if (badgeKey === 'pro') {
+                            return (
+                              <Badge key={badge} className="bg-yellow-100 text-yellow-700 border-yellow-300">
+                                <Zap className="h-3 w-3 mr-1" /> PRO
+                              </Badge>
+                            );
+                          }
+                          if (badgeKey === 'premium') {
+                            return (
+                              <Badge key={badge} className="bg-indigo-100 text-indigo-700 border-indigo-300">
+                                <Crown className="h-3 w-3 mr-1" /> Premium
+                              </Badge>
+                            );
+                          }
+                          return (
+                            <Badge key={badge} className="bg-gray-100 text-gray-700 border-gray-300">
+                              {badge.charAt(0).toUpperCase() + badge.slice(1)}
+                            </Badge>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
+                  
                   <div className="my-4 border-t border-gray-100"></div>
+                  
+                  {/* PLAN FEATURES */}
                   <ul className="space-y-4">
                     {Array.isArray(plan.features) && plan.features!.length > 0 ? (
                       plan.features!.map((feature: string) => (
@@ -166,7 +706,7 @@ export default function DetectiveSubscription() {
                 
                 <CardFooter className="pt-4">
                   <Button 
-                    onClick={() => handleSelectPlan(planId)}
+                    onClick={() => handleSelectPlan(plan.id, plan.name)}
                     className={`w-full h-12 text-base font-semibold shadow-sm ${
                       (plan as any).popular 
                         ? 'bg-green-600 hover:bg-green-700 text-white' 
@@ -204,8 +744,14 @@ export default function DetectiveSubscription() {
               </div>
             </CardHeader>
             <CardFooter>
-              <Button variant="outline" className="w-full border-blue-200 text-blue-700 hover:bg-blue-100" onClick={() => handleSelectPlan('blue-tick')}>
-                Add Blue Tick Verification
+              <Button 
+                variant="outline" 
+                className="w-full border-blue-200 text-blue-700 hover:bg-blue-100" 
+                onClick={() => handleBlueTick(isAnnual ? 'yearly' : 'monthly')}
+                disabled={!currentPackageId || isUpdating === 'blue-tick'}
+                title={!currentPackageId ? "You need an active subscription to add Blue Tick" : ""}
+              >
+                {detective?.hasBlueTick ? "Blue Tick Active" : "Add Blue Tick Verification"}
               </Button>
             </CardFooter>
           </Card>

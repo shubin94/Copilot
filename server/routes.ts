@@ -1,9 +1,11 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createHash } from "node:crypto";
+import crypto from "crypto";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.ts";
 import { sendClaimApprovedEmail } from "./email.ts";
 import bcrypt from "bcrypt";
+import Razorpay from "razorpay";
 import { 
   insertUserSchema, 
   insertDetectiveSchema, 
@@ -30,6 +32,11 @@ import { config } from "./config.ts";
 import pkg from "pg";
 const { Pool } = pkg;
 import { requirePolicy } from "./policy.ts";
+
+const razorpayClient = new Razorpay({
+  key_id: config.razorpay.keyId,
+  key_secret: config.razorpay.keySecret,
+});
 
 // Extend Express Session
 declare module "express-session" {
@@ -60,29 +67,200 @@ const requireRole = (...roles: string[]) => {
   };
 };
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  const SUBSCRIPTION_LIMITS: Record<string, number> = { free: 2, pro: 4, agency: 1000 };
+// Helper to calculate subscription expiry date
+function calculateExpiryDate(activatedAt: Date | null | undefined, billingCycle: string | null | undefined): Date | null {
+  if (!activatedAt || !billingCycle) return null;
+  const baseDate = new Date(activatedAt);
+  if (billingCycle === "yearly") {
+    baseDate.setFullYear(baseDate.getFullYear() + 1);
+  } else {
+    baseDate.setDate(baseDate.getDate() + 30);
+  }
+  return baseDate;
+}
+
+// Helper to apply pending downgrades if expiry has passed
+async function applyPendingDowngrades(detective: any): Promise<any> {
+  if (!detective.pendingPackageId || !detective.subscriptionExpiresAt) {
+    return detective;
+  }
   
-  function createPlanCache() {
-    const cache = new Map<string, any>();
-    return {
-      async get(planName: string) {
-        const key = (planName || "").toLowerCase();
-        if (cache.has(key)) return cache.get(key);
-        const plan = await storage.getSubscriptionPlanByName(key);
-        cache.set(key, plan);
-        return plan;
+  const now = new Date();
+  if (now >= new Date(detective.subscriptionExpiresAt)) {
+    console.log(`[downgrade] Applying pending downgrade for detective ${detective.id}`);
+    
+    const newExpiryDate = calculateExpiryDate(now, detective.pendingBillingCycle);
+    
+    await storage.updateDetectiveAdmin(detective.id, {
+      subscriptionPackageId: detective.pendingPackageId,
+      billingCycle: detective.pendingBillingCycle,
+      subscriptionActivatedAt: now,
+      subscriptionExpiresAt: newExpiryDate,
+      pendingPackageId: null,
+      pendingBillingCycle: null,
+    } as any);
+    
+    // Fetch updated detective
+    return await storage.getDetective(detective.id);
+  }
+  
+  return detective;
+}
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  /**
+   * SUBSCRIPTION SYSTEM - CRITICAL RULES
+   * 
+   * ALL paid feature checks MUST use:
+   *   - detectives.subscriptionPackageId (presence check)
+   *   - detectives.subscriptionPackage (joined package data)
+   * 
+   * NEVER use for access control:
+   *   - detectives.subscriptionPlan (LEGACY field, display only)
+   *   - Plan name string comparisons ("free", "pro", "agency")
+   * 
+   * SAFETY:
+   *   - Missing package → treat as FREE (restricted)
+   *   - Inactive package → treat as FREE (restricted)
+   *   - Error fetching package → treat as FREE (restricted)
+   *   - subscriptionPackageId = NULL → FREE user
+   * 
+   * Payment verification is the ONLY place that sets subscriptionPackageId.
+   */
+  
+  // Helper to get service limit from package ID
+  // SAFETY: Always checks subscriptionPackageId, never plan names
+  async function getServiceLimit(detective: any): Promise<number> {
+    // TODO: Remove in v3.0 - This is a legacy plan name check that will be removed
+    // Runtime assertion: Detect legacy plan name usage
+    if (!detective.subscriptionPackageId && detective.subscriptionPlan && detective.subscriptionPlan !== "free") {
+      console.warn("[SAFETY] Detective has subscriptionPlan set but no subscriptionPackageId. Treating as FREE.", {
+        detectiveId: detective.id,
+        legacyPlan: detective.subscriptionPlan
+      });
+    }
+    
+    // If detective has a paid package, use its limit
+    if (detective.subscriptionPackageId) {
+      if (detective.subscriptionPackage) {
+        // Use already-fetched package data
+        const pkg = detective.subscriptionPackage;
+        
+        // SAFETY: Check package is active
+        if (pkg.isActive === false) {
+          console.warn("[SAFETY] Detective has inactive package. Treating as FREE.", {
+            detectiveId: detective.id,
+            packageId: detective.subscriptionPackageId,
+            packageName: pkg.name
+          });
+          return 2; // Default free limit
+        }
+        
+        return Number(pkg.serviceLimit ?? 2);
       }
-    };
+      
+      // Fallback: fetch package by ID
+      try {
+        const pkg = await storage.getSubscriptionPlanById(detective.subscriptionPackageId);
+        if (!pkg) {
+          console.warn("[SAFETY] Package not found for subscriptionPackageId. Treating as FREE.", {
+            detectiveId: detective.id,
+            packageId: detective.subscriptionPackageId
+          });
+          return 2; // Default free limit
+        }
+        
+        if (pkg.isActive === false) {
+          console.warn("[SAFETY] Package is inactive. Treating as FREE.", {
+            detectiveId: detective.id,
+            packageId: detective.subscriptionPackageId,
+            packageName: pkg.name
+          });
+          return 2; // Default free limit
+        }
+        
+        return Number(pkg.serviceLimit ?? 2);
+      } catch (error) {
+        console.error("[SAFETY] Error fetching package. Treating as FREE.", {
+          detectiveId: detective.id,
+          packageId: detective.subscriptionPackageId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return 2; // Default free limit on error
+      }
+    }
+    
+    // Default to 2 for free/unknown packages
+    return 2;
   }
 
   async function maskDetectiveContactsPublic(d: any, planCache?: { get: (name: string) => Promise<any> }): Promise<any> {
     try {
-      const plan = planCache ? await planCache.get(String(d.subscriptionPlan || "")) : await storage.getSubscriptionPlanByName(String(d.subscriptionPlan || "").toLowerCase());
-      const features = Array.isArray(plan?.features) ? (plan!.features as string[]) : [];
-      const hasEmail = features.includes("contact_email");
-      const hasPhone = features.includes("contact_phone");
-      const hasWhatsApp = features.includes("contact_whatsapp");
+      // TODO: Remove in v3.0 - This is a legacy plan name check that will be removed
+      // Runtime assertion: Detect legacy plan name usage
+      if (!d.subscriptionPackageId && d.subscriptionPlan && d.subscriptionPlan !== "free") {
+        console.warn("[SAFETY] maskDetectiveContactsPublic: Detective has subscriptionPlan set but no subscriptionPackageId. Masking all contacts.", {
+          detectiveId: d.id,
+          legacyPlan: d.subscriptionPlan
+        });
+      }
+      
+      // Check if detective has a paid subscription package
+      // CRITICAL: This is the ONLY check for paid features
+      const hasPaidPackage = !!d.subscriptionPackageId;
+      
+      // If detective has a paid package, check its features
+      let hasEmail = false;
+      let hasPhone = false;
+      let hasWhatsApp = false;
+      
+      if (hasPaidPackage && d.subscriptionPackage) {
+        // SAFETY: Check package is active before granting features
+        if (d.subscriptionPackage.isActive === false) {
+          console.warn("[SAFETY] Detective has inactive package. Masking all contacts.", {
+            detectiveId: d.id,
+            packageId: d.subscriptionPackageId,
+            packageName: d.subscriptionPackage.name
+          });
+          // Fall through to mask all contacts
+        } else {
+          // Use the already-fetched package data
+          const features = Array.isArray(d.subscriptionPackage?.features) ? (d.subscriptionPackage.features as string[]) : [];
+          hasEmail = features.includes("contact_email");
+          hasPhone = features.includes("contact_phone");
+          hasWhatsApp = features.includes("contact_whatsapp");
+        }
+      } else if (hasPaidPackage && !d.subscriptionPackage) {
+        // Fallback: fetch package by ID if not already loaded
+        try {
+          const pkg = await storage.getSubscriptionPlanById(d.subscriptionPackageId);
+          if (!pkg) {
+            console.warn("[SAFETY] Package not found for subscriptionPackageId. Masking all contacts.", {
+              detectiveId: d.id,
+              packageId: d.subscriptionPackageId
+            });
+          } else if (pkg.isActive === false) {
+            console.warn("[SAFETY] Package is inactive. Masking all contacts.", {
+              detectiveId: d.id,
+              packageId: d.subscriptionPackageId,
+              packageName: pkg.name
+            });
+          } else {
+            const features = Array.isArray(pkg.features) ? (pkg.features as string[]) : [];
+            hasEmail = features.includes("contact_email");
+            hasPhone = features.includes("contact_phone");
+            hasWhatsApp = features.includes("contact_whatsapp");
+          }
+        } catch (error) {
+          console.error("[SAFETY] Error fetching package for contact masking. Masking all contacts.", {
+            detectiveId: d.id,
+            packageId: d.subscriptionPackageId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+      
+      // Mask contacts based on permissions
       const copy: any = { ...d };
       if (!hasEmail) {
         copy.contactEmail = undefined;
@@ -95,7 +273,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         copy.whatsapp = undefined;
       }
       return copy;
-    } catch {
+    } catch (error) {
+      console.error("[SAFETY] Unexpected error in maskDetectiveContactsPublic. Masking all contacts.", {
+        detectiveId: d?.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      // On error, mask all contacts for safety
       const copy: any = { ...d };
       copy.contactEmail = undefined;
       copy.email = undefined;
@@ -121,21 +304,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isActive: true,
       });
       console.log("[seed] Created sample subscription plan: pro");
-    }
-    const hasInactive = Array.isArray(existingPlans) && existingPlans.some(p => p.isActive === false);
-    if (!hasInactive) {
-      await storage.createSubscriptionPlan({
-        name: "trial-inactive",
-        displayName: "Trial Inactive",
-        monthlyPrice: "0",
-        yearlyPrice: "0",
-        description: "Sample inactive plan for validation.",
-        features: [],
-        badges: {},
-        serviceLimit: 1,
-        isActive: false,
-      });
-      console.log("[seed] Created sample inactive subscription plan: trial-inactive");
     }
   } catch (e) {
     console.error("[seed] Failed to seed subscription plan:", e);
@@ -172,29 +340,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/dev/create-inactive-plan", async (_req: Request, res: Response) => {
-    try {
-      const current = await storage.getAllSubscriptionPlans(false);
-      const hasInactive = Array.isArray(current) && current.some(p => p.isActive === false);
-      if (hasInactive) {
-        return res.json({ created: false, message: "Inactive plan already exists" });
-      }
-      const plan = await storage.createSubscriptionPlan({
-        name: "trial-inactive",
-        displayName: "Trial Inactive",
-        monthlyPrice: "0",
-        yearlyPrice: "0",
-        description: "Sample inactive plan for validation.",
-        features: [],
-        badges: {},
-        serviceLimit: 1,
-        isActive: false,
-      });
-      res.json({ created: true, plan });
-    } catch (e) {
-      res.status(400).json({ error: "Failed to create inactive plan" });
-    }
-  });
+  // Dev endpoint removed - Trial Inactive plan cannot be auto-recreated
+
   // Login
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
@@ -375,8 +522,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      const planCache = createPlanCache();
-
       const detectives = await storage.searchDetectives({
         country: country as string,
         status: ((status as string) || "active") as string,
@@ -385,7 +530,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }, parseInt(limit), parseInt(offset));
 
       const maskedDetectives = await Promise.all(detectives.map(async (d: any) => {
-        const masked = await maskDetectiveContactsPublic(d, planCache);
+        const masked = await maskDetectiveContactsPublic(d);
         // Explicitly null sensitive fields we never want public
         masked.userId = undefined;
         masked.email = masked.email; // preserved only if allowed by mask
@@ -484,27 +629,629 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/subscription-plans", async (req: Request, res: Response) => {
     try {
       const includeInactive = (req.query.all === '1' || req.query.includeInactive === '1' || req.query.activeOnly === '0');
-      if (req.query.seed === 'inactive') {
-        const current = await storage.getAllSubscriptionPlans(false);
-        const hasInactive = Array.isArray(current) && current.some(p => p.isActive === false);
-        if (!hasInactive) {
-          await storage.createSubscriptionPlan({
-            name: "trial-inactive",
-            displayName: "Trial Inactive",
-            monthlyPrice: "0",
-            yearlyPrice: "0",
-            description: "Sample inactive plan for validation.",
-            features: [],
-            badges: {},
-            serviceLimit: 1,
-            isActive: false,
-          });
-        }
-      }
       const plans = await storage.getAllSubscriptionPlans(!includeInactive);
       res.json({ plans });
     } catch {
       res.json({ plans: [] });
+    }
+  });
+
+  // ============== PAYMENT (RAZORPAY) ROUTES ==============
+
+  // Upgrade to free or paid plan (price === 0 goes directly, price > 0 requires payment)
+  app.post("/api/payments/upgrade-plan", requireRole("detective"), async (req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+      const detective = await storage.getDetectiveByUserId(req.session.userId!);
+      if (!detective) {
+        console.error("[upgrade-plan] Detective not found for userId:", req.session.userId);
+        return res.status(400).json({ error: "Detective profile not found" });
+      }
+
+      // Validate request body
+      const { packageId, billingCycle } = z.object({ 
+        packageId: z.string().min(1, "Package ID is required"),
+        billingCycle: z.enum(["monthly", "yearly"], { errorMap: () => ({ message: "Billing cycle must be 'monthly' or 'yearly'" }) })
+      }).parse(req.body);
+      
+      console.log(`[upgrade-plan] Fetching package ID: ${packageId}`);
+      
+      // Fetch package from database
+      const packageRecord = await storage.getSubscriptionPlanById(packageId);
+      if (!packageRecord) {
+        console.error(`[upgrade-plan] Package not found: ${packageId}`);
+        return res.status(400).json({ error: "Package not found" });
+      }
+      
+      // Validate package is active
+      if (packageRecord.isActive === false) {
+        console.error(`[upgrade-plan] Package is inactive: ${packageId}`);
+        return res.status(400).json({ error: "Package is not active" });
+      }
+
+      const price = billingCycle === "yearly" 
+        ? parseFloat(String(packageRecord.yearlyPrice ?? 0))
+        : parseFloat(String(packageRecord.monthlyPrice ?? 0));
+
+      // FREE PLAN HANDLING: Price === 0 → Direct activation
+      if (price === 0) {
+        console.log(`[upgrade-plan] FREE plan detected (price=${price}), activating directly`);
+        
+        await storage.updateDetectiveAdmin(detective.id, {
+          subscriptionPackageId: packageId,
+          billingCycle: billingCycle,
+          subscriptionActivatedAt: new Date(),
+        } as any);
+
+        const updatedDetective = await storage.getDetective(detective.id);
+        console.log(`[upgrade-plan] Detective upgraded to FREE plan ${packageId}`);
+        
+        return res.json({ 
+          success: true, 
+          packageId: packageId,
+          billingCycle: billingCycle,
+          isFree: true,
+          detective: updatedDetective
+        });
+      }
+
+      // PAID PLAN HANDLING: Requires payment gateway
+      console.log(`[upgrade-plan] PAID plan detected (price=${price}), returning order creation instructions`);
+      return res.status(400).json({ 
+        error: "Paid plans must use /api/payments/create-order endpoint",
+        message: "Use the standard payment flow for paid subscriptions"
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("[upgrade-plan] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[upgrade-plan] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to upgrade plan" });
+    }
+  });
+
+  // Schedule a downgrade to apply after current package expires
+  app.post("/api/payments/schedule-downgrade", requireRole("detective"), async (req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+      const detective = await storage.getDetectiveByUserId(req.session.userId!);
+      if (!detective) {
+        return res.status(400).json({ error: "Detective profile not found" });
+      }
+
+      // Validate request body
+      const { packageId, billingCycle } = z.object({ 
+        packageId: z.string().min(1, "Package ID is required"),
+        billingCycle: z.enum(["monthly", "yearly"])
+      }).parse(req.body);
+      
+      // Fetch current and new packages
+      const currentPackage = detective.subscriptionPackageId 
+        ? await storage.getSubscriptionPlanById(detective.subscriptionPackageId)
+        : null;
+      const newPackage = await storage.getSubscriptionPlanById(packageId);
+      
+      if (!newPackage) {
+        return res.status(400).json({ error: "Package not found" });
+      }
+      
+      if (newPackage.isActive === false) {
+        return res.status(400).json({ error: "Package is not active" });
+      }
+
+      // Check if this is actually a downgrade
+      const currentPrice = currentPackage 
+        ? (billingCycle === "yearly" ? parseFloat(String(currentPackage.yearlyPrice ?? 0)) : parseFloat(String(currentPackage.monthlyPrice ?? 0)))
+        : 0;
+      const newPrice = billingCycle === "yearly" 
+        ? parseFloat(String(newPackage.yearlyPrice ?? 0))
+        : parseFloat(String(newPackage.monthlyPrice ?? 0));
+
+      console.log(`[schedule-downgrade] Detective ${detective.id}: ${currentPrice} -> ${newPrice}`);
+
+      // Calculate expiry date based on current subscription
+      let expiryDate = detective.subscriptionExpiresAt 
+        ? new Date(detective.subscriptionExpiresAt)
+        : calculateExpiryDate(detective.subscriptionActivatedAt, detective.billingCycle);
+
+      if (!expiryDate) {
+        // No active subscription, apply immediately
+        const newExpiryDate = calculateExpiryDate(new Date(), billingCycle);
+        await storage.updateDetectiveAdmin(detective.id, {
+          subscriptionPackageId: packageId,
+          billingCycle: billingCycle,
+          subscriptionActivatedAt: new Date(),
+          subscriptionExpiresAt: newExpiryDate,
+          pendingPackageId: null,
+          pendingBillingCycle: null,
+        } as any);
+        
+        const updated = await storage.getDetective(detective.id);
+        return res.json({ 
+          scheduled: false,
+          applied: true,
+          packageId,
+          billingCycle,
+          expiresAt: newExpiryDate
+        });
+      }
+
+      // Schedule downgrade (store pending fields)
+      await storage.updateDetectiveAdmin(detective.id, {
+        pendingPackageId: packageId,
+        pendingBillingCycle: billingCycle,
+        subscriptionExpiresAt: expiryDate,
+      } as any);
+
+      console.log(`[schedule-downgrade] Scheduled downgrade for detective ${detective.id} at ${expiryDate}`);
+      
+      return res.json({ 
+        scheduled: true,
+        effectiveAt: expiryDate,
+        packageId,
+        billingCycle
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("[schedule-downgrade] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[schedule-downgrade] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to schedule downgrade" });
+    }
+  });
+
+  // ============== PAYMENT (RAZORPAY) ROUTES ==============
+
+  app.post("/api/payments/create-order", requireRole("detective"), async (req: Request, res: Response) => {
+    try {
+      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+        console.error("[create-order] Razorpay not configured");
+        return res.status(500).json({ error: "Payments not configured" });
+      }
+
+      // Reject requests with old field names
+      if (req.body.plan || req.body.subscriptionPlan) {
+        console.error("[create-order] Rejected: Request contains deprecated field (plan or subscriptionPlan)");
+        return res.status(400).json({ error: "Invalid request. Use packageId and billingCycle instead." });
+      }
+
+      const detective = await storage.getDetectiveByUserId(req.session.userId!);
+      if (!detective) {
+        console.error("[create-order] Detective not found for userId:", req.session.userId);
+        return res.status(400).json({ error: "Detective profile not found" });
+      }
+
+      // Validate request body
+      const { packageId, billingCycle } = z.object({ 
+        packageId: z.string().min(1, "Package ID is required"),
+        billingCycle: z.enum(["monthly", "yearly"], { errorMap: () => ({ message: "Billing cycle must be 'monthly' or 'yearly'" }) })
+      }).parse(req.body);
+      
+      console.log(`[create-order] Fetching package ID: ${packageId}, billing: ${billingCycle}`);
+      
+      // Fetch package from database
+      const packageRecord = await storage.getSubscriptionPlanById(packageId);
+      if (!packageRecord) {
+        console.error(`[create-order] Package not found: ${packageId}`);
+        return res.status(400).json({ error: "Package not found" });
+      }
+      
+      // Validate package is active
+      if (packageRecord.isActive === false) {
+        console.error(`[create-order] Package is inactive: ${packageId}`);
+        return res.status(400).json({ error: "Package is not active" });
+      }
+
+      // Select price based on billing cycle
+      const priceString = billingCycle === "monthly" ? packageRecord.monthlyPrice : packageRecord.yearlyPrice;
+      const amount = Number(priceString || 0);
+      
+      // Validate price
+      if (!amount || Number.isNaN(amount) || amount <= 0) {
+        console.error(`[create-order] Invalid ${billingCycle} price for package ${packageId}: ${priceString}`);
+        return res.status(400).json({ error: `Package has no valid ${billingCycle} price` });
+      }
+
+      const amountPaise = Math.round(amount * 100);
+      console.log(`[create-order] Creating Razorpay order for ₹${amount} (${amountPaise} paise) - ${billingCycle}`);
+      
+      // Create Razorpay order (receipt max 40 chars)
+      const order = await razorpayClient.orders.create({
+        amount: amountPaise,
+        currency: "INR",
+        receipt: `sub_${Date.now()}`.substring(0, 40),
+        notes: { 
+          packageId, 
+          packageName: packageRecord.name,
+          billingCycle,
+          detectiveId: detective.id, 
+          userId: req.session.userId 
+        },
+      });
+
+      console.log(`[create-order] Razorpay order created: ${order.id}`);
+
+      // Save payment order to database
+      await storage.createPaymentOrder({
+        userId: req.session.userId!,
+        detectiveId: detective.id,
+        plan: packageRecord.name as any,
+        packageId: packageId,
+        billingCycle: billingCycle,
+        amount: String(amount),
+        currency: "INR",
+        razorpayOrderId: order.id,
+        status: "created",
+      } as any);
+
+      console.log(`[create-order] Payment order saved to DB with billing cycle: ${billingCycle}`);
+      
+      // Return response
+      res.json({ 
+        orderId: order.id, 
+        amount: amountPaise,
+        key: config.razorpay.keyId 
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("[create-order] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[create-order] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to create payment order" });
+    }
+  });
+
+  app.post("/api/payments/verify", requireRole("detective"), async (req: Request, res: Response) => {
+    console.log("[verify] === PAYMENT VERIFICATION START ===");
+    try {
+      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+        console.error("[verify] Razorpay not configured");
+        return res.status(500).json({ error: "Payments not configured" });
+      }
+
+      // Validate request body
+      const body = z.object({
+        razorpay_payment_id: z.string().min(1, "Payment ID is required"),
+        razorpay_order_id: z.string().min(1, "Order ID is required"),
+        razorpay_signature: z.string().min(1, "Signature is required"),
+      }).parse(req.body);
+
+      console.log(`[verify] Verifying payment for order: ${body.razorpay_order_id}`);
+
+      // Fetch payment order from database
+      const paymentOrder = await storage.getPaymentOrderByRazorpayOrderId(body.razorpay_order_id);
+      if (!paymentOrder) {
+        console.error(`[verify] Payment order not found: ${body.razorpay_order_id}`);
+        return res.status(404).json({ error: "Payment order not found" });
+      }
+
+      // Verify ownership
+      if (paymentOrder.userId !== req.session.userId) {
+        console.error(`[verify] Forbidden: User ${req.session.userId} does not own order ${body.razorpay_order_id}`);
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      // Verify Razorpay signature
+      const expected = crypto
+        .createHmac("sha256", config.razorpay.keySecret)
+        .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
+        .digest("hex");
+
+      if (expected !== body.razorpay_signature) {
+        console.error(`[verify] Invalid signature for order ${body.razorpay_order_id}`);
+        return res.status(400).json({ error: "Invalid signature" });
+      }
+
+      console.log(`[verify] Signature verified for order ${body.razorpay_order_id}`);
+
+      // Read packageId and billingCycle from payment_order
+      const packageId = (paymentOrder as any).packageId;
+      const billingCycle = (paymentOrder as any).billingCycle;
+
+      if (!packageId) {
+        console.error(`[verify] Payment order missing packageId: ${body.razorpay_order_id}`);
+        return res.status(400).json({ error: "Payment order missing package information" });
+      }
+
+      if (!billingCycle || (billingCycle !== "monthly" && billingCycle !== "yearly")) {
+        console.error(`[verify] Invalid billing cycle in payment order: ${billingCycle}`);
+        return res.status(400).json({ error: "Invalid billing cycle in payment order" });
+      }
+
+      console.log(`[verify] Upgrading detective to package ${packageId} with ${billingCycle} billing`);
+
+      // Mark payment order as paid
+      await storage.markPaymentOrderPaid(paymentOrder.id, {
+        paymentId: body.razorpay_payment_id,
+        signature: body.razorpay_signature,
+      });
+
+      console.log(`[verify] Payment order marked as paid`);
+
+      // SAFETY: Verify package exists and is active before upgrading
+      const packageToActivate = await storage.getSubscriptionPlanById(packageId);
+      if (!packageToActivate) {
+        console.error(`[verify] CRITICAL: Package not found during activation: ${packageId}`);
+        return res.status(400).json({ error: "Package no longer exists" });
+      }
+      if (packageToActivate.isActive === false) {
+        console.error(`[verify] CRITICAL: Attempting to activate inactive package: ${packageId}`);
+        return res.status(400).json({ error: "Package is no longer active" });
+      }
+
+      console.log(`[verify] Activating package ${packageId} for detective ${paymentOrder.detectiveId}`);
+
+      // Update detective with new subscription (subscriptionPackageId is the ONLY field to track subscriptions)
+      await storage.updateDetectiveAdmin(paymentOrder.detectiveId, {
+        subscriptionPackageId: packageId,
+        billingCycle: billingCycle,
+        subscriptionActivatedAt: new Date(),
+        // Note: subscriptionPlan and planActivatedAt are LEGACY fields - not updated during payment
+      } as any);
+
+      console.log(`[verify] Detective subscription fields updated`);
+
+      // Fetch updated detective to return to client
+      const updatedDetective = await storage.getDetective(paymentOrder.detectiveId);
+      
+      if (!updatedDetective) {
+        console.error(`[verify] Could not fetch updated detective: ${paymentOrder.detectiveId}`);
+        return res.status(500).json({ error: "Failed to fetch updated detective" });
+      }
+
+      console.log(`[verify] Successfully updated detective: subscriptionPackageId=${updatedDetective.subscriptionPackageId}, billingCycle=${updatedDetective.billingCycle}, activatedAt=${updatedDetective.subscriptionActivatedAt}`);
+      console.log("[verify] === PAYMENT VERIFICATION COMPLETE ===");
+
+      res.json({ 
+        success: true, 
+        packageId: packageId,
+        billingCycle: billingCycle,
+        detective: updatedDetective
+      });
+    } catch (error) {
+      console.log("[verify] === PAYMENT VERIFICATION FAILED ===");
+      if (error instanceof z.ZodError) {
+        console.error("[verify] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[verify] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Verification failed" });
+    }
+  });
+
+  // Get payment history for current detective
+  app.get("/api/payments/history", requireRole("detective"), async (req: Request, res: Response) => {
+    try {
+      const detective = await storage.getDetectiveByUserId(req.session.userId!);
+      if (!detective) {
+        return res.status(400).json({ error: "Detective profile not found" });
+      }
+
+      const paymentHistory = await storage.getPaymentOrdersByDetectiveId(detective.id);
+      
+      // Return payment history with minimal enrichment
+      const formattedHistory = paymentHistory.map((order: any) => ({
+        id: order.id,
+        packageName: order.plan || "Unknown",
+        billingCycle: order.billingCycle || "monthly",
+        amount: String(order.amount),
+        currency: order.currency || "INR",
+        status: order.status,
+        razorpayOrderId: order.razorpayOrderId,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+      }));
+
+      res.json({ paymentHistory: formattedHistory });
+    } catch (error) {
+      console.error("[payments/history] Error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch payment history" });
+    }
+  });
+
+  // Admin endpoint to manually sync/recover payment subscriptions
+  // Use this if verify endpoint fails but payment is marked as paid
+  app.post("/api/admin/payments/sync-detective", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { detectiveId } = req.body;
+      
+      if (!detectiveId) {
+        return res.status(400).json({ error: "detectiveId is required" });
+      }
+
+      console.log(`[admin-sync] Starting payment sync recovery for detective: ${detectiveId}`);
+
+      // Fetch detective to check current state
+      const detective = await storage.getDetective(detectiveId);
+      if (!detective) {
+        console.error(`[admin-sync] Detective not found: ${detectiveId}`);
+        return res.status(404).json({ error: "Detective not found" });
+      }
+
+      // Check if already synced
+      if (detective.subscriptionPackageId) {
+        console.log(`[admin-sync] Detective already has package: ${detective.subscriptionPackageId}`);
+        return res.json({
+          success: true,
+          message: "Detective already synced",
+          detective,
+          alreadySynced: true,
+        });
+      }
+
+      console.log(`[admin-sync] Detective not synced, looking for paid payment orders...`);
+
+      // Get all payment orders for this detective to find paid ones
+      // We'll use a workaround by fetching through the detective profile if available
+      // For now, we need to access the database directly or add a method to storage
+      // Using storage pattern: we check recent applications or orders
+      
+      // Alternative: create a simple getPaymentOrdersByDetective method
+      // For now, we'll inform the admin to provide order details or check database
+      return res.json({
+        success: false,
+        message: "Please use the diagnostic script to find paid payment orders, then provide detectiveId and paymentOrderId",
+        detective: {
+          id: detective.id,
+          businessName: detective.businessName,
+          currentPackageId: detective.subscriptionPackageId,
+          billingCycle: detective.billingCycle,
+        },
+      });
+    } catch (error) {
+      console.error("[admin-sync] Error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Sync failed" });
+    }
+  });
+
+  // ============== BLUE TICK ADD-ON PAYMENT ROUTES ==============
+  
+  app.post("/api/payments/create-blue-tick-order", requireRole("detective"), async (req: Request, res: Response) => {
+    try {
+      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+        console.error("[blue-tick-order] Razorpay not configured");
+        return res.status(500).json({ error: "Payments not configured" });
+      }
+
+      const detective = await storage.getDetectiveByUserId(req.session.userId!);
+      if (!detective) {
+        console.error("[blue-tick-order] Detective not found for userId:", req.session.userId);
+        return res.status(400).json({ error: "Detective profile not found" });
+      }
+
+      // REQUIREMENT: Detective must have active package subscription
+      if (!detective.subscriptionPackageId) {
+        console.error("[blue-tick-order] Detective has no active package subscription");
+        return res.status(400).json({ error: "You must have an active subscription to add Blue Tick" });
+      }
+
+      // Validate request body
+      const { billingCycle } = z.object({ 
+        billingCycle: z.enum(["monthly", "yearly"], { errorMap: () => ({ message: "Billing cycle must be 'monthly' or 'yearly'" }) })
+      }).parse(req.body);
+      
+      console.log(`[blue-tick-order] Creating Blue Tick order for detective: ${detective.id}, cycle: ${billingCycle}`);
+
+      // Blue Tick pricing: $15/month or $150/year
+      const amount = billingCycle === "yearly" ? 150 : 15;
+      const amountPaise = Math.round(amount * 100);
+      
+      // Create Razorpay order
+      const order = await razorpayClient.orders.create({
+        amount: amountPaise,
+        currency: "INR",
+        receipt: `bluetick_${Date.now()}`.substring(0, 40),
+        notes: { 
+          type: "blue_tick_addon",
+          billingCycle,
+          detectiveId: detective.id, 
+          userId: req.session.userId 
+        },
+      });
+
+      console.log(`[blue-tick-order] Razorpay order created: ${order.id}`);
+
+      // Save to a tracking table or note field
+      // For now, we'll just return the order to client
+      
+      res.json({ 
+        orderId: order.id, 
+        amount: amountPaise,
+        key: config.razorpay.keyId,
+        type: "blue_tick"
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("[blue-tick-order] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[blue-tick-order] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to create payment order" });
+    }
+  });
+
+  app.post("/api/payments/verify-blue-tick", requireRole("detective"), async (req: Request, res: Response) => {
+    console.log("[verify-blue-tick] === BLUE TICK VERIFICATION START ===");
+    try {
+      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+        console.error("[verify-blue-tick] Razorpay not configured");
+        return res.status(500).json({ error: "Payments not configured" });
+      }
+
+      // Validate request body
+      const body = z.object({
+        razorpay_payment_id: z.string().min(1, "Payment ID is required"),
+        razorpay_order_id: z.string().min(1, "Order ID is required"),
+        razorpay_signature: z.string().min(1, "Signature is required"),
+      }).parse(req.body);
+
+      console.log(`[verify-blue-tick] Verifying payment for order: ${body.razorpay_order_id}`);
+
+      // Verify Razorpay signature
+      const expected = crypto
+        .createHmac("sha256", config.razorpay.keySecret)
+        .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
+        .digest("hex");
+
+      if (expected !== body.razorpay_signature) {
+        console.error(`[verify-blue-tick] Invalid signature for order ${body.razorpay_order_id}`);
+        return res.status(400).json({ error: "Invalid signature" });
+      }
+
+      console.log(`[verify-blue-tick] Signature verified for order ${body.razorpay_order_id}`);
+
+      // Get detective and verify ownership
+      const detective = await storage.getDetectiveByUserId(req.session.userId!);
+      if (!detective) {
+        console.error(`[verify-blue-tick] Detective not found for user ${req.session.userId}`);
+        return res.status(400).json({ error: "Detective not found" });
+      }
+
+      // VERIFY: Detective still has active package subscription
+      if (!detective.subscriptionPackageId) {
+        console.error(`[verify-blue-tick] CRITICAL: Detective no longer has active subscription: ${detective.id}`);
+        return res.status(400).json({ error: "Active subscription required" });
+      }
+
+      console.log(`[verify-blue-tick] Activating Blue Tick for detective ${detective.id}`);
+
+      // Update detective with Blue Tick
+      await storage.updateDetectiveAdmin(detective.id, {
+        hasBlueTick: true,
+        blueTickActivatedAt: new Date(),
+      } as any);
+
+      console.log(`[verify-blue-tick] Blue Tick activated`);
+
+      // Fetch updated detective
+      const updatedDetective = await storage.getDetective(detective.id);
+      
+      if (!updatedDetective) {
+        console.error(`[verify-blue-tick] Could not fetch updated detective: ${detective.id}`);
+        return res.status(500).json({ error: "Failed to fetch updated detective" });
+      }
+
+      console.log(`[verify-blue-tick] Successfully activated Blue Tick for detective: hasBlueTick=${updatedDetective.hasBlueTick}`);
+      console.log("[verify-blue-tick] === BLUE TICK VERIFICATION COMPLETE ===");
+
+      res.json({ 
+        success: true, 
+        hasBlueTick: true,
+        detective: updatedDetective
+      });
+    } catch (error) {
+      console.log("[verify-blue-tick] === BLUE TICK VERIFICATION FAILED ===");
+      if (error instanceof z.ZodError) {
+        console.error("[verify-blue-tick] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[verify-blue-tick] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Verification failed" });
     }
   });
   
@@ -606,10 +1353,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current logged-in detective's profile (requires detective role)
   app.get("/api/detectives/me", requireAuth, async (req: Request, res: Response) => {
     try {
-      const detective = await storage.getDetectiveByUserId(req.session.userId!);
+      let detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
         return res.status(404).json({ error: "Detective profile not found" });
       }
+      
+      // Apply pending downgrades if expiry has passed
+      detective = await applyPendingDowngrades(detective);
+      
       res.json({ detective });
     } catch (error) {
       console.error("Get current detective error:", error);
@@ -806,10 +1557,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         whatsapp: z.string().optional(),
         languages: z.array(z.string()).optional(),
         status: z.enum(["pending", "active", "suspended", "inactive"]).optional(),
-        subscriptionPlan: z.enum(["free", "pro", "agency"]).optional(),
         isVerified: z.boolean().optional(),
         country: z.string().optional(),
         level: z.enum(["level1", "level2", "level3", "pro"]).optional(),
+        planActivatedAt: z.string().datetime().optional(),
+        planExpiresAt: z.string().datetime().optional(),
       }).parse(req.body);
 
       const updatedDetective = await storage.updateDetectiveAdmin(req.params.id, allowedData);
@@ -898,8 +1650,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      const planCache = createPlanCache();
-
       const services = await storage.searchServices({
         category: category as string,
         country: country as string,
@@ -911,7 +1661,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const masked = await Promise.all(services.map(async (s: any) => ({ 
         ...s, 
-        detective: await maskDetectiveContactsPublic(s.detective, planCache) 
+        detective: await maskDetectiveContactsPublic(s.detective) 
       })));
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       sendCachedJson(req, res, { services: masked });
@@ -1166,10 +1916,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const currentServices = await storage.getServicesByDetective(detective.id);
-      const plan = await storage.getSubscriptionPlanByName(String(detective.subscriptionPlan || "").toLowerCase());
-      const maxAllowed = Number(plan?.serviceLimit || 0);
+      const maxAllowed = await getServiceLimit(detective);
       if (currentServices.length >= maxAllowed) {
-        return res.status(400).json({ error: `Plan limit reached. Max ${maxAllowed} services allowed for ${detective.subscriptionPlan}.` });
+        return res.status(400).json({ error: `Limit reached. Max ${maxAllowed} services allowed.` });
       }
 
       const validatedData = insertServiceSchema.parse({
@@ -1216,13 +1965,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const drafts = Array.isArray(body.services) ? body.services : [];
       if (drafts.length === 0) return res.status(400).json({ error: "No services provided" });
 
-      const maxAllowed = SUBSCRIPTION_LIMITS[detective.subscriptionPlan] ?? SUBSCRIPTION_LIMITS.free;
+      const maxAllowed = await getServiceLimit(detective);
       const limits = { min: 1, max: maxAllowed };
       if (drafts.length < limits.min) {
-        return res.status(400).json({ error: `Must submit at least ${limits.min} services for ${detective.subscriptionPlan} plan` });
+        return res.status(400).json({ error: `Must submit at least ${limits.min} services` });
       }
       if (drafts.length > limits.max) {
-        return res.status(400).json({ error: `You can submit up to ${limits.max} services for ${detective.subscriptionPlan} plan` });
+        return res.status(400).json({ error: `You can submit up to ${limits.max} services. Upgrade your package for more.` });
       }
 
       // Validate categories against active list
@@ -1451,6 +2200,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Cannot update this order" });
       }
 
+      if ("status" in req.body && req.session.userRole !== "admin") {
+        return res.status(403).json({ error: "Status changes are admin-only" });
+      }
+
       // Validate request body - only allow whitelisted fields
       const validatedData = updateOrderSchema.parse(req.body);
       // Type assertion is safe because storage.updateOrder handles string-to-Date conversion internally
@@ -1660,7 +2413,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               bio: application.about || "Professional detective ready to help with your case.",
               logo: application.logo || undefined,
               defaultServiceBanner: (application as any).banner || undefined,
-              subscriptionPlan: "free",
+              subscriptionPlan: "free", // TODO: Remove in v3.0 - legacy field only
+              subscriptionPackageId: null, // Explicitly NULL - user starts with FREE tier
               status: (await requirePolicy<{ value: string }>("post_approval_status"))?.value || "active",
               isVerified: true,
               isClaimed: isAdminCreated ? false : true,
