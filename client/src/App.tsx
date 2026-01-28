@@ -9,6 +9,7 @@ import { CurrencyProvider } from "./lib/currency-context";
 import { UserProvider } from "./lib/user-context";
 import ScrollToTop from "@/components/scroll-to-top";
 import { SmokeTester } from "@/components/dev/smoke-tester";
+import CountrySelectorPopup from "@/components/modals/country-selector-popup";
 
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -35,6 +36,7 @@ const AdminViewDetective = lazy(() => import("@/pages/admin/view-detective"));
 const AdminSettings = lazy(() => import("@/pages/admin/settings"));
 const AdminBranding = lazy(() => import("@/pages/admin/branding"));
 const AdminPages = lazy(() => import("@/pages/admin/pages"));
+const AdminRankingVisibility = lazy(() => import("@/pages/admin/ranking-visibility"));
 
 const DetectiveDashboard = lazy(() => import("@/pages/detective/dashboard"));
 const DetectiveProfileEdit = lazy(() => import("@/pages/detective/profile-edit"));
@@ -82,6 +84,7 @@ function Router() {
   return (
     <>
       <ScrollToTop />
+      <CountrySelectorPopup />
       <Suspense fallback={<PageSkeleton />}>
         <Switch>
           {/* Public Routes */}
@@ -119,6 +122,7 @@ function Router() {
           <Route path="/admin/pages" component={AdminPages} />
           <Route path="/admin/settings" component={AdminSettings} />
           <Route path="/admin/branding" component={AdminBranding} />
+          <Route path="/admin/ranking-visibility" component={AdminRankingVisibility} />
           
           {/* Detective Routes */}
           <Route path="/detective/dashboard" component={DetectiveDashboard} />

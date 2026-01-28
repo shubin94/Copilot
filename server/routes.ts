@@ -6,7 +6,12 @@ import { storage } from "./storage.ts";
 import { sendClaimApprovedEmail } from "./email.ts";
 import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
-import { 
+import { db } from "../db/index.ts";
+import { eq } from "drizzle-orm";
+import {
+  detectives,
+  detectiveVisibility,
+  users,
   insertUserSchema, 
   insertDetectiveSchema, 
   insertServiceSchema, 
@@ -493,6 +498,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update user country/currency preferences
+  app.patch("/api/users/preferences", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { preferredCountry, preferredCurrency } = req.body;
+
+      if (!preferredCountry || !preferredCurrency) {
+        return res.status(400).json({ error: "preferredCountry and preferredCurrency are required" });
+      }
+
+      // Update user preferences in database
+      await db.update(users)
+        .set({
+          preferredCountry,
+          preferredCurrency,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, req.session.userId!));
+
+      res.json({ success: true, preferredCountry, preferredCurrency });
+    } catch (error) {
+      console.error("Update user preferences error:", error);
+      res.status(500).json({ error: "Failed to update preferences" });
+    }
+  });
+
   // Admin: lookup user by email
   app.get("/api/admin/users", requireRole("admin"), async (req: Request, res: Response) => {
     try {
@@ -506,6 +536,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Admin user lookup error:", error);
       res.status(500).json({ error: "Failed to lookup user" });
     }
+  });
+
+  // ============== CURRENCY & RATES ROUTES ==============
+
+  // Cache for exchange rates
+  interface RatesCache {
+    rates: Record<string, number>;
+    timestamp: number;
+  }
+  let ratesCache: RatesCache = {
+    rates: {
+      USD: 1,
+      GBP: 0.79,
+      INR: 83.5,
+      CAD: 1.35,
+      AUD: 1.52,
+      EUR: 0.92,
+    },
+    timestamp: Date.now(),
+  };
+  const RATES_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+  const RATES_UPDATE_INTERVAL = 30 * 60 * 1000; // Update every 30 minutes
+
+  // Fallback rates (used if API fails)
+  function getFallbackRates(): Record<string, number> {
+    return {
+      USD: 1,
+      GBP: 0.79,
+      INR: 83.5,
+      CAD: 1.35,
+      AUD: 1.52,
+      EUR: 0.92,
+    };
+  }
+
+  // Helper function to fetch live rates from Frankfurter API (non-blocking)
+  async function updateExchangeRatesInBackground() {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+      
+      const response = await fetch("https://api.frankfurter.app/latest?base=USD&symbols=GBP,INR,CAD,AUD,EUR", {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data = await response.json() as { rates: Record<string, number> };
+        ratesCache = {
+          rates: { USD: 1, ...data.rates },
+          timestamp: Date.now(),
+        };
+        console.log("[currency] Updated exchange rates from Frankfurter API");
+      }
+    } catch (error) {
+      console.warn("[currency] Background rate update failed, keeping cached rates:", error instanceof Error ? error.message : error);
+    }
+  }
+
+  // Start background rate updates
+  updateExchangeRatesInBackground();
+  setInterval(updateExchangeRatesInBackground, RATES_UPDATE_INTERVAL);
+
+  // Get live exchange rates endpoint (serves cached rates immediately)
+  app.get("/api/currency-rates", (_req: Request, res: Response) => {
+    res.set("Cache-Control", "public, max-age=3600").json({
+      base: "USD",
+      rates: ratesCache.rates,
+      cached: true,
+      cacheAge: Math.floor((Date.now() - ratesCache.timestamp) / 1000),
+      lastUpdated: new Date(ratesCache.timestamp).toISOString(),
+    });
   });
 
   // ============== DETECTIVE ROUTES ==============
@@ -522,14 +624,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      const detectives = await storage.searchDetectives({
+      // Use ranking system for detective visibility and ordering
+      const { getRankedDetectives } = await import("./ranking.ts");
+      let detectives = await getRankedDetectives({
         country: country as string,
         status: ((status as string) || "active") as string,
         plan: plan as string,
         searchQuery: search as string,
-      }, parseInt(limit), parseInt(offset));
+        limit: 100,
+      });
 
-      const maskedDetectives = await Promise.all(detectives.map(async (d: any) => {
+      // Apply filters based on query
+      if (country) {
+        detectives = detectives.filter((d: any) => d.country === country);
+      }
+      if (status && status !== "active") {
+        detectives = detectives.filter((d: any) => d.status === status);
+      }
+
+      // Apply pagination
+      const limitNum = parseInt(limit);
+      const offsetNum = parseInt(offset);
+      const total = detectives.length;
+      const paginatedDetectives = detectives.slice(offsetNum, offsetNum + limitNum);
+
+      const maskedDetectives = await Promise.all(paginatedDetectives.map(async (d: any) => {
         const masked = await maskDetectiveContactsPublic(d);
         // Explicitly null sensitive fields we never want public
         masked.userId = undefined;
@@ -543,11 +662,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return masked;
       }));
 
-      const limitNum = parseInt(limit);
-      const offsetNum = parseInt(offset);
-      const total = detectives.length < limitNum
-        ? offsetNum + detectives.length
-        : await storage.countDetectives();
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       res.json({ detectives: maskedDetectives, total });
     } catch (error) {
@@ -1650,16 +1764,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      const services = await storage.searchServices({
+      // First get detectives ranked by visibility
+      const { getRankedDetectives } = await import("./ranking.ts");
+      const rankedDetectives = await getRankedDetectives({ limit: 1000 });
+      const visibleDetectiveIds = new Set(rankedDetectives.map((d: any) => d.id));
+
+      // Then search services from visible detectives
+      const allServices = await storage.searchServices({
         category: category as string,
         country: country as string,
         searchQuery: search as string,
         minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
         maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
         ratingMin: minRating ? parseFloat(minRating as string) : undefined,
-      }, parseInt(limit as string), parseInt(offset as string), sortBy as string);
+      }, 10000, 0, sortBy as string); // Fetch all, then filter and paginate
 
-      const masked = await Promise.all(services.map(async (s: any) => ({ 
+      // Filter services from visible detectives
+      const visibleServices = allServices.filter((s: any) => visibleDetectiveIds.has(s.detectiveId));
+
+      // Apply pagination
+      const limitNum = parseInt(limit as string);
+      const offsetNum = parseInt(offset as string);
+      const paginatedServices = visibleServices.slice(offsetNum, offsetNum + limitNum);
+
+      const masked = await Promise.all(paginatedServices.map(async (s: any) => ({ 
         ...s, 
         detective: await maskDetectiveContactsPublic(s.detective) 
       })));
@@ -2852,10 +2980,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const httpServer = createServer(app);
+  // ============ RANKING & VISIBILITY ROUTES ============
 
-  return httpServer;
-}
+  // GET all detective visibility configs (admin)
+  app.get("/api/admin/visibility", requireRole("admin"), async (_req: Request, res: Response) => {
+    try {
+      const { ranking } = await import("./ranking.ts");
+      const visibilityRecords = await db.select().from(detectiveVisibility);
+      
+      // Enrich with detective info
+      const enriched = await Promise.all(
+        visibilityRecords.map(async (v) => {
+          const detective = await db
+            .select()
+            .from(detectives)
+            .where(eq(detectives.id, v.detectiveId))
+            .limit(1)
+            .then(r => r[0]);
+          
+          return {
+            ...v,
+            detective: detective ? {
+              id: detective.id,
+              businessName: detective.businessName,
+              email: detective.contactEmail,
+              subscriptionPackageId: detective.subscriptionPackageId,
+              hasBlueTick: detective.hasBlueTick,
+              status: detective.status,
+            } : null
+          };
+        })
+      );
+
+      res.json({ visibility: enriched });
+    } catch (error) {
+      console.error("Error fetching visibility configs:", error);
+      res.status(500).json({ error: "Failed to fetch visibility configs" });
+    }
+  });
+
+  // UPDATE detective visibility (admin)
+  app.patch("/api/admin/visibility/:detectiveId", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { detectiveId } = req.params;
+      const { isVisible, isFeatured, manualRank } = req.body;
+
+      // Validate detective exists
+      const detective = await db
+        .select()
+        .from(detectives)
+        .where(eq(detectives.id, detectiveId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!detective) {
+        res.status(404).json({ error: "Detective not found" });
+        return;
+      }
+
+      // Ensure visibility record exists
+      const existing = await db
+        .select()
+        .from(detectiveVisibility)
+        .where(eq(detectiveVisibility.detectiveId, detectiveId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!existing) {
+        await db.insert(detectiveVisibility).values({
+          detectiveId,
+          isVisible: isVisible !== undefined ? isVisible : true,
+          isFeatured: isFeatured !== undefined ? isFeatured : false,
+          manualRank: manualRank !== undefined ? manualRank : null,
+        });
+      } else {
+        const updateData: any = {};
+        if (isVisible !== undefined) updateData.isVisible = isVisible;
+        if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
+        if (manualRank !== undefined) updateData.manualRank = manualRank;
+        updateData.updatedAt = new Date();
+
+        await db
+          .update(detectiveVisibility)
+          .set(updateData)
+          .where(eq(detectiveVisibility.detectiveId, detectiveId));
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating visibility:", error);
+      res.status(500).json({ error: "Failed to update visibility" });
+    }
+  });
+
   const sendCachedJson = (req: Request, res: Response, payload: any) => {
     const body = JSON.stringify(payload);
     const tag = 'W/"' + createHash('sha1').update(body).digest('hex') + '"';
@@ -2866,3 +3083,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.set('ETag', tag);
     res.json(payload);
   };
+
+  const httpServer = createServer(app);
+
+  return httpServer;
+}

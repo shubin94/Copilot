@@ -17,6 +17,8 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   role: userRoleEnum("role").notNull().default("user"),
   avatar: text("avatar"),
+  preferredCountry: text("preferred_country"),
+  preferredCurrency: text("preferred_currency"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -559,3 +561,22 @@ export type ProfileClaim = typeof profileClaims.$inferSelect;
 export type InsertProfileClaim = z.infer<typeof insertProfileClaimSchema>;
 
 export type BillingHistory = typeof billingHistory.$inferSelect;
+export const detectiveVisibility = pgTable("detective_visibility", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  detectiveId: varchar("detective_id").notNull().unique().references(() => detectives.id, { onDelete: "cascade" }),
+  isVisible: boolean("is_visible").notNull().default(true),
+  isFeatured: boolean("is_featured").notNull().default(false),
+  manualRank: integer("manual_rank"),
+  visibilityScore: decimal("visibility_score", { precision: 10, scale: 4 }).notNull().default("0"),
+  lastEvaluatedAt: timestamp("last_evaluated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  isVisibleIdx: index("detective_visibility_is_visible_idx").on(table.isVisible),
+  manualRankIdx: index("detective_visibility_manual_rank_idx").on(table.manualRank),
+  visibilityScoreIdx: index("detective_visibility_score_idx").on(table.visibilityScore),
+  isFeaturedIdx: index("detective_visibility_is_featured_idx").on(table.isFeatured),
+}));
+
+export type DetectiveVisibility = typeof detectiveVisibility.$inferSelect;
+export type InsertDetectiveVisibility = typeof detectiveVisibility.$inferInsert;
