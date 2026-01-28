@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Checkbox } from "@/components/ui/checkbox";
 import { useServiceCategories, useCreateApplication } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
+import { COUNTRY_STATES, STATE_CITIES } from "@/lib/geo";
 import type { InsertDetectiveApplication } from "@shared/schema";
 
 const COUNTRIES = [
@@ -19,7 +20,7 @@ const COUNTRIES = [
     currency: "$",
     currencyCode: "USD",
     phoneCode: "+1",
-    states: ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"]
+    states: COUNTRY_STATES.US
   },
   {
     name: "United Kingdom",
@@ -27,7 +28,7 @@ const COUNTRIES = [
     currency: "£",
     currencyCode: "GBP",
     phoneCode: "+44",
-    states: ["England", "Scotland", "Wales", "Northern Ireland"]
+    states: COUNTRY_STATES.UK
   },
   {
     name: "India",
@@ -35,7 +36,7 @@ const COUNTRIES = [
     currency: "₹",
     currencyCode: "INR",
     phoneCode: "+91",
-    states: ["Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal", "Delhi"]
+    states: COUNTRY_STATES.IN
   },
   {
     name: "Canada",
@@ -43,7 +44,7 @@ const COUNTRIES = [
     currency: "CA$",
     currencyCode: "CAD",
     phoneCode: "+1",
-    states: ["Alberta", "British Columbia", "Manitoba", "New Brunswick", "Newfoundland and Labrador", "Nova Scotia", "Ontario", "Prince Edward Island", "Quebec", "Saskatchewan"]
+    states: COUNTRY_STATES.CA
   },
   {
     name: "Australia",
@@ -51,7 +52,7 @@ const COUNTRIES = [
     currency: "AU$",
     currencyCode: "AUD",
     phoneCode: "+61",
-    states: ["New South Wales", "Queensland", "South Australia", "Tasmania", "Victoria", "Western Australia", "Australian Capital Territory", "Northern Territory"]
+    states: COUNTRY_STATES.AU
   },
   {
     name: "Germany",
@@ -59,7 +60,7 @@ const COUNTRIES = [
     currency: "€",
     currencyCode: "EUR",
     phoneCode: "+49",
-    states: ["Baden-Württemberg", "Bavaria", "Berlin", "Brandenburg", "Bremen", "Hamburg", "Hesse", "Lower Saxony", "Mecklenburg-Vorpommern", "North Rhine-Westphalia", "Rhineland-Palatinate", "Saarland", "Saxony", "Saxony-Anhalt", "Schleswig-Holstein", "Thuringia"]
+    states: COUNTRY_STATES.DE
   },
   {
     name: "France",
@@ -67,7 +68,7 @@ const COUNTRIES = [
     currency: "€",
     currencyCode: "EUR",
     phoneCode: "+33",
-    states: ["Île-de-France", "Auvergne-Rhône-Alpes", "Bourgogne-Franche-Comté", "Brittany", "Centre-Val de Loire", "Corsica", "Grand Est", "Hauts-de-France", "Normandy", "Nouvelle-Aquitaine", "Occitanie", "Pays de la Loire", "Provence-Alpes-Côte d'Azur"]
+    states: COUNTRY_STATES.FR
   },
 ];
 
@@ -84,6 +85,12 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
   const [stateQuery, setStateQuery] = useState("");
   const [countrySuggestions, setCountrySuggestions] = useState<Array<{ name: string; code: string }>>([]);
   const [loadingCountry, setLoadingCountry] = useState(false);
+  
+  // Track which fields have been touched by user
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  
+  // Track field-level errors
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   
   const [formData, setFormData] = useState({
     firstName: "",
@@ -118,75 +125,103 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
   const serviceCategories = categoriesData?.categories?.filter(cat => cat.isActive) || [];
 
   const validateStep = (currentStep: number): boolean => {
+    const fieldsToValidate: string[] = [];
+    
     if (currentStep === 1) {
-      const missingFields = [];
-      if (!formData.firstName) missingFields.push("First Name");
-      if (!formData.lastName) missingFields.push("Last Name");
-      if (!formData.email) missingFields.push("Email");
-      if (!formData.password) missingFields.push("Password");
-      if (!formData.confirmPassword) missingFields.push("Confirm Password");
-      if (!formData.phoneNumber) missingFields.push("Phone Number");
+      fieldsToValidate.push("firstName", "lastName", "email", "password", "confirmPassword");
       if (formData.businessType === "agency") {
-        if (!formData.companyName) missingFields.push("Business Name");
-        if (!formData.businessWebsite) missingFields.push("Business Website");
-        if (!formData.businessDocuments || formData.businessDocuments.length === 0) missingFields.push("Business Supporting Document");
-      } else {
-        if (!formData.documents || formData.documents.length === 0) missingFields.push("Government ID");
-      }
-      
-      if (missingFields.length > 0) {
-        toast({
-          title: "Missing Required Fields",
-          description: `Please fill in: ${missingFields.join(", ")}`,
-          variant: "destructive",
-        });
-        return false;
-      }
-      
-      if (formData.password.length < 8) {
-        toast({
-          title: "Invalid Password",
-          description: "Password must be at least 8 characters long",
-          variant: "destructive",
-        });
-        return false;
-      }
-      
-      if (formData.password !== formData.confirmPassword) {
-        toast({
-          title: "Passwords Don't Match",
-          description: "Please make sure both passwords match",
-          variant: "destructive",
-        });
-        return false;
+        fieldsToValidate.push("companyName", "businessWebsite");
       }
     } else if (currentStep === 2) {
-      const missingFields = [];
-      if (!formData.city) missingFields.push("City");
-      if (!formData.state) missingFields.push("State");
-      if (!formData.fullAddress) missingFields.push("Full Address");
-      if (!formData.pincode) missingFields.push("Pincode");
-      if (!formData.yearsExperience) missingFields.push("Years of Experience");
-      if (!formData.about) missingFields.push("About Your Services");
+      fieldsToValidate.push("city", "state", "fullAddress", "pincode", "phoneNumber", "yearsExperience", "about");
+    }
+    
+    // Validate all fields in current step
+    const newErrors: Record<string, string> = {};
+    fieldsToValidate.forEach(field => {
+      const fieldValue = formData[field as keyof typeof formData] as string;
       
-      if (missingFields.length > 0) {
-        toast({
-          title: "Missing Required Fields",
-          description: `Please fill in: ${missingFields.join(", ")}`,
-          variant: "destructive",
-        });
-        return false;
+      // Run validation for each field
+      switch (field) {
+        case "firstName":
+          if (!formData.firstName) newErrors[field] = "First name is required";
+          break;
+        case "lastName":
+          if (!formData.lastName) newErrors[field] = "Last name is required";
+          break;
+        case "email":
+          if (!formData.email) newErrors[field] = "Email is required";
+          else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors[field] = "Invalid email format";
+          break;
+        case "password":
+          if (!formData.password) newErrors[field] = "Password is required";
+          else if (formData.password.length < 8) newErrors[field] = "Password must be at least 8 characters";
+          break;
+        case "confirmPassword":
+          if (!formData.confirmPassword) newErrors[field] = "Please confirm your password";
+          else if (formData.confirmPassword !== formData.password) newErrors[field] = "Passwords do not match";
+          break;
+        case "companyName":
+          if (formData.businessType === "agency" && !formData.companyName) newErrors[field] = "Business name is required";
+          break;
+        case "businessWebsite":
+          if (formData.businessType === "agency" && !formData.businessWebsite) newErrors[field] = "Business website is required";
+          else if (formData.businessWebsite && formData.businessType === "agency" && !formData.businessWebsite.startsWith("http")) 
+            newErrors[field] = "Website must start with http:// or https://";
+          break;
+        case "city":
+          if (!formData.city) newErrors[field] = "City is required";
+          break;
+        case "state":
+          if (!formData.state) newErrors[field] = "State is required";
+          break;
+        case "fullAddress":
+          if (!formData.fullAddress) newErrors[field] = "Full address is required";
+          else if (formData.fullAddress.trim().length < 10) newErrors[field] = "Address must be at least 10 characters";
+          break;
+        case "pincode":
+          if (!formData.pincode) newErrors[field] = "Pincode is required";
+          break;
+        case "phoneNumber":
+          if (!formData.phoneNumber) newErrors[field] = "Phone number is required";
+          else if (!/^\d{7,}$/.test(formData.phoneNumber.replace(/\D/g, ""))) newErrors[field] = "Phone number must have at least 7 digits";
+          break;
+        case "yearsExperience":
+          if (!formData.yearsExperience) newErrors[field] = "Years of experience is required";
+          else if (isNaN(Number(formData.yearsExperience)) || Number(formData.yearsExperience) < 0) newErrors[field] = "Must be a valid number";
+          break;
+        case "about":
+          if (!formData.about) newErrors[field] = "Service description is required";
+          break;
       }
-    } else if (currentStep === 3) {
-      if (!formData.logo) {
-        toast({
-          title: "Logo Required",
-          description: "Please upload a business logo or photo. This will be your display picture on the platform.",
-          variant: "destructive",
-        });
-        return false;
+    });
+    
+    // Check for document requirements
+    if (currentStep === 1) {
+      if (formData.businessType === "agency" && (!formData.businessDocuments || formData.businessDocuments.length === 0)) {
+        newErrors["businessDocuments"] = "Business supporting document is required";
+      } else if (formData.businessType === "individual" && (!formData.documents || formData.documents.length === 0)) {
+        newErrors["documents"] = "Government ID is required";
       }
     }
+    
+    // If there are errors, update state and show toast
+    if (Object.keys(newErrors).length > 0) {
+      setFieldErrors(newErrors);
+      // Mark all fields in this step as touched for error display
+      const newTouched = { ...touched };
+      fieldsToValidate.forEach(field => { newTouched[field] = true; });
+      setTouched(newTouched);
+      
+      const errorMessages = Object.values(newErrors);
+      toast({
+        title: "Validation Errors",
+        description: errorMessages[0] || "Please fix the errors above",
+        variant: "destructive",
+      });
+      return false;
+    }
+    
     return true;
   };
 
@@ -224,7 +259,150 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
   const prevStep = () => setStep(step - 1);
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    // Reset city when state changes
+    if (field === "state") {
+      setFormData(prev => ({ ...prev, [field]: value, city: "" }));
+    } else if (field === "country") {
+      // Auto-set phone country code based on selected country
+      const selectedCountry = COUNTRIES.find(c => c.code === value);
+      const phoneCode = selectedCountry?.phoneCode || "+1";
+      setFormData(prev => ({ ...prev, [field]: value, state: "", city: "", phoneCountryCode: phoneCode }));
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }));
+    }
+    
+    // Validate field if already touched
+    if (touched[field]) {
+      validateField(field, field === "state" && value ? value : field === "country" && value ? value : value);
+    }
+  };
+
+  // Validate individual field
+  const validateField = (fieldName: string, value: string = formData[fieldName as keyof typeof formData] as string) => {
+    const errors = { ...fieldErrors };
+    
+    switch (fieldName) {
+      case "firstName":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "First name is required";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "lastName":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "Last name is required";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "email":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "Email is required";
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          errors[fieldName] = "Invalid email format";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "password":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "Password is required";
+        } else if (value.length < 8) {
+          errors[fieldName] = "Password must be at least 8 characters";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "confirmPassword":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "Please confirm your password";
+        } else if (value !== formData.password) {
+          errors[fieldName] = "Passwords do not match";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "companyName":
+        if (formData.businessType === "agency" && (!value || value.trim() === "")) {
+          errors[fieldName] = "Business name is required";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "businessWebsite":
+        if (formData.businessType === "agency" && (!value || value.trim() === "")) {
+          errors[fieldName] = "Business website is required";
+        } else if (value && formData.businessType === "agency" && !value.startsWith("http")) {
+          errors[fieldName] = "Website must start with http:// or https://";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "city":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "City is required";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "state":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "State is required";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "fullAddress":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "Full address is required";
+        } else if (value.trim().length < 10) {
+          errors[fieldName] = "Address must be at least 10 characters";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "pincode":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "Pincode is required";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "phoneNumber":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "Phone number is required";
+        } else if (!/^\d{7,}$/.test(value.replace(/\D/g, ""))) {
+          errors[fieldName] = "Phone number must have at least 7 digits";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "yearsExperience":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "Years of experience is required";
+        } else if (isNaN(Number(value)) || Number(value) < 0) {
+          errors[fieldName] = "Must be a valid number";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+      case "about":
+        if (!value || value.trim() === "") {
+          errors[fieldName] = "Service description is required";
+        } else {
+          delete errors[fieldName];
+        }
+        break;
+    }
+    
+    setFieldErrors(errors);
+  };
+
+  // Handle field blur - mark as touched and validate
+  const handleFieldBlur = (fieldName: string) => {
+    setTouched(prev => ({ ...prev, [fieldName]: true }));
+    validateField(fieldName);
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>, field: 'logo' | 'banner' | 'documents' | 'businessDocuments') => {
@@ -438,8 +616,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                     placeholder="Sherlock"
                     value={formData.firstName}
                     onChange={(e) => handleInputChange("firstName", e.target.value)}
+                    onBlur={() => handleFieldBlur("firstName")}
                     data-testid="input-firstName"
+                    className={fieldErrors.firstName && touched.firstName ? "border-red-500" : ""}
                   />
+                  {fieldErrors.firstName && touched.firstName && (
+                    <p className="text-sm text-red-600">{fieldErrors.firstName}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="lastName">Last Name *</Label>
@@ -448,8 +631,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                     placeholder="Holmes"
                     value={formData.lastName}
                     onChange={(e) => handleInputChange("lastName", e.target.value)}
+                    onBlur={() => handleFieldBlur("lastName")}
                     data-testid="input-lastName"
+                    className={fieldErrors.lastName && touched.lastName ? "border-red-500" : ""}
                   />
+                  {fieldErrors.lastName && touched.lastName && (
+                    <p className="text-sm text-red-600">{fieldErrors.lastName}</p>
+                  )}
                 </div>
               </div>
               <div className="space-y-2">
@@ -460,8 +648,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   placeholder="sherlock@bakerstreet.com"
                   value={formData.email}
                   onChange={(e) => handleInputChange("email", e.target.value)}
+                  onBlur={() => handleFieldBlur("email")}
                   data-testid="input-email"
+                  className={fieldErrors.email && touched.email ? "border-red-500" : ""}
                 />
+                {fieldErrors.email && touched.email && (
+                  <p className="text-sm text-red-600">{fieldErrors.email}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password *</Label>
@@ -471,9 +664,15 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   placeholder="Create a secure password (min 8 characters)"
                   value={formData.password}
                   onChange={(e) => handleInputChange("password", e.target.value)}
+                  onBlur={() => handleFieldBlur("password")}
                   data-testid="input-password"
+                  className={fieldErrors.password && touched.password ? "border-red-500" : ""}
                 />
-                <p className="text-xs text-gray-500">Must be at least 8 characters long</p>
+                {fieldErrors.password && touched.password ? (
+                  <p className="text-sm text-red-600">{fieldErrors.password}</p>
+                ) : (
+                  <p className="text-xs text-gray-500">Must be at least 8 characters long</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password *</Label>
@@ -483,37 +682,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   placeholder="Re-enter your password"
                   value={formData.confirmPassword}
                   onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
+                  onBlur={() => handleFieldBlur("confirmPassword")}
                   data-testid="input-confirmPassword"
+                  className={fieldErrors.confirmPassword && touched.confirmPassword ? "border-red-500" : ""}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number *</Label>
-                <div className="flex gap-2">
-                  <Select 
-                    value={formData.phoneCountryCode} 
-                    onValueChange={(value) => handleInputChange("phoneCountryCode", value)}
-                  >
-                    <SelectTrigger className="w-32" data-testid="select-phoneCountryCode">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {COUNTRIES.map((country) => (
-                        <SelectItem key={country.code} value={country.phoneCode}>
-                          {country.phoneCode} {country.code}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input 
-                    id="phone" 
-                    type="tel" 
-                    placeholder="5551234567"
-                    value={formData.phoneNumber}
-                    onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
-                    data-testid="input-phoneNumber"
-                    className="flex-1"
-                  />
-                </div>
+                {fieldErrors.confirmPassword && touched.confirmPassword && (
+                  <p className="text-sm text-red-600">{fieldErrors.confirmPassword}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="businessType">Business Type *</Label>
@@ -711,13 +886,24 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
 
               <div className="space-y-2">
                 <Label htmlFor="city">City *</Label>
-                <Input 
-                  id="city" 
-                  placeholder="e.g. New York"
-                  value={formData.city}
-                  onChange={(e) => handleInputChange("city", e.target.value)}
-                  data-testid="input-city"
-                />
+                <Select 
+                  value={formData.city} 
+                  onValueChange={(value) => handleInputChange("city", value)}
+                  disabled={!formData.state}
+                >
+                  <SelectTrigger data-testid="select-city">
+                    <SelectValue placeholder={!formData.state ? "Select state first" : "Select city"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {formData.state && STATE_CITIES[formData.state] && STATE_CITIES[formData.state].length > 0 ? (
+                      STATE_CITIES[formData.state].map((city) => (
+                        <SelectItem key={city} value={city}>
+                          {city}
+                        </SelectItem>
+                      ))
+                    ) : null}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
@@ -728,8 +914,47 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   rows={3}
                   value={formData.fullAddress}
                   onChange={(e) => handleInputChange("fullAddress", e.target.value)}
+                  onBlur={() => handleFieldBlur("fullAddress")}
                   data-testid="input-fullAddress"
+                  className={fieldErrors.fullAddress && touched.fullAddress ? "border-red-500" : ""}
                 />
+                {fieldErrors.fullAddress && touched.fullAddress && (
+                  <p className="text-sm text-red-600">{fieldErrors.fullAddress}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number *</Label>
+                <div className="flex gap-2">
+                  <Select 
+                    value={formData.phoneCountryCode} 
+                    onValueChange={(value) => handleInputChange("phoneCountryCode", value)}
+                  >
+                    <SelectTrigger className="w-32" data-testid="select-phoneCountryCode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COUNTRIES.map((country) => (
+                        <SelectItem key={country.code} value={country.phoneCode}>
+                          {country.phoneCode} {country.code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input 
+                    id="phone" 
+                    type="tel" 
+                    placeholder="5551234567"
+                    value={formData.phoneNumber}
+                    onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
+                    onBlur={() => handleFieldBlur("phoneNumber")}
+                    data-testid="input-phoneNumber"
+                    className={`flex-1 ${fieldErrors.phoneNumber && touched.phoneNumber ? "border-red-500" : ""}`}
+                  />
+                </div>
+                {fieldErrors.phoneNumber && touched.phoneNumber && (
+                  <p className="text-sm text-red-600">{fieldErrors.phoneNumber}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -739,8 +964,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   placeholder="e.g. 560001"
                   value={formData.pincode}
                   onChange={(e) => handleInputChange("pincode", e.target.value)}
+                  onBlur={() => handleFieldBlur("pincode")}
                   data-testid="input-pincode"
+                  className={fieldErrors.pincode && touched.pincode ? "border-red-500" : ""}
                 />
+                {fieldErrors.pincode && touched.pincode && (
+                  <p className="text-sm text-red-600">{fieldErrors.pincode}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -751,8 +981,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   placeholder="e.g. 5"
                   value={formData.yearsExperience}
                   onChange={(e) => handleInputChange("yearsExperience", e.target.value)}
+                  onBlur={() => handleFieldBlur("yearsExperience")}
                   data-testid="input-yearsExperience"
+                  className={fieldErrors.yearsExperience && touched.yearsExperience ? "border-red-500" : ""}
                 />
+                {fieldErrors.yearsExperience && touched.yearsExperience && (
+                  <p className="text-sm text-red-600">{fieldErrors.yearsExperience}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -763,8 +998,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   rows={4}
                   value={formData.about}
                   onChange={(e) => handleInputChange("about", e.target.value)}
+                  onBlur={() => handleFieldBlur("about")}
                   data-testid="input-about"
+                  className={fieldErrors.about && touched.about ? "border-red-500" : ""}
                 />
+                {fieldErrors.about && touched.about && (
+                  <p className="text-sm text-red-600">{fieldErrors.about}</p>
+                )}
               </div>
             </div>
           )}

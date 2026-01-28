@@ -1,0 +1,128 @@
+┌─────────────────────────────────────────────────────────────────────┐
+│                  EMAIL TEMPLATE TESTING - QUICK START               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ENDPOINT:  POST /api/admin/email-templates/test-all                │
+│  AUTH:      Super Admin only                                        │
+│  TO:        contact@askdetectives.com                               │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  QUICK TEST (Windows PowerShell)                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│    .\test-emails.ps1                                                │
+│                                                                     │
+│  With custom admin credentials:                                     │
+│                                                                     │
+│    .\test-emails.ps1 -AdminEmail "admin@example.com" \             │
+│                      -Password "YourPassword123"                    │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  QUICK TEST (cURL)                                                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│    # 1. Login                                                       │
+│    curl -c cookies.txt -X POST \                                    │
+│      -H "Content-Type: application/json" \                          │
+│      -H "X-Requested-With: XMLHttpRequest" \                        │
+│      -d '{"email":"admin@example.com","password":"Admin@12345"}' \  │
+│      http://localhost:5000/api/auth/login                           │
+│                                                                     │
+│    # 2. Test all templates                                          │
+│    curl -b cookies.txt -X POST \                                    │
+│      -H "Content-Type: application/json" \                          │
+│      -H "X-Requested-With: XMLHttpRequest" \                        │
+│      http://localhost:5000/api/admin/email-templates/test-all       │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  RESPONSE FORMAT                                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  {                                                                  │
+│    "total": 25,                                                     │
+│    "success": 24,                                                   │
+│    "failed": 1,                                                     │
+│    "failedTemplates": [                                             │
+│      {                                                              │
+│        "key": "BLUE_TICK_PURCHASE_SUCCESS",                         │
+│        "name": "Blue Tick Purchase Success",                        │
+│        "error": "SendPulse API error: Not Found"                    │
+│      }                                                              │
+│    ],                                                               │
+│    "testEmail": "contact@askdetectives.com",                        │
+│    "timestamp": "2026-01-28T22:15:30.000Z"                          │
+│  }                                                                  │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  WHAT IT DOES                                                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ✓ Sends test email for EVERY template                             │
+│  ✓ Uses mock data for all variables                                │
+│  ✓ Checks for relative image URLs                                  │
+│  ✓ Returns detailed success/failure report                         │
+│  ✓ Continues if one template fails                                 │
+│  ✓ Logs every step to server console                               │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  MOCK DATA USED                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  userName: "Ask Detectives"                                         │
+│  detectiveName: "Test Detective"                                    │
+│  loginEmail: "contact@askdetectives.com"                            │
+│  tempPassword: "Temp@12345"                                         │
+│  packageName: "Pro Plan"                                            │
+│  amount: "999"                                                      │
+│  currency: "USD"                                                    │
+│  loginUrl: "https://askdetectives.com/login"                        │
+│  + 15 more variables...                                             │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  VERIFICATION STEPS                                                 │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. Run test script                                                 │
+│  2. Check console for success count                                │
+│  3. Check contact@askdetectives.com inbox                           │
+│  4. Verify images load in emails                                   │
+│  5. Verify variables rendered (no "undefined")                      │
+│  6. Check server logs for warnings                                 │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  TROUBLESHOOTING                                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Error                    → Cause                → Fix              │
+│  ─────────────────────────────────────────────────────────────      │
+│  Access denied            → Not admin            → Use admin account│
+│  Template ID not found    → Invalid ID           → Check SendPulse │
+│  Relative image URLs      → Bad image paths      → Use https:// URLs│
+│  Authentication failed    → Wrong credentials    → Check password  │
+│  No emails received       → Dev mode or spam     → Check logs/spam │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  FILES REFERENCE                                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Endpoint:         server/routes.ts (lines 3459-3597)               │
+│  Scripts:          test-emails.ps1, test-emails.sh                  │
+│  Documentation:    EMAIL_TESTING_GUIDE.md (comprehensive)           │
+│  Summary:          EMAIL_TEST_IMPLEMENTATION.md                     │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  SECURITY NOTES                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ✓ Admin-only endpoint (checks user.role === "admin")              │
+│  ✓ Test email only (never sends to real users)                     │
+│  ✓ No business events triggered                                    │
+│  ✓ No database changes                                             │
+│  ✓ Session-based auth (not API key)                                │
+│  ✓ SendPulse credentials never exposed                             │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  STATUS: ✅ READY TO USE                                            │
+│  BUILD:  ✅ No TypeScript errors                                    │
+│  DATE:   2026-01-28                                                 │
+└─────────────────────────────────────────────────────────────────────┘

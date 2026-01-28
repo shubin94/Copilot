@@ -38,6 +38,7 @@ const AdminSettings = lazy(() => import("@/pages/admin/settings"));
 const AdminBranding = lazy(() => import("@/pages/admin/branding"));
 const AdminPages = lazy(() => import("@/pages/admin/pages"));
 const AdminRankingVisibility = lazy(() => import("@/pages/admin/ranking-visibility"));
+const AdminEmailTemplates = lazy(() => import("@/pages/admin/email-templates"));
 
 const DetectiveDashboard = lazy(() => import("@/pages/detective/dashboard"));
 const DetectiveProfileEdit = lazy(() => import("@/pages/detective/profile-edit"));
@@ -125,6 +126,7 @@ function Router() {
           <Route path="/admin/settings" component={AdminSettings} />
           <Route path="/admin/branding" component={AdminBranding} />
           <Route path="/admin/ranking-visibility" component={AdminRankingVisibility} />
+          <Route path="/admin/email-templates" component={AdminEmailTemplates} />
           
           {/* Detective Routes */}
           <Route path="/detective/dashboard" component={DetectiveDashboard} />

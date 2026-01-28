@@ -261,11 +261,6 @@ export async function getRankedDetectives(options?: {
           where: eq(detectiveVisibility.detectiveId, detective.id),
         });
 
-        // Filter out invisible detectives
-        if (visibility && !visibility.isVisible) {
-          return null;
-        }
-
         // Calculate fresh score
         const visibilityScore = await calculateVisibilityScore(detective.id);
 
@@ -279,9 +274,8 @@ export async function getRankedDetectives(options?: {
       })
     );
 
-    // Remove invisible detectives and sort by score
-    const visibleDetectives = enhancedList
-      .filter((d) => d !== null)
+    // Sort by score - ALL detectives included, ranking affects ORDER only
+    const sortedDetectives = enhancedList
       .sort((a, b) => {
         // Primary: visibility score (higher first)
         if (b.visibilityScore !== a.visibilityScore) {
@@ -292,7 +286,7 @@ export async function getRankedDetectives(options?: {
       });
 
     // Update rank positions after sorting
-    return visibleDetectives.map((detective, index) => ({
+    return sortedDetectives.map((detective, index) => ({
       ...detective,
       rankPosition: index + 1,
     }));

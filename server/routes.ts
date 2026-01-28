@@ -15,6 +15,7 @@ import {
   detectiveVisibility,
   users,
   claimTokens,
+  emailTemplates,
   insertUserSchema, 
   insertDetectiveSchema, 
   insertServiceSchema, 
@@ -1825,12 +1826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      // First get detectives ranked by visibility
-      const { getRankedDetectives } = await import("./ranking.ts");
-      const rankedDetectives = await getRankedDetectives({ limit: 1000 });
-      const visibleDetectiveIds = new Set(rankedDetectives.map((d: any) => d.id));
-
-      // Then search services from visible detectives
+      // Get all active services - ALL services visible
       const allServices = await storage.searchServices({
         category: category as string,
         country: country as string,
@@ -1838,15 +1834,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
         maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
         ratingMin: minRating ? parseFloat(minRating as string) : undefined,
-      }, 10000, 0, sortBy as string); // Fetch all, then filter and paginate
+      }, 10000, 0, sortBy as string);
 
-      // Filter services from visible detectives
-      const visibleServices = allServices.filter((s: any) => visibleDetectiveIds.has(s.detectiveId));
+      // Get detective rankings for sorting (NOT filtering)
+      const { getRankedDetectives } = await import("./ranking");
+      const rankedDetectives = await getRankedDetectives({ limit: 1000 });
+      const detectiveRankMap = new Map(rankedDetectives.map((d: any, idx: number) => [d.id, { score: d.visibilityScore, rank: idx }]));
 
-      // Apply pagination
+      // Sort services by detective ranking (higher score = higher position)
+      const sortedServices = allServices.sort((a: any, b: any) => {
+        const aRank = detectiveRankMap.get(a.detectiveId);
+        const bRank = detectiveRankMap.get(b.detectiveId);
+        // Higher score = better ranking = appears first
+        if (aRank && bRank) {
+          return bRank.score - aRank.score;
+        }
+        // Services without ranking appear after ranked ones
+        if (aRank) return -1;
+        if (bRank) return 1;
+        return 0;
+      });
+
+      // Apply pagination after ranking
       const limitNum = parseInt(limit as string);
       const offsetNum = parseInt(offset as string);
-      const paginatedServices = visibleServices.slice(offsetNum, offsetNum + limitNum);
+      const paginatedServices = sortedServices.slice(offsetNum, offsetNum + limitNum);
 
       const masked = await Promise.all(paginatedServices.map(async (s: any) => ({ 
         ...s, 
@@ -2460,6 +2472,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log("Request has documents:", !!req.body.documents);
     
     try {
+      // Check if user is admin
+      const isAdmin = req.session?.userRole === 'admin';
+      
       console.log("Validating request body...");
       const validatedData = insertDetectiveApplicationSchema.parse(req.body);
       console.log("Validation passed");
@@ -2476,7 +2491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? await storage.getDetectiveApplicationByPhone(validatedData.phoneCountryCode!, validatedData.phoneNumber!)
         : undefined;
 
-      // isAdmin was declared above; reuse it here
+      // Check for duplicates - allow update if admin, else reject
       if (existingByEmail || existingByPhone) {
         if (!isAdmin) {
           const conflictField = existingByEmail ? "email" : "phone";
@@ -3260,6 +3275,319 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[Claim] Finalization error:", error);
       res.status(500).json({ error: "Failed to finalize claim" });
+    }
+  });
+
+  // ============== ADMIN EMAIL TEMPLATE ROUTES ==============
+
+  // Get all email templates (Super Admin only)
+  app.get("/api/admin/email-templates", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { getAllEmailTemplates } = await import("./services/emailTemplateService");
+      const templates = await getAllEmailTemplates();
+
+      res.json({ templates });
+    } catch (error) {
+      console.error("[Admin] Error fetching email templates:", error);
+      res.status(500).json({ error: "Failed to fetch templates" });
+    }
+  });
+
+  // Get specific email template (Super Admin only)
+  app.get("/api/admin/email-templates/:key", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { key } = req.params;
+      if (!key) {
+        return res.status(400).json({ error: "Template key is required" });
+      }
+
+      const { getEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService");
+      const template = await getEmailTemplate(key);
+
+      if (!template) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      const variables = extractTemplateVariables(template.body);
+
+      res.json({
+        template,
+        variables,
+      });
+    } catch (error) {
+      console.error("[Admin] Error fetching template:", error);
+      res.status(500).json({ error: "Failed to fetch template" });
+    }
+  });
+
+  // Update email template (Super Admin only)
+  app.put("/api/admin/email-templates/:key", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { key } = req.params;
+      const { name, description, subject, body, sendpulseTemplateId } = req.body;
+
+      if (!key) {
+        return res.status(400).json({ error: "Template key is required" });
+      }
+
+      if (!subject || !body) {
+        return res.status(400).json({ error: "Subject and body are required" });
+      }
+
+      const { updateEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService");
+      const updated = await updateEmailTemplate(key, {
+        name,
+        description,
+        subject,
+        body,
+        sendpulseTemplateId: sendpulseTemplateId ? parseInt(sendpulseTemplateId) : undefined,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      const variables = extractTemplateVariables(body);
+
+      console.log(`[Admin] Email template updated: ${key}`);
+
+      res.json({
+        success: true,
+        template: updated,
+        variables,
+      });
+    } catch (error) {
+      console.error("[Admin] Error updating template:", error);
+      res.status(500).json({ error: "Failed to update template" });
+    }
+  });
+
+  // Toggle email template status (Super Admin only)
+  app.post("/api/admin/email-templates/:key/toggle", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { key } = req.params;
+      if (!key) {
+        return res.status(400).json({ error: "Template key is required" });
+      }
+
+      const { toggleEmailTemplate } = await import("./services/emailTemplateService");
+      const updated = await toggleEmailTemplate(key);
+
+      if (!updated) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      console.log(`[Admin] Email template toggled: ${key}, isActive: ${updated.isActive}`);
+
+      res.json({
+        success: true,
+        template: updated,
+      });
+    } catch (error) {
+      console.error("[Admin] Error toggling template:", error);
+      res.status(500).json({ error: "Failed to toggle template" });
+    }
+  });
+
+  // Test all email templates (Super Admin only)
+  app.post("/api/admin/email-templates/test-all", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const testEmail = "contact@askdetectives.com";
+
+      // Mock data for all templates
+      const mockVariables = {
+        userName: "Ask Detectives",
+        detectiveName: "Test Detective",
+        loginEmail: "contact@askdetectives.com",
+        tempPassword: "Temp@12345",
+        packageName: "Pro Plan",
+        billingCycle: "Monthly",
+        amount: "999",
+        currency: "USD",
+        loginUrl: "https://askdetectives.com/login",
+        claimLink: "https://askdetectives.com/claim-account?token=test",
+        supportEmail: "support@askdetectives.com",
+        // Additional fallback variables for flexibility
+        email: testEmail,
+        password: "Temp@12345",
+        fullName: "Test Detective",
+        businessType: "individual",
+        country: "US",
+        verificationLink: "https://askdetectives.com/verify?token=test",
+        resetLink: "https://askdetectives.com/reset-password?token=test",
+        wasNewUser: "true",
+        temporaryPassword: "Temp@12345",
+        reviewNotes: "This is a test email for template verification",
+      };
+
+      console.log("[Admin] Starting test email batch for all templates...");
+
+      const { getAllEmailTemplates } = await import("./services/emailTemplateService");
+      const allTemplates = await getAllEmailTemplates();
+
+      const results = {
+        total: allTemplates.length,
+        success: 0,
+        failed: 0,
+        failedTemplates: [] as Array<{ key: string; name: string; error: string }>,
+        testEmail: testEmail,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Send test email for each template
+      for (const template of allTemplates) {
+        try {
+          // Check for relative image URLs and log warnings
+          const bodyWithImages = template.body || "";
+          const hasRelativeImages = /src=['"](?!(?:https?:|data:))[^'"]*['"]/.test(bodyWithImages);
+
+          if (hasRelativeImages) {
+            console.warn(
+              `[Admin] Template ${template.key} contains relative image URLs - images may not load in test email`
+            );
+          }
+
+          // Only send if template has a SendPulse template ID
+          if (template.sendpulseTemplateId) {
+            console.log(
+              `[Admin] Sending test email for template: ${template.key} (ID: ${template.sendpulseTemplateId})`
+            );
+
+            const result = await sendpulseEmail.sendTransactionalEmail(
+              testEmail,
+              template.sendpulseTemplateId,
+              mockVariables
+            );
+
+            if (result.success) {
+              results.success++;
+              console.log(`[Admin] ✓ Test email sent: ${template.key}`);
+            } else {
+              results.failed++;
+              results.failedTemplates.push({
+                key: template.key,
+                name: template.name,
+                error: result.error || "Unknown error",
+              });
+              console.error(
+                `[Admin] ✗ Failed to send test email: ${template.key} - ${result.error}`
+              );
+            }
+          } else {
+            console.warn(
+              `[Admin] Template ${template.key} has no SendPulse template ID - skipping test`
+            );
+          }
+        } catch (error) {
+          results.failed++;
+          results.failedTemplates.push({
+            key: template.key,
+            name: template.name,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+          console.error(
+            `[Admin] Error sending test email for ${template.key}:`,
+            error
+          );
+        }
+      }
+
+      console.log(
+        `[Admin] Email test batch complete: ${results.success} succeeded, ${results.failed} failed`
+      );
+
+      res.json(results);
+    } catch (error) {
+      console.error("[Admin] Error in test email batch:", error);
+      res.status(500).json({
+        error: "Failed to execute test email batch",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   });
 
