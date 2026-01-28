@@ -15,7 +15,8 @@ import {
   Layers,
   Search,
   Receipt,
-  Globe
+  Globe,
+  TrendingUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -40,6 +41,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/admin/signups", label: "New Signups", icon: UserCheck },
     { href: "/admin/claims", label: "Claims", icon: Shield },
     { href: "/admin/detectives", label: "Detectives", icon: Users },
+    { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
     { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
     { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
     { href: "/admin/pages", label: "Pages", icon: Globe },

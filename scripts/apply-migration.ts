@@ -1,3 +1,4 @@
+import "dotenv/config";
 import fs from "node:fs";
 import pkg from "pg";
 const { Pool } = pkg;

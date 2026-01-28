@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Star, Mail, Phone, MessageCircle, ShieldCheck, AlertTriangle, FileText, Heart, Loader2, ChevronLeft } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCurrency } from "@/lib/currency-context";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -271,44 +272,74 @@ export default function DetectiveProfile() {
                   
                   {/* BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified */}
                   
-                  {/* Blue Tick Badge - FIRST */}
+                  {/* Blue Tick Badge - FIRST (Icon only) */}
                   {detective.hasBlueTick && detective.subscriptionPackageId && (
-                    <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-1 border border-blue-300 flex items-center whitespace-nowrap" data-testid="badge-blue-tick">
-                      <ShieldCheck className="h-3.5 w-3.5 fill-blue-600 text-blue-600" /> Blue Tick
-                    </Badge>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <img 
+                          src="/blue-tick.png" 
+                          alt="Blue Tick" 
+                          className="h-5 w-5 flex-shrink-0 cursor-help"
+                          title="Verification Badge"
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Verification Badge</p>
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                   
-                  {/* Pro Badge - SECOND (from package badges) */}
+                  {/* Pro Badge - SECOND (Icon only, from package badges) */}
                   {detective.subscriptionPackageId && detective.subscriptionPackage?.badges && (
                     <>
                       {/* Handle object format - Pro badge only */}
                       {typeof detective.subscriptionPackage.badges === 'object' && !Array.isArray(detective.subscriptionPackage.badges) && 
                         detective.subscriptionPackage.badges['pro'] && (
-                          <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100 gap-1 text-xs px-2 py-1 border border-yellow-300 whitespace-nowrap" data-testid="badge-pro">
-                            ⚡ PRO
-                          </Badge>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <img 
+                                src="/pro.png" 
+                                alt="Pro" 
+                                className="h-5 w-5 flex-shrink-0 cursor-help"
+                                title="Pro User Badge"
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Pro User Badge</p>
+                            </TooltipContent>
+                          </Tooltip>
                         )
                       }
                       
                       {/* Handle array format - Pro badge only */}
                       {Array.isArray(detective.subscriptionPackage.badges) &&
                         detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro') && (
-                          <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100 gap-1 text-xs px-2 py-1 border border-yellow-300 whitespace-nowrap" data-testid="badge-pro">
-                            ⚡ PRO
-                          </Badge>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <img 
+                                src="/pro.png" 
+                                alt="Pro" 
+                                className="h-5 w-5 flex-shrink-0 cursor-help"
+                                title="Pro User Badge"
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Pro User Badge</p>
+                            </TooltipContent>
+                          </Tooltip>
                         )
                       }
                     </>
                   )}
                   
-                  {/* Recommended Badge - THIRD (from package badges) */}
+                  {/* Recommended Badge - THIRD (Text only, from package badges) */}
                   {detective.subscriptionPackageId && detective.subscriptionPackage?.badges && (
                     <>
                       {/* Handle object format - Recommended badge only */}
                       {typeof detective.subscriptionPackage.badges === 'object' && !Array.isArray(detective.subscriptionPackage.badges) && 
                         detective.subscriptionPackage.badges['recommended'] && (
-                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-1 border border-green-300 whitespace-nowrap" data-testid="badge-recommended">
-                            ✓ Recommended
+                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-1 whitespace-nowrap" data-testid="badge-recommended">
+                            Recommended
                           </Badge>
                         )
                       }
@@ -316,19 +347,29 @@ export default function DetectiveProfile() {
                       {/* Handle array format - Recommended badge only */}
                       {Array.isArray(detective.subscriptionPackage.badges) &&
                         detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended') && (
-                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-1 border border-green-300 whitespace-nowrap" data-testid="badge-recommended">
-                            ✓ Recommended
+                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-1 whitespace-nowrap" data-testid="badge-recommended">
+                            Recommended
                           </Badge>
                         )
                       }
                     </>
                   )}
                   
-                  {/* Verified Badge - FOURTH */}
+                  {/* Verified Badge - FOURTH (Icon only) */}
                   {detective.isVerified && (
-                     <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-1 border border-blue-300 flex items-center whitespace-nowrap" data-testid="badge-verified">
-                        <ShieldCheck className="h-3.5 w-3.5 fill-blue-600 text-blue-600" /> Verified
-                     </Badge>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <img 
+                          src="/blue-tick.png" 
+                          alt="Verified" 
+                          className="h-5 w-5 flex-shrink-0 cursor-help"
+                          title="Verification Badge"
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Verification Badge</p>
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
                 <div className="flex items-center gap-3 text-sm font-bold text-gray-900">
