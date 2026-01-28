@@ -4,6 +4,8 @@ import crypto from "crypto";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.ts";
 import { sendClaimApprovedEmail } from "./email.ts";
+import { sendpulseEmail, EMAIL_TEMPLATES } from "./services/sendpulseEmail.ts";
+import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.ts";
 import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
 import { db } from "../db/index.ts";
@@ -12,6 +14,7 @@ import {
   detectives,
   detectiveVisibility,
   users,
+  claimTokens,
   insertUserSchema, 
   insertDetectiveSchema, 
   insertServiceSchema, 
@@ -332,6 +335,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Set session
       req.session.userId = user.id;
       req.session.userRole = user.role;
+
+      // Send welcome email (non-blocking)
+      sendpulseEmail.sendTransactionalEmail(
+        user.email,
+        EMAIL_TEMPLATES.WELCOME_USER,
+        {
+          userName: user.name,
+          email: user.email,
+          supportEmail: "support@askdetectives.com",
+        }
+      ).catch(err => console.error("[Email] Failed to send welcome email:", err));
 
       // Don't send password in response
       const { password, ...userWithoutPassword } = user;
@@ -1121,6 +1135,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[verify] Successfully updated detective: subscriptionPackageId=${updatedDetective.subscriptionPackageId}, billingCycle=${updatedDetective.billingCycle}, activatedAt=${updatedDetective.subscriptionActivatedAt}`);
       console.log("[verify] === PAYMENT VERIFICATION COMPLETE ===");
 
+      // Send payment success email (non-blocking)
+      const user = await storage.getUser(req.session.userId!);
+      if (user && packageToActivate) {
+        const expiryDate = calculateExpiryDate(new Date(), billingCycle);
+        sendpulseEmail.sendTransactionalEmail(
+          user.email,
+          EMAIL_TEMPLATES.PAYMENT_SUCCESS,
+          {
+            detectiveName: updatedDetective.businessName || user.name,
+            email: user.email,
+            packageName: packageToActivate.name,
+            billingCycle: billingCycle,
+            amount: String(paymentOrder.amount || ""),
+            currency: paymentOrder.currency || "INR",
+            subscriptionExpiryDate: expiryDate ? new Date(expiryDate).toLocaleDateString() : "N/A",
+            supportEmail: "support@askdetectives.com",
+          }
+        ).catch(err => console.error("[Email] Failed to send payment success email:", err));
+
+        // Send admin notification (non-blocking)
+        sendpulseEmail.sendAdminEmail(
+          EMAIL_TEMPLATES.ADMIN_NEW_PAYMENT,
+          {
+            detectiveName: updatedDetective.businessName || user.name,
+            email: user.email,
+            packageName: packageToActivate.name,
+            amount: String(paymentOrder.amount || ""),
+            currency: paymentOrder.currency || "INR",
+            supportEmail: "support@askdetectives.com",
+          }
+        ).catch(err => console.error("[Email] Failed to send admin payment notification:", err));
+      }
+
       res.json({ 
         success: true, 
         packageId: packageId,
@@ -1348,6 +1395,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updatedDetective) {
         console.error(`[verify-blue-tick] Could not fetch updated detective: ${detective.id}`);
         return res.status(500).json({ error: "Failed to fetch updated detective" });
+      }
+
+      // Send blue tick purchase success email (non-blocking)
+      const user = await storage.getUser(detective.userId);
+      if (user) {
+        sendpulseEmail.sendTransactionalEmail(
+          user.email,
+          EMAIL_TEMPLATES.BLUE_TICK_PURCHASE_SUCCESS,
+          {
+            detectiveName: detective.businessName || user.name,
+            email: user.email,
+            supportEmail: "support@askdetectives.com",
+          }
+        ).catch(err => console.error("[Email] Failed to send blue tick success email:", err));
       }
 
       console.log(`[verify-blue-tick] Successfully activated Blue Tick for detective: hasBlueTick=${updatedDetective.hasBlueTick}`);
@@ -2444,6 +2505,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const application = await storage.createDetectiveApplication(applicationData);
       console.log("Application created with ID:", application.id);
       
+      // Send application confirmation email (non-blocking)
+      sendpulseEmail.sendTransactionalEmail(
+        application.email,
+        EMAIL_TEMPLATES.DETECTIVE_APPLICATION_SUBMITTED,
+        {
+          detectiveName: application.fullName,
+          email: application.email,
+          supportEmail: "support@askdetectives.com",
+        }
+      ).catch(err => console.error("[Email] Failed to send application confirmation:", err));
+
+      // Send admin notification (non-blocking)
+      sendpulseEmail.sendAdminEmail(
+        EMAIL_TEMPLATES.ADMIN_APPLICATION_RECEIVED,
+        {
+          detectiveName: application.fullName,
+          email: application.email,
+          country: application.country || "Not specified",
+          businessType: application.businessType || "Not specified",
+          supportEmail: "support@askdetectives.com",
+        }
+      ).catch(err => console.error("[Email] Failed to send admin notification:", err));
+      
       res.status(201).json({ application });
     } catch (error) {
       console.error("=== APPLICATION CREATION ERROR ===");
@@ -2603,7 +2687,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      if (allowedData.status === "approved" || allowedData.status === "rejected") {
+      if (allowedData.status === "approved") {
+        // Send approval email (non-blocking)
+        const application = await storage.getDetectiveApplication(req.params.id);
+        if (application) {
+          sendpulseEmail.sendTransactionalEmail(
+            application.email,
+            EMAIL_TEMPLATES.DETECTIVE_APPLICATION_APPROVED,
+            {
+              detectiveName: application.fullName,
+              email: application.email,
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send approval email:", err));
+
+          // If this is a claimable account, send claim invitation email
+          if (application.isClaimable && application.email) {
+            try {
+              // Generate secure claim token (48-hour expiry)
+              const { token, hash } = generateClaimToken();
+              const expiresAt = new Date(calculateTokenExpiry());
+
+              // Get the detective that was just created
+              const detective = await db
+                .select()
+                .from(detectives)
+                .where(eq(detectives.userId, user?.id || ""))
+                .limit(1)
+                .then(r => r[0]);
+
+              if (detective) {
+                // Store claim token hash in database
+                await db.insert(claimTokens).values({
+                  detectiveId: detective.id,
+                  tokenHash: hash,
+                  expiresAt: expiresAt,
+                });
+
+                // Build claim URL and send invitation email
+                const claimUrl = buildClaimUrl(token);
+                sendpulseEmail.sendTransactionalEmail(
+                  application.email,
+                  EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_INVITATION,
+                  {
+                    detectiveName: application.fullName,
+                    claimLink: claimUrl,
+                    supportEmail: "support@askdetectives.com",
+                  }
+                ).catch(err => console.error("[Email] Failed to send claim invitation:", err));
+
+                console.log(`[Claim] Sent invitation email to ${application.email} with claim token`);
+              }
+            } catch (claimError: any) {
+              console.error("[Claim] Error sending claim invitation:", claimError);
+              // Non-blocking: Don't fail approval if claim email fails
+            }
+          }
+        }
+        await storage.deleteDetectiveApplication(req.params.id);
+        return res.json({ application: null });
+      }
+
+      if (allowedData.status === "rejected") {
+        // Send rejection email (non-blocking)
+        const application = await storage.getDetectiveApplication(req.params.id);
+        if (application) {
+          sendpulseEmail.sendTransactionalEmail(
+            application.email,
+            EMAIL_TEMPLATES.DETECTIVE_APPLICATION_REJECTED,
+            {
+              detectiveName: application.fullName,
+              email: application.email,
+              rejectionReason: allowedData.reviewNotes || "Your application did not meet our requirements.",
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send rejection email:", err));
+        }
         await storage.deleteDetectiveApplication(req.params.id);
         return res.json({ application: null });
       }
@@ -2693,12 +2852,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           const claimedDetective = await storage.getDetective(result.claim.detectiveId);
+          
+          // Send legacy email (keep for backward compatibility)
           await sendClaimApprovedEmail({
             to: result.email,
             detectiveName: claimedDetective?.businessName || "Detective",
             wasNewUser: result.wasNewUser,
             temporaryPassword: result.temporaryPassword,
           });
+
+          // Send SendPulse email (non-blocking)
+          if (result.wasNewUser && result.temporaryPassword) {
+            sendpulseEmail.sendTransactionalEmail(
+              result.email,
+              EMAIL_TEMPLATES.PROFILE_CLAIM_TEMPORARY_PASSWORD,
+              {
+                detectiveName: claimedDetective?.businessName || "Detective",
+                email: result.email,
+                temporaryPassword: result.temporaryPassword,
+                supportEmail: "support@askdetectives.com",
+              }
+            ).catch(err => console.error("[Email] Failed to send temporary password email:", err));
+          } else {
+            sendpulseEmail.sendTransactionalEmail(
+              result.email,
+              EMAIL_TEMPLATES.PROFILE_CLAIM_APPROVED,
+              {
+                detectiveName: claimedDetective?.businessName || "Detective",
+                email: result.email,
+                supportEmail: "support@askdetectives.com",
+              }
+            ).catch(err => console.error("[Email] Failed to send claim approval email:", err));
+          }
 
           return res.json({ 
             claim: result.claim,
@@ -2733,6 +2918,348 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error("Update claim error:", error);
       res.status(500).json({ error: "Failed to update claim" });
+    }
+  });
+
+  // ============== CLAIM ACCOUNT ROUTES (Admin-Created Accounts) ==============
+
+  // Verify claim token (public - no auth required)
+  app.post("/api/claim-account/verify", async (req: Request, res: Response) => {
+    try {
+      const { token } = req.body;
+
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Invalid request" });
+      }
+
+      // Hash the token to look up in database
+      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.ts");
+      const tokenHash = hashToken(token);
+
+      // Find claim token in database
+      const claimToken = await db
+        .select()
+        .from(claimTokens)
+        .where(eq(claimTokens.tokenHash, tokenHash))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!claimToken) {
+        return res.status(404).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if token is expired
+      if (isTokenExpired(claimToken.expiresAt)) {
+        return res.status(400).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if token was already used
+      if (claimToken.usedAt) {
+        return res.status(400).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Get detective info
+      const detective = await storage.getDetective(claimToken.detectiveId);
+      if (!detective) {
+        return res.status(404).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if already claimed
+      if (detective.isClaimed) {
+        return res.status(400).json({ error: "This account has already been claimed" });
+      }
+
+      // Return detective info (excluding sensitive data)
+      res.json({
+        valid: true,
+        detective: {
+          id: detective.id,
+          businessName: detective.businessName,
+          contactEmail: detective.contactEmail,
+        },
+      });
+    } catch (error) {
+      console.error("[Claim] Token verification error:", error);
+      res.status(500).json({ error: "Failed to verify claim token" });
+    }
+  });
+
+  // Submit claim account (public - no auth required, but token verified)
+  app.post("/api/claim-account", async (req: Request, res: Response) => {
+    try {
+      const { token, email } = req.body;
+
+      // Validate input
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Invalid request" });
+      }
+
+      if (!email || typeof email !== "string" || !email.includes("@")) {
+        return res.status(400).json({ error: "Valid email is required" });
+      }
+
+      // Hash the token to look up in database
+      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.ts");
+      const tokenHash = hashToken(token);
+
+      // Start transaction: Find and validate claim token
+      const claimToken = await db
+        .select()
+        .from(claimTokens)
+        .where(eq(claimTokens.tokenHash, tokenHash))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!claimToken) {
+        return res.status(404).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if token is expired
+      if (isTokenExpired(claimToken.expiresAt)) {
+        return res.status(400).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if token was already used
+      if (claimToken.usedAt) {
+        return res.status(400).json({ error: "This claim link has already been used" });
+      }
+
+      // Get detective info
+      const detective = await storage.getDetective(claimToken.detectiveId);
+      if (!detective) {
+        return res.status(404).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if already claimed
+      if (detective.isClaimed) {
+        return res.status(400).json({ error: "This account has already been claimed" });
+      }
+
+      // Mark token as used (atomic operation)
+      await db
+        .update(claimTokens)
+        .set({ 
+          usedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(claimTokens.id, claimToken.id));
+
+      // Mark detective as claimed
+      await storage.updateDetectiveAdmin(detective.id, {
+        isClaimed: true,
+      });
+
+      // Store claimed email in contactEmail temporarily (will be set as primary in Step 3)
+      await storage.updateDetectiveAdmin(detective.id, {
+        contactEmail: email,
+      });
+
+      console.log(`[Claim] Account claimed successfully: ${detective.businessName} (${email})`);
+
+      // STEP 3: Generate credentials and enable login
+      try {
+        // Get the user account associated with this detective
+        const user = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, detective.userId))
+          .limit(1)
+          .then(r => r[0]);
+
+        if (!user) {
+          console.error(`[Claim] User not found for detective: ${detective.id}`);
+          // Still return success for claim, but log error
+          return res.json({
+            success: true,
+            message: "Account claimed successfully",
+            detective: {
+              id: detective.id,
+              businessName: detective.businessName,
+            },
+          });
+        }
+
+        // Check if login is already enabled (prevent re-running)
+        if (!user.mustChangePassword && user.password && user.password.length > 0) {
+          console.log(`[Claim] Login already enabled for: ${email}`);
+          return res.json({
+            success: true,
+            message: "Account claimed successfully",
+            detective: {
+              id: detective.id,
+              businessName: detective.businessName,
+            },
+          });
+        }
+
+        // Generate secure temporary password
+        const { generateTempPassword } = await import("./services/claimTokenService.ts");
+        const tempPassword = generateTempPassword(12);
+        const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+        // Update user with hashed password and require password change
+        await db
+          .update(users)
+          .set({
+            password: hashedPassword,
+            mustChangePassword: true,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
+
+        console.log(`[Claim] Credentials generated for: ${email}`);
+
+        // Send temporary password email via SendPulse
+        const loginUrl = "https://askdetectives.com/login";
+        sendpulseEmail.sendTransactionalEmail(
+          email,
+          EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_CREDENTIALS,
+          {
+            detectiveName: detective.businessName || "Detective",
+            loginEmail: email,
+            tempPassword: tempPassword,
+            loginUrl: loginUrl,
+            supportEmail: "support@askdetectives.com",
+          }
+        ).catch(err => console.error("[Email] Failed to send temp password email:", err));
+
+        console.log(`[Claim] Temporary password email sent to: ${email}`);
+
+      } catch (credentialError: any) {
+        console.error("[Claim] Error generating credentials:", credentialError);
+        // Non-blocking: Claim still succeeded, credentials can be regenerated later
+      }
+
+      res.json({
+        success: true,
+        message: "Account claimed successfully",
+        detective: {
+          id: detective.id,
+          businessName: detective.businessName,
+        },
+      });
+    } catch (error) {
+      console.error("[Claim] Account claim error:", error);
+      res.status(500).json({ error: "Failed to claim account" });
+    }
+  });
+
+  // STEP 4: Finalize claim - Replace primary email and complete claim lifecycle
+  app.post("/api/claim-account/finalize", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Get the user
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get detective by user ID
+      const detective = await storage.getDetectiveByUserId(userId);
+      if (!detective) {
+        return res.status(404).json({ error: "Detective profile not found" });
+      }
+
+      // Validate finalization conditions using utility function
+      const { validateClaimFinalization } = await import("./services/claimTokenService.ts");
+      const validationResult = validateClaimFinalization(detective, user);
+
+      if (!validationResult.isValid) {
+        return res.status(400).json({ 
+          error: "Cannot finalize claim at this time",
+          reason: validationResult.reason,
+        });
+      }
+
+      // PRIMARY EMAIL REPLACEMENT
+      // Replace detective.primaryEmail (from profile) or user.email with claimed email
+      const claimedEmail = detective.contactEmail; // Set during Step 2 claim
+
+      // Ensure the new email is unique in users table
+      const existingUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, claimedEmail))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (existingUser && existingUser.id !== user.id) {
+        console.error(`[Claim] Email already in use: ${claimedEmail}`);
+        return res.status(400).json({ 
+          error: "Email already in use",
+        });
+      }
+
+      // Update user email to match claimed email
+      await db
+        .update(users)
+        .set({
+          email: claimedEmail,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
+
+      console.log(`[Claim] User email updated to: ${claimedEmail}`);
+
+      // Mark claim process as completed
+      await storage.updateDetectiveAdmin(detective.id, {
+        claimCompletedAt: new Date(),
+        // Clear temporary claimed email field (not strictly needed but good hygiene)
+        contactEmail: null,
+      });
+
+      console.log(`[Claim] Claim finalized for: ${detective.businessName}`);
+
+      // Clean up any remaining claim tokens for this detective
+      try {
+        await db
+          .delete(claimTokens)
+          .where(eq(claimTokens.detectiveId, detective.id));
+
+        console.log(`[Claim] Cleaned up claim tokens for detective: ${detective.id}`);
+      } catch (cleanupError: any) {
+        console.error("[Claim] Error cleaning up tokens:", cleanupError);
+        // Non-blocking: Finalization still succeeded
+      }
+
+      // Send finalization confirmation email
+      const loginUrl = "https://askdetectives.com/login";
+      sendpulseEmail.sendTransactionalEmail(
+        claimedEmail,
+        EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_FINALIZED,
+        {
+          detectiveName: detective.businessName || "Detective",
+          loginEmail: claimedEmail,
+          loginUrl: loginUrl,
+          supportEmail: "support@askdetectives.com",
+        }
+      ).catch(err => console.error("[Email] Failed to send finalization email:", err));
+
+      console.log(`[Claim] Finalization confirmation email sent to: ${claimedEmail}`);
+
+      res.json({
+        success: true,
+        message: "Account claim finalized successfully",
+        detective: {
+          id: detective.id,
+          businessName: detective.businessName,
+          email: claimedEmail,
+        },
+      });
+
+    } catch (error) {
+      console.error("[Claim] Finalization error:", error);
+      res.status(500).json({ error: "Failed to finalize claim" });
     }
   });
 
