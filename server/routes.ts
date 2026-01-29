@@ -8,14 +8,17 @@ import { sendpulseEmail, EMAIL_TEMPLATES } from "./services/sendpulseEmail.ts";
 import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.ts";
 import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
-import { db } from "../db/index.ts";
-import { eq } from "drizzle-orm";
+import { db, pool } from "../db/index.ts";
+import { eq, and, desc, avg, count, min } from "drizzle-orm";
 import {
   detectives,
   detectiveVisibility,
   users,
   claimTokens,
   emailTemplates,
+  detectiveSnippets,
+  services,
+  reviews,
   insertUserSchema, 
   insertDetectiveSchema, 
   insertServiceSchema, 
@@ -41,11 +44,35 @@ import { config } from "./config.ts";
 import pkg from "pg";
 const { Pool } = pkg;
 import { requirePolicy } from "./policy.ts";
+import { getPaymentGateway, isPaymentGatewayEnabled } from "./services/paymentGateway.ts";
+import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
+import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
+import { getFreePlanId } from "./services/freePlan.ts";
 
-const razorpayClient = new Razorpay({
-  key_id: config.razorpay.keyId,
-  key_secret: config.razorpay.keySecret,
+// Initialize Razorpay with env fallback (will be overridden by DB config)
+let razorpayClient = new Razorpay({
+  key_id: config.razorpay.keyId || "dummy",
+  key_secret: config.razorpay.keySecret || "dummy",
 });
+
+// Helper to get/refresh Razorpay client from database
+async function getRazorpayClient() {
+  const gateway = await getPaymentGateway('razorpay');
+  
+  if (!gateway) {
+    console.warn('[Razorpay] Gateway not enabled, falling back to env config');
+    return razorpayClient;
+  }
+  
+  // Reinitialize with DB config
+  const dbClient = new Razorpay({
+    key_id: gateway.config.keyId || config.razorpay.keyId,
+    key_secret: gateway.config.keySecret || config.razorpay.keySecret,
+  });
+  
+  console.log(`[Razorpay] Using ${gateway.is_test_mode ? 'TEST' : 'LIVE'} mode from database`);
+  return dbClient;
+}
 
 // Extend Express Session
 declare module "express-session" {
@@ -114,6 +141,118 @@ async function applyPendingDowngrades(detective: any): Promise<any> {
   }
   
   return detective;
+}
+
+// GUARD: Enforce no duplicate Blue Tick purchases
+// This is a HARD RULE: A detective with active Blue Tick cannot purchase again
+async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: string): Promise<void> {
+  const detective = await storage.getDetective(detectiveId);
+  
+  if (!detective) {
+    throw new Error(`Detective not found: ${detectiveId}`);
+  }
+  
+  // HARD RULE: If hasBlueTick is already true, reject immediately
+  if (detective.hasBlueTick === true) {
+    console.error(`[BLUE_TICK_GUARD] Duplicate attempt blocked`, {
+      detectiveId,
+      provider,
+      hasBlueTickActive: detective.hasBlueTick,
+      activatedAt: detective.blueTickActivatedAt,
+    });
+    
+    const error = new Error("Blue Tick already active");
+    (error as any).statusCode = 409; // Conflict
+    throw error;
+  }
+  
+  // Check for existing unpaid Blue Tick payment orders
+  const existingOrder = await storage.getPaymentOrdersByDetectiveId?.(detectiveId)
+    ?.then((orders: any[]) => 
+      orders.find((o: any) => 
+        o.status !== "verified" && 
+        (o.plan === "blue_tick_addon" || o.plan === "blue-tick" || o.packageId === "blue-tick")
+      )
+    ) || null;
+  
+  if (existingOrder) {
+    console.warn(`[BLUE_TICK_GUARD] Existing unpaid Blue Tick order found`, {
+      detectiveId,
+      orderId: existingOrder.id,
+      status: existingOrder.status,
+    });
+    
+    const error = new Error("Blue Tick payment already in progress");
+    (error as any).statusCode = 409; // Conflict
+    throw error;
+  }
+}
+
+// ENTITLEMENT SYSTEM: Apply package badges to detective
+// CRITICAL: This is the ONLY place where hasBlueTick and other badges are granted/revoked
+// Badges are DERIVED from subscription_packages.badges, NOT manual flags
+async function applyPackageEntitlements(detectiveId: string, reason: 'activation' | 'renewal' | 'downgrade' | 'expiry'): Promise<void> {
+  const detective = await storage.getDetective(detectiveId);
+  
+  if (!detective) {
+    console.warn(`[ENTITLEMENT] Detective not found: ${detectiveId}`);
+    return;
+  }
+
+  // Determine which package to use for entitlements
+  let activePackageId = detective.subscriptionPackageId;
+  
+  // Check if subscription has expired
+  const now = new Date();
+  if (detective.subscriptionExpiresAt && new Date(detective.subscriptionExpiresAt) < now) {
+    // Subscription expired → downgrade to FREE
+    activePackageId = null;
+    console.log(`[ENTITLEMENT] Subscription expired for detective ${detectiveId}, downgrading to FREE`);
+  }
+
+  // If no active package, use FREE plan defaults (only feature: none)
+  let packageBadges: Record<string, boolean> = {};
+  
+  if (activePackageId) {
+    const activePackage = await storage.getSubscriptionPlanById(activePackageId);
+    if (activePackage && activePackage.badges) {
+      packageBadges = (activePackage.badges as any) || {};
+    }
+  }
+
+  // Build the entitlement update payload
+  const updatePayload: any = {};
+
+  // ENTITLEMENT: Blue Tick
+  // If package includes blueTick badge → grant Blue Tick
+  // If package DOES NOT include blueTick badge → remove Blue Tick
+  const shouldHaveBlueTick = packageBadges.blueTick === true;
+  
+  if (shouldHaveBlueTick && !detective.hasBlueTick) {
+    console.log(`[ENTITLEMENT_APPLY] Granting Blue Tick to detective ${detectiveId}`, {
+      packageId: activePackageId,
+      reason,
+    });
+    updatePayload.hasBlueTick = true;
+    updatePayload.blueTickActivatedAt = new Date();
+  } else if (!shouldHaveBlueTick && detective.hasBlueTick) {
+    console.log(`[ENTITLEMENT_REMOVE] Removing Blue Tick from detective ${detectiveId}`, {
+      packageId: activePackageId,
+      reason,
+    });
+    updatePayload.hasBlueTick = false;
+    updatePayload.blueTickActivatedAt = null;
+  }
+
+  // Apply update if there are changes
+  if (Object.keys(updatePayload).length > 0) {
+    await storage.updateDetectiveAdmin(detectiveId, updatePayload as any);
+    console.log(`[ENTITLEMENT] Entitlements updated for detective ${detectiveId}`, {
+      changes: updatePayload,
+      reason,
+      packageId: activePackageId,
+    });
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -811,6 +950,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscriptionPackageId: packageId,
           billingCycle: billingCycle,
           subscriptionActivatedAt: new Date(),
+          subscriptionExpiresAt: null,
+          pendingPackageId: null,
+          pendingBillingCycle: null,
         } as any);
 
         const updatedDetective = await storage.getDetective(detective.id);
@@ -937,8 +1079,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/payments/create-order", requireRole("detective"), async (req: Request, res: Response) => {
     try {
-      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
-        console.error("[create-order] Razorpay not configured");
+      const gateway = await getPaymentGateway('razorpay');
+      if (!gateway) {
+        console.error("[create-order] Razorpay not configured or not enabled");
         return res.status(500).json({ error: "Payments not configured" });
       }
 
@@ -975,21 +1118,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Package is not active" });
       }
 
-      // Select price based on billing cycle
-      const priceString = billingCycle === "monthly" ? packageRecord.monthlyPrice : packageRecord.yearlyPrice;
-      const amount = Number(priceString || 0);
+      // Select price based on billing cycle (prices are in USD)
+      const priceUSDString = billingCycle === "monthly" ? packageRecord.monthlyPrice : packageRecord.yearlyPrice;
+      const priceUSD = Number(priceUSDString || 0);
       
       // Validate price
-      if (!amount || Number.isNaN(amount) || amount <= 0) {
-        console.error(`[create-order] Invalid ${billingCycle} price for package ${packageId}: ${priceString}`);
+      if (!priceUSD || Number.isNaN(priceUSD) || priceUSD <= 0) {
+        console.error(`[create-order] Invalid ${billingCycle} price for package ${packageId}: ${priceUSDString}`);
         return res.status(400).json({ error: `Package has no valid ${billingCycle} price` });
       }
 
-      const amountPaise = Math.round(amount * 100);
-      console.log(`[create-order] Creating Razorpay order for ₹${amount} (${amountPaise} paise) - ${billingCycle}`);
+      // Fetch live exchange rate USD to INR
+      let exchangeRate = 83.5; // Fallback rate
+      try {
+        const rateResponse = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR');
+        const rateData = await rateResponse.json();
+        if (rateData.rates?.INR) {
+          exchangeRate = rateData.rates.INR;
+        }
+      } catch (error) {
+        console.warn('[create-order] Failed to fetch live rate, using fallback 83.5');
+      }
+
+      // Convert USD to INR
+      const priceINR = priceUSD * exchangeRate;
+      const amountPaise = Math.round(priceINR * 100);
+      
+      console.log(`[create-order] Creating Razorpay order for $${priceUSD} USD = ₹${priceINR.toFixed(2)} INR (${amountPaise} paise) - ${billingCycle} - Rate: ${exchangeRate}`);
+      
+      // Get Razorpay client from database config
+      const rzpClient = await getRazorpayClient();
       
       // Create Razorpay order (receipt max 40 chars)
-      const order = await razorpayClient.orders.create({
+      const order = await rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `sub_${Date.now()}`.substring(0, 40),
@@ -1011,19 +1172,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         plan: packageRecord.name as any,
         packageId: packageId,
         billingCycle: billingCycle,
-        amount: String(amount),
+        amount: String(priceINR.toFixed(2)),
         currency: "INR",
+        provider: "razorpay",
         razorpayOrderId: order.id,
         status: "created",
       } as any);
 
-      console.log(`[create-order] Payment order saved to DB with billing cycle: ${billingCycle}`);
+      console.log(`[create-order] Payment order saved to DB - USD: $${priceUSD}, INR: ₹${priceINR.toFixed(2)}, billing cycle: ${billingCycle}`);
       
-      // Return response
+      // Return response with key from database
       res.json({ 
         orderId: order.id, 
         amount: amountPaise,
-        key: config.razorpay.keyId 
+        key: gateway.config.keyId || config.razorpay.keyId 
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1038,8 +1200,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payments/verify", requireRole("detective"), async (req: Request, res: Response) => {
     console.log("[verify] === PAYMENT VERIFICATION START ===");
     try {
-      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
-        console.error("[verify] Razorpay not configured");
+      const gateway = await getPaymentGateway('razorpay');
+      if (!gateway) {
+        console.error("[verify] Razorpay not configured or not enabled");
         return res.status(500).json({ error: "Payments not configured" });
       }
 
@@ -1067,7 +1230,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify Razorpay signature
       const expected = crypto
-        .createHmac("sha256", config.razorpay.keySecret)
+        .createHmac("sha256", gateway.config.keySecret || config.razorpay.keySecret)
         .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
         .digest("hex");
 
@@ -1115,15 +1278,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[verify] Activating package ${packageId} for detective ${paymentOrder.detectiveId}`);
 
-      // Update detective with new subscription (subscriptionPackageId is the ONLY field to track subscriptions)
+      const newExpiryDate = calculateExpiryDate(new Date(), billingCycle);
+
+      // Update subscription (NON-ENTITLEMENT fields only)
       await storage.updateDetectiveAdmin(paymentOrder.detectiveId, {
         subscriptionPackageId: packageId,
         billingCycle: billingCycle,
         subscriptionActivatedAt: new Date(),
+        subscriptionExpiresAt: newExpiryDate,
         // Note: subscriptionPlan and planActivatedAt are LEGACY fields - not updated during payment
       } as any);
 
-      console.log(`[verify] Detective subscription fields updated`);
+      console.log(`[verify] Subscription activated for detective ${paymentOrder.detectiveId}`);
+
+      // APPLY ENTITLEMENTS: Use centralized entitlement system
+      // This function reads package.badges and applies/removes entitlements (Blue Tick, Pro, etc.)
+      await applyPackageEntitlements(paymentOrder.detectiveId, 'activation');
+
+      console.log(`[verify] Entitlements applied`);
+
 
       // Fetch updated detective to return to client
       const updatedDetective = await storage.getDetective(paymentOrder.detectiveId);
@@ -1185,6 +1358,328 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error instanceof Error ? error.message : "Verification failed" });
     }
   });
+
+  // PayPal: Create order endpoint
+  app.post("/api/payments/paypal/create-order", requireRole("detective"), async (req: Request, res: Response) => {
+    try {
+      const gateway = await getPaymentGateway('paypal');
+      if (!gateway || !gateway.is_enabled) {
+        console.error("[paypal-create-order] PayPal not configured or not enabled");
+        return res.status(500).json({ error: "PayPal payments not configured" });
+      }
+
+      // Reject requests with old field names
+      if (req.body.plan || req.body.subscriptionPlan) {
+        console.error("[paypal-create-order] Rejected: Request contains deprecated field (plan or subscriptionPlan)");
+        return res.status(400).json({ error: "Invalid request. Use packageId and billingCycle instead." });
+      }
+
+      const detective = await storage.getDetectiveByUserId(req.session.userId!);
+      if (!detective) {
+        console.error("[paypal-create-order] Detective not found for userId:", req.session.userId);
+        return res.status(400).json({ error: "Detective profile not found" });
+      }
+
+      // Validate request body
+      const { packageId, billingCycle } = z.object({ 
+        packageId: z.string().min(1, "Package ID is required"),
+        billingCycle: z.enum(["monthly", "yearly"], { errorMap: () => ({ message: "Billing cycle must be 'monthly' or 'yearly'" }) })
+      }).parse(req.body);
+      
+      console.log(`[paypal-create-order] Fetching package ID: ${packageId}, billing: ${billingCycle}`);
+      
+      // GUARD: Block duplicate Blue Tick purchases (HARD RULE) - check BEFORE fetching package
+      if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+        try {
+          await assertBlueTickNotAlreadyActive(detective.id, 'paypal');
+        } catch (guardError: any) {
+          if (guardError.statusCode === 409) {
+            console.warn(`[paypal-create-order] Duplicate Blue Tick attempt rejected:`, guardError.message);
+            return res.status(409).json({ error: guardError.message });
+          }
+          throw guardError;
+        }
+      }
+      
+      // Fetch package from database
+      const packageRecord = await storage.getSubscriptionPlanById(packageId);
+      if (!packageRecord) {
+        console.error(`[paypal-create-order] Package not found: ${packageId}`);
+        return res.status(400).json({ error: "Package not found" });
+      }
+      
+      // Validate package is active
+      if (packageRecord.isActive === false) {
+        console.error(`[paypal-create-order] Package is inactive: ${packageId}`);
+        return res.status(400).json({ error: "Package is not active" });
+      }
+
+      // Select price based on billing cycle
+      const priceString = billingCycle === "monthly" ? packageRecord.monthlyPrice : packageRecord.yearlyPrice;
+      const amount = Number(priceString || 0);
+      
+      // Validate price
+      if (!amount || Number.isNaN(amount) || amount <= 0) {
+        console.error(`[paypal-create-order] Invalid ${billingCycle} price for package ${packageId}: ${priceString}`);
+        return res.status(400).json({ error: `Package has no valid ${billingCycle} price` });
+      }
+
+      console.log(`[paypal-create-order] Creating PayPal order for $${amount} (${billingCycle} billing)`);
+      
+      // Create PayPal order
+      const order = await createPayPalOrder({
+        amount: Number(amount),
+        currency: "USD", // PayPal uses USD by default
+        packageId,
+        packageName: packageRecord.name,
+        billingCycle,
+        detectiveId: detective.id,
+        userId: req.session.userId!,
+      });
+
+      console.log(`[paypal-create-order] PayPal order created: ${order.id}`);
+
+      // Save payment order to database
+      await storage.createPaymentOrder({
+        userId: req.session.userId!,
+        detectiveId: detective.id,
+        plan: packageRecord.name as any,
+        packageId: packageId,
+        billingCycle: billingCycle,
+        amount: String(amount),
+        currency: "USD",
+        provider: "paypal",
+        paypalOrderId: order.id, // Store PayPal order ID
+        status: "created",
+      } as any);
+
+      console.log(`[paypal-create-order] Payment order saved to DB with billing cycle: ${billingCycle}`);
+      
+      // Return response with clientId from database
+      res.json({ 
+        orderId: order.id,
+        clientId: gateway.config.clientId || config.paypal.clientId
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("[paypal-create-order] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[paypal-create-order] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to create PayPal order" });
+    }
+  });
+
+  // PayPal: Capture order endpoint
+  app.post("/api/payments/paypal/capture", requireRole("detective"), async (req: Request, res: Response) => {
+    console.log("[paypal-capture] === PAYPAL CAPTURE START ===");
+    try {
+      const gateway = await getPaymentGateway('paypal');
+      if (!gateway || !gateway.is_enabled) {
+        console.error("[paypal-capture] PayPal not configured or not enabled");
+        return res.status(500).json({ error: "PayPal payments not configured" });
+      }
+
+      // Validate request body
+      const body = z.object({
+        paypalOrderId: z.string().min(1, "PayPal Order ID is required"),
+      }).parse(req.body);
+
+      console.log(`[paypal-capture] Capturing PayPal order: ${body.paypalOrderId}`);
+
+      // Fetch payment order from database using paypalOrderId
+      const paymentOrder = await storage.getPaymentOrderByPaypalOrderId?.(body.paypalOrderId) || 
+        // Fallback query if method doesn't exist yet
+        (await pool.query(
+          "SELECT * FROM payment_orders WHERE paypal_order_id = $1 LIMIT 1",
+          [body.paypalOrderId]
+        )).rows[0];
+
+      if (!paymentOrder) {
+        console.error(`[paypal-capture] Payment order not found: ${body.paypalOrderId}`);
+        return res.status(404).json({ error: "Payment order not found" });
+      }
+
+      // Verify ownership
+      if (paymentOrder.user_id !== req.session.userId) {
+        console.error(`[paypal-capture] Forbidden: User ${req.session.userId} does not own order ${body.paypalOrderId}`);
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      // Capture the PayPal order
+      const captureResponse = await capturePayPalOrder(body.paypalOrderId);
+
+      // Verify capture was successful
+      if (!verifyPayPalCapture(captureResponse)) {
+        console.error(`[paypal-capture] PayPal capture not completed: ${body.paypalOrderId}`);
+        return res.status(400).json({ error: "Payment capture failed" });
+      }
+
+      console.log(`[paypal-capture] PayPal order captured: ${body.paypalOrderId}`);
+
+      // Read packageId and billingCycle from payment_order
+      const packageId = paymentOrder.package_id;
+      const billingCycle = paymentOrder.billing_cycle;
+
+      if (!packageId) {
+        console.error(`[paypal-capture] Payment order missing packageId: ${body.paypalOrderId}`);
+        return res.status(400).json({ error: "Payment order missing package information" });
+      }
+
+      if (!billingCycle || (billingCycle !== "monthly" && billingCycle !== "yearly")) {
+        console.error(`[paypal-capture] Invalid billing cycle in payment order: ${billingCycle}`);
+        return res.status(400).json({ error: "Invalid billing cycle in payment order" });
+      }
+
+      console.log(`[paypal-capture] Upgrading detective to package ${packageId} with ${billingCycle} billing`);
+
+      // Mark payment order as paid
+      await storage.markPaymentOrderPaid(paymentOrder.id, {
+        paymentId: captureResponse.id || body.paypalOrderId,
+        transactionId: captureResponse.purchase_units?.[0]?.payments?.captures?.[0]?.id,
+      });
+
+      console.log(`[paypal-capture] Payment order marked as paid`);
+
+      // GUARD: Block duplicate Blue Tick (check BEFORE any update)
+      if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+        try {
+          await assertBlueTickNotAlreadyActive(paymentOrder.detective_id, 'paypal');
+        } catch (guardError: any) {
+          if (guardError.statusCode === 409) {
+            console.warn(`[paypal-capture] Duplicate Blue Tick attempt rejected:`, guardError.message);
+            return res.status(409).json({ error: guardError.message });
+          }
+          throw guardError;
+        }
+      }
+
+      // SAFETY: Verify package exists and is active before upgrading
+      const packageToActivate = await storage.getSubscriptionPlanById(packageId);
+      if (!packageToActivate) {
+        console.error(`[paypal-capture] CRITICAL: Package not found during activation: ${packageId}`);
+        return res.status(400).json({ error: "Package no longer exists" });
+      }
+      if (packageToActivate.isActive === false) {
+        console.error(`[paypal-capture] CRITICAL: Attempting to activate inactive package: ${packageId}`);
+        return res.status(400).json({ error: "Package is no longer active" });
+      }
+
+      console.log(`[paypal-capture] Activating package ${packageId} for detective ${paymentOrder.detective_id}`);
+
+      // Handle Blue Tick addon vs regular subscription
+      if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+        // Blue Tick addon: update hasBlueTick flag
+        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+          hasBlueTick: true,
+          blueTickActivatedAt: new Date(),
+        } as any);
+        
+        console.log(`[paypal-capture] Blue Tick addon activated for detective ${paymentOrder.detective_id}`);
+      } else {
+        // Regular subscription: update subscription fields only
+        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+          subscriptionPackageId: packageId,
+          billingCycle: billingCycle,
+          subscriptionActivatedAt: new Date(),
+          subscriptionExpiresAt: calculateExpiryDate(new Date(), billingCycle),
+          // Note: subscriptionPlan and planActivatedAt are LEGACY fields - not updated during payment
+        } as any);
+        
+        console.log(`[paypal-capture] Subscription activated for detective ${paymentOrder.detective_id}`);
+
+        // APPLY ENTITLEMENTS: Use centralized entitlement system
+        // This function reads package.badges and applies/removes entitlements (Blue Tick, Pro, etc.)
+        await applyPackageEntitlements(paymentOrder.detective_id, 'activation');
+        
+        console.log(`[paypal-capture] Entitlements applied`);
+      }
+
+      // Fetch updated detective to return to client
+      const updatedDetective = await storage.getDetective(paymentOrder.detective_id);
+      
+      if (!updatedDetective) {
+        console.error(`[paypal-capture] Could not fetch updated detective: ${paymentOrder.detective_id}`);
+        return res.status(500).json({ error: "Failed to fetch updated detective" });
+      }
+
+      console.log(`[paypal-capture] Successfully updated detective: subscriptionPackageId=${updatedDetective.subscriptionPackageId}, billingCycle=${updatedDetective.billingCycle}, activatedAt=${updatedDetective.subscriptionActivatedAt}`);
+      console.log("[paypal-capture] === PAYPAL CAPTURE COMPLETE ===");
+
+      // Send payment success email (non-blocking)
+      const user = await storage.getUser(req.session.userId!);
+      if (user && packageToActivate) {
+        if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+          // Send Blue Tick success email
+          sendpulseEmail.sendTransactionalEmail(
+            user.email,
+            EMAIL_TEMPLATES.BLUE_TICK_PURCHASE_SUCCESS,
+            {
+              detectiveName: updatedDetective.businessName || user.name,
+              email: user.email,
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send Blue Tick success email:", err));
+        } else {
+          // Send regular subscription success email
+          const expiryDate = calculateExpiryDate(new Date(), billingCycle);
+          sendpulseEmail.sendTransactionalEmail(
+            user.email,
+            EMAIL_TEMPLATES.PAYMENT_SUCCESS,
+            {
+              detectiveName: updatedDetective.businessName || user.name,
+              email: user.email,
+              packageName: packageToActivate.name,
+              billingCycle: billingCycle,
+              amount: String(paymentOrder.amount || ""),
+              currency: paymentOrder.currency || "USD",
+              subscriptionExpiryDate: expiryDate ? new Date(expiryDate).toLocaleDateString() : "N/A",
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send payment success email:", err));
+
+          // Send admin notification (non-blocking)
+          sendpulseEmail.sendAdminEmail(
+            EMAIL_TEMPLATES.ADMIN_NEW_PAYMENT,
+            {
+              detectiveName: updatedDetective.businessName || user.name,
+              email: user.email,
+              packageName: packageToActivate.name,
+              amount: String(paymentOrder.amount || ""),
+              currency: paymentOrder.currency || "USD",
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send admin payment notification:", err));
+        }
+      }
+
+      // Build response based on package type
+      const response: any = { 
+        success: true, 
+        detective: updatedDetective
+      };
+      
+      if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+        response.hasBlueTick = true;
+      } else {
+        response.packageId = packageId;
+        response.billingCycle = billingCycle;
+      }
+      
+      res.json(response);
+    } catch (error) {
+      console.log("[paypal-capture] === PAYPAL CAPTURE FAILED ===");
+      if (error instanceof z.ZodError) {
+        console.error("[paypal-capture] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[paypal-capture] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Payment capture failed" });
+    }
+  });
+
+  // Payment Gateway Routes (public endpoint for checking enabled gateways)
+  app.use("/api/payment-gateways", paymentGatewayRoutes);
 
   // Get payment history for current detective
   app.get("/api/payments/history", requireRole("detective"), async (req: Request, res: Response) => {
@@ -1286,6 +1781,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Detective profile not found" });
       }
 
+      // GUARD: Block duplicate Blue Tick purchases (HARD RULE)
+      try {
+        await assertBlueTickNotAlreadyActive(detective.id, 'razorpay');
+      } catch (guardError: any) {
+        if (guardError.statusCode === 409) {
+          console.warn(`[blue-tick-order] Duplicate Blue Tick attempt rejected:`, guardError.message);
+          return res.status(409).json({ error: guardError.message });
+        }
+        throw guardError;
+      }
+
       // REQUIREMENT: Detective must have active package subscription
       if (!detective.subscriptionPackageId) {
         console.error("[blue-tick-order] Detective has no active package subscription");
@@ -1299,12 +1805,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[blue-tick-order] Creating Blue Tick order for detective: ${detective.id}, cycle: ${billingCycle}`);
 
-      // Blue Tick pricing: $15/month or $150/year
-      const amount = billingCycle === "yearly" ? 150 : 15;
-      const amountPaise = Math.round(amount * 100);
+      // Blue Tick pricing in USD: $15/month or $150/year
+      const priceUSD = billingCycle === "yearly" ? 150 : 15;
+      
+      // Fetch live exchange rate USD to INR
+      let exchangeRate = 83.5; // Fallback rate
+      try {
+        const rateResponse = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR');
+        const rateData = await rateResponse.json();
+        if (rateData.rates?.INR) {
+          exchangeRate = rateData.rates.INR;
+        }
+      } catch (error) {
+        console.warn('[blue-tick-order] Failed to fetch live rate, using fallback 83.5');
+      }
+
+      // Convert USD to INR
+      const priceINR = priceUSD * exchangeRate;
+      const amountPaise = Math.round(priceINR * 100);
+      
+      console.log(`[blue-tick-order] Blue Tick pricing: $${priceUSD} USD = ₹${priceINR.toFixed(2)} INR (${amountPaise} paise) - Rate: ${exchangeRate}`);
+      
+      // Get Razorpay client from database config
+      const rzpClient = await getRazorpayClient();
+      const gateway = await getPaymentGateway('razorpay');
+      
+      if (!gateway) {
+        return res.status(503).json({ error: "Razorpay payment gateway is not configured" });
+      }
       
       // Create Razorpay order
-      const order = await razorpayClient.orders.create({
+      const order = await rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `bluetick_${Date.now()}`.substring(0, 40),
@@ -1324,7 +1855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         orderId: order.id, 
         amount: amountPaise,
-        key: config.razorpay.keyId,
+        key: gateway.config.keyId || config.razorpay.keyId,
         type: "blue_tick"
       });
     } catch (error) {
@@ -1340,8 +1871,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payments/verify-blue-tick", requireRole("detective"), async (req: Request, res: Response) => {
     console.log("[verify-blue-tick] === BLUE TICK VERIFICATION START ===");
     try {
-      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
-        console.error("[verify-blue-tick] Razorpay not configured");
+      const gateway = await getPaymentGateway('razorpay');
+      if (!gateway) {
+        console.error("[verify-blue-tick] Razorpay not configured or not enabled");
         return res.status(500).json({ error: "Payments not configured" });
       }
 
@@ -1356,7 +1888,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify Razorpay signature
       const expected = crypto
-        .createHmac("sha256", config.razorpay.keySecret)
+        .createHmac("sha256", gateway.config.keySecret || config.razorpay.keySecret)
         .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
         .digest("hex");
 
@@ -1372,6 +1904,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!detective) {
         console.error(`[verify-blue-tick] Detective not found for user ${req.session.userId}`);
         return res.status(400).json({ error: "Detective not found" });
+      }
+
+      // GUARD: Block duplicate Blue Tick purchases (HARD RULE)
+      try {
+        await assertBlueTickNotAlreadyActive(detective.id, 'razorpay');
+      } catch (guardError: any) {
+        if (guardError.statusCode === 409) {
+          console.warn(`[verify-blue-tick] Duplicate Blue Tick attempt rejected:`, guardError.message);
+          return res.status(409).json({ error: guardError.message });
+        }
+        throw guardError;
       }
 
       // VERIFY: Detective still has active package subscription
@@ -1436,6 +1979,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/subscription-plans", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       const payload = req.body as any;
+      const ALLOWED_SERVICE_LIMITS = [10, 15, 20, 25, 30, 35, 40, 45, 50];
       const parsed = z.object({
         name: z.string().min(2),
         displayName: z.string().min(2).optional(),
@@ -1444,7 +1988,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: z.string().optional(),
         features: z.array(z.string()).optional(),
         badges: z.any().optional(),
-        serviceLimit: z.number().int().min(0),
+        serviceLimit: z.number().int().min(0).refine(
+          (val) => val === 0 || val === 1 || val === 2 || val === 3 || val === 4 || val === 5 || ALLOWED_SERVICE_LIMITS.includes(val),
+          "Service limit must be between 1-5 or one of: 10, 15, 20, 25, 30, 35, 40, 45, 50"
+        ),
         isActive: z.boolean().optional(),
       }).strict().parse({
         name: String(payload.name || "").toLowerCase().trim(),
@@ -1480,6 +2027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/subscription-plans/:id", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       const raw = req.body as any;
+      const ALLOWED_SERVICE_LIMITS = [10, 15, 20, 25, 30, 35, 40, 45, 50];
       const input = {
         name: raw.name,
         displayName: raw.displayName,
@@ -1499,7 +2047,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: z.string().optional(),
         features: z.array(z.string()).optional(),
         badges: z.any().optional(),
-        serviceLimit: z.number().int().min(0).optional(),
+        serviceLimit: z.number().int().min(0).refine(
+          (val) => val === 0 || val === 1 || val === 2 || val === 3 || val === 4 || val === 5 || ALLOWED_SERVICE_LIMITS.includes(val),
+          "Service limit must be between 1-5 or one of: 10, 15, 20, 25, 30, 35, 40, 45, 50"
+        ).optional(),
         isActive: z.boolean().optional(),
       }).strict().parse(input);
       const plan = await storage.updateSubscriptionPlan(req.params.id, {
@@ -1532,6 +2083,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
         return res.status(404).json({ error: "Detective profile not found" });
+      }
+
+      // Backfill subscription expiry for paid plans if missing
+      const freePlanId = await getFreePlanId();
+      const isPaidPlan = detective.subscriptionPackageId && detective.subscriptionPackageId !== freePlanId;
+      if (isPaidPlan && !detective.subscriptionExpiresAt) {
+        const activatedAt = detective.subscriptionActivatedAt ? new Date(detective.subscriptionActivatedAt) : new Date();
+        const billingCycle = detective.billingCycle || "monthly";
+        const computedExpiry = calculateExpiryDate(activatedAt, billingCycle);
+        if (computedExpiry) {
+          await storage.updateDetectiveAdmin(detective.id, {
+            subscriptionExpiresAt: computedExpiry,
+            billingCycle: billingCycle,
+            subscriptionActivatedAt: detective.subscriptionActivatedAt ? new Date(detective.subscriptionActivatedAt) : activatedAt,
+          } as any);
+          detective = {
+            ...detective,
+            subscriptionExpiresAt: computedExpiry,
+            billingCycle: billingCycle,
+            subscriptionActivatedAt: detective.subscriptionActivatedAt ?? activatedAt,
+          } as any;
+        }
       }
       
       // Apply pending downgrades if expiry has passed
@@ -2617,11 +3190,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          // Build location string from application data
+          // Build location string from application data (for backward compatibility)
           const locationParts = [];
           if (application.city) locationParts.push(application.city);
           if (application.state) locationParts.push(application.state);
           const location = locationParts.length > 0 ? locationParts.join(", ") : "Not specified";
+          const stateValue = application.state || "Not specified";
+          const cityValue = application.city || "Not specified";
 
           // Build phone number
           const phone = application.phoneCountryCode && application.phoneNumber 
@@ -2648,6 +3223,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               isClaimable: isAdminCreated ? true : false,
               createdBy: isAdminCreated ? "admin" : "self",
               country: application.country || "US",
+              state: stateValue,
+              city: cityValue,
               location: location,
               address: (application as any).fullAddress || undefined,
               pincode: (application as any).pincode || undefined,
@@ -3925,6 +4502,262 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating visibility:", error);
       res.status(500).json({ error: "Failed to update visibility" });
+    }
+  });
+
+  // GET /api/snippets - List all saved snippets
+  app.get("/api/snippets", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const snippets = await db
+        .select()
+        .from(detectiveSnippets)
+        .orderBy(detectiveSnippets.createdAt);
+
+      res.json({ snippets });
+    } catch (error) {
+      console.error("Error fetching snippets:", error);
+      res.status(500).json({ error: "Failed to fetch snippets" });
+    }
+  });
+
+  // POST /api/snippets - Create new snippet
+  app.post("/api/snippets", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { name, country, state, city, category, limit } = req.body;
+
+      if (!name || !country || !category) {
+        return res.status(400).json({ error: "Missing required fields: name, country, category" });
+      }
+
+      const snippet = await db
+        .insert(detectiveSnippets)
+        .values({
+          name,
+          country,
+          state: state || null,
+          city: city || null,
+          category,
+          limit: limit || 4,
+        })
+        .returning();
+
+      res.json({ success: true, snippet: snippet[0] });
+    } catch (error) {
+      console.error("Error creating snippet:", error);
+      res.status(500).json({ error: "Failed to create snippet" });
+    }
+  });
+
+  // PUT /api/snippets/:id - Update snippet
+  app.put("/api/snippets/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { name, country, state, city, category, limit } = req.body;
+
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (country !== undefined) updateData.country = country;
+      if (state !== undefined) updateData.state = state || null;
+      if (city !== undefined) updateData.city = city || null;
+      if (category !== undefined) updateData.category = category;
+      if (limit !== undefined) updateData.limit = limit;
+      updateData.updatedAt = new Date();
+
+      const snippet = await db
+        .update(detectiveSnippets)
+        .set(updateData)
+        .where(eq(detectiveSnippets.id, id))
+        .returning();
+
+      if (snippet.length === 0) {
+        return res.status(404).json({ error: "Snippet not found" });
+      }
+
+      res.json({ success: true, snippet: snippet[0] });
+    } catch (error) {
+      console.error("Error updating snippet:", error);
+      res.status(500).json({ error: "Failed to update snippet" });
+    }
+  });
+
+  // DELETE /api/snippets/:id - Delete snippet
+  app.delete("/api/snippets/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      await db
+        .delete(detectiveSnippets)
+        .where(eq(detectiveSnippets.id, id));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting snippet:", error);
+      res.status(500).json({ error: "Failed to delete snippet" });
+    }
+  });
+
+  // GET /api/snippets/detectives - Get detectives for snippet configuration
+  app.get("/api/snippets/detectives", async (req: Request, res: Response) => {
+    try {
+      const { country, state, city, category, limit = 4 } = req.query;
+
+      if (!country || !category) {
+        return res.status(400).json({ error: "Missing required parameters: country, category" });
+      }
+
+      // Build where conditions
+      const whereConditions = [
+        eq(detectives.status, "active"),
+        eq(detectives.country, String(country)),
+        eq(services.category, String(category)),
+      ];
+
+      if (state) {
+        whereConditions.push(eq(detectives.state, String(state)));
+      }
+      if (city) {
+        whereConditions.push(eq(detectives.city, String(city)));
+      }
+
+      const results = await db
+        .select({
+          id: detectives.id,
+          fullName: detectives.businessName,
+          level: detectives.level,
+          profilePhoto: detectives.logo,
+          isVerified: detectives.isVerified,
+          location: detectives.location,
+          avgRating: avg(reviews.rating),
+          reviewCount: count(reviews.id),
+          startingPrice: min(services.basePrice),
+        })
+        .from(detectives)
+        .leftJoin(services, eq(services.detectiveId, detectives.id))
+        .leftJoin(reviews, eq(reviews.serviceId, services.id))
+        .where(and(...whereConditions))
+        .groupBy(detectives.id)
+        .orderBy(desc(avg(reviews.rating)))
+        .limit(parseInt(String(limit)) || 4);
+
+      res.json({
+        detectives: results.map(d => ({
+          ...d,
+          avgRating: parseFloat(String(d.avgRating)) || 0,
+          reviewCount: parseInt(String(d.reviewCount)) || 0,
+          startingPrice: d.startingPrice ? parseFloat(String(d.startingPrice)) : 0,
+        }))
+      });
+    } catch (error) {
+      console.error("Error fetching snippet detectives:", error);
+      res.status(500).json({ error: "Failed to fetch detectives" });
+    }
+  });
+
+  // ============== PAYMENT GATEWAY SETTINGS (ADMIN) ==============
+  
+  // Get all payment gateways
+  app.get("/api/admin/payment-gateways", requireRole("admin"), async (_req: Request, res: Response) => {
+    try {
+      const result = await pool.query(`
+        SELECT id, name, display_name, is_enabled, is_test_mode, 
+               config, created_at, updated_at
+        FROM payment_gateways
+        ORDER BY name
+      `);
+      
+      res.json({ gateways: result.rows });
+    } catch (error) {
+      console.error("Error fetching payment gateways:", error);
+      res.status(500).json({ error: "Failed to fetch payment gateways" });
+    }
+  });
+
+  // Get a single payment gateway
+  app.get("/api/admin/payment-gateways/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      const result = await pool.query(`
+        SELECT id, name, display_name, is_enabled, is_test_mode, 
+               config, created_at, updated_at
+        FROM payment_gateways
+        WHERE id = $1
+      `, [id]);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Payment gateway not found" });
+      }
+      
+      res.json({ gateway: result.rows[0] });
+    } catch (error) {
+      console.error("Error fetching payment gateway:", error);
+      res.status(500).json({ error: "Failed to fetch payment gateway" });
+    }
+  });
+
+  // Update payment gateway configuration
+  app.put("/api/admin/payment-gateways/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { is_enabled, is_test_mode, config } = req.body;
+      
+      // Validate config is an object
+      if (config && typeof config !== 'object') {
+        return res.status(400).json({ error: "Config must be a JSON object" });
+      }
+      
+      const result = await pool.query(`
+        UPDATE payment_gateways
+        SET is_enabled = COALESCE($1, is_enabled),
+            is_test_mode = COALESCE($2, is_test_mode),
+            config = COALESCE($3::jsonb, config),
+            updated_by = $4,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $5
+        RETURNING id, name, display_name, is_enabled, is_test_mode, config, updated_at
+      `, [is_enabled, is_test_mode, config ? JSON.stringify(config) : null, req.session.userId, id]);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Payment gateway not found" });
+      }
+      
+      res.json({ 
+        success: true, 
+        gateway: result.rows[0],
+        message: "Payment gateway updated successfully"
+      });
+    } catch (error) {
+      console.error("Error updating payment gateway:", error);
+      res.status(500).json({ error: "Failed to update payment gateway" });
+    }
+  });
+
+  // Toggle payment gateway enabled status
+  app.post("/api/admin/payment-gateways/:id/toggle", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      const result = await pool.query(`
+        UPDATE payment_gateways
+        SET is_enabled = NOT is_enabled,
+            updated_by = $1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+        RETURNING id, name, display_name, is_enabled, is_test_mode, config, updated_at
+      `, [req.session.userId, id]);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Payment gateway not found" });
+      }
+      
+      res.json({ 
+        success: true, 
+        gateway: result.rows[0],
+        message: `Payment gateway ${result.rows[0].is_enabled ? 'enabled' : 'disabled'} successfully`
+      });
+    } catch (error) {
+      console.error("Error toggling payment gateway:", error);
+      res.status(500).json({ error: "Failed to toggle payment gateway" });
     }
   });
 
