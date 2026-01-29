@@ -225,6 +225,9 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   };
 
   const setCountry = (country: Country) => {
+    if (!country.isSupported) {
+      console.warn(`[CURRENCY_FALLBACK] Unsupported currency ${country.currency} for ${country.code}, using ${country.effectiveCurrency}`);
+    }
     setShowUnsupportedCurrencyNotice(!country.isSupported);
     setSelectedCountry(country);
     

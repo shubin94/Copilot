@@ -34,8 +34,10 @@ export const detectives = pgTable("detectives", {
   bio: text("bio"),
   logo: text("logo"),
   defaultServiceBanner: text("default_service_banner"),
-  location: text("location"),
+  location: text("location").notNull().default("Not specified"),
   country: text("country").notNull(),
+  state: text("state").notNull().default("Not specified"),
+  city: text("city").notNull().default("Not specified"),
   address: text("address"),
   pincode: text("pincode"),
   phone: text("phone"),
@@ -65,9 +67,9 @@ export const detectives = pgTable("detectives", {
   pendingBillingCycle: text("pending_billing_cycle"),
   planActivatedAt: timestamp("plan_activated_at"),
   planExpiresAt: timestamp("plan_expires_at"),
-  // BLUE TICK: Separate add-on subscription (independent of package) - TODO: uncomment when migration applied
-  // hasBlueTick: boolean("has_blue_tick").notNull().default(false),
-  // blueTickActivatedAt: timestamp("blue_tick_activated_at"),
+  // BLUE TICK: Separate add-on subscription (independent of package)
+  hasBlueTick: boolean("has_blue_tick").notNull().default(false),
+  blueTickActivatedAt: timestamp("blue_tick_activated_at"),
   status: detectiveStatusEnum("status").notNull().default("pending"),
   level: detectiveLevelEnum("level").notNull().default("level1"),
   isVerified: boolean("is_verified").notNull().default(false),
@@ -84,6 +86,8 @@ export const detectives = pgTable("detectives", {
 }, (table) => ({
   userIdIdx: index("detectives_user_id_idx").on(table.userId),
   countryIdx: index("detectives_country_idx").on(table.country),
+  stateIdx: index("detectives_state_idx").on(table.state),
+  cityIdx: index("detectives_city_idx").on(table.city),
   statusIdx: index("detectives_status_idx").on(table.status),
   planIdx: index("detectives_plan_idx").on(table.subscriptionPlan),
   claimCompletedAtIdx: index("detectives_claim_completed_at_idx").on(table.claimCompletedAt),
@@ -316,9 +320,13 @@ export const paymentOrders = pgTable("payment_orders", {
   billingCycle: text("billing_cycle"),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").notNull().default("INR"),
-  razorpayOrderId: text("razorpay_order_id").notNull().unique(),
+  provider: text("provider"),
+  razorpayOrderId: text("razorpay_order_id").unique(),
   razorpayPaymentId: text("razorpay_payment_id"),
   razorpaySignature: text("razorpay_signature"),
+  paypalOrderId: text("paypal_order_id").unique(),
+  paypalPaymentId: text("paypal_payment_id"),
+  paypalTransactionId: text("paypal_transaction_id"),
   status: text("status").notNull().default("created"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -628,3 +636,28 @@ export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
 
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates);
 export const selectEmailTemplateSchema = createSelectSchema(emailTemplates);
+
+// Detective Snippets Management System
+// Allows admins to create and manage reusable detective snippet configurations
+export const detectiveSnippets = pgTable("detective_snippets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  country: text("country").notNull(),
+  state: text("state"),
+  city: text("city"),
+  category: text("category").notNull(),
+  limit: integer("limit").notNull().default(4),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  nameIdx: index("detective_snippets_name_idx").on(table.name),
+  countryIdx: index("detective_snippets_country_idx").on(table.country),
+  categoryIdx: index("detective_snippets_category_idx").on(table.category),
+  createdAtIdx: index("detective_snippets_created_at_idx").on(table.createdAt),
+}));
+
+export type DetectiveSnippet = typeof detectiveSnippets.$inferSelect;
+export type InsertDetectiveSnippet = typeof detectiveSnippets.$inferInsert;
+
+export const insertDetectiveSnippetSchema = createInsertSchema(detectiveSnippets);
+export const selectDetectiveSnippetSchema = createSelectSchema(detectiveSnippets);

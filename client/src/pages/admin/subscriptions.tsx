@@ -432,6 +432,14 @@ export default function AdminSubscriptions() {
                      <SelectItem value="4">4 Services</SelectItem>
                      <SelectItem value="5">5 Services</SelectItem>
                      <SelectItem value="10">10 Services</SelectItem>
+                     <SelectItem value="15">15 Services</SelectItem>
+                     <SelectItem value="20">20 Services</SelectItem>
+                     <SelectItem value="25">25 Services</SelectItem>
+                     <SelectItem value="30">30 Services</SelectItem>
+                     <SelectItem value="35">35 Services</SelectItem>
+                     <SelectItem value="40">40 Services</SelectItem>
+                     <SelectItem value="45">45 Services</SelectItem>
+                     <SelectItem value="50">50 Services</SelectItem>
                    </SelectContent>
                  </Select>
                  <p className="text-xs text-gray-500">How many service categories can a detective add?</p>

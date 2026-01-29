@@ -87,6 +87,11 @@ export const config = {
     keyId: process.env.RAZORPAY_KEY_ID || "",
     keySecret: process.env.RAZORPAY_KEY_SECRET || "",
   },
+  paypal: {
+    clientId: process.env.PAYPAL_CLIENT_ID || "",
+    clientSecret: process.env.PAYPAL_CLIENT_SECRET || "",
+    mode: (process.env.PAYPAL_MODE || "sandbox") as "sandbox" | "live",
+  },
 };
 
 export function validateConfig() {

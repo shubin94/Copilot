@@ -3,13 +3,14 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyProvider } from "./lib/currency-context";
 import { UserProvider } from "./lib/user-context";
 import ScrollToTop from "@/components/scroll-to-top";
 import { SmokeTester } from "@/components/dev/smoke-tester";
 import CountrySelectorPopup from "@/components/modals/country-selector-popup";
+import { initializeAuthSession } from "./lib/authSessionManager";
 
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -35,10 +36,12 @@ const AdminAddDetective = lazy(() => import("@/pages/admin/add-detective"));
 const AdminClaims = lazy(() => import("@/pages/admin/claims"));
 const AdminViewDetective = lazy(() => import("@/pages/admin/view-detective"));
 const AdminSettings = lazy(() => import("@/pages/admin/settings"));
+const AdminPaymentGateways = lazy(() => import("@/pages/admin/payment-gateways"));
 const AdminBranding = lazy(() => import("@/pages/admin/branding"));
 const AdminPages = lazy(() => import("@/pages/admin/pages"));
 const AdminRankingVisibility = lazy(() => import("@/pages/admin/ranking-visibility"));
 const AdminEmailTemplates = lazy(() => import("@/pages/admin/email-templates"));
+const AdminSnippets = lazy(() => import("@/pages/admin/snippets"));
 
 const DetectiveDashboard = lazy(() => import("@/pages/detective/dashboard"));
 const DetectiveProfileEdit = lazy(() => import("@/pages/detective/profile-edit"));
@@ -124,9 +127,11 @@ function Router() {
           <Route path="/admin/subscriptions" component={AdminSubscriptions} />
           <Route path="/admin/pages" component={AdminPages} />
           <Route path="/admin/settings" component={AdminSettings} />
+          <Route path="/admin/payment-gateways" component={AdminPaymentGateways} />
           <Route path="/admin/branding" component={AdminBranding} />
           <Route path="/admin/ranking-visibility" component={AdminRankingVisibility} />
           <Route path="/admin/email-templates" component={AdminEmailTemplates} />
+          <Route path="/admin/snippets" component={AdminSnippets} />
           
           {/* Detective Routes */}
           <Route path="/detective/dashboard" component={DetectiveDashboard} />
@@ -151,6 +156,20 @@ function Router() {
 }
 
 function App() {
+  // Initialize auth session management on app mount
+  useEffect(() => {
+    console.log('[APP] Initializing auth session management...');
+    
+    const cleanup = initializeAuthSession({
+      enableIdleTimeout: false, // Disable idle timeout (optional feature)
+      idleTimeoutMinutes: 60,
+      enableCrossTabLogout: true, // Enable cross-tab logout detection
+      enableAuthMonitor: false, // DISABLED - causing issues, use interceptor only
+    });
+    
+    return cleanup;
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <UserProvider>

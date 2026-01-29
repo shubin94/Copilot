@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrentDetective, useUpdateDetective } from "@/lib/hooks";
 import { api } from "@/lib/api";
+import { PaymentGatewaySelector } from "@/components/payment/payment-gateway-selector";
+import { AlreadyVerifiedModal } from "@/components/payment/already-verified-modal";
 
 type PlanRecord = {
   id: string;
@@ -23,6 +25,12 @@ type PlanRecord = {
   isActive?: boolean;
 };
 
+type PaymentGateway = {
+  name: string;
+  display_name: string;
+  is_enabled: boolean;
+};
+
 export default function DetectiveSubscription() {
   /**
    * SUBSCRIPTION SYSTEM
@@ -33,10 +41,11 @@ export default function DetectiveSubscription() {
    * 
    * Payment flow:
    *   1. User selects package + billing cycle
-   *   2. Create order with packageId + billingCycle
-   *   3. Razorpay checkout
-   *   4. Verify payment (server sets subscriptionPackageId)
-   *   5. Detective profile updated with new package
+   *   2. Show gateway selector if multiple gateways enabled
+   *   3. Create order with packageId + billingCycle + selectedGateway
+   *   4. Gateway checkout (Razorpay or PayPal)
+   *   5. Verify payment (server sets subscriptionPackageId)
+   *   6. Detective profile updated with new package
    * 
    * LEGACY: subscriptionPlan field is for display only.
    */
@@ -49,15 +58,30 @@ export default function DetectiveSubscription() {
   const [plans, setPlans] = useState<PlanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [availableGateways, setAvailableGateways] = useState<PaymentGateway[]>([]);
+  const [showGatewaySelector, setShowGatewaySelector] = useState(false);
+  const [pendingPayment, setPendingPayment] = useState<{packageId: string; packageName: string; isBlueTick?: boolean; billingCycle?: 'monthly' | 'yearly'} | null>(null);
+  const [showAlreadyVerifiedModal, setShowAlreadyVerifiedModal] = useState(false);
 
   // Use subscriptionPackageId to detect current plan (not legacy subscriptionPlan)
   const currentPackageId = detective?.subscriptionPackageId || null;
 
+  // Fetch plans and available gateways
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.subscriptionPlans.getAll();
-        setPlans(Array.isArray((res as any).plans) ? (res as any).plans : []);
+        const [plansRes, gatewaysRes] = await Promise.all([
+          api.subscriptionPlans.getAll(),
+          fetch('/api/payment-gateways/enabled', { credentials: 'include' })
+        ]);
+        
+        setPlans(Array.isArray((plansRes as any).plans) ? (plansRes as any).plans : []);
+        
+        if (gatewaysRes.ok) {
+          const { gateways } = await gatewaysRes.json();
+          setAvailableGateways(gateways || []);
+          console.log('[subscription] Available gateways:', gateways);
+        }
       } catch (e: any) {
         setError(e?.message || "Failed to load plans");
       } finally {
@@ -209,138 +233,25 @@ export default function DetectiveSubscription() {
         return;
       }
 
-      // PAID PLAN: Initiate Razorpay payment
-      console.log(`[subscription] PAID plan detected (${packageName}, price=₹${newPrice}), initiating Razorpay`);
+      // PAID PLAN: Show gateway selector if multiple gateways available
+      console.log(`[subscription] PAID plan detected (${packageName}, price=${newPrice})`);
+      console.log(`[subscription] Available gateways:`, availableGateways);
       
-      // Step 1: Create payment order
-      const orderRes = await fetch('/api/payments/create-order', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ 
-          packageId: packageId,
-          billingCycle: billingCycle
-        }),
-      });
-      
-      if (!orderRes.ok) {
-        const err = await orderRes.json();
-        throw new Error(err.error || 'Failed to create payment order');
+      // Check available gateways
+      if (availableGateways.length === 0) {
+        throw new Error("No payment gateways configured. Please contact support.");
       }
       
-      const { orderId, amount, currency, key } = await orderRes.json();
-      
-      // Step 2: Open Razorpay checkout
-      const options = {
-        key,
-        amount,
-        currency,
-        name: 'AskDetective',
-        description: `${packageName.toUpperCase()} Plan Subscription (${billingCycle})`,
-        order_id: orderId,
-        handler: async (response: any) => {
-          try {
-            // Step 3: Verify payment
-            const verifyRes = await fetch('/api/payments/verify', {
-              method: 'POST',
-              headers: { 
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-              },
-              credentials: 'include',
-              body: JSON.stringify({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-              }),
-            });
-            
-            if (!verifyRes.ok) {
-              const err = await verifyRes.json();
-              throw new Error(err.error || 'Payment verification failed');
-            }
-            
-            const verifyData = await verifyRes.json();
-            console.log('[subscription] Payment verified, response:', verifyData);
-            
-            // Verify response contains updated detective
-            if (!verifyData.detective) {
-              console.warn('[subscription] Verify response missing detective object, refetching...');
-            }
-            
-            toast({ 
-              title: "Payment successful!", 
-              description: `You are now on the ${packageName} plan with ${isAnnual ? 'yearly' : 'monthly'} billing.`,
-            });
-            
-            console.log('[subscription] Refetching detective profile after successful payment verification');
-            // Re-fetch detective data to ensure UI reflects new package and billing cycle
-            try {
-              const profileRes = await api.detectives.me();
-              if (profileRes?.detective) {
-                console.log('[subscription] Detective profile refetched:', {
-                  subscriptionPackageId: profileRes.detective.subscriptionPackageId,
-                  billingCycle: profileRes.detective.billingCycle,
-                  subscriptionActivatedAt: profileRes.detective.subscriptionActivatedAt,
-                });
-              }
-            } catch (refetchError) {
-              console.error('[subscription] Failed to refetch detective profile:', refetchError);
-              // Still proceed - will refresh on next page load
-            }
-            
-            // Refresh billing page data and show updated status
-            window.location.reload();
-          } catch (error: any) {
-            console.error('[subscription] Payment verification error:', error);
-            toast({ 
-              title: "Verification failed", 
-              description: error.message, 
-              variant: "destructive" 
-            });
-          } finally {
-            setIsUpdating(null);
-          }
-        },
-        modal: {
-          ondismiss: () => {
-            setIsUpdating(null);
-            toast({ 
-              title: "Payment cancelled", 
-              description: "You cancelled the payment", 
-              variant: "destructive" 
-            });
-          }
-        },
-        theme: {
-          color: '#16a34a',
-        },
-      };
-      
-      // Load Razorpay script if not already loaded
-      if (!(window as any).Razorpay) {
-        const script = document.createElement('script');
-        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-        script.async = true;
-        script.onload = () => {
-          const rzp = new (window as any).Razorpay(options);
-          rzp.open();
-        };
-        script.onerror = () => {
-          setIsUpdating(null);
-          toast({ 
-            title: "Payment gateway error", 
-            description: "Failed to load payment gateway", 
-            variant: "destructive" 
-          });
-        };
-        document.body.appendChild(script);
+      if (availableGateways.length === 1) {
+        // Single gateway: proceed directly
+        console.log(`[subscription] Single gateway available: ${availableGateways[0].name}`);
+        await proceedWithPayment(packageId, packageName, billingCycle, availableGateways[0].name);
       } else {
-        const rzp = new (window as any).Razorpay(options);
-        rzp.open();
+        // Multiple gateways: show selector
+        console.log(`[subscription] Multiple gateways available (${availableGateways.length}), showing selector`);
+        console.log(`[subscription] Gateway names:`, availableGateways.map(g => g.name).join(', '));
+        setPendingPayment({ packageId, packageName });
+        setShowGatewaySelector(true);
       }
     } catch (error: any) {
       setIsUpdating(null);
@@ -352,7 +263,304 @@ export default function DetectiveSubscription() {
     }
   };
 
+  // Proceed with payment using selected gateway
+  const proceedWithPayment = async (packageId: string, packageName: string, billingCycle: 'monthly' | 'yearly', gateway: string) => {
+    try {
+      console.log(`[subscription] Proceeding with ${gateway} payment`);
+      
+      if (gateway === 'razorpay') {
+        await processRazorpayPayment(packageId, packageName, billingCycle);
+      } else if (gateway === 'paypal') {
+        await processPayPalPayment(packageId, packageName, billingCycle);
+      } else {
+        throw new Error(`Unknown payment gateway: ${gateway}`);
+      }
+    } catch (error: any) {
+      setIsUpdating(null);
+      toast({ 
+        title: "Payment failed", 
+        description: error.message || "Unable to process payment", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  // Process Razorpay payment
+  const processRazorpayPayment = async (packageId: string, packageName: string, billingCycle: 'monthly' | 'yearly') => {
+    // Step 1: Create payment order
+    const orderRes = await fetch('/api/payments/create-order', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ 
+        packageId: packageId,
+        billingCycle: billingCycle
+      }),
+    });
+    
+    if (!orderRes.ok) {
+      const err = await orderRes.json();
+      throw new Error(err.error || 'Failed to create payment order');
+    }
+    
+    const { orderId, amount, key } = await orderRes.json();
+    
+    // Step 2: Open Razorpay checkout
+    const options = {
+      key,
+      amount,
+      currency: 'INR',
+      name: 'AskDetective',
+      description: `${packageName.toUpperCase()} Plan Subscription (${billingCycle})`,
+      order_id: orderId,
+      handler: async (response: any) => {
+        try {
+          // Step 3: Verify payment
+          const verifyRes = await fetch('/api/payments/verify', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            }),
+          });
+          
+          if (!verifyRes.ok) {
+            const err = await verifyRes.json();
+            throw new Error(err.error || 'Payment verification failed');
+          }
+          
+          const verifyData = await verifyRes.json();
+          console.log('[subscription] Payment verified, response:', verifyData);
+          
+          toast({ 
+            title: "Payment successful!", 
+            description: `You are now on the ${packageName} plan with ${isAnnual ? 'yearly' : 'monthly'} billing.`,
+          });
+          
+          // Refresh page
+          window.location.reload();
+        } catch (error: any) {
+          console.error('[subscription] Payment verification error:', error);
+          toast({ 
+            title: "Verification failed", 
+            description: error.message, 
+            variant: "destructive" 
+          });
+        } finally {
+          setIsUpdating(null);
+        }
+      },
+      modal: {
+        ondismiss: () => {
+          setIsUpdating(null);
+          toast({ 
+            title: "Payment cancelled", 
+            description: "You cancelled the payment", 
+            variant: "destructive" 
+          });
+        }
+      },
+      theme: {
+        color: '#16a34a',
+      },
+    };
+    
+    // Load Razorpay script if not already loaded
+    if (!(window as any).Razorpay) {
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => {
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      };
+      script.onerror = () => {
+        setIsUpdating(null);
+        toast({ 
+          title: "Payment gateway error", 
+          description: "Failed to load Razorpay", 
+          variant: "destructive" 
+        });
+      };
+      document.body.appendChild(script);
+    } else {
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    }
+  };
+
+  // Process PayPal payment
+  const processPayPalPayment = async (packageId: string, packageName: string, billingCycle: 'monthly' | 'yearly') => {
+    try {
+      console.log(`[subscription] Creating PayPal order for package: ${packageName}`);
+      
+      // Step 1: Create PayPal order
+      const createOrderRes = await fetch('/api/payments/paypal/create-order', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          packageId,
+          billingCycle
+        }),
+      });
+      
+      if (!createOrderRes.ok) {
+        const err = await createOrderRes.json();
+        throw new Error(err.error || 'Failed to create PayPal order');
+      }
+      
+      const { orderId, clientId } = await createOrderRes.json();
+      console.log(`[subscription] PayPal order created: ${orderId}`);
+      
+      // Step 2: Load PayPal SDK and open payment UI
+      if (!(window as any).paypal) {
+        const script = document.createElement('script');
+        script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}`;
+        script.async = true;
+        
+        script.onload = () => {
+          openPayPalCheckout(orderId, packageName, billingCycle);
+        };
+        
+        script.onerror = () => {
+          setIsUpdating(null);
+          toast({
+            title: "Payment gateway error",
+            description: "Failed to load PayPal SDK",
+            variant: "destructive"
+          });
+        };
+        
+        document.body.appendChild(script);
+      } else {
+        openPayPalCheckout(orderId, packageName, billingCycle);
+      }
+    } catch (error: any) {
+      setIsUpdating(null);
+      console.error('[subscription] PayPal error:', error);
+      toast({
+        title: "PayPal payment failed",
+        description: error.message || 'Unable to initialize PayPal payment',
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Open PayPal checkout
+  const openPayPalCheckout = (orderId: string, packageName: string, billingCycle: 'monthly' | 'yearly') => {
+    if (!(window as any).paypal) {
+      toast({
+        title: "Payment error",
+        description: "PayPal is not available",
+        variant: "destructive"
+      });
+      setIsUpdating(null);
+      return;
+    }
+    
+    (window as any).paypal
+      .Buttons({
+        createOrder: () => orderId,
+        onApprove: async (data: any) => {
+          try {
+            console.log(`[subscription] PayPal order approved: ${data.orderID}`);
+            
+            // Step 3: Capture payment
+            const captureRes = await fetch('/api/payments/paypal/capture', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              credentials: 'include',
+              body: JSON.stringify({ orderId }),
+            });
+            
+            if (!captureRes.ok) {
+              const err = await captureRes.json();
+              throw new Error(err.error || 'Payment capture failed');
+            }
+            
+            console.log(`[subscription] Payment captured successfully`);
+            
+            toast({
+              title: "Payment successful!",
+              description: `You are now on the ${packageName} plan with ${billingCycle} billing.`,
+            });
+            
+            // Refresh page
+            window.location.reload();
+          } catch (error: any) {
+            console.error('[subscription] PayPal capture error:', error);
+            toast({
+              title: "Payment capture failed",
+              description: error.message,
+              variant: "destructive"
+            });
+          } finally {
+            setIsUpdating(null);
+          }
+        },
+        onError: (err: any) => {
+          console.error('[subscription] PayPal error:', err);
+          setIsUpdating(null);
+          toast({
+            title: "PayPal payment failed",
+            description: err.message || 'An error occurred during payment',
+            variant: "destructive"
+          });
+        },
+        onCancel: () => {
+          setIsUpdating(null);
+          toast({
+            title: "Payment cancelled",
+            description: "You cancelled the PayPal payment",
+            variant: "destructive"
+          });
+        }
+      })
+      .render('#paypal-button-container');
+  };
+
+  // Handle gateway selection from popup
+  const handleGatewaySelect = async (gateway: string) => {
+    if (!pendingPayment) return;
+    
+    if (pendingPayment.isBlueTick) {
+      // Blue Tick payment
+      const billingCycle = pendingPayment.billingCycle || (isAnnual ? 'yearly' : 'monthly');
+      await proceedWithBlueTickPayment(billingCycle, gateway);
+    } else {
+      // Regular subscription payment
+      const billingCycle = isAnnual ? 'yearly' : 'monthly';
+      await proceedWithPayment(pendingPayment.packageId, pendingPayment.packageName, billingCycle, gateway);
+    }
+    setPendingPayment(null);
+  };
+
   const handleBlueTick = async (billingCycle: 'monthly' | 'yearly') => {
+    // STEP 1 — CHECK FIRST: Is Blue Tick already active?
+    // This is a HARD BUSINESS RULE — must check BEFORE ANY OTHER LOGIC
+    if (detective?.hasBlueTick) {
+      console.log('[blue-tick] Detective already has Blue Tick active, showing modal');
+      setShowAlreadyVerifiedModal(true);
+      return;
+    }
+
+    // STEP 2 — Check if detective has active subscription (required to add Blue Tick)
     if (!detective || !detective.subscriptionPackageId) {
       toast({ 
         title: "Active subscription required", 
@@ -362,14 +570,63 @@ export default function DetectiveSubscription() {
       return;
     }
 
-    if (detective.hasBlueTick) {
-      toast({ title: "Already active", description: "You already have Blue Tick verification." });
-      return;
-    }
-
+    // STEP 3 — Proceed with Blue Tick payment flow
     try {
       setIsUpdating('blue-tick');
       
+      console.log('[blue-tick] Initiating Blue Tick purchase');
+      console.log('[blue-tick] Available gateways:', availableGateways);
+      
+      // Check available gateways
+      if (availableGateways.length === 0) {
+        throw new Error("No payment gateways configured. Please contact support.");
+      }
+      
+      if (availableGateways.length === 1) {
+        // Single gateway: proceed directly
+        console.log(`[blue-tick] Single gateway available: ${availableGateways[0].name}`);
+        await proceedWithBlueTickPayment(billingCycle, availableGateways[0].name);
+      } else {
+        // Multiple gateways: show selector
+        console.log(`[blue-tick] Multiple gateways available (${availableGateways.length}), showing selector`);
+        setPendingPayment({ packageId: 'blue-tick', packageName: 'Blue Tick', isBlueTick: true, billingCycle });
+        setShowGatewaySelector(true);
+      }
+    } catch (error: any) {
+      setIsUpdating(null);
+      toast({ 
+        title: "Payment failed", 
+        description: error.message || "Unable to initiate payment", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  // Process Blue Tick payment with selected gateway
+  const proceedWithBlueTickPayment = async (billingCycle: 'monthly' | 'yearly', gateway: string) => {
+    try {
+      console.log(`[blue-tick] Proceeding with ${gateway} payment`);
+      
+      if (gateway === 'razorpay') {
+        await processBlueTickRazorpay(billingCycle);
+      } else if (gateway === 'paypal') {
+        await processBlueTickPayPal(billingCycle);
+      } else {
+        throw new Error(`Unknown payment gateway: ${gateway}`);
+      }
+    } catch (error: any) {
+      setIsUpdating(null);
+      toast({ 
+        title: "Payment failed", 
+        description: error.message || "Unable to process payment", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  // Process Blue Tick Razorpay payment
+  const processBlueTickRazorpay = async (billingCycle: 'monthly' | 'yearly') => {
+    try {
       // Step 1: Create Blue Tick payment order
       const orderRes = await fetch('/api/payments/create-blue-tick-order', {
         method: 'POST',
@@ -475,12 +732,145 @@ export default function DetectiveSubscription() {
       }
     } catch (error: any) {
       setIsUpdating(null);
-      toast({ 
-        title: "Payment failed", 
-        description: error.message || "Unable to initiate payment", 
-        variant: "destructive" 
+      throw error;
+    }
+  };
+
+  // Process Blue Tick PayPal payment
+  const processBlueTickPayPal = async (billingCycle: 'monthly' | 'yearly') => {
+    try {
+      console.log(`[blue-tick] Creating PayPal order for Blue Tick`);
+      
+      // Step 1: Create PayPal order for Blue Tick
+      const createOrderRes = await fetch('/api/payments/paypal/create-order', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          packageId: 'blue-tick',
+          billingCycle
+        }),
+      });
+      
+      if (!createOrderRes.ok) {
+        const err = await createOrderRes.json();
+        throw new Error(err.error || 'Failed to create PayPal order');
+      }
+      
+      const { orderId, clientId } = await createOrderRes.json();
+      console.log(`[blue-tick] PayPal order created: ${orderId}`);
+      
+      // Step 2: Load PayPal SDK and open payment UI
+      if (!(window as any).paypal) {
+        const script = document.createElement('script');
+        script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}`;
+        script.async = true;
+        
+        script.onload = () => {
+          openBlueTickPayPalCheckout(orderId, billingCycle);
+        };
+        
+        script.onerror = () => {
+          setIsUpdating(null);
+          toast({
+            title: "Payment gateway error",
+            description: "Failed to load PayPal SDK",
+            variant: "destructive"
+          });
+        };
+        
+        document.body.appendChild(script);
+      } else {
+        openBlueTickPayPalCheckout(orderId, billingCycle);
+      }
+    } catch (error: any) {
+      setIsUpdating(null);
+      console.error('[blue-tick] PayPal error:', error);
+      toast({
+        title: "Blue Tick PayPal payment failed",
+        description: error.message || 'Unable to initialize PayPal payment',
+        variant: "destructive"
       });
     }
+  };
+
+  // Open PayPal checkout for Blue Tick
+  const openBlueTickPayPalCheckout = (orderId: string, billingCycle: 'monthly' | 'yearly') => {
+    if (!(window as any).paypal) {
+      toast({
+        title: "Payment error",
+        description: "PayPal is not available",
+        variant: "destructive"
+      });
+      setIsUpdating(null);
+      return;
+    }
+    
+    (window as any).paypal
+      .Buttons({
+        createOrder: () => orderId,
+        onApprove: async (data: any) => {
+          try {
+            console.log(`[blue-tick] PayPal order approved: ${data.orderID}`);
+            
+            // Step 3: Capture payment
+            const captureRes = await fetch('/api/payments/paypal/capture', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              credentials: 'include',
+              body: JSON.stringify({ orderId }),
+            });
+            
+            if (!captureRes.ok) {
+              const err = await captureRes.json();
+              throw new Error(err.error || 'Payment capture failed');
+            }
+            
+            console.log(`[blue-tick] Payment captured successfully`);
+            
+            toast({
+              title: "Payment successful!",
+              description: `Blue Tick activated with ${billingCycle} billing.`,
+            });
+            
+            // Refresh page
+            window.location.reload();
+          } catch (error: any) {
+            console.error('[blue-tick] PayPal capture error:', error);
+            toast({
+              title: "Payment capture failed",
+              description: error.message,
+              variant: "destructive"
+            });
+          } finally {
+            setIsUpdating(null);
+          }
+        },
+        onError: (err: any) => {
+          console.error('[blue-tick] PayPal error:', err);
+          setIsUpdating(null);
+          toast({
+            title: "Blue Tick PayPal payment failed",
+            description: err.message || 'An error occurred during payment',
+            variant: "destructive"
+          });
+        },
+        onCancel: () => {
+          setIsUpdating(null);
+          toast({
+            title: "Payment cancelled",
+            description: "You cancelled the PayPal payment",
+            variant: "destructive"
+          });
+        }
+      })
+      .render('#paypal-button-container');
   };
 
   return (
@@ -770,6 +1160,27 @@ export default function DetectiveSubscription() {
           </div>
         </div>
       </div>
+
+      {/* Payment Gateway Selector Modal */}
+      <PaymentGatewaySelector
+        open={showGatewaySelector}
+        onClose={() => {
+          setShowGatewaySelector(false);
+          setPendingPayment(null);
+          setIsUpdating(null);
+        }}
+        onSelect={handleGatewaySelect}
+        gateways={availableGateways}
+      />
+
+      {/* PayPal Button Container - dynamically populated by processPayPalPayment */}
+      <div id="paypal-button-container" style={{ display: 'none' }} />
+
+      {/* Already Verified Modal */}
+      <AlreadyVerifiedModal
+        open={showAlreadyVerifiedModal}
+        onClose={() => setShowAlreadyVerifiedModal(false)}
+      />
     </DashboardLayout>
   );
 }
