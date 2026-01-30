@@ -37,6 +37,7 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
+
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
 
@@ -64,9 +65,35 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 (async () => {
-  if (config.env.isProd) {
-    validateConfig();
+  try {
+    if (config.env.isProd) {
+      validateConfig();
+    }
+    await validateDatabase();
+    const server = await runApp(setupVite);
+    console.log(`✅ Server fully started and listening on port ${config.server.port}`);
+    
+    // Keep the process alive - prevent premature exit
+    process.stdin.resume();
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
   }
-  await validateDatabase();
-  await runApp(setupVite);
-})();
+})().catch((err) => {
+  console.error('Fatal async error:', err);
+  process.exit(1);
+});
+
+// Handle unhandled errors gracefully
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+  // Don't exit for unhandled rejections
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+  // Don't exit - try to keep server running
+});
+
+// Prevent premature exit
+setInterval(() => {}, 1000);

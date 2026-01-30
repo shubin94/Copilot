@@ -1,11 +1,21 @@
 // PayPal Payment Gateway Service
-const paypal = require("@paypal/checkout-server-sdk");
 import { config } from "../config.ts";
 import { getPaymentGateway } from "./paymentGateway.ts";
+
+// Dynamic import for PayPal SDK (CommonJS module)
+let paypal: any = null;
 
 // PayPal client cache
 let paypalClientInstance: any | null = null;
 let paypalCredentialsHash: string | null = null;
+
+// Initialize PayPal SDK
+async function loadPayPalSDK() {
+  if (!paypal) {
+    paypal = await import("@paypal/checkout-server-sdk");
+  }
+  return paypal;
+}
 
 /**
  * Construct full URL for PayPal redirect
@@ -33,6 +43,9 @@ function getPayPalRedirectUrl(path: string, params: Record<string, string>): str
  */
 async function getPayPalClient(): Promise<any> {
   try {
+    // Load PayPal SDK
+    const paypalSDK = await loadPayPalSDK();
+    
     // Fetch PayPal gateway config from database
     const gateway = await getPaymentGateway('paypal');
     
@@ -61,10 +74,10 @@ async function getPayPalClient(): Promise<any> {
     console.log(`[PAYPAL] Initializing ${mode === 'live' ? 'LIVE' : 'SANDBOX'} client with DB credentials`);
     
     const environment = mode === "live"
-      ? new paypal.core.LiveEnvironment(clientId, clientSecret)
-      : new paypal.core.SandboxEnvironment(clientId, clientSecret);
+      ? new paypalSDK.core.LiveEnvironment(clientId, clientSecret)
+      : new paypalSDK.core.SandboxEnvironment(clientId, clientSecret);
 
-    paypalClientInstance = new paypal.core.PayPalHttpClient(environment);
+    paypalClientInstance = new paypalSDK.core.PayPalHttpClient(environment);
     paypalCredentialsHash = credHash;
 
     console.log('[PAYPAL] Client initialized successfully');
@@ -91,9 +104,10 @@ export async function createPayPalOrder(request: {
   userId: string;
 }) {
   try {
+    const paypalSDK = await loadPayPalSDK();
     const client = await getPayPalClient();
     
-    const createOrderRequest = new paypal.orders.OrdersCreateRequest();
+    const createOrderRequest = new paypalSDK.orders.OrdersCreateRequest();
     createOrderRequest.prefer("return=representation");
     createOrderRequest.requestBody({
       intent: "CAPTURE",
@@ -131,9 +145,10 @@ export async function createPayPalOrder(request: {
  */
 export async function capturePayPalOrder(orderId: string) {
   try {
+    const paypalSDK = await loadPayPalSDK();
     const client = await getPayPalClient();
     
-    const captureRequest = new paypal.orders.OrdersCaptureRequest(orderId);
+    const captureRequest = new paypalSDK.orders.OrdersCaptureRequest(orderId);
     captureRequest.requestBody({});
 
     const response = await client.execute(captureRequest);

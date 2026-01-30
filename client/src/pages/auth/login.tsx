@@ -88,11 +88,15 @@ export default function Login() {
             <div className="space-y-2">
               <Label htmlFor="email">Email or Username</Label>
               <Input 
-                id="email" 
+                id="email"
+                name="email"
+                type="email"
                 placeholder="name@example.com" 
                 className="h-12 bg-gray-50 border-gray-200"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                required
               />
             </div>
             
@@ -102,11 +106,14 @@ export default function Login() {
                 <a href="#" className="text-sm text-green-600 hover:underline">Forgot password?</a>
               </div>
               <Input 
-                id="password" 
+                id="password"
+                name="password"
                 type="password" 
                 className="h-12 bg-gray-50 border-gray-200"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
               />
             </div>
 
