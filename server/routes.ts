@@ -48,6 +48,11 @@ import { getPaymentGateway, isPaymentGatewayEnabled } from "./services/paymentGa
 import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
 import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
 import { getFreePlanId } from "./services/freePlan.ts";
+import adminCmsRouter from "./routes/admin-cms.ts";
+import adminFinanceRouter from "./routes/admin-finance.ts";
+import publicPagesRouter from "./routes/public-pages.ts";
+import publicCategoriesRouter from "./routes/public-categories.ts";
+import publicTagsRouter from "./routes/public-tags.ts";
 
 // Initialize Razorpay with env fallback (will be overridden by DB config)
 let razorpayClient = new Razorpay({
@@ -1680,6 +1685,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Payment Gateway Routes (public endpoint for checking enabled gateways)
   app.use("/api/payment-gateways", paymentGatewayRoutes);
+
+  // Public Pages Routes (read-only access to published pages)
+  app.use("/api/public/pages", publicPagesRouter);
+  app.use("/api/public/categories", publicCategoriesRouter);
+  app.use("/api/public/tags", publicTagsRouter);
+
+  // Admin CMS Routes
+  app.use("/api/admin", adminCmsRouter);
+
+  // Admin Finance Routes
+  app.use("/api/admin/finance", requireRole("admin"), adminFinanceRouter);
 
   // Get payment history for current detective
   app.get("/api/payments/history", requireRole("detective"), async (req: Request, res: Response) => {

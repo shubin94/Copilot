@@ -7,6 +7,7 @@ interface SEOProps {
   type?: string;
   keywords?: string[];
   canonical?: string;
+  robots?: string;
   schema?: Record<string, any>;
 }
 
@@ -17,6 +18,7 @@ export function SEO({
   type = 'website',
   keywords = [],
   canonical,
+  robots = 'index, follow',
   schema
 }: SEOProps) {
   useEffect(() => {
@@ -62,6 +64,7 @@ export function SEO({
 
     // Standard Meta
     updateMeta('description', description);
+    updateMeta('robots', robots);
     if (keywords.length > 0) {
       updateMeta('keywords', keywords.join(', '));
     }
@@ -95,7 +98,7 @@ export function SEO({
       updateMeta('twitter:image', image);
     }
 
-  }, [title, description, image, type, keywords, canonical, schema]);
+  }, [title, description, image, type, keywords, canonical, robots, schema]);
 
   return null;
 }

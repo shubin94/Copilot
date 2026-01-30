@@ -9,6 +9,7 @@ import { useDetective, useServicesByDetective } from "@/lib/hooks";
 import { ShieldCheck, MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { SEO } from "@/components/seo";
 
 export default function DetectivePublicPage() {
   const [, params] = useRoute("/p/:id");
@@ -21,6 +22,12 @@ export default function DetectivePublicPage() {
 
   return (
     <div className="min-h-screen bg-white">
+      <SEO 
+        title={detective ? `${detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`} - Private Investigator | FindDetectives` : 'Detective Profile | FindDetectives'}
+        description={detective ? `Hire ${detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}${detective.location ? ` in ${detective.location}` : ''}. View services, ratings, and reviews. Contact verified private investigator.` : 'View detective profile on FindDetectives'}
+        canonical={detectiveId ? `${window.location.origin}/p/${detectiveId}` : window.location.href}
+        robots="index, follow"
+      />
       <Navbar />
       <main className="container mx-auto px-6 py-8">
         {detectiveLoading ? (

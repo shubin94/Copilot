@@ -222,9 +222,16 @@ export default async function runApp(
         log(`serving on port ${port}`);
         
         // Start subscription expiry scheduler (runs daily at 2 AM)
-        scheduleSubscriptionExpiry();
+        try {
+          scheduleSubscriptionExpiry();
+        } catch (e) {
+          console.error('Failed to schedule subscription expiry:', e);
+        }
         
-        resolve(server);
+        // Wait a tick to ensure socket is truly bound before resolving
+        process.nextTick(() => {
+          resolve(server);
+        });
       });
 
       server.on('error', (error: any) => {

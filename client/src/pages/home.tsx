@@ -92,6 +92,8 @@ export default function Home() {
         title="FindDetectives - Hire Top Private Investigators" 
         description="The leading marketplace for professional private investigation services. Find verified detectives for surveillance, background checks, and more."
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
+        canonical={window.location.origin}
+        robots="index, follow"
       />
       <Navbar transparentOnHome={true} overlayOnHome={true} />
       

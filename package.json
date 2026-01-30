@@ -67,6 +67,8 @@
     "razorpay": "^2.9.6",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-helmet": "^6.1.0",
+    "react-router-dom": "^7.13.0",
     "resend": "^6.9.1",
     "serverless-http": "^4.0.0",
     "tailwind-merge": "^3.4.0",

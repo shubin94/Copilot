@@ -19,7 +19,10 @@ import {
   TrendingUp,
   Mail,
   Zap,
-  Wallet
+  Wallet,
+  FolderOpen,
+  Tag,
+  DollarSign
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -35,6 +38,7 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [location] = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
   const { logout } = useUser();
   const { data: detectiveData } = useCurrentDetective();
   const detective = role === "detective" ? detectiveData?.detective : null;
@@ -70,6 +74,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const adminLinks = [
     { href: "/admin/dashboard", label: "Overview", icon: LayoutDashboard },
+    { href: "/admin/finance", label: "Finance", icon: DollarSign },
     { href: "/admin/signups", label: "New Signups", icon: UserCheck },
     { href: "/admin/claims", label: "Claims", icon: Shield },
     { href: "/admin/detectives", label: "Detectives", icon: Users },
@@ -81,6 +86,16 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/admin/pages", label: "Pages", icon: Globe },
     { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
     { href: "/admin/settings", label: "Site Settings", icon: Settings },
+    { 
+      href: "#cms", 
+      label: "CMS", 
+      icon: FileText,
+      submenu: [
+        { href: "/admin/cms/categories", label: "Categories", icon: FolderOpen },
+        { href: "/admin/cms/tags", label: "Tags", icon: Tag },
+        { href: "/admin/cms/pages", label: "Pages", icon: FileText },
+      ]
+    },
   ];
 
   const detectiveLinks = [
@@ -112,21 +127,65 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         </span>
       </div>
 
-      <nav className="flex-1 px-4 space-y-2 mt-4">
-        {links.map((link) => {
+      <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
+        {links.map((link: any) => {
           const Icon = link.icon;
           const isActive = location === link.href;
+          const isExpanded = expandedMenu === link.label;
+          const hasSubmenu = link.submenu && link.submenu.length > 0;
+
           return (
-            <Link key={link.href} href={link.href}>
-              <div className={`flex items-center gap-3 px-4 py-3 rounded-md transition-colors font-medium ${
-                isActive 
-                  ? "bg-green-50 text-green-700" 
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-              }`}>
-                <Icon className="h-5 w-5" />
-                {link.label}
-              </div>
-            </Link>
+            <div key={link.label || link.href}>
+              {hasSubmenu ? (
+                <>
+                  <button
+                    onClick={() => setExpandedMenu(isExpanded ? null : link.label)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-colors font-medium ${
+                      isExpanded
+                        ? "bg-green-50 text-green-700"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    {link.label}
+                    <span className={`ml-auto text-sm transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                      ▼
+                    </span>
+                  </button>
+                  {isExpanded && (
+                    <div className="ml-4 space-y-1">
+                      {link.submenu.map((sublink: any) => {
+                        const SubIcon = sublink.icon;
+                        const isSubActive = location === sublink.href;
+                        return (
+                          <Link key={sublink.href} href={sublink.href}>
+                            <div className={`flex items-center gap-3 px-4 py-2 rounded-md transition-colors text-sm ${
+                              isSubActive
+                                ? "bg-green-100 text-green-700 font-medium"
+                                : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                            }`}>
+                              <SubIcon className="h-4 w-4" />
+                              {sublink.label}
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <Link href={link.href}>
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-md transition-colors font-medium ${
+                    isActive 
+                      ? "bg-green-50 text-green-700" 
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  }`}>
+                    <Icon className="h-5 w-5" />
+                    {link.label}
+                  </div>
+                </Link>
+              )}
+            </div>
           );
         })}
       </nav>
