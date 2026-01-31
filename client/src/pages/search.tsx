@@ -146,7 +146,7 @@ export default function SearchPage() {
   }
   const hasActiveFilters = !!(selectedCategory || minRating !== undefined || countryFilterState || minPrice !== undefined || maxPrice !== undefined || appliedState.trim() || proOnly || agencyOnly || localOnly || level1Only || level2Only);
 
-  // Clear all filters whenever the main search query changes
+  // Clear all filters when the main search query (q) changes
   useEffect(() => {
     setSelectedCategory(undefined);
     setMinRating(undefined);
@@ -164,6 +164,35 @@ export default function SearchPage() {
     setLevel2Only(false);
     setSortBy("popular");
   }, [query]);
+
+  // Sync filters FROM URL when user lands or navigates with ?category=... (e.g. from smart-search "View this category")
+  const searchString = typeof window !== "undefined" ? window.location.search : "";
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const cat = params.get("category");
+    if (cat != null) setSelectedCategory(cat);
+    const country = params.get("country");
+    if (country != null) setCountryFilterState(country);
+    const stateParam = params.get("state");
+    if (stateParam != null) {
+      setAppliedState(stateParam);
+      setStateInput(stateParam);
+    }
+    const mr = params.get("minRating");
+    setMinRating(mr ? parseFloat(mr) : undefined);
+    const mp = params.get("minPrice");
+    const maxP = params.get("maxPrice");
+    setMinPrice(mp ? parseFloat(mp) : undefined);
+    setMaxPrice(maxP ? parseFloat(maxP) : undefined);
+    setMinPriceInput(params.get("minPrice") || "");
+    setMaxPriceInput(params.get("maxPrice") || "");
+    setProOnly(params.get("proOnly") === "1");
+    setAgencyOnly(params.get("agencyOnly") === "1");
+    setLocalOnly(params.get("localOnly") === "1");
+    setLevel1Only(params.get("lvl1") === "1");
+    setLevel2Only(params.get("lvl2") === "1");
+    setSortBy(params.get("sortBy") || "popular");
+  }, [searchString]);
 
   // Persist filters to URL for shareable links
   useEffect(() => {

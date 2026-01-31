@@ -42,6 +42,7 @@ import { fromZodError } from "zod-validation-error";
 import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.ts";
 import { config } from "./config.ts";
 import * as cache from "./lib/cache.ts";
+import { runSmartSearch } from "./lib/smart-search.ts";
 import pkg from "pg";
 const { Pool } = pkg;
 import { requirePolicy } from "./policy.ts";
@@ -2427,6 +2428,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Delete detective error:", error);
       res.status(500).json({ error: "Failed to delete detective" });
+    }
+  });
+
+  // ============== SMART AI SEARCH (homepage) ==============
+  app.post("/api/smart-search", async (req: Request, res: Response) => {
+    try {
+      const body = req.body && typeof req.body === "object" ? req.body : {};
+      const query = typeof body.query === "string" ? body.query.trim() : "";
+      const categories = await storage.getAllServiceCategories(true);
+      const categoryNames = categories.map((c: { name: string }) => c.name);
+      const checkAvailability = async (opts: { category: string; country: string; state?: string; city?: string }) => {
+        const list = await storage.searchServices({
+          category: opts.category,
+          country: opts.country,
+          state: opts.state,
+          city: opts.city,
+        }, 1, 0);
+        return list.length;
+      };
+      const result = await runSmartSearch(query, { categoryNames, checkAvailability });
+      res.json(result);
+    } catch (error) {
+      console.error("Smart search error:", error);
+      res.status(500).json({
+        kind: "category_not_found",
+        message: "We didn't find any relevant categories. You can browse here to find what you need.",
+      });
     }
   });
 

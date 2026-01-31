@@ -92,6 +92,9 @@ export const config = {
     clientSecret: process.env.PAYPAL_CLIENT_SECRET || "",
     mode: (process.env.PAYPAL_MODE || "sandbox") as "sandbox" | "live",
   },
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY || "",
+  },
 };
 
 export function validateConfig() {

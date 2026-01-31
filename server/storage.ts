@@ -59,6 +59,8 @@ export interface IStorage {
   searchServices(filters: {
     category?: string;
     country?: string;
+    state?: string;
+    city?: string;
     searchQuery?: string;
     minPrice?: number;
     maxPrice?: number;
@@ -515,6 +517,8 @@ export class DatabaseStorage implements IStorage {
   async searchServices(filters: {
     category?: string;
     country?: string;
+    state?: string;
+    city?: string;
     searchQuery?: string;
     minPrice?: number;
     maxPrice?: number;
@@ -549,6 +553,12 @@ export class DatabaseStorage implements IStorage {
     // country filter should be applied in WHERE conditions
     if (filters.country) {
       conditions.push(eq(detectives.country, filters.country));
+    }
+    if (filters.state) {
+      conditions.push(ilike(detectives.state, filters.state));
+    }
+    if (filters.city) {
+      conditions.push(ilike(detectives.city, filters.city));
     }
 
     let query = db.select({
