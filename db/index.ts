@@ -20,3 +20,4 @@ const pool = new Pool({
     : (process.env.DB_ALLOW_INSECURE_DEV === "true" ? { rejectUnauthorized: false } : undefined)
 });
 export const db = drizzle(pool, { schema });
+export { pool };

@@ -4,9 +4,21 @@ import crypto from "crypto";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.ts";
 import { sendClaimApprovedEmail } from "./email.ts";
+import { sendpulseEmail, EMAIL_TEMPLATES } from "./services/sendpulseEmail.ts";
+import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.ts";
 import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
-import { 
+import { db, pool } from "../db/index.ts";
+import { eq, and, desc, avg, count, min } from "drizzle-orm";
+import {
+  detectives,
+  detectiveVisibility,
+  users,
+  claimTokens,
+  emailTemplates,
+  detectiveSnippets,
+  services,
+  reviews,
   insertUserSchema, 
   insertDetectiveSchema, 
   insertServiceSchema, 
@@ -32,11 +44,40 @@ import { config } from "./config.ts";
 import pkg from "pg";
 const { Pool } = pkg;
 import { requirePolicy } from "./policy.ts";
+import { getPaymentGateway, isPaymentGatewayEnabled } from "./services/paymentGateway.ts";
+import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
+import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
+import { getFreePlanId } from "./services/freePlan.ts";
+import adminCmsRouter from "./routes/admin-cms.ts";
+import adminFinanceRouter from "./routes/admin-finance.ts";
+import publicPagesRouter from "./routes/public-pages.ts";
+import publicCategoriesRouter from "./routes/public-categories.ts";
+import publicTagsRouter from "./routes/public-tags.ts";
 
-const razorpayClient = new Razorpay({
-  key_id: config.razorpay.keyId,
-  key_secret: config.razorpay.keySecret,
+// Initialize Razorpay with env fallback (will be overridden by DB config)
+let razorpayClient = new Razorpay({
+  key_id: config.razorpay.keyId || "dummy",
+  key_secret: config.razorpay.keySecret || "dummy",
 });
+
+// Helper to get/refresh Razorpay client from database
+async function getRazorpayClient() {
+  const gateway = await getPaymentGateway('razorpay');
+  
+  if (!gateway) {
+    console.warn('[Razorpay] Gateway not enabled, falling back to env config');
+    return razorpayClient;
+  }
+  
+  // Reinitialize with DB config
+  const dbClient = new Razorpay({
+    key_id: gateway.config.keyId || config.razorpay.keyId,
+    key_secret: gateway.config.keySecret || config.razorpay.keySecret,
+  });
+  
+  console.log(`[Razorpay] Using ${gateway.is_test_mode ? 'TEST' : 'LIVE'} mode from database`);
+  return dbClient;
+}
 
 // Extend Express Session
 declare module "express-session" {
@@ -105,6 +146,118 @@ async function applyPendingDowngrades(detective: any): Promise<any> {
   }
   
   return detective;
+}
+
+// GUARD: Enforce no duplicate Blue Tick purchases
+// This is a HARD RULE: A detective with active Blue Tick cannot purchase again
+async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: string): Promise<void> {
+  const detective = await storage.getDetective(detectiveId);
+  
+  if (!detective) {
+    throw new Error(`Detective not found: ${detectiveId}`);
+  }
+  
+  // HARD RULE: If hasBlueTick is already true, reject immediately
+  if (detective.hasBlueTick === true) {
+    console.error(`[BLUE_TICK_GUARD] Duplicate attempt blocked`, {
+      detectiveId,
+      provider,
+      hasBlueTickActive: detective.hasBlueTick,
+      activatedAt: detective.blueTickActivatedAt,
+    });
+    
+    const error = new Error("Blue Tick already active");
+    (error as any).statusCode = 409; // Conflict
+    throw error;
+  }
+  
+  // Check for existing unpaid Blue Tick payment orders
+  const existingOrder = await storage.getPaymentOrdersByDetectiveId?.(detectiveId)
+    ?.then((orders: any[]) => 
+      orders.find((o: any) => 
+        o.status !== "verified" && 
+        (o.plan === "blue_tick_addon" || o.plan === "blue-tick" || o.packageId === "blue-tick")
+      )
+    ) || null;
+  
+  if (existingOrder) {
+    console.warn(`[BLUE_TICK_GUARD] Existing unpaid Blue Tick order found`, {
+      detectiveId,
+      orderId: existingOrder.id,
+      status: existingOrder.status,
+    });
+    
+    const error = new Error("Blue Tick payment already in progress");
+    (error as any).statusCode = 409; // Conflict
+    throw error;
+  }
+}
+
+// ENTITLEMENT SYSTEM: Apply package badges to detective
+// CRITICAL: This is the ONLY place where hasBlueTick and other badges are granted/revoked
+// Badges are DERIVED from subscription_packages.badges, NOT manual flags
+async function applyPackageEntitlements(detectiveId: string, reason: 'activation' | 'renewal' | 'downgrade' | 'expiry'): Promise<void> {
+  const detective = await storage.getDetective(detectiveId);
+  
+  if (!detective) {
+    console.warn(`[ENTITLEMENT] Detective not found: ${detectiveId}`);
+    return;
+  }
+
+  // Determine which package to use for entitlements
+  let activePackageId = detective.subscriptionPackageId;
+  
+  // Check if subscription has expired
+  const now = new Date();
+  if (detective.subscriptionExpiresAt && new Date(detective.subscriptionExpiresAt) < now) {
+    // Subscription expired → downgrade to FREE
+    activePackageId = null;
+    console.log(`[ENTITLEMENT] Subscription expired for detective ${detectiveId}, downgrading to FREE`);
+  }
+
+  // If no active package, use FREE plan defaults (only feature: none)
+  let packageBadges: Record<string, boolean> = {};
+  
+  if (activePackageId) {
+    const activePackage = await storage.getSubscriptionPlanById(activePackageId);
+    if (activePackage && activePackage.badges) {
+      packageBadges = (activePackage.badges as any) || {};
+    }
+  }
+
+  // Build the entitlement update payload
+  const updatePayload: any = {};
+
+  // ENTITLEMENT: Blue Tick
+  // If package includes blueTick badge → grant Blue Tick
+  // If package DOES NOT include blueTick badge → remove Blue Tick
+  const shouldHaveBlueTick = packageBadges.blueTick === true;
+  
+  if (shouldHaveBlueTick && !detective.hasBlueTick) {
+    console.log(`[ENTITLEMENT_APPLY] Granting Blue Tick to detective ${detectiveId}`, {
+      packageId: activePackageId,
+      reason,
+    });
+    updatePayload.hasBlueTick = true;
+    updatePayload.blueTickActivatedAt = new Date();
+  } else if (!shouldHaveBlueTick && detective.hasBlueTick) {
+    console.log(`[ENTITLEMENT_REMOVE] Removing Blue Tick from detective ${detectiveId}`, {
+      packageId: activePackageId,
+      reason,
+    });
+    updatePayload.hasBlueTick = false;
+    updatePayload.blueTickActivatedAt = null;
+  }
+
+  // Apply update if there are changes
+  if (Object.keys(updatePayload).length > 0) {
+    await storage.updateDetectiveAdmin(detectiveId, updatePayload as any);
+    console.log(`[ENTITLEMENT] Entitlements updated for detective ${detectiveId}`, {
+      changes: updatePayload,
+      reason,
+      packageId: activePackageId,
+    });
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -328,6 +481,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.session.userId = user.id;
       req.session.userRole = user.role;
 
+      // Send welcome email (non-blocking)
+      sendpulseEmail.sendTransactionalEmail(
+        user.email,
+        EMAIL_TEMPLATES.WELCOME_USER,
+        {
+          userName: user.name,
+          email: user.email,
+          supportEmail: "support@askdetectives.com",
+        }
+      ).catch(err => console.error("[Email] Failed to send welcome email:", err));
+
       // Don't send password in response
       const { password, ...userWithoutPassword } = user;
       res.status(201).json({ user: userWithoutPassword });
@@ -493,6 +657,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update user country/currency preferences
+  app.patch("/api/users/preferences", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { preferredCountry, preferredCurrency } = req.body;
+
+      if (!preferredCountry || !preferredCurrency) {
+        return res.status(400).json({ error: "preferredCountry and preferredCurrency are required" });
+      }
+
+      // Update user preferences in database
+      await db.update(users)
+        .set({
+          preferredCountry,
+          preferredCurrency,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, req.session.userId!));
+
+      res.json({ success: true, preferredCountry, preferredCurrency });
+    } catch (error) {
+      console.error("Update user preferences error:", error);
+      res.status(500).json({ error: "Failed to update preferences" });
+    }
+  });
+
   // Admin: lookup user by email
   app.get("/api/admin/users", requireRole("admin"), async (req: Request, res: Response) => {
     try {
@@ -506,6 +695,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Admin user lookup error:", error);
       res.status(500).json({ error: "Failed to lookup user" });
     }
+  });
+
+  // ============== CURRENCY & RATES ROUTES ==============
+
+  // Cache for exchange rates
+  interface RatesCache {
+    rates: Record<string, number>;
+    timestamp: number;
+  }
+  let ratesCache: RatesCache = {
+    rates: {
+      USD: 1,
+      GBP: 0.79,
+      INR: 83.5,
+      CAD: 1.35,
+      AUD: 1.52,
+      EUR: 0.92,
+    },
+    timestamp: Date.now(),
+  };
+  const RATES_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+  const RATES_UPDATE_INTERVAL = 30 * 60 * 1000; // Update every 30 minutes
+
+  // Fallback rates (used if API fails)
+  function getFallbackRates(): Record<string, number> {
+    return {
+      USD: 1,
+      GBP: 0.79,
+      INR: 83.5,
+      CAD: 1.35,
+      AUD: 1.52,
+      EUR: 0.92,
+    };
+  }
+
+  // Helper function to fetch live rates from Frankfurter API (non-blocking)
+  async function updateExchangeRatesInBackground() {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+      
+      const response = await fetch("https://api.frankfurter.app/latest?base=USD&symbols=GBP,INR,CAD,AUD,EUR", {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data = await response.json() as { rates: Record<string, number> };
+        ratesCache = {
+          rates: { USD: 1, ...data.rates },
+          timestamp: Date.now(),
+        };
+        console.log("[currency] Updated exchange rates from Frankfurter API");
+      }
+    } catch (error) {
+      console.warn("[currency] Background rate update failed, keeping cached rates:", error instanceof Error ? error.message : error);
+    }
+  }
+
+  // Start background rate updates
+  updateExchangeRatesInBackground();
+  setInterval(updateExchangeRatesInBackground, RATES_UPDATE_INTERVAL);
+
+  // Get live exchange rates endpoint (serves cached rates immediately)
+  app.get("/api/currency-rates", (_req: Request, res: Response) => {
+    res.set("Cache-Control", "public, max-age=3600").json({
+      base: "USD",
+      rates: ratesCache.rates,
+      cached: true,
+      cacheAge: Math.floor((Date.now() - ratesCache.timestamp) / 1000),
+      lastUpdated: new Date(ratesCache.timestamp).toISOString(),
+    });
   });
 
   // ============== DETECTIVE ROUTES ==============
@@ -522,14 +783,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      const detectives = await storage.searchDetectives({
+      // Use ranking system for detective visibility and ordering
+      const { getRankedDetectives } = await import("./ranking.ts");
+      let detectives = await getRankedDetectives({
         country: country as string,
         status: ((status as string) || "active") as string,
         plan: plan as string,
         searchQuery: search as string,
-      }, parseInt(limit), parseInt(offset));
+        limit: 100,
+      });
 
-      const maskedDetectives = await Promise.all(detectives.map(async (d: any) => {
+      // Apply filters based on query
+      if (country) {
+        detectives = detectives.filter((d: any) => d.country === country);
+      }
+      if (status && status !== "active") {
+        detectives = detectives.filter((d: any) => d.status === status);
+      }
+
+      // Apply pagination
+      const limitNum = parseInt(limit);
+      const offsetNum = parseInt(offset);
+      const total = detectives.length;
+      const paginatedDetectives = detectives.slice(offsetNum, offsetNum + limitNum);
+
+      const maskedDetectives = await Promise.all(paginatedDetectives.map(async (d: any) => {
         const masked = await maskDetectiveContactsPublic(d);
         // Explicitly null sensitive fields we never want public
         masked.userId = undefined;
@@ -543,11 +821,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return masked;
       }));
 
-      const limitNum = parseInt(limit);
-      const offsetNum = parseInt(offset);
-      const total = detectives.length < limitNum
-        ? offsetNum + detectives.length
-        : await storage.countDetectives();
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       res.json({ detectives: maskedDetectives, total });
     } catch (error) {
@@ -682,6 +955,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscriptionPackageId: packageId,
           billingCycle: billingCycle,
           subscriptionActivatedAt: new Date(),
+          subscriptionExpiresAt: null,
+          pendingPackageId: null,
+          pendingBillingCycle: null,
         } as any);
 
         const updatedDetective = await storage.getDetective(detective.id);
@@ -808,8 +1084,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/payments/create-order", requireRole("detective"), async (req: Request, res: Response) => {
     try {
-      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
-        console.error("[create-order] Razorpay not configured");
+      const gateway = await getPaymentGateway('razorpay');
+      if (!gateway) {
+        console.error("[create-order] Razorpay not configured or not enabled");
         return res.status(500).json({ error: "Payments not configured" });
       }
 
@@ -846,21 +1123,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Package is not active" });
       }
 
-      // Select price based on billing cycle
-      const priceString = billingCycle === "monthly" ? packageRecord.monthlyPrice : packageRecord.yearlyPrice;
-      const amount = Number(priceString || 0);
+      // Select price based on billing cycle (prices are in USD)
+      const priceUSDString = billingCycle === "monthly" ? packageRecord.monthlyPrice : packageRecord.yearlyPrice;
+      const priceUSD = Number(priceUSDString || 0);
       
       // Validate price
-      if (!amount || Number.isNaN(amount) || amount <= 0) {
-        console.error(`[create-order] Invalid ${billingCycle} price for package ${packageId}: ${priceString}`);
+      if (!priceUSD || Number.isNaN(priceUSD) || priceUSD <= 0) {
+        console.error(`[create-order] Invalid ${billingCycle} price for package ${packageId}: ${priceUSDString}`);
         return res.status(400).json({ error: `Package has no valid ${billingCycle} price` });
       }
 
-      const amountPaise = Math.round(amount * 100);
-      console.log(`[create-order] Creating Razorpay order for ₹${amount} (${amountPaise} paise) - ${billingCycle}`);
+      // Fetch live exchange rate USD to INR
+      let exchangeRate = 83.5; // Fallback rate
+      try {
+        const rateResponse = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR');
+        const rateData = await rateResponse.json();
+        if (rateData.rates?.INR) {
+          exchangeRate = rateData.rates.INR;
+        }
+      } catch (error) {
+        console.warn('[create-order] Failed to fetch live rate, using fallback 83.5');
+      }
+
+      // Convert USD to INR
+      const priceINR = priceUSD * exchangeRate;
+      const amountPaise = Math.round(priceINR * 100);
+      
+      console.log(`[create-order] Creating Razorpay order for $${priceUSD} USD = ₹${priceINR.toFixed(2)} INR (${amountPaise} paise) - ${billingCycle} - Rate: ${exchangeRate}`);
+      
+      // Get Razorpay client from database config
+      const rzpClient = await getRazorpayClient();
       
       // Create Razorpay order (receipt max 40 chars)
-      const order = await razorpayClient.orders.create({
+      const order = await rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `sub_${Date.now()}`.substring(0, 40),
@@ -882,19 +1177,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         plan: packageRecord.name as any,
         packageId: packageId,
         billingCycle: billingCycle,
-        amount: String(amount),
+        amount: String(priceINR.toFixed(2)),
         currency: "INR",
+        provider: "razorpay",
         razorpayOrderId: order.id,
         status: "created",
       } as any);
 
-      console.log(`[create-order] Payment order saved to DB with billing cycle: ${billingCycle}`);
+      console.log(`[create-order] Payment order saved to DB - USD: $${priceUSD}, INR: ₹${priceINR.toFixed(2)}, billing cycle: ${billingCycle}`);
       
-      // Return response
+      // Return response with key from database
       res.json({ 
         orderId: order.id, 
         amount: amountPaise,
-        key: config.razorpay.keyId 
+        key: gateway.config.keyId || config.razorpay.keyId 
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -909,8 +1205,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payments/verify", requireRole("detective"), async (req: Request, res: Response) => {
     console.log("[verify] === PAYMENT VERIFICATION START ===");
     try {
-      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
-        console.error("[verify] Razorpay not configured");
+      const gateway = await getPaymentGateway('razorpay');
+      if (!gateway) {
+        console.error("[verify] Razorpay not configured or not enabled");
         return res.status(500).json({ error: "Payments not configured" });
       }
 
@@ -938,7 +1235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify Razorpay signature
       const expected = crypto
-        .createHmac("sha256", config.razorpay.keySecret)
+        .createHmac("sha256", gateway.config.keySecret || config.razorpay.keySecret)
         .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
         .digest("hex");
 
@@ -986,15 +1283,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[verify] Activating package ${packageId} for detective ${paymentOrder.detectiveId}`);
 
-      // Update detective with new subscription (subscriptionPackageId is the ONLY field to track subscriptions)
+      const newExpiryDate = calculateExpiryDate(new Date(), billingCycle);
+
+      // Update subscription (NON-ENTITLEMENT fields only)
       await storage.updateDetectiveAdmin(paymentOrder.detectiveId, {
         subscriptionPackageId: packageId,
         billingCycle: billingCycle,
         subscriptionActivatedAt: new Date(),
+        subscriptionExpiresAt: newExpiryDate,
         // Note: subscriptionPlan and planActivatedAt are LEGACY fields - not updated during payment
       } as any);
 
-      console.log(`[verify] Detective subscription fields updated`);
+      console.log(`[verify] Subscription activated for detective ${paymentOrder.detectiveId}`);
+
+      // APPLY ENTITLEMENTS: Use centralized entitlement system
+      // This function reads package.badges and applies/removes entitlements (Blue Tick, Pro, etc.)
+      await applyPackageEntitlements(paymentOrder.detectiveId, 'activation');
+
+      console.log(`[verify] Entitlements applied`);
+
 
       // Fetch updated detective to return to client
       const updatedDetective = await storage.getDetective(paymentOrder.detectiveId);
@@ -1006,6 +1313,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[verify] Successfully updated detective: subscriptionPackageId=${updatedDetective.subscriptionPackageId}, billingCycle=${updatedDetective.billingCycle}, activatedAt=${updatedDetective.subscriptionActivatedAt}`);
       console.log("[verify] === PAYMENT VERIFICATION COMPLETE ===");
+
+      // Send payment success email (non-blocking)
+      const user = await storage.getUser(req.session.userId!);
+      if (user && packageToActivate) {
+        const expiryDate = calculateExpiryDate(new Date(), billingCycle);
+        sendpulseEmail.sendTransactionalEmail(
+          user.email,
+          EMAIL_TEMPLATES.PAYMENT_SUCCESS,
+          {
+            detectiveName: updatedDetective.businessName || user.name,
+            email: user.email,
+            packageName: packageToActivate.name,
+            billingCycle: billingCycle,
+            amount: String(paymentOrder.amount || ""),
+            currency: paymentOrder.currency || "INR",
+            subscriptionExpiryDate: expiryDate ? new Date(expiryDate).toLocaleDateString() : "N/A",
+            supportEmail: "support@askdetectives.com",
+          }
+        ).catch(err => console.error("[Email] Failed to send payment success email:", err));
+
+        // Send admin notification (non-blocking)
+        sendpulseEmail.sendAdminEmail(
+          EMAIL_TEMPLATES.ADMIN_NEW_PAYMENT,
+          {
+            detectiveName: updatedDetective.businessName || user.name,
+            email: user.email,
+            packageName: packageToActivate.name,
+            amount: String(paymentOrder.amount || ""),
+            currency: paymentOrder.currency || "INR",
+            supportEmail: "support@askdetectives.com",
+          }
+        ).catch(err => console.error("[Email] Failed to send admin payment notification:", err));
+      }
 
       res.json({ 
         success: true, 
@@ -1023,6 +1363,339 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error instanceof Error ? error.message : "Verification failed" });
     }
   });
+
+  // PayPal: Create order endpoint
+  app.post("/api/payments/paypal/create-order", requireRole("detective"), async (req: Request, res: Response) => {
+    try {
+      const gateway = await getPaymentGateway('paypal');
+      if (!gateway || !gateway.is_enabled) {
+        console.error("[paypal-create-order] PayPal not configured or not enabled");
+        return res.status(500).json({ error: "PayPal payments not configured" });
+      }
+
+      // Reject requests with old field names
+      if (req.body.plan || req.body.subscriptionPlan) {
+        console.error("[paypal-create-order] Rejected: Request contains deprecated field (plan or subscriptionPlan)");
+        return res.status(400).json({ error: "Invalid request. Use packageId and billingCycle instead." });
+      }
+
+      const detective = await storage.getDetectiveByUserId(req.session.userId!);
+      if (!detective) {
+        console.error("[paypal-create-order] Detective not found for userId:", req.session.userId);
+        return res.status(400).json({ error: "Detective profile not found" });
+      }
+
+      // Validate request body
+      const { packageId, billingCycle } = z.object({ 
+        packageId: z.string().min(1, "Package ID is required"),
+        billingCycle: z.enum(["monthly", "yearly"], { errorMap: () => ({ message: "Billing cycle must be 'monthly' or 'yearly'" }) })
+      }).parse(req.body);
+      
+      console.log(`[paypal-create-order] Fetching package ID: ${packageId}, billing: ${billingCycle}`);
+      
+      // GUARD: Block duplicate Blue Tick purchases (HARD RULE) - check BEFORE fetching package
+      if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+        try {
+          await assertBlueTickNotAlreadyActive(detective.id, 'paypal');
+        } catch (guardError: any) {
+          if (guardError.statusCode === 409) {
+            console.warn(`[paypal-create-order] Duplicate Blue Tick attempt rejected:`, guardError.message);
+            return res.status(409).json({ error: guardError.message });
+          }
+          throw guardError;
+        }
+      }
+      
+      // Fetch package from database
+      const packageRecord = await storage.getSubscriptionPlanById(packageId);
+      if (!packageRecord) {
+        console.error(`[paypal-create-order] Package not found: ${packageId}`);
+        return res.status(400).json({ error: "Package not found" });
+      }
+      
+      // Validate package is active
+      if (packageRecord.isActive === false) {
+        console.error(`[paypal-create-order] Package is inactive: ${packageId}`);
+        return res.status(400).json({ error: "Package is not active" });
+      }
+
+      // Select price based on billing cycle
+      const priceString = billingCycle === "monthly" ? packageRecord.monthlyPrice : packageRecord.yearlyPrice;
+      const amount = Number(priceString || 0);
+      
+      // Validate price
+      if (!amount || Number.isNaN(amount) || amount <= 0) {
+        console.error(`[paypal-create-order] Invalid ${billingCycle} price for package ${packageId}: ${priceString}`);
+        return res.status(400).json({ error: `Package has no valid ${billingCycle} price` });
+      }
+
+      console.log(`[paypal-create-order] Creating PayPal order for $${amount} (${billingCycle} billing)`);
+      
+      // Create PayPal order
+      const order = await createPayPalOrder({
+        amount: Number(amount),
+        currency: "USD", // PayPal uses USD by default
+        packageId,
+        packageName: packageRecord.name,
+        billingCycle,
+        detectiveId: detective.id,
+        userId: req.session.userId!,
+      });
+
+      console.log(`[paypal-create-order] PayPal order created: ${order.id}`);
+
+      // Save payment order to database
+      await storage.createPaymentOrder({
+        userId: req.session.userId!,
+        detectiveId: detective.id,
+        plan: packageRecord.name as any,
+        packageId: packageId,
+        billingCycle: billingCycle,
+        amount: String(amount),
+        currency: "USD",
+        provider: "paypal",
+        paypalOrderId: order.id, // Store PayPal order ID
+        status: "created",
+      } as any);
+
+      console.log(`[paypal-create-order] Payment order saved to DB with billing cycle: ${billingCycle}`);
+      
+      // Return response with clientId from database
+      res.json({ 
+        orderId: order.id,
+        clientId: gateway.config.clientId || config.paypal.clientId
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("[paypal-create-order] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[paypal-create-order] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to create PayPal order" });
+    }
+  });
+
+  // PayPal: Capture order endpoint
+  app.post("/api/payments/paypal/capture", requireRole("detective"), async (req: Request, res: Response) => {
+    console.log("[paypal-capture] === PAYPAL CAPTURE START ===");
+    try {
+      const gateway = await getPaymentGateway('paypal');
+      if (!gateway || !gateway.is_enabled) {
+        console.error("[paypal-capture] PayPal not configured or not enabled");
+        return res.status(500).json({ error: "PayPal payments not configured" });
+      }
+
+      // Validate request body
+      const body = z.object({
+        paypalOrderId: z.string().min(1, "PayPal Order ID is required"),
+      }).parse(req.body);
+
+      console.log(`[paypal-capture] Capturing PayPal order: ${body.paypalOrderId}`);
+
+      // Fetch payment order from database using paypalOrderId
+      const paymentOrder = await storage.getPaymentOrderByPaypalOrderId?.(body.paypalOrderId) || 
+        // Fallback query if method doesn't exist yet
+        (await pool.query(
+          "SELECT * FROM payment_orders WHERE paypal_order_id = $1 LIMIT 1",
+          [body.paypalOrderId]
+        )).rows[0];
+
+      if (!paymentOrder) {
+        console.error(`[paypal-capture] Payment order not found: ${body.paypalOrderId}`);
+        return res.status(404).json({ error: "Payment order not found" });
+      }
+
+      // Verify ownership
+      if (paymentOrder.user_id !== req.session.userId) {
+        console.error(`[paypal-capture] Forbidden: User ${req.session.userId} does not own order ${body.paypalOrderId}`);
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      // Capture the PayPal order
+      const captureResponse = await capturePayPalOrder(body.paypalOrderId);
+
+      // Verify capture was successful
+      if (!verifyPayPalCapture(captureResponse)) {
+        console.error(`[paypal-capture] PayPal capture not completed: ${body.paypalOrderId}`);
+        return res.status(400).json({ error: "Payment capture failed" });
+      }
+
+      console.log(`[paypal-capture] PayPal order captured: ${body.paypalOrderId}`);
+
+      // Read packageId and billingCycle from payment_order
+      const packageId = paymentOrder.package_id;
+      const billingCycle = paymentOrder.billing_cycle;
+
+      if (!packageId) {
+        console.error(`[paypal-capture] Payment order missing packageId: ${body.paypalOrderId}`);
+        return res.status(400).json({ error: "Payment order missing package information" });
+      }
+
+      if (!billingCycle || (billingCycle !== "monthly" && billingCycle !== "yearly")) {
+        console.error(`[paypal-capture] Invalid billing cycle in payment order: ${billingCycle}`);
+        return res.status(400).json({ error: "Invalid billing cycle in payment order" });
+      }
+
+      console.log(`[paypal-capture] Upgrading detective to package ${packageId} with ${billingCycle} billing`);
+
+      // Mark payment order as paid
+      await storage.markPaymentOrderPaid(paymentOrder.id, {
+        paymentId: captureResponse.id || body.paypalOrderId,
+        transactionId: captureResponse.purchase_units?.[0]?.payments?.captures?.[0]?.id,
+      });
+
+      console.log(`[paypal-capture] Payment order marked as paid`);
+
+      // GUARD: Block duplicate Blue Tick (check BEFORE any update)
+      if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+        try {
+          await assertBlueTickNotAlreadyActive(paymentOrder.detective_id, 'paypal');
+        } catch (guardError: any) {
+          if (guardError.statusCode === 409) {
+            console.warn(`[paypal-capture] Duplicate Blue Tick attempt rejected:`, guardError.message);
+            return res.status(409).json({ error: guardError.message });
+          }
+          throw guardError;
+        }
+      }
+
+      // SAFETY: Verify package exists and is active before upgrading
+      const packageToActivate = await storage.getSubscriptionPlanById(packageId);
+      if (!packageToActivate) {
+        console.error(`[paypal-capture] CRITICAL: Package not found during activation: ${packageId}`);
+        return res.status(400).json({ error: "Package no longer exists" });
+      }
+      if (packageToActivate.isActive === false) {
+        console.error(`[paypal-capture] CRITICAL: Attempting to activate inactive package: ${packageId}`);
+        return res.status(400).json({ error: "Package is no longer active" });
+      }
+
+      console.log(`[paypal-capture] Activating package ${packageId} for detective ${paymentOrder.detective_id}`);
+
+      // Handle Blue Tick addon vs regular subscription
+      if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+        // Blue Tick addon: update hasBlueTick flag
+        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+          hasBlueTick: true,
+          blueTickActivatedAt: new Date(),
+        } as any);
+        
+        console.log(`[paypal-capture] Blue Tick addon activated for detective ${paymentOrder.detective_id}`);
+      } else {
+        // Regular subscription: update subscription fields only
+        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+          subscriptionPackageId: packageId,
+          billingCycle: billingCycle,
+          subscriptionActivatedAt: new Date(),
+          subscriptionExpiresAt: calculateExpiryDate(new Date(), billingCycle),
+          // Note: subscriptionPlan and planActivatedAt are LEGACY fields - not updated during payment
+        } as any);
+        
+        console.log(`[paypal-capture] Subscription activated for detective ${paymentOrder.detective_id}`);
+
+        // APPLY ENTITLEMENTS: Use centralized entitlement system
+        // This function reads package.badges and applies/removes entitlements (Blue Tick, Pro, etc.)
+        await applyPackageEntitlements(paymentOrder.detective_id, 'activation');
+        
+        console.log(`[paypal-capture] Entitlements applied`);
+      }
+
+      // Fetch updated detective to return to client
+      const updatedDetective = await storage.getDetective(paymentOrder.detective_id);
+      
+      if (!updatedDetective) {
+        console.error(`[paypal-capture] Could not fetch updated detective: ${paymentOrder.detective_id}`);
+        return res.status(500).json({ error: "Failed to fetch updated detective" });
+      }
+
+      console.log(`[paypal-capture] Successfully updated detective: subscriptionPackageId=${updatedDetective.subscriptionPackageId}, billingCycle=${updatedDetective.billingCycle}, activatedAt=${updatedDetective.subscriptionActivatedAt}`);
+      console.log("[paypal-capture] === PAYPAL CAPTURE COMPLETE ===");
+
+      // Send payment success email (non-blocking)
+      const user = await storage.getUser(req.session.userId!);
+      if (user && packageToActivate) {
+        if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+          // Send Blue Tick success email
+          sendpulseEmail.sendTransactionalEmail(
+            user.email,
+            EMAIL_TEMPLATES.BLUE_TICK_PURCHASE_SUCCESS,
+            {
+              detectiveName: updatedDetective.businessName || user.name,
+              email: user.email,
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send Blue Tick success email:", err));
+        } else {
+          // Send regular subscription success email
+          const expiryDate = calculateExpiryDate(new Date(), billingCycle);
+          sendpulseEmail.sendTransactionalEmail(
+            user.email,
+            EMAIL_TEMPLATES.PAYMENT_SUCCESS,
+            {
+              detectiveName: updatedDetective.businessName || user.name,
+              email: user.email,
+              packageName: packageToActivate.name,
+              billingCycle: billingCycle,
+              amount: String(paymentOrder.amount || ""),
+              currency: paymentOrder.currency || "USD",
+              subscriptionExpiryDate: expiryDate ? new Date(expiryDate).toLocaleDateString() : "N/A",
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send payment success email:", err));
+
+          // Send admin notification (non-blocking)
+          sendpulseEmail.sendAdminEmail(
+            EMAIL_TEMPLATES.ADMIN_NEW_PAYMENT,
+            {
+              detectiveName: updatedDetective.businessName || user.name,
+              email: user.email,
+              packageName: packageToActivate.name,
+              amount: String(paymentOrder.amount || ""),
+              currency: paymentOrder.currency || "USD",
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send admin payment notification:", err));
+        }
+      }
+
+      // Build response based on package type
+      const response: any = { 
+        success: true, 
+        detective: updatedDetective
+      };
+      
+      if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
+        response.hasBlueTick = true;
+      } else {
+        response.packageId = packageId;
+        response.billingCycle = billingCycle;
+      }
+      
+      res.json(response);
+    } catch (error) {
+      console.log("[paypal-capture] === PAYPAL CAPTURE FAILED ===");
+      if (error instanceof z.ZodError) {
+        console.error("[paypal-capture] Validation error:", fromZodError(error).message);
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("[paypal-capture] Unexpected error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Payment capture failed" });
+    }
+  });
+
+  // Payment Gateway Routes (public endpoint for checking enabled gateways)
+  app.use("/api/payment-gateways", paymentGatewayRoutes);
+
+  // Public Pages Routes (read-only access to published pages)
+  app.use("/api/public/pages", publicPagesRouter);
+  app.use("/api/public/categories", publicCategoriesRouter);
+  app.use("/api/public/tags", publicTagsRouter);
+
+  // Admin CMS Routes
+  app.use("/api/admin", adminCmsRouter);
+
+  // Admin Finance Routes
+  app.use("/api/admin/finance", requireRole("admin"), adminFinanceRouter);
 
   // Get payment history for current detective
   app.get("/api/payments/history", requireRole("detective"), async (req: Request, res: Response) => {
@@ -1124,6 +1797,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Detective profile not found" });
       }
 
+      // GUARD: Block duplicate Blue Tick purchases (HARD RULE)
+      try {
+        await assertBlueTickNotAlreadyActive(detective.id, 'razorpay');
+      } catch (guardError: any) {
+        if (guardError.statusCode === 409) {
+          console.warn(`[blue-tick-order] Duplicate Blue Tick attempt rejected:`, guardError.message);
+          return res.status(409).json({ error: guardError.message });
+        }
+        throw guardError;
+      }
+
       // REQUIREMENT: Detective must have active package subscription
       if (!detective.subscriptionPackageId) {
         console.error("[blue-tick-order] Detective has no active package subscription");
@@ -1137,12 +1821,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[blue-tick-order] Creating Blue Tick order for detective: ${detective.id}, cycle: ${billingCycle}`);
 
-      // Blue Tick pricing: $15/month or $150/year
-      const amount = billingCycle === "yearly" ? 150 : 15;
-      const amountPaise = Math.round(amount * 100);
+      // Blue Tick pricing in USD: $15/month or $150/year
+      const priceUSD = billingCycle === "yearly" ? 150 : 15;
+      
+      // Fetch live exchange rate USD to INR
+      let exchangeRate = 83.5; // Fallback rate
+      try {
+        const rateResponse = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR');
+        const rateData = await rateResponse.json();
+        if (rateData.rates?.INR) {
+          exchangeRate = rateData.rates.INR;
+        }
+      } catch (error) {
+        console.warn('[blue-tick-order] Failed to fetch live rate, using fallback 83.5');
+      }
+
+      // Convert USD to INR
+      const priceINR = priceUSD * exchangeRate;
+      const amountPaise = Math.round(priceINR * 100);
+      
+      console.log(`[blue-tick-order] Blue Tick pricing: $${priceUSD} USD = ₹${priceINR.toFixed(2)} INR (${amountPaise} paise) - Rate: ${exchangeRate}`);
+      
+      // Get Razorpay client from database config
+      const rzpClient = await getRazorpayClient();
+      const gateway = await getPaymentGateway('razorpay');
+      
+      if (!gateway) {
+        return res.status(503).json({ error: "Razorpay payment gateway is not configured" });
+      }
       
       // Create Razorpay order
-      const order = await razorpayClient.orders.create({
+      const order = await rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `bluetick_${Date.now()}`.substring(0, 40),
@@ -1162,7 +1871,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         orderId: order.id, 
         amount: amountPaise,
-        key: config.razorpay.keyId,
+        key: gateway.config.keyId || config.razorpay.keyId,
         type: "blue_tick"
       });
     } catch (error) {
@@ -1178,8 +1887,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payments/verify-blue-tick", requireRole("detective"), async (req: Request, res: Response) => {
     console.log("[verify-blue-tick] === BLUE TICK VERIFICATION START ===");
     try {
-      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
-        console.error("[verify-blue-tick] Razorpay not configured");
+      const gateway = await getPaymentGateway('razorpay');
+      if (!gateway) {
+        console.error("[verify-blue-tick] Razorpay not configured or not enabled");
         return res.status(500).json({ error: "Payments not configured" });
       }
 
@@ -1194,7 +1904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify Razorpay signature
       const expected = crypto
-        .createHmac("sha256", config.razorpay.keySecret)
+        .createHmac("sha256", gateway.config.keySecret || config.razorpay.keySecret)
         .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
         .digest("hex");
 
@@ -1210,6 +1920,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!detective) {
         console.error(`[verify-blue-tick] Detective not found for user ${req.session.userId}`);
         return res.status(400).json({ error: "Detective not found" });
+      }
+
+      // GUARD: Block duplicate Blue Tick purchases (HARD RULE)
+      try {
+        await assertBlueTickNotAlreadyActive(detective.id, 'razorpay');
+      } catch (guardError: any) {
+        if (guardError.statusCode === 409) {
+          console.warn(`[verify-blue-tick] Duplicate Blue Tick attempt rejected:`, guardError.message);
+          return res.status(409).json({ error: guardError.message });
+        }
+        throw guardError;
       }
 
       // VERIFY: Detective still has active package subscription
@@ -1236,6 +1957,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "Failed to fetch updated detective" });
       }
 
+      // Send blue tick purchase success email (non-blocking)
+      const user = await storage.getUser(detective.userId);
+      if (user) {
+        sendpulseEmail.sendTransactionalEmail(
+          user.email,
+          EMAIL_TEMPLATES.BLUE_TICK_PURCHASE_SUCCESS,
+          {
+            detectiveName: detective.businessName || user.name,
+            email: user.email,
+            supportEmail: "support@askdetectives.com",
+          }
+        ).catch(err => console.error("[Email] Failed to send blue tick success email:", err));
+      }
+
       console.log(`[verify-blue-tick] Successfully activated Blue Tick for detective: hasBlueTick=${updatedDetective.hasBlueTick}`);
       console.log("[verify-blue-tick] === BLUE TICK VERIFICATION COMPLETE ===");
 
@@ -1260,6 +1995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/subscription-plans", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       const payload = req.body as any;
+      const ALLOWED_SERVICE_LIMITS = [10, 15, 20, 25, 30, 35, 40, 45, 50];
       const parsed = z.object({
         name: z.string().min(2),
         displayName: z.string().min(2).optional(),
@@ -1268,7 +2004,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: z.string().optional(),
         features: z.array(z.string()).optional(),
         badges: z.any().optional(),
-        serviceLimit: z.number().int().min(0),
+        serviceLimit: z.number().int().min(0).refine(
+          (val) => val === 0 || val === 1 || val === 2 || val === 3 || val === 4 || val === 5 || ALLOWED_SERVICE_LIMITS.includes(val),
+          "Service limit must be between 1-5 or one of: 10, 15, 20, 25, 30, 35, 40, 45, 50"
+        ),
         isActive: z.boolean().optional(),
       }).strict().parse({
         name: String(payload.name || "").toLowerCase().trim(),
@@ -1304,6 +2043,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/subscription-plans/:id", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       const raw = req.body as any;
+      const ALLOWED_SERVICE_LIMITS = [10, 15, 20, 25, 30, 35, 40, 45, 50];
       const input = {
         name: raw.name,
         displayName: raw.displayName,
@@ -1323,7 +2063,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: z.string().optional(),
         features: z.array(z.string()).optional(),
         badges: z.any().optional(),
-        serviceLimit: z.number().int().min(0).optional(),
+        serviceLimit: z.number().int().min(0).refine(
+          (val) => val === 0 || val === 1 || val === 2 || val === 3 || val === 4 || val === 5 || ALLOWED_SERVICE_LIMITS.includes(val),
+          "Service limit must be between 1-5 or one of: 10, 15, 20, 25, 30, 35, 40, 45, 50"
+        ).optional(),
         isActive: z.boolean().optional(),
       }).strict().parse(input);
       const plan = await storage.updateSubscriptionPlan(req.params.id, {
@@ -1356,6 +2099,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
         return res.status(404).json({ error: "Detective profile not found" });
+      }
+
+      // Backfill subscription expiry for paid plans if missing
+      const freePlanId = await getFreePlanId();
+      const isPaidPlan = detective.subscriptionPackageId && detective.subscriptionPackageId !== freePlanId;
+      if (isPaidPlan && !detective.subscriptionExpiresAt) {
+        const activatedAt = detective.subscriptionActivatedAt ? new Date(detective.subscriptionActivatedAt) : new Date();
+        const billingCycle = detective.billingCycle || "monthly";
+        const computedExpiry = calculateExpiryDate(activatedAt, billingCycle);
+        if (computedExpiry) {
+          await storage.updateDetectiveAdmin(detective.id, {
+            subscriptionExpiresAt: computedExpiry,
+            billingCycle: billingCycle,
+            subscriptionActivatedAt: detective.subscriptionActivatedAt ? new Date(detective.subscriptionActivatedAt) : activatedAt,
+          } as any);
+          detective = {
+            ...detective,
+            subscriptionExpiresAt: computedExpiry,
+            billingCycle: billingCycle,
+            subscriptionActivatedAt: detective.subscriptionActivatedAt ?? activatedAt,
+          } as any;
+        }
       }
       
       // Apply pending downgrades if expiry has passed
@@ -1650,16 +2415,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      const services = await storage.searchServices({
+      // Get all active services - ALL services visible
+      const allServices = await storage.searchServices({
         category: category as string,
         country: country as string,
         searchQuery: search as string,
         minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
         maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
         ratingMin: minRating ? parseFloat(minRating as string) : undefined,
-      }, parseInt(limit as string), parseInt(offset as string), sortBy as string);
+      }, 10000, 0, sortBy as string);
 
-      const masked = await Promise.all(services.map(async (s: any) => ({ 
+      // Get detective rankings for sorting (NOT filtering)
+      const { getRankedDetectives } = await import("./ranking");
+      const rankedDetectives = await getRankedDetectives({ limit: 1000 });
+      const detectiveRankMap = new Map(rankedDetectives.map((d: any, idx: number) => [d.id, { score: d.visibilityScore, rank: idx }]));
+
+      // Sort services by detective ranking (higher score = higher position)
+      const sortedServices = allServices.sort((a: any, b: any) => {
+        const aRank = detectiveRankMap.get(a.detectiveId);
+        const bRank = detectiveRankMap.get(b.detectiveId);
+        // Higher score = better ranking = appears first
+        if (aRank && bRank) {
+          return bRank.score - aRank.score;
+        }
+        // Services without ranking appear after ranked ones
+        if (aRank) return -1;
+        if (bRank) return 1;
+        return 0;
+      });
+
+      // Apply pagination after ranking
+      const limitNum = parseInt(limit as string);
+      const offsetNum = parseInt(offset as string);
+      const paginatedServices = sortedServices.slice(offsetNum, offsetNum + limitNum);
+
+      const masked = await Promise.all(paginatedServices.map(async (s: any) => ({ 
         ...s, 
         detective: await maskDetectiveContactsPublic(s.detective) 
       })));
@@ -2271,6 +3061,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log("Request has documents:", !!req.body.documents);
     
     try {
+      // Check if user is admin
+      const isAdmin = req.session?.userRole === 'admin';
+      
       console.log("Validating request body...");
       const validatedData = insertDetectiveApplicationSchema.parse(req.body);
       console.log("Validation passed");
@@ -2287,7 +3080,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? await storage.getDetectiveApplicationByPhone(validatedData.phoneCountryCode!, validatedData.phoneNumber!)
         : undefined;
 
-      // isAdmin was declared above; reuse it here
+      // Check for duplicates - allow update if admin, else reject
       if (existingByEmail || existingByPhone) {
         if (!isAdmin) {
           const conflictField = existingByEmail ? "email" : "phone";
@@ -2315,6 +3108,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Inserting into database...");
       const application = await storage.createDetectiveApplication(applicationData);
       console.log("Application created with ID:", application.id);
+      
+      // Send application confirmation email (non-blocking)
+      sendpulseEmail.sendTransactionalEmail(
+        application.email,
+        EMAIL_TEMPLATES.DETECTIVE_APPLICATION_SUBMITTED,
+        {
+          detectiveName: application.fullName,
+          email: application.email,
+          supportEmail: "support@askdetectives.com",
+        }
+      ).catch(err => console.error("[Email] Failed to send application confirmation:", err));
+
+      // Send admin notification (non-blocking)
+      sendpulseEmail.sendAdminEmail(
+        EMAIL_TEMPLATES.ADMIN_APPLICATION_RECEIVED,
+        {
+          detectiveName: application.fullName,
+          email: application.email,
+          country: application.country || "Not specified",
+          businessType: application.businessType || "Not specified",
+          supportEmail: "support@askdetectives.com",
+        }
+      ).catch(err => console.error("[Email] Failed to send admin notification:", err));
       
       res.status(201).json({ application });
     } catch (error) {
@@ -2390,11 +3206,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          // Build location string from application data
+          // Build location string from application data (for backward compatibility)
           const locationParts = [];
           if (application.city) locationParts.push(application.city);
           if (application.state) locationParts.push(application.state);
           const location = locationParts.length > 0 ? locationParts.join(", ") : "Not specified";
+          const stateValue = application.state || "Not specified";
+          const cityValue = application.city || "Not specified";
 
           // Build phone number
           const phone = application.phoneCountryCode && application.phoneNumber 
@@ -2421,6 +3239,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               isClaimable: isAdminCreated ? true : false,
               createdBy: isAdminCreated ? "admin" : "self",
               country: application.country || "US",
+              state: stateValue,
+              city: cityValue,
               location: location,
               address: (application as any).fullAddress || undefined,
               pincode: (application as any).pincode || undefined,
@@ -2475,7 +3295,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      if (allowedData.status === "approved" || allowedData.status === "rejected") {
+      if (allowedData.status === "approved") {
+        // Send approval email (non-blocking)
+        const application = await storage.getDetectiveApplication(req.params.id);
+        if (application) {
+          sendpulseEmail.sendTransactionalEmail(
+            application.email,
+            EMAIL_TEMPLATES.DETECTIVE_APPLICATION_APPROVED,
+            {
+              detectiveName: application.fullName,
+              email: application.email,
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send approval email:", err));
+
+          // If this is a claimable account, send claim invitation email
+          if (application.isClaimable && application.email) {
+            try {
+              // Generate secure claim token (48-hour expiry)
+              const { token, hash } = generateClaimToken();
+              const expiresAt = new Date(calculateTokenExpiry());
+
+              // Get the detective that was just created
+              const detective = await db
+                .select()
+                .from(detectives)
+                .where(eq(detectives.userId, user?.id || ""))
+                .limit(1)
+                .then(r => r[0]);
+
+              if (detective) {
+                // Store claim token hash in database
+                await db.insert(claimTokens).values({
+                  detectiveId: detective.id,
+                  tokenHash: hash,
+                  expiresAt: expiresAt,
+                });
+
+                // Build claim URL and send invitation email
+                const claimUrl = buildClaimUrl(token);
+                sendpulseEmail.sendTransactionalEmail(
+                  application.email,
+                  EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_INVITATION,
+                  {
+                    detectiveName: application.fullName,
+                    claimLink: claimUrl,
+                    supportEmail: "support@askdetectives.com",
+                  }
+                ).catch(err => console.error("[Email] Failed to send claim invitation:", err));
+
+                console.log(`[Claim] Sent invitation email to ${application.email} with claim token`);
+              }
+            } catch (claimError: any) {
+              console.error("[Claim] Error sending claim invitation:", claimError);
+              // Non-blocking: Don't fail approval if claim email fails
+            }
+          }
+        }
+        await storage.deleteDetectiveApplication(req.params.id);
+        return res.json({ application: null });
+      }
+
+      if (allowedData.status === "rejected") {
+        // Send rejection email (non-blocking)
+        const application = await storage.getDetectiveApplication(req.params.id);
+        if (application) {
+          sendpulseEmail.sendTransactionalEmail(
+            application.email,
+            EMAIL_TEMPLATES.DETECTIVE_APPLICATION_REJECTED,
+            {
+              detectiveName: application.fullName,
+              email: application.email,
+              rejectionReason: allowedData.reviewNotes || "Your application did not meet our requirements.",
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(err => console.error("[Email] Failed to send rejection email:", err));
+        }
         await storage.deleteDetectiveApplication(req.params.id);
         return res.json({ application: null });
       }
@@ -2565,12 +3460,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           const claimedDetective = await storage.getDetective(result.claim.detectiveId);
+          
+          // Send legacy email (keep for backward compatibility)
           await sendClaimApprovedEmail({
             to: result.email,
             detectiveName: claimedDetective?.businessName || "Detective",
             wasNewUser: result.wasNewUser,
             temporaryPassword: result.temporaryPassword,
           });
+
+          // Send SendPulse email (non-blocking)
+          if (result.wasNewUser && result.temporaryPassword) {
+            sendpulseEmail.sendTransactionalEmail(
+              result.email,
+              EMAIL_TEMPLATES.PROFILE_CLAIM_TEMPORARY_PASSWORD,
+              {
+                detectiveName: claimedDetective?.businessName || "Detective",
+                email: result.email,
+                temporaryPassword: result.temporaryPassword,
+                supportEmail: "support@askdetectives.com",
+              }
+            ).catch(err => console.error("[Email] Failed to send temporary password email:", err));
+          } else {
+            sendpulseEmail.sendTransactionalEmail(
+              result.email,
+              EMAIL_TEMPLATES.PROFILE_CLAIM_APPROVED,
+              {
+                detectiveName: claimedDetective?.businessName || "Detective",
+                email: result.email,
+                supportEmail: "support@askdetectives.com",
+              }
+            ).catch(err => console.error("[Email] Failed to send claim approval email:", err));
+          }
 
           return res.json({ 
             claim: result.claim,
@@ -2605,6 +3526,661 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error("Update claim error:", error);
       res.status(500).json({ error: "Failed to update claim" });
+    }
+  });
+
+  // ============== CLAIM ACCOUNT ROUTES (Admin-Created Accounts) ==============
+
+  // Verify claim token (public - no auth required)
+  app.post("/api/claim-account/verify", async (req: Request, res: Response) => {
+    try {
+      const { token } = req.body;
+
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Invalid request" });
+      }
+
+      // Hash the token to look up in database
+      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.ts");
+      const tokenHash = hashToken(token);
+
+      // Find claim token in database
+      const claimToken = await db
+        .select()
+        .from(claimTokens)
+        .where(eq(claimTokens.tokenHash, tokenHash))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!claimToken) {
+        return res.status(404).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if token is expired
+      if (isTokenExpired(claimToken.expiresAt)) {
+        return res.status(400).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if token was already used
+      if (claimToken.usedAt) {
+        return res.status(400).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Get detective info
+      const detective = await storage.getDetective(claimToken.detectiveId);
+      if (!detective) {
+        return res.status(404).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if already claimed
+      if (detective.isClaimed) {
+        return res.status(400).json({ error: "This account has already been claimed" });
+      }
+
+      // Return detective info (excluding sensitive data)
+      res.json({
+        valid: true,
+        detective: {
+          id: detective.id,
+          businessName: detective.businessName,
+          contactEmail: detective.contactEmail,
+        },
+      });
+    } catch (error) {
+      console.error("[Claim] Token verification error:", error);
+      res.status(500).json({ error: "Failed to verify claim token" });
+    }
+  });
+
+  // Submit claim account (public - no auth required, but token verified)
+  app.post("/api/claim-account", async (req: Request, res: Response) => {
+    try {
+      const { token, email } = req.body;
+
+      // Validate input
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Invalid request" });
+      }
+
+      if (!email || typeof email !== "string" || !email.includes("@")) {
+        return res.status(400).json({ error: "Valid email is required" });
+      }
+
+      // Hash the token to look up in database
+      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.ts");
+      const tokenHash = hashToken(token);
+
+      // Start transaction: Find and validate claim token
+      const claimToken = await db
+        .select()
+        .from(claimTokens)
+        .where(eq(claimTokens.tokenHash, tokenHash))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!claimToken) {
+        return res.status(404).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if token is expired
+      if (isTokenExpired(claimToken.expiresAt)) {
+        return res.status(400).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if token was already used
+      if (claimToken.usedAt) {
+        return res.status(400).json({ error: "This claim link has already been used" });
+      }
+
+      // Get detective info
+      const detective = await storage.getDetective(claimToken.detectiveId);
+      if (!detective) {
+        return res.status(404).json({ error: "Invalid or expired claim link" });
+      }
+
+      // Check if already claimed
+      if (detective.isClaimed) {
+        return res.status(400).json({ error: "This account has already been claimed" });
+      }
+
+      // Mark token as used (atomic operation)
+      await db
+        .update(claimTokens)
+        .set({ 
+          usedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(claimTokens.id, claimToken.id));
+
+      // Mark detective as claimed
+      await storage.updateDetectiveAdmin(detective.id, {
+        isClaimed: true,
+      });
+
+      // Store claimed email in contactEmail temporarily (will be set as primary in Step 3)
+      await storage.updateDetectiveAdmin(detective.id, {
+        contactEmail: email,
+      });
+
+      console.log(`[Claim] Account claimed successfully: ${detective.businessName} (${email})`);
+
+      // STEP 3: Generate credentials and enable login
+      try {
+        // Get the user account associated with this detective
+        const user = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, detective.userId))
+          .limit(1)
+          .then(r => r[0]);
+
+        if (!user) {
+          console.error(`[Claim] User not found for detective: ${detective.id}`);
+          // Still return success for claim, but log error
+          return res.json({
+            success: true,
+            message: "Account claimed successfully",
+            detective: {
+              id: detective.id,
+              businessName: detective.businessName,
+            },
+          });
+        }
+
+        // Check if login is already enabled (prevent re-running)
+        if (!user.mustChangePassword && user.password && user.password.length > 0) {
+          console.log(`[Claim] Login already enabled for: ${email}`);
+          return res.json({
+            success: true,
+            message: "Account claimed successfully",
+            detective: {
+              id: detective.id,
+              businessName: detective.businessName,
+            },
+          });
+        }
+
+        // Generate secure temporary password
+        const { generateTempPassword } = await import("./services/claimTokenService.ts");
+        const tempPassword = generateTempPassword(12);
+        const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+        // Update user with hashed password and require password change
+        await db
+          .update(users)
+          .set({
+            password: hashedPassword,
+            mustChangePassword: true,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
+
+        console.log(`[Claim] Credentials generated for: ${email}`);
+
+        // Send temporary password email via SendPulse
+        const loginUrl = "https://askdetectives.com/login";
+        sendpulseEmail.sendTransactionalEmail(
+          email,
+          EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_CREDENTIALS,
+          {
+            detectiveName: detective.businessName || "Detective",
+            loginEmail: email,
+            tempPassword: tempPassword,
+            loginUrl: loginUrl,
+            supportEmail: "support@askdetectives.com",
+          }
+        ).catch(err => console.error("[Email] Failed to send temp password email:", err));
+
+        console.log(`[Claim] Temporary password email sent to: ${email}`);
+
+      } catch (credentialError: any) {
+        console.error("[Claim] Error generating credentials:", credentialError);
+        // Non-blocking: Claim still succeeded, credentials can be regenerated later
+      }
+
+      res.json({
+        success: true,
+        message: "Account claimed successfully",
+        detective: {
+          id: detective.id,
+          businessName: detective.businessName,
+        },
+      });
+    } catch (error) {
+      console.error("[Claim] Account claim error:", error);
+      res.status(500).json({ error: "Failed to claim account" });
+    }
+  });
+
+  // STEP 4: Finalize claim - Replace primary email and complete claim lifecycle
+  app.post("/api/claim-account/finalize", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Get the user
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get detective by user ID
+      const detective = await storage.getDetectiveByUserId(userId);
+      if (!detective) {
+        return res.status(404).json({ error: "Detective profile not found" });
+      }
+
+      // Validate finalization conditions using utility function
+      const { validateClaimFinalization } = await import("./services/claimTokenService.ts");
+      const validationResult = validateClaimFinalization(detective, user);
+
+      if (!validationResult.isValid) {
+        return res.status(400).json({ 
+          error: "Cannot finalize claim at this time",
+          reason: validationResult.reason,
+        });
+      }
+
+      // PRIMARY EMAIL REPLACEMENT
+      // Replace detective.primaryEmail (from profile) or user.email with claimed email
+      const claimedEmail = detective.contactEmail; // Set during Step 2 claim
+
+      // Ensure the new email is unique in users table
+      const existingUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, claimedEmail))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (existingUser && existingUser.id !== user.id) {
+        console.error(`[Claim] Email already in use: ${claimedEmail}`);
+        return res.status(400).json({ 
+          error: "Email already in use",
+        });
+      }
+
+      // Update user email to match claimed email
+      await db
+        .update(users)
+        .set({
+          email: claimedEmail,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
+
+      console.log(`[Claim] User email updated to: ${claimedEmail}`);
+
+      // Mark claim process as completed
+      await storage.updateDetectiveAdmin(detective.id, {
+        claimCompletedAt: new Date(),
+        // Clear temporary claimed email field (not strictly needed but good hygiene)
+        contactEmail: null,
+      });
+
+      console.log(`[Claim] Claim finalized for: ${detective.businessName}`);
+
+      // Clean up any remaining claim tokens for this detective
+      try {
+        await db
+          .delete(claimTokens)
+          .where(eq(claimTokens.detectiveId, detective.id));
+
+        console.log(`[Claim] Cleaned up claim tokens for detective: ${detective.id}`);
+      } catch (cleanupError: any) {
+        console.error("[Claim] Error cleaning up tokens:", cleanupError);
+        // Non-blocking: Finalization still succeeded
+      }
+
+      // Send finalization confirmation email
+      const loginUrl = "https://askdetectives.com/login";
+      sendpulseEmail.sendTransactionalEmail(
+        claimedEmail,
+        EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_FINALIZED,
+        {
+          detectiveName: detective.businessName || "Detective",
+          loginEmail: claimedEmail,
+          loginUrl: loginUrl,
+          supportEmail: "support@askdetectives.com",
+        }
+      ).catch(err => console.error("[Email] Failed to send finalization email:", err));
+
+      console.log(`[Claim] Finalization confirmation email sent to: ${claimedEmail}`);
+
+      res.json({
+        success: true,
+        message: "Account claim finalized successfully",
+        detective: {
+          id: detective.id,
+          businessName: detective.businessName,
+          email: claimedEmail,
+        },
+      });
+
+    } catch (error) {
+      console.error("[Claim] Finalization error:", error);
+      res.status(500).json({ error: "Failed to finalize claim" });
+    }
+  });
+
+  // ============== ADMIN EMAIL TEMPLATE ROUTES ==============
+
+  // Get all email templates (Super Admin only)
+  app.get("/api/admin/email-templates", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { getAllEmailTemplates } = await import("./services/emailTemplateService");
+      const templates = await getAllEmailTemplates();
+
+      res.json({ templates });
+    } catch (error) {
+      console.error("[Admin] Error fetching email templates:", error);
+      res.status(500).json({ error: "Failed to fetch templates" });
+    }
+  });
+
+  // Get specific email template (Super Admin only)
+  app.get("/api/admin/email-templates/:key", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { key } = req.params;
+      if (!key) {
+        return res.status(400).json({ error: "Template key is required" });
+      }
+
+      const { getEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService");
+      const template = await getEmailTemplate(key);
+
+      if (!template) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      const variables = extractTemplateVariables(template.body);
+
+      res.json({
+        template,
+        variables,
+      });
+    } catch (error) {
+      console.error("[Admin] Error fetching template:", error);
+      res.status(500).json({ error: "Failed to fetch template" });
+    }
+  });
+
+  // Update email template (Super Admin only)
+  app.put("/api/admin/email-templates/:key", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { key } = req.params;
+      const { name, description, subject, body, sendpulseTemplateId } = req.body;
+
+      if (!key) {
+        return res.status(400).json({ error: "Template key is required" });
+      }
+
+      if (!subject || !body) {
+        return res.status(400).json({ error: "Subject and body are required" });
+      }
+
+      const { updateEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService");
+      const updated = await updateEmailTemplate(key, {
+        name,
+        description,
+        subject,
+        body,
+        sendpulseTemplateId: sendpulseTemplateId ? parseInt(sendpulseTemplateId) : undefined,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      const variables = extractTemplateVariables(body);
+
+      console.log(`[Admin] Email template updated: ${key}`);
+
+      res.json({
+        success: true,
+        template: updated,
+        variables,
+      });
+    } catch (error) {
+      console.error("[Admin] Error updating template:", error);
+      res.status(500).json({ error: "Failed to update template" });
+    }
+  });
+
+  // Toggle email template status (Super Admin only)
+  app.post("/api/admin/email-templates/:key/toggle", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { key } = req.params;
+      if (!key) {
+        return res.status(400).json({ error: "Template key is required" });
+      }
+
+      const { toggleEmailTemplate } = await import("./services/emailTemplateService");
+      const updated = await toggleEmailTemplate(key);
+
+      if (!updated) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      console.log(`[Admin] Email template toggled: ${key}, isActive: ${updated.isActive}`);
+
+      res.json({
+        success: true,
+        template: updated,
+      });
+    } catch (error) {
+      console.error("[Admin] Error toggling template:", error);
+      res.status(500).json({ error: "Failed to toggle template" });
+    }
+  });
+
+  // Test all email templates (Super Admin only)
+  app.post("/api/admin/email-templates/test-all", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const testEmail = "contact@askdetectives.com";
+
+      // Mock data for all templates
+      const mockVariables = {
+        userName: "Ask Detectives",
+        detectiveName: "Test Detective",
+        loginEmail: "contact@askdetectives.com",
+        tempPassword: "Temp@12345",
+        packageName: "Pro Plan",
+        billingCycle: "Monthly",
+        amount: "999",
+        currency: "USD",
+        loginUrl: "https://askdetectives.com/login",
+        claimLink: "https://askdetectives.com/claim-account?token=test",
+        supportEmail: "support@askdetectives.com",
+        // Additional fallback variables for flexibility
+        email: testEmail,
+        password: "Temp@12345",
+        fullName: "Test Detective",
+        businessType: "individual",
+        country: "US",
+        verificationLink: "https://askdetectives.com/verify?token=test",
+        resetLink: "https://askdetectives.com/reset-password?token=test",
+        wasNewUser: "true",
+        temporaryPassword: "Temp@12345",
+        reviewNotes: "This is a test email for template verification",
+      };
+
+      console.log("[Admin] Starting test email batch for all templates...");
+
+      const { getAllEmailTemplates } = await import("./services/emailTemplateService");
+      const allTemplates = await getAllEmailTemplates();
+
+      const results = {
+        total: allTemplates.length,
+        success: 0,
+        failed: 0,
+        failedTemplates: [] as Array<{ key: string; name: string; error: string }>,
+        testEmail: testEmail,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Send test email for each template
+      for (const template of allTemplates) {
+        try {
+          // Check for relative image URLs and log warnings
+          const bodyWithImages = template.body || "";
+          const hasRelativeImages = /src=['"](?!(?:https?:|data:))[^'"]*['"]/.test(bodyWithImages);
+
+          if (hasRelativeImages) {
+            console.warn(
+              `[Admin] Template ${template.key} contains relative image URLs - images may not load in test email`
+            );
+          }
+
+          // Only send if template has a SendPulse template ID
+          if (template.sendpulseTemplateId) {
+            console.log(
+              `[Admin] Sending test email for template: ${template.key} (ID: ${template.sendpulseTemplateId})`
+            );
+
+            const result = await sendpulseEmail.sendTransactionalEmail(
+              testEmail,
+              template.sendpulseTemplateId,
+              mockVariables
+            );
+
+            if (result.success) {
+              results.success++;
+              console.log(`[Admin] ✓ Test email sent: ${template.key}`);
+            } else {
+              results.failed++;
+              results.failedTemplates.push({
+                key: template.key,
+                name: template.name,
+                error: result.error || "Unknown error",
+              });
+              console.error(
+                `[Admin] ✗ Failed to send test email: ${template.key} - ${result.error}`
+              );
+            }
+          } else {
+            console.warn(
+              `[Admin] Template ${template.key} has no SendPulse template ID - skipping test`
+            );
+          }
+        } catch (error) {
+          results.failed++;
+          results.failedTemplates.push({
+            key: template.key,
+            name: template.name,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+          console.error(
+            `[Admin] Error sending test email for ${template.key}:`,
+            error
+          );
+        }
+      }
+
+      console.log(
+        `[Admin] Email test batch complete: ${results.success} succeeded, ${results.failed} failed`
+      );
+
+      res.json(results);
+    } catch (error) {
+      console.error("[Admin] Error in test email batch:", error);
+      res.status(500).json({
+        error: "Failed to execute test email batch",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   });
 
@@ -2852,10 +4428,355 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const httpServer = createServer(app);
+  // ============ RANKING & VISIBILITY ROUTES ============
 
-  return httpServer;
-}
+  // GET all detective visibility configs (admin)
+  app.get("/api/admin/visibility", requireRole("admin"), async (_req: Request, res: Response) => {
+    try {
+      const { ranking } = await import("./ranking.ts");
+      const visibilityRecords = await db.select().from(detectiveVisibility);
+      
+      // Enrich with detective info
+      const enriched = await Promise.all(
+        visibilityRecords.map(async (v) => {
+          const detective = await db
+            .select()
+            .from(detectives)
+            .where(eq(detectives.id, v.detectiveId))
+            .limit(1)
+            .then(r => r[0]);
+          
+          return {
+            ...v,
+            detective: detective ? {
+              id: detective.id,
+              businessName: detective.businessName,
+              email: detective.contactEmail,
+              subscriptionPackageId: detective.subscriptionPackageId,
+              hasBlueTick: detective.hasBlueTick,
+              status: detective.status,
+            } : null
+          };
+        })
+      );
+
+      res.json({ visibility: enriched });
+    } catch (error) {
+      console.error("Error fetching visibility configs:", error);
+      res.status(500).json({ error: "Failed to fetch visibility configs" });
+    }
+  });
+
+  // UPDATE detective visibility (admin)
+  app.patch("/api/admin/visibility/:detectiveId", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { detectiveId } = req.params;
+      const { isVisible, isFeatured, manualRank } = req.body;
+
+      // Validate detective exists
+      const detective = await db
+        .select()
+        .from(detectives)
+        .where(eq(detectives.id, detectiveId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!detective) {
+        res.status(404).json({ error: "Detective not found" });
+        return;
+      }
+
+      // Ensure visibility record exists
+      const existing = await db
+        .select()
+        .from(detectiveVisibility)
+        .where(eq(detectiveVisibility.detectiveId, detectiveId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!existing) {
+        await db.insert(detectiveVisibility).values({
+          detectiveId,
+          isVisible: isVisible !== undefined ? isVisible : true,
+          isFeatured: isFeatured !== undefined ? isFeatured : false,
+          manualRank: manualRank !== undefined ? manualRank : null,
+        });
+      } else {
+        const updateData: any = {};
+        if (isVisible !== undefined) updateData.isVisible = isVisible;
+        if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
+        if (manualRank !== undefined) updateData.manualRank = manualRank;
+        updateData.updatedAt = new Date();
+
+        await db
+          .update(detectiveVisibility)
+          .set(updateData)
+          .where(eq(detectiveVisibility.detectiveId, detectiveId));
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating visibility:", error);
+      res.status(500).json({ error: "Failed to update visibility" });
+    }
+  });
+
+  // GET /api/snippets - List all saved snippets
+  app.get("/api/snippets", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const snippets = await db
+        .select()
+        .from(detectiveSnippets)
+        .orderBy(detectiveSnippets.createdAt);
+
+      res.json({ snippets });
+    } catch (error) {
+      console.error("Error fetching snippets:", error);
+      res.status(500).json({ error: "Failed to fetch snippets" });
+    }
+  });
+
+  // POST /api/snippets - Create new snippet
+  app.post("/api/snippets", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { name, country, state, city, category, limit } = req.body;
+
+      if (!name || !country || !category) {
+        return res.status(400).json({ error: "Missing required fields: name, country, category" });
+      }
+
+      const snippet = await db
+        .insert(detectiveSnippets)
+        .values({
+          name,
+          country,
+          state: state || null,
+          city: city || null,
+          category,
+          limit: limit || 4,
+        })
+        .returning();
+
+      res.json({ success: true, snippet: snippet[0] });
+    } catch (error) {
+      console.error("Error creating snippet:", error);
+      res.status(500).json({ error: "Failed to create snippet" });
+    }
+  });
+
+  // PUT /api/snippets/:id - Update snippet
+  app.put("/api/snippets/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { name, country, state, city, category, limit } = req.body;
+
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (country !== undefined) updateData.country = country;
+      if (state !== undefined) updateData.state = state || null;
+      if (city !== undefined) updateData.city = city || null;
+      if (category !== undefined) updateData.category = category;
+      if (limit !== undefined) updateData.limit = limit;
+      updateData.updatedAt = new Date();
+
+      const snippet = await db
+        .update(detectiveSnippets)
+        .set(updateData)
+        .where(eq(detectiveSnippets.id, id))
+        .returning();
+
+      if (snippet.length === 0) {
+        return res.status(404).json({ error: "Snippet not found" });
+      }
+
+      res.json({ success: true, snippet: snippet[0] });
+    } catch (error) {
+      console.error("Error updating snippet:", error);
+      res.status(500).json({ error: "Failed to update snippet" });
+    }
+  });
+
+  // DELETE /api/snippets/:id - Delete snippet
+  app.delete("/api/snippets/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      await db
+        .delete(detectiveSnippets)
+        .where(eq(detectiveSnippets.id, id));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting snippet:", error);
+      res.status(500).json({ error: "Failed to delete snippet" });
+    }
+  });
+
+  // GET /api/snippets/detectives - Get detectives for snippet configuration
+  app.get("/api/snippets/detectives", async (req: Request, res: Response) => {
+    try {
+      const { country, state, city, category, limit = 4 } = req.query;
+
+      if (!country || !category) {
+        return res.status(400).json({ error: "Missing required parameters: country, category" });
+      }
+
+      // Build where conditions
+      const whereConditions = [
+        eq(detectives.status, "active"),
+        eq(detectives.country, String(country)),
+        eq(services.category, String(category)),
+      ];
+
+      if (state) {
+        whereConditions.push(eq(detectives.state, String(state)));
+      }
+      if (city) {
+        whereConditions.push(eq(detectives.city, String(city)));
+      }
+
+      const results = await db
+        .select({
+          id: detectives.id,
+          fullName: detectives.businessName,
+          level: detectives.level,
+          profilePhoto: detectives.logo,
+          isVerified: detectives.isVerified,
+          location: detectives.location,
+          avgRating: avg(reviews.rating),
+          reviewCount: count(reviews.id),
+          startingPrice: min(services.basePrice),
+        })
+        .from(detectives)
+        .leftJoin(services, eq(services.detectiveId, detectives.id))
+        .leftJoin(reviews, eq(reviews.serviceId, services.id))
+        .where(and(...whereConditions))
+        .groupBy(detectives.id)
+        .orderBy(desc(avg(reviews.rating)))
+        .limit(parseInt(String(limit)) || 4);
+
+      res.json({
+        detectives: results.map(d => ({
+          ...d,
+          avgRating: parseFloat(String(d.avgRating)) || 0,
+          reviewCount: parseInt(String(d.reviewCount)) || 0,
+          startingPrice: d.startingPrice ? parseFloat(String(d.startingPrice)) : 0,
+        }))
+      });
+    } catch (error) {
+      console.error("Error fetching snippet detectives:", error);
+      res.status(500).json({ error: "Failed to fetch detectives" });
+    }
+  });
+
+  // ============== PAYMENT GATEWAY SETTINGS (ADMIN) ==============
+  
+  // Get all payment gateways
+  app.get("/api/admin/payment-gateways", requireRole("admin"), async (_req: Request, res: Response) => {
+    try {
+      const result = await pool.query(`
+        SELECT id, name, display_name, is_enabled, is_test_mode, 
+               config, created_at, updated_at
+        FROM payment_gateways
+        ORDER BY name
+      `);
+      
+      res.json({ gateways: result.rows });
+    } catch (error) {
+      console.error("Error fetching payment gateways:", error);
+      res.status(500).json({ error: "Failed to fetch payment gateways" });
+    }
+  });
+
+  // Get a single payment gateway
+  app.get("/api/admin/payment-gateways/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      const result = await pool.query(`
+        SELECT id, name, display_name, is_enabled, is_test_mode, 
+               config, created_at, updated_at
+        FROM payment_gateways
+        WHERE id = $1
+      `, [id]);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Payment gateway not found" });
+      }
+      
+      res.json({ gateway: result.rows[0] });
+    } catch (error) {
+      console.error("Error fetching payment gateway:", error);
+      res.status(500).json({ error: "Failed to fetch payment gateway" });
+    }
+  });
+
+  // Update payment gateway configuration
+  app.put("/api/admin/payment-gateways/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { is_enabled, is_test_mode, config } = req.body;
+      
+      // Validate config is an object
+      if (config && typeof config !== 'object') {
+        return res.status(400).json({ error: "Config must be a JSON object" });
+      }
+      
+      const result = await pool.query(`
+        UPDATE payment_gateways
+        SET is_enabled = COALESCE($1, is_enabled),
+            is_test_mode = COALESCE($2, is_test_mode),
+            config = COALESCE($3::jsonb, config),
+            updated_by = $4,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $5
+        RETURNING id, name, display_name, is_enabled, is_test_mode, config, updated_at
+      `, [is_enabled, is_test_mode, config ? JSON.stringify(config) : null, req.session.userId, id]);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Payment gateway not found" });
+      }
+      
+      res.json({ 
+        success: true, 
+        gateway: result.rows[0],
+        message: "Payment gateway updated successfully"
+      });
+    } catch (error) {
+      console.error("Error updating payment gateway:", error);
+      res.status(500).json({ error: "Failed to update payment gateway" });
+    }
+  });
+
+  // Toggle payment gateway enabled status
+  app.post("/api/admin/payment-gateways/:id/toggle", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      const result = await pool.query(`
+        UPDATE payment_gateways
+        SET is_enabled = NOT is_enabled,
+            updated_by = $1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+        RETURNING id, name, display_name, is_enabled, is_test_mode, config, updated_at
+      `, [req.session.userId, id]);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Payment gateway not found" });
+      }
+      
+      res.json({ 
+        success: true, 
+        gateway: result.rows[0],
+        message: `Payment gateway ${result.rows[0].is_enabled ? 'enabled' : 'disabled'} successfully`
+      });
+    } catch (error) {
+      console.error("Error toggling payment gateway:", error);
+      res.status(500).json({ error: "Failed to toggle payment gateway" });
+    }
+  });
+
   const sendCachedJson = (req: Request, res: Response, payload: any) => {
     const body = JSON.stringify(payload);
     const tag = 'W/"' + createHash('sha1').update(body).digest('hex') + '"';
@@ -2866,3 +4787,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.set('ETag', tag);
     res.json(payload);
   };
+
+  const httpServer = createServer(app);
+
+  return httpServer;
+}

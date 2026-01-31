@@ -180,49 +180,65 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
                       <Badge variant="outline" className="text-[10px] h-5 bg-gray-100 text-gray-500 border-gray-300 whitespace-nowrap">Unclaimed</Badge>
                     ) : (
                       <>
-                        {/* Blue Tick Badge - FIRST */}
+                        {/* Blue Tick Badge - FIRST (Icon only) */}
                         {badges.includes('blueTick') && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="inline-flex items-center gap-0.5 bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap">
-                                  <BadgeCheck className="h-3.5 w-3.5 fill-blue-600 text-blue-600" />
-                                  Blue Tick
-                                </span>
+                                <img 
+                                  src="/blue-tick.png" 
+                                  alt="Blue Tick" 
+                                  className="h-5 w-5 flex-shrink-0 cursor-help"
+                                  title="Verification Badge"
+                                />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Blue Tick Verified</p>
+                                <p>Verification Badge</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         )}
 
-                        {/* Pro Badge - SECOND */}
+                        {/* Pro Badge - SECOND (Icon only) */}
                         {badges.includes('pro') && (
-                          <span className="bg-yellow-100 text-yellow-700 text-[10px] px-1.5 py-0.5 rounded font-bold border border-yellow-200 whitespace-nowrap">
-                            ⚡ PRO
-                          </span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <img 
+                                  src="/pro.png" 
+                                  alt="Pro" 
+                                  className="h-5 w-5 flex-shrink-0 cursor-help"
+                                  title="Pro User Badge"
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Pro User Badge</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
 
-                        {/* Recommended Badge - THIRD */}
+                        {/* Recommended Badge - THIRD (Text only) */}
                         {badges.includes('recommended') && (
                           <span className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap">
-                            ✓ Recommended
+                            Recommended
                           </span>
                         )}
 
-                        {/* Verified Badge - FOURTH */}
+                        {/* Verified Badge - FOURTH (Icon only) */}
                         {badges.includes('verified') && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="inline-flex items-center gap-0.5 bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap">
-                                  <BadgeCheck className="h-3.5 w-3.5 fill-blue-600 text-blue-600" />
-                                  Verified
-                                </span>
+                                <img 
+                                  src="/blue-tick.png" 
+                                  alt="Verified" 
+                                  className="h-5 w-5 flex-shrink-0 cursor-help"
+                                  title="Verification Badge"
+                                />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Verified Detective</p>
+                                <p>Verification Badge</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>

@@ -17,6 +17,8 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   role: userRoleEnum("role").notNull().default("user"),
   avatar: text("avatar"),
+  preferredCountry: text("preferred_country"),
+  preferredCurrency: text("preferred_currency"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -32,8 +34,10 @@ export const detectives = pgTable("detectives", {
   bio: text("bio"),
   logo: text("logo"),
   defaultServiceBanner: text("default_service_banner"),
-  location: text("location"),
+  location: text("location").notNull().default("Not specified"),
   country: text("country").notNull(),
+  state: text("state").notNull().default("Not specified"),
+  city: text("city").notNull().default("Not specified"),
   address: text("address"),
   pincode: text("pincode"),
   phone: text("phone"),
@@ -63,9 +67,9 @@ export const detectives = pgTable("detectives", {
   pendingBillingCycle: text("pending_billing_cycle"),
   planActivatedAt: timestamp("plan_activated_at"),
   planExpiresAt: timestamp("plan_expires_at"),
-  // BLUE TICK: Separate add-on subscription (independent of package) - TODO: uncomment when migration applied
-  // hasBlueTick: boolean("has_blue_tick").notNull().default(false),
-  // blueTickActivatedAt: timestamp("blue_tick_activated_at"),
+  // BLUE TICK: Separate add-on subscription (independent of package)
+  hasBlueTick: boolean("has_blue_tick").notNull().default(false),
+  blueTickActivatedAt: timestamp("blue_tick_activated_at"),
   status: detectiveStatusEnum("status").notNull().default("pending"),
   level: detectiveLevelEnum("level").notNull().default("level1"),
   isVerified: boolean("is_verified").notNull().default(false),
@@ -76,13 +80,17 @@ export const detectives = pgTable("detectives", {
   createdBy: createdByEnum("created_by").notNull().default("self"),
   avgResponseTime: integer("avg_response_time"),
   lastActive: timestamp("last_active"),
+  claimCompletedAt: timestamp("claim_completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
   userIdIdx: index("detectives_user_id_idx").on(table.userId),
   countryIdx: index("detectives_country_idx").on(table.country),
+  stateIdx: index("detectives_state_idx").on(table.state),
+  cityIdx: index("detectives_city_idx").on(table.city),
   statusIdx: index("detectives_status_idx").on(table.status),
   planIdx: index("detectives_plan_idx").on(table.subscriptionPlan),
+  claimCompletedAtIdx: index("detectives_claim_completed_at_idx").on(table.claimCompletedAt),
   phoneUniqueIdx: uniqueIndex("detectives_phone_unique").on(table.phone),
 }));
 
@@ -312,9 +320,13 @@ export const paymentOrders = pgTable("payment_orders", {
   billingCycle: text("billing_cycle"),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").notNull().default("INR"),
-  razorpayOrderId: text("razorpay_order_id").notNull().unique(),
+  provider: text("provider"),
+  razorpayOrderId: text("razorpay_order_id").unique(),
   razorpayPaymentId: text("razorpay_payment_id"),
   razorpaySignature: text("razorpay_signature"),
+  paypalOrderId: text("paypal_order_id").unique(),
+  paypalPaymentId: text("paypal_payment_id"),
+  paypalTransactionId: text("paypal_transaction_id"),
   status: text("status").notNull().default("created"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -559,3 +571,93 @@ export type ProfileClaim = typeof profileClaims.$inferSelect;
 export type InsertProfileClaim = z.infer<typeof insertProfileClaimSchema>;
 
 export type BillingHistory = typeof billingHistory.$inferSelect;
+export const detectiveVisibility = pgTable("detective_visibility", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  detectiveId: varchar("detective_id").notNull().unique().references(() => detectives.id, { onDelete: "cascade" }),
+  isVisible: boolean("is_visible").notNull().default(true),
+  isFeatured: boolean("is_featured").notNull().default(false),
+  manualRank: integer("manual_rank"),
+  visibilityScore: decimal("visibility_score", { precision: 10, scale: 4 }).notNull().default("0"),
+  lastEvaluatedAt: timestamp("last_evaluated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  isVisibleIdx: index("detective_visibility_is_visible_idx").on(table.isVisible),
+  manualRankIdx: index("detective_visibility_manual_rank_idx").on(table.manualRank),
+  visibilityScoreIdx: index("detective_visibility_score_idx").on(table.visibilityScore),
+  isFeaturedIdx: index("detective_visibility_is_featured_idx").on(table.isFeatured),
+}));
+
+export type DetectiveVisibility = typeof detectiveVisibility.$inferSelect;
+export type InsertDetectiveVisibility = typeof detectiveVisibility.$inferInsert;
+
+export const claimTokens = pgTable("claim_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  detectiveIdIdx: index("claim_tokens_detective_id_idx").on(table.detectiveId),
+  expiresAtIdx: index("claim_tokens_expires_at_idx").on(table.expiresAt),
+  usedAtIdx: index("claim_tokens_used_at_idx").on(table.usedAt),
+}));
+
+export type ClaimToken = typeof claimTokens.$inferSelect;
+export type InsertClaimToken = typeof claimTokens.$inferInsert;
+
+export const insertClaimTokenSchema = createInsertSchema(claimTokens);
+export const selectClaimTokenSchema = createSelectSchema(claimTokens);
+
+// Email Template Management System
+// Centralized storage for all email templates
+// Allows Super Admin to manage email content without code changes
+export const emailTemplates = pgTable("email_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: varchar("key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  sendpulseTemplateId: integer("sendpulse_template_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  keyIdx: index("email_templates_key_idx").on(table.key),
+  isActiveIdx: index("email_templates_is_active_idx").on(table.isActive),
+  createdAtIdx: index("email_templates_created_at_idx").on(table.createdAt),
+}));
+
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
+
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates);
+export const selectEmailTemplateSchema = createSelectSchema(emailTemplates);
+
+// Detective Snippets Management System
+// Allows admins to create and manage reusable detective snippet configurations
+export const detectiveSnippets = pgTable("detective_snippets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  country: text("country").notNull(),
+  state: text("state"),
+  city: text("city"),
+  category: text("category").notNull(),
+  limit: integer("limit").notNull().default(4),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  nameIdx: index("detective_snippets_name_idx").on(table.name),
+  countryIdx: index("detective_snippets_country_idx").on(table.country),
+  categoryIdx: index("detective_snippets_category_idx").on(table.category),
+  createdAtIdx: index("detective_snippets_created_at_idx").on(table.createdAt),
+}));
+
+export type DetectiveSnippet = typeof detectiveSnippets.$inferSelect;
+export type InsertDetectiveSnippet = typeof detectiveSnippets.$inferInsert;
+
+export const insertDetectiveSnippetSchema = createInsertSchema(detectiveSnippets);
+export const selectDetectiveSnippetSchema = createSelectSchema(detectiveSnippets);

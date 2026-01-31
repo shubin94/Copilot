@@ -148,10 +148,24 @@ export default function DetectiveBilling() {
                   <div>
                     <p className="text-sm text-gray-500">Next Renewal</p>
                     <p className="text-lg font-semibold">
-                      {detective.subscriptionExpiresAt 
-                        ? new Date(detective.subscriptionExpiresAt).toLocaleDateString()
-                        : 'N/A'
-                      }
+                      {(() => {
+                        if (detective.subscriptionExpiresAt) {
+                          return new Date(detective.subscriptionExpiresAt).toLocaleDateString();
+                        }
+                        const monthlyPrice = Number(detective.subscriptionPackage?.monthlyPrice ?? 0);
+                        const yearlyPrice = Number(detective.subscriptionPackage?.yearlyPrice ?? 0);
+                        const isFreePlan = monthlyPrice === 0 && yearlyPrice === 0;
+                        if (isFreePlan || !detective.subscriptionActivatedAt || !detective.billingCycle) {
+                          return 'N/A';
+                        }
+                        const baseDate = new Date(detective.subscriptionActivatedAt);
+                        if (detective.billingCycle === "yearly") {
+                          baseDate.setFullYear(baseDate.getFullYear() + 1);
+                        } else {
+                          baseDate.setDate(baseDate.getDate() + 30);
+                        }
+                        return baseDate.toLocaleDateString();
+                      })()}
                     </p>
                   </div>
                 </div>

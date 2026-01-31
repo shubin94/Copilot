@@ -15,7 +15,14 @@ import {
   Layers,
   Search,
   Receipt,
-  Globe
+  Globe,
+  TrendingUp,
+  Mail,
+  Zap,
+  Wallet,
+  FolderOpen,
+  Tag,
+  DollarSign
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -31,19 +38,64 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [location] = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
   const { logout } = useUser();
   const { data: detectiveData } = useCurrentDetective();
   const detective = role === "detective" ? detectiveData?.detective : null;
 
+  const getNextRenewalDate = () => {
+    if (!detective) return null;
+    if (detective.subscriptionExpiresAt) {
+      return new Date(detective.subscriptionExpiresAt);
+    }
+    const monthlyPrice = Number(detective.subscriptionPackage?.monthlyPrice ?? 0);
+    const yearlyPrice = Number(detective.subscriptionPackage?.yearlyPrice ?? 0);
+    const isFreePlan = monthlyPrice === 0 && yearlyPrice === 0;
+    if (isFreePlan) return null;
+    if (!detective.subscriptionActivatedAt || !detective.billingCycle) return null;
+    const baseDate = new Date(detective.subscriptionActivatedAt);
+    if (detective.billingCycle === "yearly") {
+      baseDate.setFullYear(baseDate.getFullYear() + 1);
+    } else {
+      baseDate.setDate(baseDate.getDate() + 30);
+    }
+    return baseDate;
+  };
+
+  const getAmountDue = () => {
+    if (!detective?.subscriptionPackage || !detective.billingCycle) return "$0.00";
+    const rawAmount = detective.billingCycle === "yearly"
+      ? detective.subscriptionPackage.yearlyPrice
+      : detective.subscriptionPackage.monthlyPrice;
+    const amount = Number(rawAmount ?? 0);
+    const currency = detective.subscriptionPackage.currency || "$";
+    return `${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"}`;
+  };
+
   const adminLinks = [
     { href: "/admin/dashboard", label: "Overview", icon: LayoutDashboard },
+    { href: "/admin/finance", label: "Finance", icon: DollarSign },
     { href: "/admin/signups", label: "New Signups", icon: UserCheck },
     { href: "/admin/claims", label: "Claims", icon: Shield },
     { href: "/admin/detectives", label: "Detectives", icon: Users },
+    { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
     { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
+    { href: "/admin/snippets", label: "Snippets", icon: Zap },
     { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
+    { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
     { href: "/admin/pages", label: "Pages", icon: Globe },
+    { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
     { href: "/admin/settings", label: "Site Settings", icon: Settings },
+    { 
+      href: "#cms", 
+      label: "CMS", 
+      icon: FileText,
+      submenu: [
+        { href: "/admin/cms/categories", label: "Categories", icon: FolderOpen },
+        { href: "/admin/cms/tags", label: "Tags", icon: Tag },
+        { href: "/admin/cms/pages", label: "Pages", icon: FileText },
+      ]
+    },
   ];
 
   const detectiveLinks = [
@@ -75,21 +127,65 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         </span>
       </div>
 
-      <nav className="flex-1 px-4 space-y-2 mt-4">
-        {links.map((link) => {
+      <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
+        {links.map((link: any) => {
           const Icon = link.icon;
           const isActive = location === link.href;
+          const isExpanded = expandedMenu === link.label;
+          const hasSubmenu = link.submenu && link.submenu.length > 0;
+
           return (
-            <Link key={link.href} href={link.href}>
-              <div className={`flex items-center gap-3 px-4 py-3 rounded-md transition-colors font-medium ${
-                isActive 
-                  ? "bg-green-50 text-green-700" 
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-              }`}>
-                <Icon className="h-5 w-5" />
-                {link.label}
-              </div>
-            </Link>
+            <div key={link.label || link.href}>
+              {hasSubmenu ? (
+                <>
+                  <button
+                    onClick={() => setExpandedMenu(isExpanded ? null : link.label)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-colors font-medium ${
+                      isExpanded
+                        ? "bg-green-50 text-green-700"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    {link.label}
+                    <span className={`ml-auto text-sm transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                      ▼
+                    </span>
+                  </button>
+                  {isExpanded && (
+                    <div className="ml-4 space-y-1">
+                      {link.submenu.map((sublink: any) => {
+                        const SubIcon = sublink.icon;
+                        const isSubActive = location === sublink.href;
+                        return (
+                          <Link key={sublink.href} href={sublink.href}>
+                            <div className={`flex items-center gap-3 px-4 py-2 rounded-md transition-colors text-sm ${
+                              isSubActive
+                                ? "bg-green-100 text-green-700 font-medium"
+                                : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                            }`}>
+                              <SubIcon className="h-4 w-4" />
+                              {sublink.label}
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <Link href={link.href}>
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-md transition-colors font-medium ${
+                    isActive 
+                      ? "bg-green-50 text-green-700" 
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  }`}>
+                    <Icon className="h-5 w-5" />
+                    {link.label}
+                  </div>
+                </Link>
+              )}
+            </div>
           );
         })}
       </nav>
@@ -141,8 +237,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                  <div className="flex flex-col items-end leading-tight">
                    <span className="text-gray-500 text-xs font-medium">Next Renewal</span>
                    <span className="font-bold text-gray-900">
-                     {detective.subscriptionExpiresAt 
-                       ? new Date(detective.subscriptionExpiresAt).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+                     {getNextRenewalDate()
+                       ? getNextRenewalDate()!.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
                        : 'N/A'
                      }
                    </span>
@@ -151,10 +247,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                  <div className="flex flex-col items-end leading-tight">
                    <span className="text-gray-500 text-xs font-medium">Amount Due</span>
                    <span className="font-bold text-green-600">
-                     {detective.subscriptionPackage && detective.billingCycle
-                       ? `${detective.subscriptionPackage.currency}${detective.billingCycle === 'yearly' ? detective.subscriptionPackage.yearlyPrice : detective.subscriptionPackage.monthlyPrice}`
-                       : '$0.00'
-                     }
+                     {getAmountDue()}
                    </span>
                  </div>
                </div>

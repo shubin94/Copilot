@@ -24,9 +24,10 @@ export default function DetectiveDashboard() {
   const { data, isLoading, error } = useCurrentDetective();
   const detective = data?.detective;
   const { data: myServicesData } = useServicesByDetective(detective?.id);
-  const { selectedCountry } = useCurrency();
+  const { selectedCountry, formatPriceForCountry } = useCurrency();
+  const detectiveCountry = detective?.country || selectedCountry.code;
   const currencySymbol = (() => {
-    const code = (detective?.country || selectedCountry.code);
+    const code = detectiveCountry;
     const c = COUNTRIES.find(c => c.code === code) || selectedCountry;
     return c.currencySymbol;
   })();
@@ -271,7 +272,8 @@ export default function DetectiveDashboard() {
                   { id: 'pro', name: 'Pro', description: 'Enhanced tools for growing agencies.', monthlyPrice: 29, yearlyPrice: 290, icon: <Zap className="h-6 w-6 text-yellow-500" />, popular: true, features: [ 'Verified Badge', 'Phone & WhatsApp Contact', '4 Service Categories', 'Boosted Search Ranking', 'Priority Support' ] },
                   { id: 'agency', name: 'Agency', description: 'Maximum exposure for top firms.', monthlyPrice: 99, yearlyPrice: 990, icon: <Shield className="h-6 w-6 text-gray-400" />, popular: false, features: [ 'Agency Profile (Multiple Detectives)', 'Unlimited Categories', 'Free Blue Tick Included', 'Recommended Badge', 'Top Search Ranking' ] },
                 ].map((plan: any) => {
-                  const price = isAnnual ? plan.yearlyPrice : plan.monthlyPrice;
+                  const priceUSD = isAnnual ? plan.yearlyPrice : plan.monthlyPrice;
+                  const displayPrice = formatPriceForCountry(priceUSD, detectiveCountry);
                   const period = isAnnual ? '/year' : '/month';
                   const isSelected = selectedPlan === plan.id;
                   return (
@@ -287,7 +289,7 @@ export default function DetectiveDashboard() {
                           {plan.icon}
                         </div>
                         <div className="flex items-baseline gap-1">
-                          <span className="text-3xl font-extrabold text-gray-900">${price}</span>
+                          <span className="text-3xl font-extrabold text-gray-900">{displayPrice}</span>
                           <span className="text-gray-500 font-medium">{period}</span>
                         </div>
                         <CardDescription className="mt-2 text-sm">{plan.description}</CardDescription>

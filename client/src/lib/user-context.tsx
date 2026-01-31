@@ -3,6 +3,7 @@ import { useAuth } from "./hooks";
 import { api } from "./api";
 import { useQueryClient } from "@tanstack/react-query";
 import type { User } from "@shared/schema";
+import { handleSessionInvalid } from "./authSessionManager";
 
 type FavoriteServiceId = string;
 
@@ -55,18 +56,32 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
+      console.log('[USER_CONTEXT] Logout initiated by user');
+      
+      // Call backend logout API
       await api.auth.logout();
+      
+      // Clear favorites
       localStorage.removeItem("favorites");
       setFavorites([]);
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
+      
+      // Clear query cache
       queryClient.clear();
-      window.location.href = "/";
+      
+      // Trigger centralized session invalid handler
+      // This will handle redirect/refresh
+      handleSessionInvalid('manual_logout');
+      
     } catch (error) {
-      console.error("Logout failed:", error);
+      console.error("[USER_CONTEXT] Logout API failed:", error);
+      
+      // Even if API call fails, force logout locally
       localStorage.removeItem("favorites");
       setFavorites([]);
       queryClient.clear();
-      window.location.href = "/";
+      
+      // Force redirect
+      handleSessionInvalid('logout_error');
     }
   };
 

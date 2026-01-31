@@ -78,7 +78,7 @@ export default function Home() {
   const categories = categoriesData?.categories || [];
 
   const { data: popularServicesData, isLoading: isLoadingPopular } = useSearchServices({ 
-    limit: 8, 
+    limit: 12, 
     sortBy: "recent" 
   });
 
@@ -92,6 +92,8 @@ export default function Home() {
         title="FindDetectives - Hire Top Private Investigators" 
         description="The leading marketplace for professional private investigation services. Find verified detectives for surveillance, background checks, and more."
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
+        canonical={window.location.origin}
+        robots="index, follow"
       />
       <Navbar transparentOnHome={true} overlayOnHome={true} />
       
@@ -184,7 +186,7 @@ export default function Home() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {isLoadingPopular ? (
-              [1, 2, 3, 4].map((i) => (
+              [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => (
                 <ServiceCardSkeleton key={i} />
               ))
             ) : popularServices.length > 0 ? (

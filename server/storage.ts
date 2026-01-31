@@ -20,6 +20,7 @@ import {
 } from "../shared/schema.ts";
 import { eq, and, desc, sql, count, avg, or, ilike, inArray } from "drizzle-orm";
 import bcrypt from "bcrypt";
+import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan.ts";
 
 const SALT_ROUNDS = 10;
 
@@ -84,6 +85,7 @@ export interface IStorage {
   // Payment orders (subscriptions)
   createPaymentOrder(order: InsertPaymentOrder): Promise<PaymentOrder>;
   getPaymentOrderByRazorpayOrderId(razorpayOrderId: string): Promise<PaymentOrder | undefined>;
+  getPaymentOrderByPaypalOrderId(paypalOrderId: string): Promise<PaymentOrder | undefined>;
   markPaymentOrderPaid(id: string, data: { paymentId: string; signature: string }): Promise<PaymentOrder | undefined>;
   getPaymentOrdersByDetectiveId(detectiveId: string): Promise<PaymentOrder[]>;
 
@@ -209,6 +211,17 @@ export class DatabaseStorage implements IStorage {
     
     if (!result) return undefined;
     
+    // RUNTIME SAFETY: Ensure detective has subscription
+    if (!result.detective.subscriptionPackageId) {
+      console.warn('[SUBSCRIPTION_SAFETY] Detective has NULL subscription, auto-fixing:', id);
+      const freePlanId = await ensureDetectiveHasPlan(id, null);
+      result.detective.subscriptionPackageId = freePlanId;
+      
+      // Reload package info
+      const [pkg] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, freePlanId)).limit(1);
+      result.package = pkg || null;
+    }
+    
     return {
       ...result.detective,
       email: result.email || undefined,
@@ -230,6 +243,17 @@ export class DatabaseStorage implements IStorage {
     
     if (!result) return undefined;
     
+    // RUNTIME SAFETY: Ensure detective has subscription
+    if (!result.detective.subscriptionPackageId) {
+      console.warn('[SUBSCRIPTION_SAFETY] Detective has NULL subscription, auto-fixing:', result.detective.id);
+      const freePlanId = await ensureDetectiveHasPlan(result.detective.id, null);
+      result.detective.subscriptionPackageId = freePlanId;
+      
+      // Reload package info
+      const [pkg] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, freePlanId)).limit(1);
+      result.package = pkg || null;
+    }
+    
     // Fetch pending package separately if it exists
     let pendingPackage = null;
     if (result.detective.pendingPackageId) {
@@ -249,6 +273,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createDetective(insertDetective: InsertDetective): Promise<Detective> {
+    // CRITICAL: Ensure every detective has a subscription plan (FREE as fallback)
+    if (!insertDetective.subscriptionPackageId) {
+      console.log('[SUBSCRIPTION_SAFETY] No subscription provided, assigning FREE plan');
+      insertDetective.subscriptionPackageId = await getFreePlanId();
+      insertDetective.subscriptionActivatedAt = new Date();
+    }
+    
     const [detective] = await db.insert(detectives).values(insertDetective).returning();
     return detective;
   }
@@ -336,10 +367,24 @@ export class DatabaseStorage implements IStorage {
     .limit(limit)
     .offset(offset);
     
-    return results.map((r: any) => ({
-      ...r.detective,
-      subscriptionPackage: r.package || undefined,
-    }));
+    // RUNTIME SAFETY: Auto-fix any NULL subscriptions
+    const freePlanId = await getFreePlanId();
+    
+    return results.map((r: any) => {
+      if (!r.detective.subscriptionPackageId) {
+        console.warn('[SUBSCRIPTION_SAFETY] Detective has NULL subscription in list, marking for fix:', r.detective.id);
+        // Trigger async fix (don't block response)
+        ensureDetectiveHasPlan(r.detective.id, null).catch(err => 
+          console.error('[SUBSCRIPTION_SAFETY] Failed to fix:', err)
+        );
+        r.detective.subscriptionPackageId = freePlanId;
+      }
+      
+      return {
+        ...r.detective,
+        subscriptionPackage: r.package || undefined,
+      };
+    });
   }
 
   async searchDetectives(filters: {
@@ -465,22 +510,14 @@ export class DatabaseStorage implements IStorage {
     ratingMin?: number;
   }, limit: number = 50, offset: number = 0, sortBy: string = 'recent'): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number }>> {
     
+    // ONLY filter by active services - NO visibility restrictions
     const conditions = [ eq(services.isActive, true) ];
-    const [policyRow] = await db.select().from(appPolicies).where(eq(appPolicies.key, "visibility_requirements")).limit(1);
-    const reqs = (policyRow as any)?.value || { requireImages: false, requireActiveDetective: true };
     
-    console.log('[searchServices] Visibility requirements:', reqs);
+    // REMOVED: requireImages check - services visible regardless of images
+    // REMOVED: requireActiveDetective check - treat missing as active
+    // Images and detective status affect RANKING only, not VISIBILITY
     
-    if (reqs.requireActiveDetective) {
-      conditions.push(eq(detectives.status, 'active') as any);
-    }
-    // TEMPORARILY RELAXED: Allow services without images for testing
-    if (reqs.requireImages) {
-      // Only require images if explicitly set to true in policy
-      conditions.push(sql<boolean>`cardinality(${services.images}) > 0`);
-    }
-    
-    console.log('[searchServices] Applied conditions count:', conditions.length);
+    console.log('[searchServices] Base conditions (isActive only):', conditions.length);
     
     if (filters.category) {
       const cat = `%${filters.category.trim()}%`;
@@ -510,7 +547,7 @@ export class DatabaseStorage implements IStorage {
       reviewCount: count(reviews.id).as('review_count'),
     })
     .from(services)
-    .innerJoin(detectives, eq(services.detectiveId, detectives.id))
+    .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
     .leftJoin(reviews, and(eq(reviews.serviceId, services.id), eq(reviews.isPublished, true)))
     .where(and(...conditions))
     .groupBy(services.id, detectives.id);
@@ -531,7 +568,7 @@ export class DatabaseStorage implements IStorage {
 
     const results = await query.limit(limit).offset(offset);
     
-    console.log('[searchServices] Results count:', results.length, 'sortBy:', sortBy);
+    console.log('[searchServices] FINAL services count:', results.length, 'sortBy:', sortBy);
     
     return results.map((r: any) => ({
       ...r.service,
@@ -810,14 +847,31 @@ export class DatabaseStorage implements IStorage {
     return row as any;
   }
 
-  async markPaymentOrderPaid(id: string, data: { paymentId: string; signature: string }): Promise<PaymentOrder | undefined> {
+  async getPaymentOrderByPaypalOrderId(paypalOrderId: string): Promise<PaymentOrder | undefined> {
+    const [row] = await db.select().from(paymentOrders).where(eq(paymentOrders.paypalOrderId, paypalOrderId)).limit(1);
+    return row as any;
+  }
+
+  async markPaymentOrderPaid(id: string, data: { paymentId?: string; signature?: string; transactionId?: string }): Promise<PaymentOrder | undefined> {
+    const updateData: any = {
+      status: "paid",
+      updatedAt: new Date(),
+    };
+
+    // Support both Razorpay and PayPal fields
+    if (data.signature !== undefined) {
+      updateData.razorpaySignature = data.signature;
+    }
+    if (data.paymentId !== undefined) {
+      updateData.razorpayPaymentId = data.paymentId;
+      updateData.paypalPaymentId = data.paymentId;
+    }
+    if (data.transactionId !== undefined) {
+      updateData.paypalTransactionId = data.transactionId;
+    }
+
     const [row] = await db.update(paymentOrders)
-      .set({
-        razorpayPaymentId: data.paymentId,
-        razorpaySignature: data.signature,
-        status: "paid",
-        updatedAt: new Date(),
-      } as any)
+      .set(updateData)
       .where(eq(paymentOrders.id, id))
       .returning();
     return row as any;

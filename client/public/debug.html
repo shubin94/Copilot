@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>API Debug Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+    .section { background: white; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #2563eb; }
+    .error { color: #dc2626; font-weight: bold; }
+    .success { color: #16a34a; font-weight: bold; }
+    .code { background: #f0f0f0; padding: 10px; border-radius: 3px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Frontend ↔ Backend Communication Debug</h1>
+  
+  <div class="section">
+    <h2>Current Environment</h2>
+    <div class="code">
+      <div>📍 Page URL: <span id="url"></span></div>
+      <div>🌐 Hostname: <span id="hostname"></span></div>
+      <div>🔧 Backend: http://localhost:5000</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Test 1: Can we reach the server?</h2>
+    <div id="test1" class="code">Testing...</div>
+  </div>
+
+  <div class="section">
+    <h2>Test 2: Can we fetch the page API?</h2>
+    <div id="test2" class="code">Testing...</div>
+  </div>
+
+  <div class="section">
+    <h2>Test 3: Full Page Load Simulation</h2>
+    <div id="test3" class="code">Testing...</div>
+  </div>
+
+  <script>
+    // Show environment
+    document.getElementById('url').textContent = window.location.href;
+    document.getElementById('hostname').textContent = window.location.hostname;
+
+    // Test 1: Simple fetch to root
+    fetch('/')
+      .then(res => {
+        document.getElementById('test1').innerHTML = `<span class="success">✅ Server responding</span><br/>Status: ${res.status}`;
+      })
+      .catch(err => {
+        document.getElementById('test1').innerHTML = `<span class="error">❌ Cannot reach server</span><br/>Error: ${err.message}`;
+      });
+
+    // Test 2: Fetch page API
+    const slug = 'sdfds';
+    fetch(`/api/public/pages/${slug}`)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+        return res.json();
+      })
+      .then(data => {
+        document.getElementById('test2').innerHTML = `
+          <span class="success">✅ API call successful</span><br/>
+          <strong>Page Title:</strong> ${data.page.title}<br/>
+          <strong>Page Content:</strong> ${data.page.content}<br/>
+          <strong>Status:</strong> ${data.page.status}
+        `;
+      })
+      .catch(err => {
+        document.getElementById('test2').innerHTML = `
+          <span class="error">❌ API call failed</span><br/>
+          <strong>Error:</strong> ${err.message}
+        `;
+      });
+
+    // Test 3: Full page load
+    async function loadPage() {
+      try {
+        const res = await fetch(`/api/public/pages/${slug}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        document.getElementById('test3').innerHTML = `
+          <span class="success">✅ Page loaded successfully</span><br/>
+          <strong>Title:</strong> ${data.page.title}<br/>
+          <strong>Content:</strong> ${data.page.content}<br/>
+          <strong>MetaTitle:</strong> ${data.page.metaTitle || '(empty)'}<br/>
+          <strong>Category:</strong> ${data.page.category?.name || 'None'}<br/>
+          <strong>Tags:</strong> ${data.page.tags.map(t => t.name).join(', ') || 'None'}
+        `;
+      } catch (err) {
+        document.getElementById('test3').innerHTML = `
+          <span class="error">❌ Failed to load page</span><br/>
+          <strong>Error:</strong> ${err.message}
+        `;
+      }
+    }
+    
+    loadPage();
+  </script>
+</body>
+</html>

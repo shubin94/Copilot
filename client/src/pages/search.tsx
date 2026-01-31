@@ -402,6 +402,8 @@ export default function SearchPage() {
       <SEO 
         title={`Search Results for "${query}" | FindDetectives`}
         description={`Find the best private investigators for ${query}. Compare ratings, reviews, and prices from verified professionals.`}
+        canonical={`${window.location.origin}/search${query ? `?q=${encodeURIComponent(query)}` : ''}`}
+        robots="index, follow"
       />
       <Navbar />
       

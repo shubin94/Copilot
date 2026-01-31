@@ -62,6 +62,43 @@ function csrfFetch(url: string, options: RequestInit = {}): Promise<Response> {
 }
 
 export const api = {
+  // Generic HTTP methods for flexible API calls
+  get: async <T = any>(url: string): Promise<T> => {
+    const response = await csrfFetch(url, {
+      method: "GET",
+      credentials: "include",
+    });
+    return handleResponse(response);
+  },
+  
+  post: async <T = any>(url: string, data?: any): Promise<T> => {
+    const response = await csrfFetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+    return handleResponse(response);
+  },
+  
+  put: async <T = any>(url: string, data?: any): Promise<T> => {
+    const response = await csrfFetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+    return handleResponse(response);
+  },
+  
+  delete: async <T = any>(url: string): Promise<T> => {
+    const response = await csrfFetch(url, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    return handleResponse(response);
+  },
+
   auth: {
     login: async (email: string, password: string): Promise<{ user?: User; applicant?: { email: string; status: string } }> => {
       const controller = new AbortController();

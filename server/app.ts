@@ -12,6 +12,7 @@ import pkg from "pg";
 const { Pool } = pkg;
 import { registerRoutes } from "./routes.ts";
 import { config } from "./config.ts";
+import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.ts";
 
 const PgSession = connectPgSimple(session);
 
@@ -219,7 +220,18 @@ export default async function runApp(
         host,
       }, () => {
         log(`serving on port ${port}`);
-        resolve(server);
+        
+        // Start subscription expiry scheduler (runs daily at 2 AM)
+        try {
+          scheduleSubscriptionExpiry();
+        } catch (e) {
+          console.error('Failed to schedule subscription expiry:', e);
+        }
+        
+        // Wait a tick to ensure socket is truly bound before resolving
+        process.nextTick(() => {
+          resolve(server);
+        });
       });
 
       server.on('error', (error: any) => {
@@ -231,4 +243,47 @@ export default async function runApp(
       reject(error);
     }
   });
+}
+
+/**
+ * Schedule daily subscription expiry checks
+ * Runs at 2 AM every day to downgrade expired paid plans to FREE
+ */
+function scheduleSubscriptionExpiry() {
+  const DAILY_CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+  
+  const runExpiryCheck = async () => {
+    try {
+      log('Running subscription expiry check', 'subscription');
+      const result = await handleExpiredSubscriptions();
+      log(`Expiry check complete: ${result.downgraded} downgraded, ${result.errors.length} errors`, 'subscription');
+      
+      if (result.errors.length > 0) {
+        console.error('[SUBSCRIPTION_EXPIRY] Errors:', result.errors);
+      }
+    } catch (err: any) {
+      console.error('[SUBSCRIPTION_EXPIRY] Failed:', err.message);
+    }
+  };
+  
+  // Calculate time until next 2 AM
+  const now = new Date();
+  const next2AM = new Date();
+  next2AM.setHours(2, 0, 0, 0);
+  
+  if (now > next2AM) {
+    // If past 2 AM today, schedule for tomorrow
+    next2AM.setDate(next2AM.getDate() + 1);
+  }
+  
+  const msUntil2AM = next2AM.getTime() - now.getTime();
+  
+  log(`Subscription expiry check scheduled for ${next2AM.toLocaleString()}`, 'subscription');
+  
+  // Run first check at 2 AM
+  setTimeout(() => {
+    runExpiryCheck();
+    // Then run every 24 hours
+    setInterval(runExpiryCheck, DAILY_CHECK_INTERVAL);
+  }, msUntil2AM);
 }

@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { handleSessionInvalid } from "./authSessionManager";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -52,6 +53,17 @@ export const queryClient = new QueryClient({
     },
     mutations: {
       retry: false,
+      // Global mutation error handler
+      onError: (error: any) => {
+        // Check if error is auth-related
+        if (error?.message?.includes('401') || error?.message?.includes('403')) {
+          console.warn('[QUERY_CLIENT] Auth error in mutation:', error.message);
+          // Delay slightly to allow mutation to complete
+          setTimeout(() => {
+            handleSessionInvalid('mutation_auth_error');
+          }, 500);
+        }
+      },
     },
   },
 });
