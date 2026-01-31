@@ -31,6 +31,7 @@ export interface IStorage {
   createUserFromHashed(insertUser: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
   updateUserRole(id: string, role: User['role']): Promise<User | undefined>;
+  setUserGoogleId(userId: string, googleId: string, avatar?: string | null): Promise<User | undefined>;
 
   // Detective operations
   getDetective(id: string): Promise<Detective | undefined>;
@@ -152,6 +153,11 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async getUserByGoogleId(googleId: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.googleId, googleId)).limit(1);
+    return user;
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const hashedPassword = await bcrypt.hash(insertUser.password, SALT_ROUNDS);
     const [user] = await db.insert(users).values({
@@ -167,6 +173,20 @@ export class DatabaseStorage implements IStorage {
     const [user] = await db.insert(users).values({
       ...(insertUser as any),
       email: (insertUser.email as string).toLowerCase().trim(),
+    }).returning();
+    return user;
+  }
+
+  // Create a user from Google OAuth (password set to random hash; login only via Google)
+  async createUserWithGoogle(profile: { googleId: string; email: string; name: string; avatar?: string | null }): Promise<User> {
+    const randomPassword = await bcrypt.hash(randomBytes(32).toString("hex"), SALT_ROUNDS);
+    const [user] = await db.insert(users).values({
+      email: profile.email.toLowerCase().trim(),
+      password: randomPassword,
+      name: profile.name || profile.email.split("@")[0] || "User",
+      role: "user",
+      avatar: profile.avatar || null,
+      googleId: profile.googleId,
     }).returning();
     return user;
   }
@@ -194,6 +214,17 @@ export class DatabaseStorage implements IStorage {
     const [user] = await db.update(users)
       .set({ role, updatedAt: new Date() })
       .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
+  // Link Google OAuth to existing user (e.g. same email)
+  async setUserGoogleId(userId: string, googleId: string, avatar?: string | null): Promise<User | undefined> {
+    const updates: { googleId: string; updatedAt: Date; avatar?: string | null } = { googleId, updatedAt: new Date() };
+    if (avatar !== undefined) updates.avatar = avatar;
+    const [user] = await db.update(users)
+      .set(updates)
+      .where(eq(users.id, userId))
       .returning();
     return user;
   }

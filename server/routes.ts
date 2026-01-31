@@ -495,6 +495,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Google OAuth: redirect to Google
+  app.get("/api/auth/google", (req: Request, res: Response) => {
+    const { clientId } = config.google;
+    const baseUrl = (config.baseUrl || "").replace(/\/$/, "");
+    if (!clientId || !baseUrl) {
+      return res.status(503).json({ error: "Google sign-in is not configured" });
+    }
+    const redirectUri = `${baseUrl}/api/auth/google/callback`;
+    const scope = "openid email profile";
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}`;
+    res.redirect(302, url);
+  });
+
+  // Google OAuth: callback — exchange code, get user, create/link session, redirect
+  app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
+    const { clientId, clientSecret } = config.google;
+    const baseUrl = (config.baseUrl || "").replace(/\/$/, "");
+    const redirectUri = `${baseUrl}/api/auth/google/callback`;
+    const frontOrigin = baseUrl; // redirect to same origin after login
+    if (!clientId || !clientSecret || !baseUrl) {
+      return res.redirect(`${frontOrigin}/login?error=google_not_configured`);
+    }
+    const code = req.query.code as string | undefined;
+    if (!code) {
+      return res.redirect(`${frontOrigin}/login?error=google_no_code`);
+    }
+    try {
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          grant_type: "authorization_code",
+        }),
+      });
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        console.warn("[auth] Google token exchange failed:", tokenRes.status, errText);
+        return res.redirect(`${frontOrigin}/login?error=google_token_failed`);
+      }
+      const tokens = (await tokenRes.json()) as { access_token?: string };
+      const accessToken = tokens.access_token;
+      if (!accessToken) {
+        return res.redirect(`${frontOrigin}/login?error=google_no_token`);
+      }
+      const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!userInfoRes.ok) {
+        console.warn("[auth] Google userinfo failed:", userInfoRes.status);
+        return res.redirect(`${frontOrigin}/login?error=google_userinfo_failed`);
+      }
+      const profile = (await userInfoRes.json()) as { id: string; email?: string; name?: string; picture?: string };
+      const googleId = profile.id;
+      const email = (profile.email || "").toLowerCase().trim();
+      const name = (profile.name || email.split("@")[0] || "User").trim();
+      const avatar = profile.picture || null;
+      if (!email) {
+        return res.redirect(`${frontOrigin}/login?error=google_no_email`);
+      }
+      let user = await storage.getUserByGoogleId(googleId);
+      if (!user) {
+        const existingByEmail = await storage.getUserByEmail(email);
+        if (existingByEmail) {
+          user = await storage.setUserGoogleId(existingByEmail.id, googleId, avatar) ?? existingByEmail;
+        } else {
+          user = await storage.createUserWithGoogle({ googleId, email, name, avatar });
+        }
+      }
+      if (!user) {
+        return res.redirect(`${frontOrigin}/login?error=google_login_failed`);
+      }
+      req.session.regenerate((err) => {
+        if (err) {
+          console.warn("[auth] Session error during Google login");
+          return res.redirect(`${frontOrigin}/login?error=session_failed`);
+        }
+        req.session.userId = user!.id;
+        req.session.userRole = user!.role;
+        req.session.csrfToken = randomBytes(32).toString("hex");
+        res.redirect(302, frontOrigin + "/");
+      });
+    } catch (e) {
+      console.warn("[auth] Google callback error:", e);
+      res.redirect(`${frontOrigin}/login?error=google_login_failed`);
+    }
+  });
+
   // Change password (authenticated users)
   app.post("/api/auth/change-password", requireAuth, async (req: Request, res: Response) => {
     try {

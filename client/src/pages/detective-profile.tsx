@@ -375,6 +375,67 @@ export default function DetectiveProfile() {
                     {service.category}
                   </Badge>
                 </div>
+
+                {/* Mobile only: Price / Contact card below Service Type */}
+                <div className="block lg:hidden mt-6">
+                  <Card className="border-gray-200 shadow-lg overflow-hidden">
+                    <div className="p-6 space-y-4">
+                      <div className="flex justify-between items-baseline">
+                        <h3 className="font-bold text-lg">Service Price</h3>
+                        <div className="text-right">
+                          {service.offerPrice ? (
+                            <>
+                              <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price-mobile">{formatPriceFromTo(Number(service.offerPrice), detective.country, selectedCountry.code)}</span>
+                              <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price-mobile">{formatPriceFromTo(Number(service.basePrice), detective.country, selectedCountry.code)}</span>
+                            </>
+                          ) : (
+                            <span className="text-2xl font-bold text-gray-900" data-testid="text-price-mobile">{formatPriceFromTo(Number(service.basePrice), detective.country, selectedCountry.code)}</span>
+                          )}
+                          <div className="text-xs text-gray-500 mt-1">
+                            {(detective as any).level ? (((detective as any).level === 'pro') ? 'Pro Level' : ((detective as any).level as string).replace('level', 'Level ')) : 'Level 1'}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-600">Professional investigation service</p>
+                    </div>
+                    <div className="p-4 bg-gray-50 border-t border-gray-200 space-y-3">
+                      <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 shadow-sm h-12" data-testid="button-contact-email-mobile" onClick={() => {
+                        const to = detective.contactEmail || (detective as any).email;
+                        if (to) window.location.href = `mailto:${to}`;
+                      }}>
+                        <Mail className="h-5 w-5" />
+                        <span className="font-bold">Contact via Email</span>
+                      </Button>
+                      {detective.phone && (
+                        <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-phone-mobile" onClick={() => {
+                          const raw = String(detective.phone);
+                          const num = raw.replace(/[^+\d]/g, "");
+                          const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+                          if (isMobile) window.location.href = `tel:${num}`;
+                          else { navigator.clipboard?.writeText(num).catch(() => {}); try { toast({ title: "Number Copied", description: `Phone: ${num}` }); } catch {} }
+                        }}>
+                          <Phone className="h-5 w-5" />
+                          <span className="font-bold">Call Now</span>
+                        </Button>
+                      )}
+                      {detective.whatsapp && (
+                        <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-whatsapp-mobile" onClick={() => {
+                          const raw = String(detective.whatsapp);
+                          const num = raw.replace(/[^+\d]/g, "");
+                          const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+                          if (isMobile) window.open(`https://wa.me/${num.replace(/^\+/, "")}`, "_blank");
+                          else { navigator.clipboard?.writeText(num).catch(() => {}); try { toast({ title: "Number Copied", description: `WhatsApp: ${num}` }); } catch {} }
+                        }}>
+                          <MessageCircle className="h-5 w-5" />
+                          <span className="font-bold">WhatsApp</span>
+                        </Button>
+                      )}
+                    </div>
+                  </Card>
+                  <p className="text-xs text-gray-400 flex items-center justify-center gap-1 mt-3">
+                    <ShieldCheck className="h-3 w-3" /> 100% Secure & Confidential
+                  </p>
+                </div>
               </div>
             </section>
 
@@ -392,25 +453,29 @@ export default function DetectiveProfile() {
                   )}
                 </Avatar>
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-2xl font-bold font-heading text-gray-900" data-testid="text-detective-name-heading">
                       <Link href={`/p/${detective.id}`}>
                         <span className="hover:underline cursor-pointer">{detectiveName}</span>
                       </Link>
                     </h3>
-                    {detectiveTier === "agency" && (
-                      <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-agency-inline">
-                        Recommended
+                    {/* Inline badges: Verified → Blue Tick → Pro → Recommended */}
+                    {detective.isVerified && (
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-verified-inline">
+                        <ShieldCheck className="h-3 w-3" /> Verified
                       </Badge>
+                    )}
+                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-bluetick-inline">Blue Tick</Badge>
                     )}
                     {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
                       <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-pro-inline">
                         Pro
                       </Badge>
                     )}
-                    {detective.isVerified && (
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-verified-inline">
-                        <ShieldCheck className="h-3 w-3" /> Verified
+                    {(detectiveTier === "agency" || (detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended) && (
+                      <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-agency-inline">
+                        Recommended
                       </Badge>
                     )}
                   </div>
@@ -430,36 +495,31 @@ export default function DetectiveProfile() {
                       </div>
                     )}
                   </div>
-                  {detective.bio && (
-                    <p className="text-gray-700 leading-relaxed" data-testid="text-bio">
-                      {detective.bio}
-                    </p>
+                  {/* Recognitions (only if any are set; replaces duplicate bio – bio already shown in About This Service) */}
+                  {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges?.blueTick || (detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro || (detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended) && (
+                    <div className="flex items-center gap-2 text-sm flex-wrap">
+                      <span className="text-gray-500">Recognitions</span>
+                      {detective.isVerified && (
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-verified">
+                          <ShieldCheck className="h-3 w-3" /> Verified
+                        </Badge>
+                      )}
+                      {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-bluetick">Blue Tick</Badge>
+                      )}
+                      {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
+                        <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-pro">
+                          Pro
+                        </Badge>
+                      )}
+                      {(detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended && (
+                        <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-recommended">
+                          Recommended
+                        </Badge>
+                      )}
+                    </div>
                   )}
                 </div>
-                {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges?.blueTick || (detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro || (detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended) && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-gray-500">Recognitions</span>
-                    {/* Order: Verified → Blue Tick → Pro → Recommended (effectiveBadges + isVerified only) */}
-                    {detective.isVerified && (
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-verified">
-                        <ShieldCheck className="h-3 w-3" /> Verified
-                      </Badge>
-                    )}
-                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-bluetick">Blue Tick</Badge>
-                    )}
-                    {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
-                      <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-pro">
-                        Pro
-                      </Badge>
-                    )}
-                    {(detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended && (
-                      <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-recommended">
-                        Recommended
-                      </Badge>
-                    )}
-                  </div>
-                )}
               </div>
             </section>
             
@@ -578,8 +638,8 @@ export default function DetectiveProfile() {
 
           </div>
 
-          {/* Right Column - Sticky Sidebar */}
-          <div className="lg:w-[380px] flex-shrink-0">
+          {/* Right Column - Sticky Sidebar (hidden on mobile; price card shown below Service Type) */}
+          <div className="hidden lg:block lg:w-[380px] flex-shrink-0">
             <div className="sticky top-24">
               <Card className="border-gray-200 shadow-lg overflow-hidden">
                 <div className="p-6 space-y-4">

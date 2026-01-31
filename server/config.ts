@@ -95,6 +95,12 @@ export const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || "",
   },
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || "",
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+  },
+  // Base URL for OAuth redirect_uri (e.g. https://yoursite.com or http://localhost:5000)
+  baseUrl: process.env.BASE_URL || (isProd ? "" : "http://localhost:5000"),
 };
 
 export function validateConfig() {
