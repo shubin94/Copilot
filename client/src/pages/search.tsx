@@ -28,42 +28,10 @@ import { COUNTRY_STATES } from "@/lib/geo";
 import { useCurrency } from "@/lib/currency-context";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import type { Service, Detective } from "@shared/schema";
+import { buildBadgesFromEffective } from "@/lib/badges";
 
-function mapServiceToCard(service: Service & { detective: Detective; avgRating: number; reviewCount: number }) {
-  
-
-  const badges: string[] = [];
-  
-  // BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified
-  
-  // Blue Tick Badge - FIRST
-  if (service.detective.hasBlueTick && service.detective.subscriptionPackageId) {
-    badges.push("blueTick");
-  }
-  
-  // Pro Badge - SECOND (from package badges)
-  if (service.detective.subscriptionPackageId && service.detective.subscriptionPackage?.badges) {
-    if (typeof service.detective.subscriptionPackage.badges === 'object' && !Array.isArray(service.detective.subscriptionPackage.badges)) {
-      if (service.detective.subscriptionPackage.badges['pro']) {
-        badges.push("pro");
-      }
-      if (service.detective.subscriptionPackage.badges['recommended']) {
-        badges.push("recommended");
-      }
-    } else if (Array.isArray(service.detective.subscriptionPackage.badges)) {
-      if (service.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro')) {
-        badges.push("pro");
-      }
-      if (service.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended')) {
-        badges.push("recommended");
-      }
-    }
-  }
-  
-  // Verified Badge - FOURTH
-  if (service.detective.isVerified) {
-    badges.push("verified");
-  }
+function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number }) {
+  const badges = buildBadgesFromEffective(service.detective.effectiveBadges, !!service.detective.isVerified);
 
   const detectiveName = service.detective.businessName || "Unknown Detective";
 
@@ -493,7 +461,7 @@ export default function SearchPage() {
                     <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-4">
                       <Globe className="h-8 w-8 text-gray-400" />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">No detectives found here</h3>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">No results yet</h3>
                     <p className="text-gray-500 mb-6 text-center max-w-md">
                       We couldn't find any detectives matching your search for "{query}"{countryFilter ? ` in ${countryFilter}` : ""}.
                     </p>

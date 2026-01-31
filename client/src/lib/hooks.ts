@@ -457,8 +457,9 @@ export function useUpdateApplicationStatus() {
   return useMutation({
     mutationFn: ({ id, status, reviewNotes }: { id: string; status: "approved" | "rejected"; reviewNotes?: string }) =>
       api.applications.updateStatus(id, { status, reviewNotes }),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["applications", variables.id] });
       queryClient.invalidateQueries({ queryKey: ["detectives"] });
     },
   });

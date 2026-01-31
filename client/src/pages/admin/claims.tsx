@@ -142,7 +142,7 @@ export default function AdminClaims() {
             ) : claims.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <Inbox className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                <p>No pending claims to review.</p>
+                <p>No claims yet</p>
               </div>
             ) : (
               <div className="space-y-4">

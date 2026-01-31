@@ -6,9 +6,10 @@
  */
 
 import { db } from "../../db/index.ts";
-import { detectives, subscriptionPlans } from "../../shared/schema.ts";
-import { sql, lt } from "drizzle-orm";
+import { detectives } from "../../shared/schema.ts";
+import { sql } from "drizzle-orm";
 import { getFreePlanId } from "./freePlan.ts";
+import { applyPackageEntitlements } from "./entitlements.ts";
 
 /**
  * Check and downgrade expired subscriptions to FREE plan
@@ -58,6 +59,9 @@ export async function handleExpiredSubscriptions(): Promise<{
             updatedAt: new Date(),
           })
           .where(sql`${detectives.id} = ${detective.id}`);
+
+        // Clear subscription-granted badges (hasBlueTick); does NOT touch blueTickAddon
+        await applyPackageEntitlements(detective.id, "expiry");
         
         console.log(`[SUBSCRIPTION_EXPIRY] ✅ Downgraded: ${detective.businessName} (${detective.id}) to FREE plan`);
         downgraded++;
@@ -119,6 +123,9 @@ export async function checkDetectiveExpiry(detectiveId: string): Promise<boolean
         updatedAt: new Date(),
       })
       .where(sql`${detectives.id} = ${detectiveId}`);
+
+    // Clear subscription-granted badges (hasBlueTick); does NOT touch blueTickAddon
+    await applyPackageEntitlements(detectiveId, "expiry");
     
     console.log(`[SUBSCRIPTION_EXPIRY] Detective ${detectiveId} downgraded to FREE plan`);
     return true;

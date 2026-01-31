@@ -10,42 +10,10 @@ import { SEO } from "@/components/seo";
 import { Link } from "wouter";
 import { useSearchServices, useServiceCategories, useSearchDetectives } from "@/lib/hooks";
 import type { Service, Detective, ServiceCategory } from "@shared/schema";
+import { buildBadgesFromEffective } from "@/lib/badges";
 
-function mapServiceToCard(service: Service & { detective: Detective; avgRating: number; reviewCount: number }) {
-  
-
-  const badges: string[] = [];
-  
-  // BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified
-  
-  // Blue Tick Badge - FIRST
-  if (service.detective.hasBlueTick && service.detective.subscriptionPackageId) {
-    badges.push("blueTick");
-  }
-  
-  // Pro Badge - SECOND (from package badges)
-  if (service.detective.subscriptionPackageId && service.detective.subscriptionPackage?.badges) {
-    if (typeof service.detective.subscriptionPackage.badges === 'object' && !Array.isArray(service.detective.subscriptionPackage.badges)) {
-      if (service.detective.subscriptionPackage.badges['pro']) {
-        badges.push("pro");
-      }
-      if (service.detective.subscriptionPackage.badges['recommended']) {
-        badges.push("recommended");
-      }
-    } else if (Array.isArray(service.detective.subscriptionPackage.badges)) {
-      if (service.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro')) {
-        badges.push("pro");
-      }
-      if (service.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended')) {
-        badges.push("recommended");
-      }
-    }
-  }
-  
-  // Verified Badge - FOURTH
-  if (service.detective.isVerified) {
-    badges.push("verified");
-  }
+function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number }) {
+  const badges = buildBadgesFromEffective(service.detective.effectiveBadges, !!service.detective.isVerified);
 
   const detectiveName = service.detective.businessName || "Unknown Detective";
 
@@ -169,7 +137,7 @@ export default function Home() {
             ) : (
               <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200" data-testid="empty-categories">
                 <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
-                <p className="text-sm">No service categories available. Admin needs to create categories first.</p>
+                <p className="text-sm text-gray-500">No categories yet</p>
               </div>
             )}
           </div>
@@ -196,7 +164,7 @@ export default function Home() {
             ) : (
               <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200" data-testid="empty-popular-services">
                 <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
-                <p className="text-sm">No services available yet.</p>
+                <p className="text-sm text-gray-500">No services yet</p>
               </div>
             )}
           </div>

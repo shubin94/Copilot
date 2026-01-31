@@ -11,8 +11,9 @@ async function handleResponse<T>(response: Response): Promise<T> {
   const ct = response.headers.get("content-type") || "";
   if (!response.ok) {
     if (ct.includes("application/json")) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new ApiError(response.status, (error as any).error || response.statusText);
+      const body = await response.json().catch(() => ({}));
+      const err = body && typeof body === "object" ? (body as any).error ?? (body as any).message : undefined;
+      throw new ApiError(response.status, err || response.statusText);
     }
     const text = await response.text().catch(() => "");
     const isHtml = text.trim().startsWith("<") || text.toLowerCase().includes("<!doctype");
@@ -47,17 +48,38 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
   }
 }
 
-// Central fetch wrapper that automatically adds CSRF header for mutation methods
-function csrfFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const method = (options.method || 'GET').toUpperCase();
-  const requiresCSRF = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
-  
+let csrfToken: string | null = null;
+
+export function setCsrfToken(token: string) {
+  csrfToken = token;
+}
+
+export function clearCsrfToken() {
+  csrfToken = null;
+}
+
+async function getOrFetchCsrfToken(): Promise<string> {
+  if (csrfToken) return csrfToken;
+  const r = await fetch("/api/csrf-token", { method: "GET", credentials: "include" });
+  if (!r.ok) throw new ApiError(r.status, "Failed to get CSRF token");
+  const d = (await r.json()) as { csrfToken: string };
+  csrfToken = d.csrfToken;
+  return csrfToken;
+}
+
+// Central fetch wrapper that adds CSRF headers for mutation methods
+async function csrfFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const method = (options.method || "GET").toUpperCase();
+  const requiresCSRF = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+
+  const headers = new Headers(options.headers);
   if (requiresCSRF) {
-    const headers = new Headers(options.headers);
-    headers.set('X-Requested-With', 'XMLHttpRequest');
-    options.headers = headers;
+    headers.set("X-Requested-With", "XMLHttpRequest");
+    const token = await getOrFetchCsrfToken();
+    headers.set("X-CSRF-Token", token);
   }
-  
+  options.headers = headers;
+
   return fetch(url, options);
 }
 
@@ -78,9 +100,13 @@ export const api = {
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include",
     });
-    return handleResponse(response);
+    const result = await handleResponse<T>(response);
+    if (result && typeof result === "object" && "csrfToken" in result) {
+      setCsrfToken((result as { csrfToken: string }).csrfToken);
+    }
+    return result;
   },
-  
+
   put: async <T = any>(url: string, data?: any): Promise<T> => {
     const response = await csrfFetch(url, {
       method: "PUT",
@@ -90,7 +116,17 @@ export const api = {
     });
     return handleResponse(response);
   },
-  
+
+  patch: async <T = any>(url: string, data?: any): Promise<T> => {
+    const response = await csrfFetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+    return handleResponse(response);
+  },
+
   delete: async <T = any>(url: string): Promise<T> => {
     const response = await csrfFetch(url, {
       method: "DELETE",
@@ -100,7 +136,7 @@ export const api = {
   },
 
   auth: {
-    login: async (email: string, password: string): Promise<{ user?: User; applicant?: { email: string; status: string } }> => {
+    login: async (email: string, password: string): Promise<{ user?: User; applicant?: { email: string; status: string }; csrfToken?: string }> => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12000);
       try {
@@ -112,7 +148,11 @@ export const api = {
           keepalive: true,
           signal: controller.signal,
         });
-        return handleResponse(response);
+        const data = await handleResponse(response);
+        if (data && typeof data === "object" && "csrfToken" in data) {
+          setCsrfToken((data as { csrfToken: string }).csrfToken);
+        }
+        return data;
       } catch (err: any) {
         if (err?.name === "AbortError") {
           throw new Error("Login timed out. Please try again.");
@@ -128,8 +168,10 @@ export const api = {
         method: "POST",
         headers: { "X-Requested-With": "XMLHttpRequest" },
         credentials: "include",
-      });;
-      return handleResponse(response);
+      });
+      const result = await handleResponse(response);
+      clearCsrfToken();
+      return result;
     },
 
     me: async (): Promise<{ user?: User | null }> => {

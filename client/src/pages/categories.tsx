@@ -77,7 +77,7 @@ export default function CategoriesPage() {
           ) : (
             <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200">
               <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
-              <p className="text-sm">No categories available.</p>
+              <p className="text-sm text-gray-500">No categories yet</p>
             </div>
           )}
         </div>

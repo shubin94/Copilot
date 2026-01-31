@@ -126,33 +126,15 @@ CREATE TYPE "public"."user_role" AS ENUM (
 ALTER TYPE "public"."user_role" OWNER TO "postgres";
 
 
+-- No-op: detectives table has no signup_country_id/signup_country_iso2 and countries table does not exist.
+-- Function kept so any trigger referencing it does not fail; body does nothing.
 CREATE OR REPLACE FUNCTION "public"."detectives_iso_enforce"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $_$
-    DECLARE
-      iso2 TEXT;
-      cid uuid;
-    BEGIN
-      IF NEW.signup_country_id IS NOT NULL THEN
-        SELECT iso_code INTO iso2 FROM countries WHERE id = NEW.signup_country_id;
-        IF iso2 IS NULL THEN
-          RAISE EXCEPTION 'Invalid signup_country_id: %', NEW.signup_country_id;
-        END IF;
-        NEW.signup_country_iso2 := UPPER(iso2);
-      ELSIF NEW.signup_country_iso2 IS NOT NULL THEN
-        SELECT id INTO cid FROM countries WHERE iso_code = UPPER(NEW.signup_country_iso2);
-        IF cid IS NULL THEN
-          RAISE EXCEPTION 'Invalid signup_country_iso2: %', NEW.signup_country_iso2;
-        END IF;
-        NEW.signup_country_id := cid;
-        NEW.signup_country_iso2 := UPPER(NEW.signup_country_iso2);
-      END IF;
-      IF NEW.signup_country_iso2 IS NOT NULL AND NEW.signup_country_iso2 !~ '^[A-Z]{2}$' THEN
-        RAISE EXCEPTION 'signup_country_iso2 must be two uppercase letters';
-      END IF;
-      RETURN NEW;
-    END
-    $_$;
+BEGIN
+  RETURN NEW;
+END
+$_$;
 
 
 ALTER FUNCTION "public"."detectives_iso_enforce"() OWNER TO "postgres";

@@ -1,7 +1,9 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../../db/index.ts";
+import * as cache from "../lib/cache.ts";
 
 const router = Router();
+const CMS_PAGE_TTL_SECONDS = 300; // 5 minutes
 
 async function fetchPage(slug: string, category?: string) {
   const params: any[] = [slug];
@@ -73,6 +75,18 @@ router.get("/:category/:slug", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Category and slug are required" });
     }
 
+    const cacheKey = `cms:page:${category}:${slug}`;
+    try {
+      const cached = cache.get<{ id: string; title: string; slug: string; content: string; tags: unknown[] }>(cacheKey);
+      if (cached != null && typeof cached === "object" && "slug" in cached) {
+        console.debug("[cache HIT]", cacheKey);
+        return res.json({ page: cached });
+      }
+    } catch (_) {
+      // Cache failure must not break the request
+    }
+    console.debug("[cache MISS]", cacheKey);
+
     console.log(`[public-pages] Fetching page with category: ${category}, slug: ${slug}`);
     const page = await fetchPage(slug, category);
     if (!page) {
@@ -80,6 +94,11 @@ router.get("/:category/:slug", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Page not found" });
     }
 
+    try {
+      cache.set(cacheKey, page, CMS_PAGE_TTL_SECONDS);
+    } catch (_) {
+      // Cache failure must not break the request
+    }
     console.log(`[public-pages] Returning page with ${page.tags.length} tags`);
     res.json({ page });
   } catch (error) {
@@ -101,6 +120,18 @@ router.get("/:slug", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Slug is required" });
     }
 
+    const cacheKey = `cms:page:${slug}`;
+    try {
+      const cached = cache.get<{ id: string; title: string; slug: string; content: string; tags: unknown[] }>(cacheKey);
+      if (cached != null && typeof cached === "object" && "slug" in cached) {
+        console.debug("[cache HIT]", cacheKey);
+        return res.json({ page: cached });
+      }
+    } catch (_) {
+      // Cache failure must not break the request
+    }
+    console.debug("[cache MISS]", cacheKey);
+
     console.log(`[public-pages] Fetching page with slug: ${slug}`);
     const page = await fetchPage(slug);
     if (!page) {
@@ -108,6 +139,11 @@ router.get("/:slug", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Page not found" });
     }
 
+    try {
+      cache.set(cacheKey, page, CMS_PAGE_TTL_SECONDS);
+    } catch (_) {
+      // Cache failure must not break the request
+    }
     console.log(`[public-pages] Returning page with ${page.tags.length} tags`);
     res.json({ page });
   } catch (error) {

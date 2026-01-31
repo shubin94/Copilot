@@ -129,7 +129,8 @@ function Router() {
           <Route path="/support" component={SupportPage} />
           <Route path="/contact" component={ContactPage} />
           
-          {/* Admin Routes */}
+          {/* Admin Routes - /admin loads main admin dashboard (auth enforced in component) */}
+          <Route path="/admin" component={AdminDashboard} />
           <Route path="/admin/dashboard" component={AdminDashboard} />
           <Route path="/admin/finance" component={AdminFinance} />
           <Route path="/admin/signups" component={AdminSignups} />

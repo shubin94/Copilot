@@ -270,92 +270,7 @@ export default function DetectiveProfile() {
                     <span className="hover:underline cursor-pointer">{detectiveName}</span>
                   </Link>
                   
-                  {/* BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified */}
-                  
-                  {/* Blue Tick Badge - FIRST (Icon only) */}
-                  {detective.hasBlueTick && detective.subscriptionPackageId && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <img 
-                          src="/blue-tick.png" 
-                          alt="Blue Tick" 
-                          className="h-5 w-5 flex-shrink-0 cursor-help"
-                          title="Verification Badge"
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Verification Badge</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                  
-                  {/* Pro Badge - SECOND (Icon only, from package badges) */}
-                  {detective.subscriptionPackageId && detective.subscriptionPackage?.badges && (
-                    <>
-                      {/* Handle object format - Pro badge only */}
-                      {typeof detective.subscriptionPackage.badges === 'object' && !Array.isArray(detective.subscriptionPackage.badges) && 
-                        detective.subscriptionPackage.badges['pro'] && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <img 
-                                src="/pro.png" 
-                                alt="Pro" 
-                                className="h-5 w-5 flex-shrink-0 cursor-help"
-                                title="Pro User Badge"
-                              />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Pro User Badge</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        )
-                      }
-                      
-                      {/* Handle array format - Pro badge only */}
-                      {Array.isArray(detective.subscriptionPackage.badges) &&
-                        detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro') && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <img 
-                                src="/pro.png" 
-                                alt="Pro" 
-                                className="h-5 w-5 flex-shrink-0 cursor-help"
-                                title="Pro User Badge"
-                              />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Pro User Badge</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        )
-                      }
-                    </>
-                  )}
-                  
-                  {/* Recommended Badge - THIRD (Text only, from package badges) */}
-                  {detective.subscriptionPackageId && detective.subscriptionPackage?.badges && (
-                    <>
-                      {/* Handle object format - Recommended badge only */}
-                      {typeof detective.subscriptionPackage.badges === 'object' && !Array.isArray(detective.subscriptionPackage.badges) && 
-                        detective.subscriptionPackage.badges['recommended'] && (
-                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-1 whitespace-nowrap" data-testid="badge-recommended">
-                            Recommended
-                          </Badge>
-                        )
-                      }
-                      
-                      {/* Handle array format - Recommended badge only */}
-                      {Array.isArray(detective.subscriptionPackage.badges) &&
-                        detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended') && (
-                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-1 whitespace-nowrap" data-testid="badge-recommended">
-                            Recommended
-                          </Badge>
-                        )
-                      }
-                    </>
-                  )}
-                  
-                  {/* Verified Badge - FOURTH (Icon only) */}
+                  {/* Badge order: Verified → Blue Tick → Pro → Recommended (effectiveBadges + isVerified only) */}
                   {detective.isVerified && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -363,13 +278,48 @@ export default function DetectiveProfile() {
                           src="/blue-tick.png" 
                           alt="Verified" 
                           className="h-5 w-5 flex-shrink-0 cursor-help"
-                          title="Verification Badge"
+                          title="Verified"
                         />
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>Verification Badge</p>
+                        <p>Verified</p>
                       </TooltipContent>
                     </Tooltip>
+                  )}
+                  {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <img 
+                          src="/blue-tick.png" 
+                          alt="Blue Tick" 
+                          className="h-5 w-5 flex-shrink-0 cursor-help"
+                          title="Blue Tick"
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Blue Tick</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <img 
+                          src="/pro.png" 
+                          alt="Pro" 
+                          className="h-5 w-5 flex-shrink-0 cursor-help"
+                          title="Pro"
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Pro</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {(detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended && (
+                    <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-1 whitespace-nowrap" data-testid="badge-recommended">
+                      Recommended
+                    </Badge>
                   )}
                 </div>
                 <div className="flex items-center gap-3 text-sm font-bold text-gray-900">
@@ -453,9 +403,9 @@ export default function DetectiveProfile() {
                         Recommended
                       </Badge>
                     )}
-                    {((detective as any).level === 'pro') && (
+                    {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
                       <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-pro-inline">
-                        PRO
+                        Pro
                       </Badge>
                     )}
                     {detective.isVerified && (
@@ -486,22 +436,26 @@ export default function DetectiveProfile() {
                     </p>
                   )}
                 </div>
-                {(detective.isVerified || detectiveTier === 'agency' || ((detective as any).level === 'pro')) && (
+                {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges?.blueTick || (detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro || (detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended) && (
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-gray-500">Recognitions</span>
+                    {/* Order: Verified → Blue Tick → Pro → Recommended (effectiveBadges + isVerified only) */}
                     {detective.isVerified && (
                       <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-verified">
                         <ShieldCheck className="h-3 w-3" /> Verified
                       </Badge>
                     )}
-                    {detectiveTier === 'agency' && (
-                      <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-recommended">
-                        Recommended
+                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-bluetick">Blue Tick</Badge>
+                    )}
+                    {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
+                      <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-pro">
+                        Pro
                       </Badge>
                     )}
-                    {((detective as any).level === 'pro') && (
-                      <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-pro">
-                        PRO
+                    {(detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended && (
+                      <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-recommended">
+                        Recommended
                       </Badge>
                     )}
                   </div>
@@ -575,7 +529,7 @@ export default function DetectiveProfile() {
               ) : (
                 <div className="flex flex-col items-center justify-center py-8 text-center" data-testid="empty-reviews">
                   <Star className="h-12 w-12 text-gray-300 mb-4" />
-                  <h3 className="text-lg font-bold text-gray-900 mb-2">No Reviews Yet</h3>
+                  <h3 className="text-lg font-bold text-gray-900 mb-2">No reviews yet</h3>
                   <p className="text-gray-600">Be the first to review this service.</p>
                 </div>
               )}

@@ -279,9 +279,20 @@ export class DatabaseStorage implements IStorage {
       insertDetective.subscriptionPackageId = await getFreePlanId();
       insertDetective.subscriptionActivatedAt = new Date();
     }
-    
-    const [detective] = await db.insert(detectives).values(insertDetective).returning();
-    return detective;
+
+    try {
+      const [detective] = await db.insert(detectives).values(insertDetective).returning();
+      return detective;
+    } catch (err: any) {
+      console.error('[createDetective] INSERT detectives failed — full error:', {
+        message: err?.message,
+        code: err?.code,
+        detail: err?.detail,
+        constraint: err?.constraint,
+        stack: err?.stack,
+      });
+      throw err;
+    }
   }
 
   async getLatestApprovedClaimForDetective(detectiveId: string): Promise<ProfileClaim | undefined> {
@@ -295,7 +306,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateDetective(id: string, updates: Partial<Detective>): Promise<Detective | undefined> {
     // Whitelist only allowed fields - prevent modification of protected columns
-    const allowedFields: (keyof Detective)[] = ['businessName', 'bio', 'location', 'country', 'address', 'pincode', 'phone', 'whatsapp', 'contactEmail', 'languages', 'mustCompleteOnboarding', 'onboardingPlanSelected', 'logo', 'businessDocuments', 'identityDocuments', 'yearsExperience', 'businessWebsite', 'licenseNumber', 'businessType', 'recognitions'];
+    const allowedFields: (keyof Detective)[] = ['businessName', 'bio', 'location', 'country', 'address', 'pincode', 'phone', 'whatsapp', 'contactEmail', 'languages', 'mustCompleteOnboarding', 'onboardingPlanSelected', 'logo', 'defaultServiceBanner', 'businessDocuments', 'identityDocuments', 'yearsExperience', 'businessWebsite', 'licenseNumber', 'businessType', 'recognitions'];
     const safeUpdates: Partial<Detective> = {};
     
     for (const key of allowedFields) {
@@ -319,8 +330,8 @@ export class DatabaseStorage implements IStorage {
       'businessName', 'bio', 'location', 'phone', 'whatsapp', 'languages',
       'status', 'isVerified', 'country', 'level', 'planActivatedAt', 'planExpiresAt',
       'subscriptionPackageId', 'billingCycle', 'subscriptionActivatedAt', 'subscriptionExpiresAt',
-      'pendingPackageId', 'pendingBillingCycle'
-      // TODO: Add back 'hasBlueTick', 'blueTickActivatedAt' when migration is applied
+      'pendingPackageId', 'pendingBillingCycle',
+      'hasBlueTick', 'blueTickActivatedAt', 'blueTickAddon',
     ];
     const safeUpdates: Partial<Detective> = {};
     
@@ -543,14 +554,16 @@ export class DatabaseStorage implements IStorage {
     let query = db.select({
       service: services,
       detective: detectives,
+      package: subscriptionPlans,
       avgRating: sql<number>`COALESCE(AVG(${reviews.rating}), 0)`.as('avg_rating'),
       reviewCount: count(reviews.id).as('review_count'),
     })
     .from(services)
     .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
+    .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
     .leftJoin(reviews, and(eq(reviews.serviceId, services.id), eq(reviews.isPublished, true)))
     .where(and(...conditions))
-    .groupBy(services.id, detectives.id);
+    .groupBy(services.id, detectives.id, subscriptionPlans.id);
 
     // rating filter uses HAVING on aggregate
     if (filters.ratingMin !== undefined) {
@@ -572,7 +585,10 @@ export class DatabaseStorage implements IStorage {
     
     return results.map((r: any) => ({
       ...r.service,
-      detective: r.detective!,
+      detective: {
+        ...r.detective!,
+        subscriptionPackage: r.package || undefined,
+      },
       avgRating: Number(r.avgRating),
       reviewCount: Number(r.reviewCount)
     }));

@@ -103,7 +103,17 @@ export default function Login() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                <a href="#" className="text-sm text-green-600 hover:underline">Forgot password?</a>
+                <button
+                  type="button"
+                  className="text-sm text-green-600 hover:underline bg-transparent border-0 p-0 cursor-pointer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    toast({ title: "Not available yet", description: "This feature is not available yet." });
+                  }}
+                  title="Not available yet"
+                >
+                  Forgot password?
+                </button>
               </div>
               <Input 
                 id="password"

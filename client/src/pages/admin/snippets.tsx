@@ -8,9 +8,8 @@ import { useUser } from "@/lib/user-context";
 import { Link, useLocation } from "wouter";
 import { Plus, Edit, Trash2, Eye } from "lucide-react";
 import { DetectiveSnippetGrid } from "@/components/snippets/detective-snippet-grid";
-import { WORLD_COUNTRIES } from "@/lib/world-countries";
-import { COUNTRY_STATES, STATE_CITIES } from "@/lib/geo";
 import { Skeleton } from "@/components/ui/skeleton";
+import { api } from "@/lib/api";
 
 interface Snippet {
   id: string;
@@ -32,14 +31,17 @@ export default function SnippetsPage() {
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [selectedCountry, setSelectedCountry] = useState("India");
+  const [availableCountries, setAvailableCountries] = useState<string[]>([]);
+  const [availableStates, setAvailableStates] = useState<string[]>([]);
+  const [availableCities, setAvailableCities] = useState<string[]>([]);
+  const [locationsLoading, setLocationsLoading] = useState(true);
   const [lastSavedSnippet, setLastSavedSnippet] = useState<Snippet | null>(null);
 
   // Form state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: "",
-    country: "India",
+    country: "",
     state: "",
     city: "",
     category: "",
@@ -55,14 +57,12 @@ export default function SnippetsPage() {
     }
   }, [isAuthenticated, user, isLoadingUser, setLocation]);
 
-  // Fetch snippets
+  // Fetch snippets (api client adds credentials; GET does not require CSRF)
   useEffect(() => {
     const fetchSnippets = async () => {
       try {
         setLoading(true);
-        const res = await fetch("/api/snippets");
-        if (!res.ok) throw new Error("Failed to fetch snippets");
-        const data = await res.json();
+        const data = await api.get<{ snippets: Snippet[] }>("/api/snippets");
         setSnippets(data.snippets || []);
       } catch (error) {
         console.error("Error fetching snippets:", error);
@@ -98,48 +98,118 @@ export default function SnippetsPage() {
     fetchCategories();
   }, []);
 
+  // Fetch available countries (where services exist)
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        setLocationsLoading(true);
+        const data = await api.get<{ countries: string[] }>("/api/snippets/available-locations");
+        const list = Array.isArray(data?.countries) ? data.countries : [];
+        setAvailableCountries(list);
+        setAvailableStates([]);
+        setAvailableCities([]);
+        if (list.length > 0) {
+          setFormData((prev) => (prev.country ? prev : { ...prev, country: list[0] }));
+        }
+      } catch (error) {
+        console.error("Error fetching available countries:", error);
+        setAvailableCountries([]);
+      } finally {
+        setLocationsLoading(false);
+      }
+    };
+
+    if (isAuthenticated && user?.role === "admin") {
+      fetchCountries();
+    }
+  }, [isAuthenticated, user?.role]);
+
+  // Fetch available states when country changes
+  useEffect(() => {
+    if (!formData.country) {
+      setAvailableStates([]);
+      setAvailableCities([]);
+      return;
+    }
+    const fetchStates = async () => {
+      try {
+        const data = await api.get<{ states: string[] }>(
+          `/api/snippets/available-locations?country=${encodeURIComponent(formData.country)}`
+        );
+        const list = Array.isArray(data?.states) ? data.states : [];
+        setAvailableStates(list);
+        setAvailableCities([]);
+      } catch (error) {
+        console.error("Error fetching available states:", error);
+        setAvailableStates([]);
+      }
+    };
+    fetchStates();
+  }, [formData.country]);
+
+  // Fetch available cities when state changes
+  useEffect(() => {
+    if (!formData.country || !formData.state) {
+      setAvailableCities([]);
+      return;
+    }
+    const fetchCities = async () => {
+      try {
+        const data = await api.get<{ cities: string[] }>(
+          `/api/snippets/available-locations?country=${encodeURIComponent(formData.country)}&state=${encodeURIComponent(formData.state)}`
+        );
+        const list = Array.isArray(data?.cities) ? data.cities : [];
+        setAvailableCities(list);
+      } catch (error) {
+        console.error("Error fetching available cities:", error);
+        setAvailableCities([]);
+      }
+    };
+    fetchCities();
+  }, [formData.country, formData.state]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const body = {
+      name: formData.name,
+      country: formData.country,
+      state: formData.state || null,
+      city: formData.city || null,
+      category: formData.category,
+      limit: parseInt(formData.limit, 10) || 4,
+    };
+
     try {
-      const url = editingId ? `/api/snippets/${editingId}` : "/api/snippets";
-      const method = editingId ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-        body: JSON.stringify({
-          name: formData.name,
-          country: formData.country,
-          state: formData.state || null,
-          city: formData.city || null,
-          category: formData.category,
-          limit: parseInt(formData.limit),
-        }),
-      });
-
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(payload?.error || "Failed to save snippet");
-      if (payload?.snippet) setLastSavedSnippet(payload.snippet);
+      if (editingId) {
+        const payload = await api.put<{ snippet: Snippet }>(`/api/snippets/${editingId}`, body);
+        if (payload?.snippet) setLastSavedSnippet(payload.snippet);
+      } else {
+        const payload = await api.post<{ snippet: Snippet }>("/api/snippets", body);
+        if (payload?.snippet) setLastSavedSnippet(payload.snippet);
+      }
 
       // Refresh snippets list
-      const listRes = await fetch("/api/snippets");
-      const data = await listRes.json();
+      const data = await api.get<{ snippets: Snippet[] }>("/api/snippets");
       setSnippets(data.snippets || []);
 
       // Reset form
       setFormData({
         name: "",
-        country: "India",
+        country: availableCountries[0] ?? "",
         state: "",
         city: "",
         category: "",
         limit: "4",
       });
       setEditingId(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving snippet:", error);
-      alert("Failed to save snippet");
+      const msg =
+        error?.message ||
+        (typeof error === "string" ? error : undefined) ||
+        "Failed to save snippet. Check the console and ensure you are logged in as admin.";
+      alert(msg);
     }
   };
 
@@ -153,7 +223,6 @@ export default function SnippetsPage() {
       limit: String(snippet.limit),
     });
     setEditingId(snippet.id);
-    setSelectedCountry(snippet.country);
     setLastSavedSnippet(snippet);
   };
 
@@ -161,27 +230,16 @@ export default function SnippetsPage() {
     if (!confirm("Are you sure you want to delete this snippet?")) return;
 
     try {
-      const res = await fetch(`/api/snippets/${id}`, {
-        method: "DELETE",
-        headers: { "X-Requested-With": "XMLHttpRequest" },
-      });
-      if (!res.ok) throw new Error("Failed to delete snippet");
-
+      await api.delete(`/api/snippets/${id}`);
       setSnippets(snippets.filter((s) => s.id !== id));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting snippet:", error);
-      alert("Failed to delete snippet");
+      alert(error?.message || "Failed to delete snippet");
     }
   };
 
   if (isLoadingUser) return null;
   if (!isAuthenticated || user?.role !== "admin") return null;
-
-  // Get country code from selected country name
-  const selectedCountryObj = WORLD_COUNTRIES.find(c => c.name === selectedCountry);
-  const countryCode = selectedCountryObj?.code || "";
-  const countryStates = COUNTRY_STATES[countryCode as keyof typeof COUNTRY_STATES] || [];
-  const stateCities = formData.state ? STATE_CITIES[formData.state as keyof typeof STATE_CITIES] || [] : [];
 
   return (
     <DashboardLayout role="admin">
@@ -195,7 +253,7 @@ export default function SnippetsPage() {
                 setEditingId(null);
                 setFormData({
                   name: "",
-                  country: "India",
+                  country: availableCountries[0] ?? "",
                   state: "",
                   city: "",
                   category: "",
@@ -240,13 +298,16 @@ export default function SnippetsPage() {
                       value={formData.country}
                       onChange={(e) => {
                         setFormData({ ...formData, country: e.target.value, state: "", city: "" });
-                        setSelectedCountry(e.target.value);
                       }}
                       required
+                      disabled={locationsLoading}
                     >
-                      {WORLD_COUNTRIES.map((c) => (
-                        <option key={c.code} value={c.name}>
-                          {c.name}
+                      <option value="">
+                        {locationsLoading ? "Loading..." : availableCountries.length === 0 ? "No countries with services" : "Select country"}
+                      </option>
+                      {availableCountries.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
                         </option>
                       ))}
                     </select>
@@ -261,9 +322,10 @@ export default function SnippetsPage() {
                       onChange={(e) =>
                         setFormData({ ...formData, state: e.target.value, city: "" })
                       }
+                      disabled={!formData.country}
                     >
                       <option value="">Select a state</option>
-                      {countryStates.map((s) => (
+                      {availableStates.map((s) => (
                         <option key={s} value={s}>
                           {s}
                         </option>
@@ -283,7 +345,7 @@ export default function SnippetsPage() {
                       disabled={!formData.state}
                     >
                       <option value="">{formData.state ? "Select a city" : "Select state first"}</option>
-                      {stateCities.map((c) => (
+                      {availableCities.map((c) => (
                         <option key={c} value={c}>
                           {c}
                         </option>
@@ -365,7 +427,7 @@ export default function SnippetsPage() {
                   </div>
                 ) : snippets.length === 0 ? (
                   <p className="text-gray-500 text-center py-6">
-                    No snippets created yet
+                    No snippets yet
                   </p>
                 ) : (
                   <div className="space-y-2">

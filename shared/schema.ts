@@ -67,9 +67,11 @@ export const detectives = pgTable("detectives", {
   pendingBillingCycle: text("pending_billing_cycle"),
   planActivatedAt: timestamp("plan_activated_at"),
   planExpiresAt: timestamp("plan_expires_at"),
-  // BLUE TICK: Separate add-on subscription (independent of package)
+  // BLUE TICK: Subscription-granted (synced from package.badges.blueTick by applyPackageEntitlements)
   hasBlueTick: boolean("has_blue_tick").notNull().default(false),
   blueTickActivatedAt: timestamp("blue_tick_activated_at"),
+  // BLUE TICK ADD-ON: Purchased separately; survives subscription expiry/downgrade; never cleared by entitlements
+  blueTickAddon: boolean("blue_tick_addon").notNull().default(false),
   status: detectiveStatusEnum("status").notNull().default("pending"),
   level: detectiveLevelEnum("level").notNull().default("level1"),
   isVerified: boolean("is_verified").notNull().default(false),

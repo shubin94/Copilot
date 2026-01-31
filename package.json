@@ -8,6 +8,7 @@
     "build": "vite build",
     "start": "tsx server/index-prod.ts",
     "reset-auth": "tsx scripts/reset-auth-and-bootstrap-admin.ts",
+    "create-admin": "tsx scripts/create-admin.ts",
     "db:audit": "tsx scripts/db-audit.ts"
   },
   "dependencies": {
@@ -88,5 +89,8 @@
     "tsx": "^4.7.2",
     "typescript": "^5.4.5",
     "vite": "^5.2.10"
+  },
+  "overrides": {
+    "tar@<=7.5.3": "7.5.3"
   }
 }
