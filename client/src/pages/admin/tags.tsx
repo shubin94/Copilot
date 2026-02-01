@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Edit2, Trash2, AlertCircle } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { api } from "@/lib/api";
 
 interface Tag {
   id: string;
@@ -25,39 +26,25 @@ export default function TagsAdmin() {
   // Fetch tags
   const { data: tagsData, isLoading } = useQuery({
     queryKey: ["/api/admin/tags", statusFilter],
-    queryFn: async () => {
-      const res = await fetch(
+    queryFn: () =>
+      api.get<{ tags: Tag[] }>(
         `/api/admin/tags${statusFilter ? `?status=${statusFilter}` : ""}`
-        , {
-          credentials: "include",
-        }
-      );
-      if (!res.ok) throw new Error("Failed to fetch tags");
-      return res.json();
-    },
+      ),
   });
 
   const tags: Tag[] = tagsData?.tags || [];
 
-  // Create/Update mutation
+  // Create/Update mutation (api client adds CSRF token for POST/PATCH)
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
-      const method = editingId ? "PATCH" : "POST";
-      const url = editingId ? `/api/admin/tags/${editingId}` : "/api/admin/tags";
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-        },
-        credentials: "include",
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to save tag");
+      try {
+        if (editingId) {
+          return await api.patch<{ tag: Tag }>(`/api/admin/tags/${editingId}`, data);
+        }
+        return await api.post<{ tag: Tag }>("/api/admin/tags", data);
+      } catch (err: any) {
+        throw new Error(err?.message || "Failed to save tag");
       }
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/tags"] });
@@ -71,19 +58,14 @@ export default function TagsAdmin() {
     },
   });
 
-  // Delete mutation
+  // Delete mutation (api client adds CSRF token for DELETE)
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admin/tags/${id}`, {
-        method: "DELETE",
-        headers: { "X-Requested-With": "XMLHttpRequest" },
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to delete tag");
+      try {
+        return await api.delete<{ tag: Tag }>(`/api/admin/tags/${id}`);
+      } catch (err: any) {
+        throw new Error(err?.message || "Failed to delete tag");
       }
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/tags"] });
@@ -155,7 +137,7 @@ export default function TagsAdmin() {
       {isLoading ? (
         <div className="text-center py-8">Loading...</div>
       ) : tags.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">No tags found</div>
+        <div className="text-center py-8 text-gray-500">No tags yet</div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="w-full">

@@ -36,8 +36,9 @@ export default function AdminSignups() {
     try {
       await updateStatus.mutateAsync({ id, status: "approved" });
       toast({ title: "Application Approved", description: `${fullName} has been approved and added to the platform.` });
-    } catch {
-      toast({ title: "Error", description: "Failed to approve application. Please try again.", variant: "destructive" });
+    } catch (err: any) {
+      const message = err?.message || "Failed to approve application. Please try again.";
+      toast({ title: "Error", description: message, variant: "destructive" });
     }
   };
 
@@ -57,8 +58,9 @@ export default function AdminSignups() {
       await updateStatus.mutateAsync({ id: rejectTarget.id, status: "rejected", reviewNotes: rejectReason.trim() || undefined });
       setRejectDialogOpen(false);
       toast({ title: "Application Rejected", description: `${rejectTarget.fullName}'s application has been rejected.` });
-    } catch {
-      toast({ title: "Error", description: "Failed to reject application. Please try again.", variant: "destructive" });
+    } catch (err: any) {
+      const message = err?.message || "Failed to reject application. Please try again.";
+      toast({ title: "Error", description: message, variant: "destructive" });
     }
   };
 
@@ -79,7 +81,7 @@ export default function AdminSignups() {
               ) : newApplications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <Inbox className="h-10 w-10 text-gray-300 mb-3" />
-                  <div className="text-gray-600">No new applications</div>
+                  <div className="text-gray-600">No applications yet</div>
                 </div>
               ) : (
                 <Table>

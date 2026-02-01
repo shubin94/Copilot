@@ -9,10 +9,11 @@ let paypal: any = null;
 let paypalClientInstance: any | null = null;
 let paypalCredentialsHash: string | null = null;
 
-// Initialize PayPal SDK
+// Initialize PayPal SDK (CommonJS package: module.exports is under .default when dynamic-imported in ESM)
 async function loadPayPalSDK() {
   if (!paypal) {
-    paypal = await import("@paypal/checkout-server-sdk");
+    const module = await import("@paypal/checkout-server-sdk");
+    paypal = (module as any).default ?? module;
   }
   return paypal;
 }

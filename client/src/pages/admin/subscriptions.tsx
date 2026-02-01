@@ -271,13 +271,13 @@ export default function AdminSubscriptions() {
             return <Card><CardContent><p>Loading...</p></CardContent></Card>;
           }
           if (!plans || plans.length === 0) {
-            return <Card><CardContent><p>No plans available</p></CardContent></Card>;
+            return <Card><CardContent><p className="text-gray-500 text-center py-8">No plans yet</p></CardContent></Card>;
           }
           return <Card>
           <CardHeader>
             <CardTitle>Plans</CardTitle>
             <CardDescription>
-              Showing all plans (active and inactive).
+              Showing all plans (active and inactive). Count is from the <code className="text-xs bg-gray-200 px-1 rounded">subscription_plans</code> table — use that table name when checking the database.
             </CardDescription>
             <div className="flex items-center gap-3 mt-2">
               <Badge variant="secondary">Total: {plans.length}</Badge>
@@ -358,7 +358,13 @@ export default function AdminSubscriptions() {
               </TableBody>
             </Table>
             <div className="flex justify-end mt-4">
-              <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={applyServiceLimits}>Apply Service Limits</Button>
+              <Button
+                className="bg-green-600 hover:bg-green-700 text-white"
+                disabled
+                title="Not available yet"
+              >
+                Apply Service Limits
+              </Button>
             </div>
           </CardContent>
         </Card>;

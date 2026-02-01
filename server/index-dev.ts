@@ -11,6 +11,7 @@ import runApp from "./app";
 
 import viteConfig from "../vite.config";
 import { config, validateConfig } from "./config";
+import { loadSecretsFromDatabase } from "./lib/secretsLoader";
 import { validateDatabase } from "./startup";
 
 const viteLogger = createLogger();
@@ -70,6 +71,7 @@ export async function setupVite(app: Express, server: Server) {
       validateConfig();
     }
     await validateDatabase();
+    await loadSecretsFromDatabase();
     const server = await runApp(setupVite);
     console.log(`✅ Server fully started and listening on port ${config.server.port}`);
     

@@ -102,7 +102,7 @@ export default function PageTag() {
             ))}
           </div>
         ) : (
-          <div className="text-gray-500">No pages with this tag.</div>
+          <div className="text-gray-500">No pages with this tag yet</div>
         )}
       </main>
       <Footer />

@@ -17,6 +17,7 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   role: userRoleEnum("role").notNull().default("user"),
   avatar: text("avatar"),
+  googleId: text("google_id"),
   preferredCountry: text("preferred_country"),
   preferredCurrency: text("preferred_currency"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
@@ -25,6 +26,7 @@ export const users = pgTable("users", {
 }, (table) => ({
   emailIdx: index("users_email_idx").on(table.email),
   roleIdx: index("users_role_idx").on(table.role),
+  googleIdIdx: uniqueIndex("users_google_id_unique").on(table.googleId),
 }));
 
 export const detectives = pgTable("detectives", {
@@ -67,9 +69,11 @@ export const detectives = pgTable("detectives", {
   pendingBillingCycle: text("pending_billing_cycle"),
   planActivatedAt: timestamp("plan_activated_at"),
   planExpiresAt: timestamp("plan_expires_at"),
-  // BLUE TICK: Separate add-on subscription (independent of package)
+  // BLUE TICK: Subscription-granted (synced from package.badges.blueTick by applyPackageEntitlements)
   hasBlueTick: boolean("has_blue_tick").notNull().default(false),
   blueTickActivatedAt: timestamp("blue_tick_activated_at"),
+  // BLUE TICK ADD-ON: Purchased separately; survives subscription expiry/downgrade; never cleared by entitlements
+  blueTickAddon: boolean("blue_tick_addon").notNull().default(false),
   status: detectiveStatusEnum("status").notNull().default("pending"),
   level: detectiveLevelEnum("level").notNull().default("level1"),
   isVerified: boolean("is_verified").notNull().default(false),
@@ -291,6 +295,13 @@ export const appPolicies = pgTable("app_policies", {
   key: text("key").primaryKey(),
   value: jsonb("value").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// App secrets: auth and API credentials stored in DB (never in git)
+export const appSecrets = pgTable("app_secrets", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull().default(""),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const subscriptionPlans = pgTable("subscription_plans", {

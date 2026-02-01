@@ -249,7 +249,7 @@ export default function AdminServices() {
                 ) : filteredServices.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                      {searchTerm ? "No services found matching your search" : "No services available yet"}
+                      {searchTerm ? "No services match your search" : "No services yet"}
                     </TableCell>
                   </TableRow>
                 ) : (

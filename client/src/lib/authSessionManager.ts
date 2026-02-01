@@ -13,6 +13,7 @@
  */
 
 import { queryClient } from "./queryClient";
+import { clearCsrfToken } from "./api";
 
 // Flag to prevent multiple simultaneous logout triggers
 let isLoggingOut = false;
@@ -49,6 +50,7 @@ export async function handleSessionInvalid(reason: string = 'session_expired') {
   try {
     // Clear all query cache
     queryClient.clear();
+    clearCsrfToken();
     
     // Clear local storage auth-related data
     localStorage.removeItem('favorites');
