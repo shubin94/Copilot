@@ -43,6 +43,7 @@ const AdminPages = lazy(() => import("@/pages/admin/pages"));
 const AdminRankingVisibility = lazy(() => import("@/pages/admin/ranking-visibility"));
 const AdminEmailTemplates = lazy(() => import("@/pages/admin/email-templates"));
 const AdminSnippets = lazy(() => import("@/pages/admin/snippets"));
+const AdminAppSecrets = lazy(() => import("@/pages/admin/app-secrets"));
 
 // CMS Admin Routes
 const AdminDashboardCMS = lazy(() => import("@/pages/admin/index"));
