@@ -24,8 +24,8 @@ export async function matchCategoryWithGemini(
     return { category: null, suggestedCategories: [] };
   }
 
-  const list = categoryNames.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(", ");
-  const escapedQuery = userQuery.replace(/"/g, '\\"');
+  const list = categoryNames.map((n) => `"${n.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(", ");
+  const escapedQuery = userQuery.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const prompt = [
     "Our service categories (use only these exact names): [" + list + "].",
     "",

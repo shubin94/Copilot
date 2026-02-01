@@ -18,7 +18,7 @@ export const COUNTRY_STATES: Record<string, string[]> = {
 
 // State -> cities (subset for lookup)
 const STATE_CITIES: Record<string, string[]> = {
-  "California": ["Los Angeles", "San Francisco", "San Diego", "Sacramento", "Mumbai"],
+  "California": ["Los Angeles", "San Francisco", "San Diego", "Sacramento"],
   "Maharashtra": ["Mumbai", "Pune", "Nagpur", "Thane", "Nashik"],
   "Karnataka": ["Bangalore", "Mysore", "Mangalore", "Belgaum"],
   "Texas": ["Houston", "Dallas", "Austin", "San Antonio"],
