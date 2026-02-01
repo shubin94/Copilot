@@ -22,6 +22,7 @@ async function run() {
       password: hashed,
       name: "Super Admin",
       role: "admin",
+      googleId: null,
     }).returning()
 
     console.log("=== SUPER ADMIN CREATED ===")
