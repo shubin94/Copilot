@@ -106,17 +106,17 @@ process.on('SIGINT', () => {
 async function main() {
   try {
     console.log('🚀 Starting server initialization...');
-    
+
+    console.log('🔐 Loading auth/secrets from database...');
+    await loadSecretsFromDatabase();
+
     if (config.env.isProd) {
       console.log('📋 Validating production config...');
       validateConfig();
     }
-    
+
     console.log('🔍 Validating database connection...');
     await validateDatabase();
-
-    console.log('🔐 Loading auth/secrets from database...');
-    await loadSecretsFromDatabase();
 
     console.log('⚙️  Starting Express app...');
     await runApp(serveStatic);

@@ -16,6 +16,7 @@ interface SecretItem {
 }
 
 const KEY_LABELS: Record<string, string> = {
+  host: "Server Host",
   google_client_id: "Google OAuth Client ID",
   google_client_secret: "Google OAuth Client Secret",
   session_secret: "Session Secret",

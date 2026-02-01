@@ -535,8 +535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }),
       });
       if (!tokenRes.ok) {
-        const errText = await tokenRes.text();
-        console.warn("[auth] Google token exchange failed:", tokenRes.status, errText);
+        console.warn("[auth] Google token exchange failed:", tokenRes.status);
         return res.redirect(`${frontOrigin}/login?error=google_token_failed`);
       }
       const tokens = (await tokenRes.json()) as { access_token?: string };
@@ -582,7 +581,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.redirect(302, frontOrigin + "/");
       });
     } catch (e) {
-      console.warn("[auth] Google callback error:", e);
+      console.warn("[auth] Google callback error:", e instanceof Error ? e.message : "Unknown error");
       res.redirect(`${frontOrigin}/login?error=google_login_failed`);
     }
   });
@@ -946,7 +945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // App secrets (auth, Google OAuth, etc.) - stored in DB, never in git
   const SECRET_KEYS = [
-    "google_client_id", "google_client_secret", "session_secret", "base_url",
+    "host", "google_client_id", "google_client_secret", "session_secret", "base_url",
     "supabase_url", "supabase_service_role_key", "sendgrid_api_key", "sendgrid_from_email",
     "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass", "smtp_from_email",
     "sendpulse_api_id", "sendpulse_api_secret", "sendpulse_sender_email", "sendpulse_sender_name", "sendpulse_enabled",

@@ -67,11 +67,11 @@ export async function setupVite(app: Express, server: Server) {
 
 (async () => {
   try {
+    await loadSecretsFromDatabase();
     if (config.env.isProd) {
       validateConfig();
     }
     await validateDatabase();
-    await loadSecretsFromDatabase();
     const server = await runApp(setupVite);
     console.log(`✅ Server fully started and listening on port ${config.server.port}`);
     

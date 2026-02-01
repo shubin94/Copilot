@@ -8,6 +8,7 @@ import { appSecrets } from "../../shared/schema.ts";
 import { config } from "../config.ts";
 
 const KEY_MAP: Record<string, (v: string) => void> = {
+  host: (v) => { (config as any).server.host = v; },
   google_client_id: (v) => { (config as any).google.clientId = v; },
   google_client_secret: (v) => { (config as any).google.clientSecret = v; },
   session_secret: (v) => { (config as any).session.secret = v; },
