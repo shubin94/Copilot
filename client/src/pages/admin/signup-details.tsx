@@ -3,9 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { Check, X, FileText, Download, Shield, User, Mail, Phone, MapPin, Calendar } from "lucide-react";
-import { Link, useRoute } from "wouter";
-import { useApplication, useUpdateApplicationNotes } from "@/lib/hooks";
+import { Link, useRoute, useLocation } from "wouter";
+import { useApplication, useUpdateApplicationNotes, useUpdateApplicationStatus } from "@/lib/hooks";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -13,11 +15,15 @@ import { useToast } from "@/hooks/use-toast";
 export default function AdminSignupDetails() {
   const [match, params] = useRoute("/admin/signups/:id");
   const id = params?.id || null;
+  const [, setLocation] = useLocation();
   const { data, isLoading } = useApplication(id);
   const application = data?.application;
   const updateNotes = useUpdateApplicationNotes();
+  const updateStatus = useUpdateApplicationStatus();
   const { toast } = useToast();
   const [notes, setNotes] = useState("");
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const displayDocName = (doc: string, idx: number) => {
     if (!doc) return `Document ${idx + 1}`;
     if (doc.startsWith("data:")) return `Document ${idx + 1}`;
@@ -56,10 +62,28 @@ export default function AdminSignupDetails() {
             )}
           </div>
           <div className="flex gap-3">
-            <Button variant="destructive" className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200">
+            <Button
+              variant="destructive"
+              className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200"
+              onClick={() => setRejectDialogOpen(true)}
+              disabled={!application || application.status === "approved" || application.status === "rejected" || updateStatus.isPending}
+            >
               <X className="mr-2 h-4 w-4" /> Reject Application
             </Button>
-            <Button className="bg-green-600 hover:bg-green-700">
+            <Button
+              className="bg-green-600 hover:bg-green-700"
+              onClick={async () => {
+                if (!id) return;
+                try {
+                  await updateStatus.mutateAsync({ id, status: "approved" });
+                  toast({ title: "Application Approved", description: `${application?.fullName || "Applicant"} has been approved and added to the platform.` });
+                  setLocation("/admin/signups");
+                } catch (err: any) {
+                  toast({ title: "Error", description: err?.message || "Failed to approve application. Please try again.", variant: "destructive" });
+                }
+              }}
+              disabled={!application || application.status === "approved" || application.status === "rejected" || updateStatus.isPending}
+            >
               <Check className="mr-2 h-4 w-4" /> Approve Detective
             </Button>
           </div>
@@ -294,6 +318,39 @@ export default function AdminSignupDetails() {
           </div>
         </div>
       </div>
+
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Application</DialogTitle>
+            <DialogDescription>Enter the internal reason for rejection. This note is visible only to the admin team.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {application && <div className="text-sm text-gray-700">{application.fullName}</div>}
+            <Textarea placeholder="Reason for rejection" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!id) return;
+                try {
+                  await updateStatus.mutateAsync({ id, status: "rejected", reviewNotes: rejectReason.trim() || undefined });
+                  setRejectDialogOpen(false);
+                  toast({ title: "Application Rejected", description: `${application?.fullName || "Applicant"}'s application has been rejected.` });
+                  setLocation("/admin/signups");
+                } catch (err: any) {
+                  toast({ title: "Error", description: err?.message || "Failed to reject application. Please try again.", variant: "destructive" });
+                }
+              }}
+              disabled={updateStatus.isPending}
+            >
+              Reject
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

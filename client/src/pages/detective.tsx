@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ServiceCard } from "@/components/home/service-card";
 import { useRoute } from "wouter";
 import { useDetective, useServicesByDetective } from "@/lib/hooks";
+import { buildBadgesFromEffective } from "@/lib/badges";
 import { ShieldCheck, MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -44,12 +45,22 @@ export default function DetectivePublicPage() {
               <div className="flex items-center gap-4">
                 <img src={detective.logo || "/placeholder-avatar.png"} alt="avatar" className="h-16 w-16 rounded-full object-cover border" />
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-lg" data-testid="text-detective-name">{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</span>
+                    {/* Order: Verified → Blue Tick → Pro → Recommended (effectiveBadges + isVerified only) */}
                     {detective.isVerified && (
                       <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-verified">
                         <ShieldCheck className="h-3 w-3" /> Verified
                       </Badge>
+                    )}
+                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
+                      <img src="/blue-tick.png" alt="Blue Tick" className="h-5 w-5 flex-shrink-0" title="Blue Tick" />
+                    )}
+                    {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
+                      <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" />
+                    )}
+                    {(detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended && (
+                      <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-0.5">Recommended</Badge>
                     )}
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-700 mt-1">
@@ -127,23 +138,10 @@ export default function DetectivePublicPage() {
           ) : services.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {services.map((service: any) => {
-                // Compute badges for service card
-                const badges: string[] = [];
-                
-                // BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified
-                if (detective?.hasBlueTick && detective?.subscriptionPackageId) {
-                  badges.push("blueTick");
-                }
-                if (detective?.subscriptionPackageId && detective?.subscriptionPackage?.badges) {
-                  if (typeof detective.subscriptionPackage.badges === 'object' && !Array.isArray(detective.subscriptionPackage.badges)) {
-                    if (detective.subscriptionPackage.badges['pro']) badges.push("pro");
-                    if (detective.subscriptionPackage.badges['recommended']) badges.push("recommended");
-                  } else if (Array.isArray(detective.subscriptionPackage.badges)) {
-                    if (detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro')) badges.push("pro");
-                    if (detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended')) badges.push("recommended");
-                  }
-                }
-                if (detective?.isVerified) badges.push("verified");
+                const badges = buildBadgesFromEffective(
+                  (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
+                  !!detective?.isVerified
+                );
                 
                 return (
                   <ServiceCard
@@ -168,7 +166,7 @@ export default function DetectivePublicPage() {
               })}
             </div>
           ) : (
-            <div className="text-gray-600">No services found for this detective.</div>
+            <div className="text-gray-500">No services yet</div>
           )}
         </section>
       </main>

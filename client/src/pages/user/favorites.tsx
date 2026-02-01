@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
 import { useService } from "@/lib/hooks";
+import { buildBadgesFromEffective } from "@/lib/badges";
 import type { Service, Detective } from "@shared/schema";
 
 export default function FavoritesPage() {
@@ -109,23 +110,11 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
   const avatar = svc.detective.logo || "";
   const level = svc.detective.level ? (svc.detective.level === "pro" ? "Pro Level" : (svc.detective.level as string).replace("level", "Level ")) : "Level 1";
   
-  // Compute badges with proper order
-  const badges: string[] = [];
-  
-  // BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified
-  if (svc.detective.hasBlueTick && svc.detective.subscriptionPackageId) {
-    badges.push("blueTick");
-  }
-  if (svc.detective.subscriptionPackageId && svc.detective.subscriptionPackage?.badges) {
-    if (typeof svc.detective.subscriptionPackage.badges === 'object' && !Array.isArray(svc.detective.subscriptionPackage.badges)) {
-      if (svc.detective.subscriptionPackage.badges['pro']) badges.push("pro");
-      if (svc.detective.subscriptionPackage.badges['recommended']) badges.push("recommended");
-    } else if (Array.isArray(svc.detective.subscriptionPackage.badges)) {
-      if (svc.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro')) badges.push("pro");
-      if (svc.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended')) badges.push("recommended");
-    }
-  }
-  if (svc.detective.isVerified) badges.push("verified");
+  // Badges from effectiveBadges only (order: Verified → Blue Tick → Pro → Recommended)
+  const badges = buildBadgesFromEffective(
+    (svc.detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
+    !!svc.detective.isVerified
+  );
   
   return (
     <ServiceCard

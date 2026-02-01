@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrentDetective, useUpdateDetective } from "@/lib/hooks";
 import { api } from "@/lib/api";
+import { useCurrency } from "@/lib/currency-context";
 import { PaymentGatewaySelector } from "@/components/payment/payment-gateway-selector";
 import { AlreadyVerifiedModal } from "@/components/payment/already-verified-modal";
 
@@ -53,6 +54,8 @@ export default function DetectiveSubscription() {
   const { data: currentData } = useCurrentDetective();
   const detective = currentData?.detective;
   const updateDetective = useUpdateDetective();
+  const { formatPriceForCountry, selectedCountry } = useCurrency();
+  const detectiveCountry = detective?.country || selectedCountry.code;
   const [isAnnual, setIsAnnual] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [plans, setPlans] = useState<PlanRecord[]>([]);
@@ -62,6 +65,14 @@ export default function DetectiveSubscription() {
   const [showGatewaySelector, setShowGatewaySelector] = useState(false);
   const [pendingPayment, setPendingPayment] = useState<{packageId: string; packageName: string; isBlueTick?: boolean; billingCycle?: 'monthly' | 'yearly'} | null>(null);
   const [showAlreadyVerifiedModal, setShowAlreadyVerifiedModal] = useState(false);
+
+  /** Gateway selection by currency: INR (India) → Razorpay, non-INR → PayPal. Fallback to first enabled if preferred not available. */
+  const selectGatewayForCurrency = (gateways: PaymentGateway[], countryCode: string): string => {
+    const preferred = countryCode === "IN" ? "razorpay" : "paypal";
+    const preferredGateway = gateways.find((g) => g.name === preferred);
+    if (preferredGateway) return preferredGateway.name;
+    return gateways[0]?.name ?? "";
+  };
 
   // Use subscriptionPackageId to detect current plan (not legacy subscriptionPlan)
   const currentPackageId = detective?.subscriptionPackageId || null;
@@ -247,11 +258,10 @@ export default function DetectiveSubscription() {
         console.log(`[subscription] Single gateway available: ${availableGateways[0].name}`);
         await proceedWithPayment(packageId, packageName, billingCycle, availableGateways[0].name);
       } else {
-        // Multiple gateways: show selector
-        console.log(`[subscription] Multiple gateways available (${availableGateways.length}), showing selector`);
-        console.log(`[subscription] Gateway names:`, availableGateways.map(g => g.name).join(', '));
-        setPendingPayment({ packageId, packageName });
-        setShowGatewaySelector(true);
+        // Multiple gateways: select by currency (INR → Razorpay, non-INR → PayPal)
+        const gateway = selectGatewayForCurrency(availableGateways, detectiveCountry);
+        console.log(`[subscription] Multiple gateways; selected by currency (${detectiveCountry}): ${gateway}`);
+        await proceedWithPayment(packageId, packageName, billingCycle, gateway);
       }
     } catch (error: any) {
       setIsUpdating(null);
@@ -554,7 +564,7 @@ export default function DetectiveSubscription() {
   const handleBlueTick = async (billingCycle: 'monthly' | 'yearly') => {
     // STEP 1 — CHECK FIRST: Is Blue Tick already active?
     // This is a HARD BUSINESS RULE — must check BEFORE ANY OTHER LOGIC
-    if (detective?.hasBlueTick) {
+    if ((detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick) {
       console.log('[blue-tick] Detective already has Blue Tick active, showing modal');
       setShowAlreadyVerifiedModal(true);
       return;
@@ -587,10 +597,10 @@ export default function DetectiveSubscription() {
         console.log(`[blue-tick] Single gateway available: ${availableGateways[0].name}`);
         await proceedWithBlueTickPayment(billingCycle, availableGateways[0].name);
       } else {
-        // Multiple gateways: show selector
-        console.log(`[blue-tick] Multiple gateways available (${availableGateways.length}), showing selector`);
-        setPendingPayment({ packageId: 'blue-tick', packageName: 'Blue Tick', isBlueTick: true, billingCycle });
-        setShowGatewaySelector(true);
+        // Multiple gateways: select by currency (INR → Razorpay, non-INR → PayPal)
+        const gateway = selectGatewayForCurrency(availableGateways, detectiveCountry);
+        console.log(`[blue-tick] Multiple gateways; selected by currency (${detectiveCountry}): ${gateway}`);
+        await proceedWithBlueTickPayment(billingCycle, gateway);
       }
     } catch (error: any) {
       setIsUpdating(null);
@@ -908,7 +918,7 @@ export default function DetectiveSubscription() {
           ) : error ? (
             <div className="md:col-span-3 text-center text-red-600">{error}</div>
           ) : plans.length === 0 ? (
-            <div className="md:col-span-3 text-center text-gray-500">No plans available</div>
+            <div className="md:col-span-3 text-center text-gray-500">No plans yet</div>
           ) : plans.filter(p => p.isActive !== false).map((plan) => {
             const price = isAnnual ? parseFloat(String(plan.yearlyPrice ?? 0)) : parseFloat(String(plan.monthlyPrice ?? 0));
             const period = isAnnual ? "/year" : "/month";
@@ -946,7 +956,9 @@ export default function DetectiveSubscription() {
                     {planId === "free" && <Star className="h-6 w-6 text-gray-400" />}
                   </div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-extrabold text-gray-900">${price}</span>
+                    <span className="text-4xl font-extrabold text-gray-900">
+                      {formatPriceForCountry(price, detectiveCountry)}
+                    </span>
                     <span className="text-gray-500 font-medium">{period}</span>
                   </div>
                   <CardDescription className="mt-2 text-base">{plan.description || ""}</CardDescription>
@@ -1128,7 +1140,9 @@ export default function DetectiveSubscription() {
                   </div>
                 </div>
                 <div className="text-right">
-                   <div className="text-2xl font-bold text-blue-900">${isAnnual ? "150" : "15"}</div>
+                   <div className="text-2xl font-bold text-blue-900">
+                     {formatPriceForCountry(isAnnual ? 150 : 15, detectiveCountry)}
+                   </div>
                    <div className="text-xs text-blue-600">{isAnnual ? "/year" : "/month"}</div>
                 </div>
               </div>
@@ -1141,7 +1155,7 @@ export default function DetectiveSubscription() {
                 disabled={!currentPackageId || isUpdating === 'blue-tick'}
                 title={!currentPackageId ? "You need an active subscription to add Blue Tick" : ""}
               >
-                {detective?.hasBlueTick ? "Blue Tick Active" : "Add Blue Tick Verification"}
+                {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick ? "Blue Tick Active" : "Add Blue Tick Verification"}
               </Button>
             </CardFooter>
           </Card>

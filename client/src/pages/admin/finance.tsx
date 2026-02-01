@@ -412,7 +412,7 @@ export default function AdminFinancePage() {
                   ) : transactionsData?.transactions?.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="text-center py-8 text-gray-500">
-                        No transactions found
+                        No transactions yet
                       </td>
                     </tr>
                   ) : (

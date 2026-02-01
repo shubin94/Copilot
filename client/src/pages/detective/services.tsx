@@ -558,7 +558,7 @@ export default function DetectiveServices() {
         ) : services.length === 0 ? (
           <Card>
             <CardContent className="py-16 text-center">
-              <p className="text-gray-500">No live services yet. Complete the service form (Banner Image, Category, Title, Description and Base Price) to make it visible to the public.</p>
+              <p className="text-gray-500">You haven't added any services yet. Complete the service form (Banner Image, Category, Title, Description and Base Price) to make it visible to the public.</p>
             </CardContent>
           </Card>
         ) : (
