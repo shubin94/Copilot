@@ -24,10 +24,10 @@ export async function matchCategoryWithGemini(
     return { category: null, suggestedCategories: [] };
   }
 
-  const list = categoryNames.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(", ");
+  const list = categoryNames.map((n) => `"${n.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(", ");
   const prompt = `Our service categories (use only these exact names): [${list}].
 
-User said: "${userQuery.replace(/"/g, '\\"')}"
+User said: "${userQuery.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 
 Figure out which category fits. Reply with JSON only:
 {"category": "<exact category name from the list above, or null if none fit>", "suggestedCategories": ["up to 3 category names from the list if relevant"]}`;
