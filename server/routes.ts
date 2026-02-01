@@ -17,6 +17,7 @@ import {
   claimTokens,
   emailTemplates,
   detectiveSnippets,
+  appSecrets,
   services,
   reviews,
   insertUserSchema, 
@@ -940,6 +941,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ databaseUrlPresent: !!url, parsed });
     } catch (error) {
       res.status(500).json({ error: "Env check failed" });
+    }
+  });
+
+  // App secrets (auth, Google OAuth, etc.) - stored in DB, never in git
+  const SECRET_KEYS = [
+    "google_client_id", "google_client_secret", "session_secret", "base_url",
+    "supabase_url", "supabase_service_role_key", "sendgrid_api_key", "sendgrid_from_email",
+    "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass", "smtp_from_email",
+    "sendpulse_api_id", "sendpulse_api_secret", "sendpulse_sender_email", "sendpulse_sender_name", "sendpulse_enabled",
+    "razorpay_key_id", "razorpay_key_secret", "paypal_client_id", "paypal_client_secret", "paypal_mode",
+    "gemini_api_key",
+  ];
+  const maskValue = (v: string) => (v && v.length > 4 ? v.slice(0, 2) + "****" + v.slice(-2) : "****");
+
+  app.get("/api/admin/app-secrets", requireRole("admin"), async (_req: Request, res: Response) => {
+    try {
+      const rows = await db.select().from(appSecrets);
+      const byKey = Object.fromEntries(rows.map(r => [r.key, r]));
+      const secrets = SECRET_KEYS.map(key => ({
+        key,
+        value: byKey[key]?.value ? maskValue(byKey[key].value) : "",
+        hasValue: !!(byKey[key]?.value),
+      }));
+      res.json({ secrets });
+    } catch (error) {
+      console.error("Error fetching app secrets:", error);
+      res.status(500).json({ error: "Failed to fetch app secrets" });
+    }
+  });
+
+  app.put("/api/admin/app-secrets/:key", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const key = req.params.key;
+      if (!SECRET_KEYS.includes(key)) {
+        return res.status(400).json({ error: `Invalid key. Allowed: ${SECRET_KEYS.join(", ")}` });
+      }
+      const { value } = req.body as { value?: string };
+      if (typeof value !== "string") {
+        return res.status(400).json({ error: "Body must have value: string" });
+      }
+      await db.insert(appSecrets).values({
+        key,
+        value: value.trim(),
+        updatedAt: new Date(),
+      }).onConflictDoUpdate({
+        target: appSecrets.key,
+        set: { value: value.trim(), updatedAt: new Date() },
+      });
+      res.json({ success: true, key, message: "Secret updated. Restart server to apply." });
+    } catch (error) {
+      console.error("Error updating app secret:", error);
+      res.status(500).json({ error: "Failed to update app secret" });
     }
   });
 

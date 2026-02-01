@@ -297,6 +297,13 @@ export const appPolicies = pgTable("app_policies", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// App secrets: auth and API credentials stored in DB (never in git)
+export const appSecrets = pgTable("app_secrets", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull().default(""),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),

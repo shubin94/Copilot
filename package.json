@@ -9,7 +9,8 @@
     "start": "tsx server/index-prod.ts",
     "reset-auth": "tsx scripts/reset-auth-and-bootstrap-admin.ts",
     "create-admin": "tsx scripts/create-admin.ts",
-    "db:audit": "tsx scripts/db-audit.ts"
+    "db:audit": "tsx scripts/db-audit.ts",
+    "seed-app-secrets": "tsx scripts/seed-app-secrets.ts"
   },
   "dependencies": {
     "@paypal/checkout-server-sdk": "^1.0.3",

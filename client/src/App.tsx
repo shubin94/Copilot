@@ -145,6 +145,7 @@ function Router() {
           <Route path="/admin/pages" component={AdminPages} />
           <Route path="/admin/settings" component={AdminSettings} />
           <Route path="/admin/payment-gateways" component={AdminPaymentGateways} />
+          <Route path="/admin/app-secrets" component={AdminAppSecrets} />
           <Route path="/admin/branding" component={AdminBranding} />
           <Route path="/admin/ranking-visibility" component={AdminRankingVisibility} />
           <Route path="/admin/email-templates" component={AdminEmailTemplates} />

@@ -10,6 +10,7 @@ import type { Express, Request } from "express";
 
 import runApp from "./app.ts";
 import { config, validateConfig } from "./config.ts";
+import { loadSecretsFromDatabase } from "./lib/secretsLoader.ts";
 import { validateDatabase } from "./startup.ts";
 
 // Initialize Sentry error tracking (kill-switch: set SENTRY_DSN="" to disable)
@@ -113,7 +114,10 @@ async function main() {
     
     console.log('🔍 Validating database connection...');
     await validateDatabase();
-    
+
+    console.log('🔐 Loading auth/secrets from database...');
+    await loadSecretsFromDatabase();
+
     console.log('⚙️  Starting Express app...');
     await runApp(serveStatic);
     
