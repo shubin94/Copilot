@@ -25,12 +25,15 @@ export async function matchCategoryWithGemini(
   }
 
   const list = categoryNames.map((n) => `"${n.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(", ");
-  const prompt = `Our service categories (use only these exact names): [${list}].
-
-User said: "${userQuery.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-
-Figure out which category fits. Reply with JSON only:
-{"category": "<exact category name from the list above, or null if none fit>", "suggestedCategories": ["up to 3 category names from the list if relevant"]}`;
+  const escapedQuery = userQuery.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const prompt = [
+    "Our service categories (use only these exact names): [" + list + "].",
+    "",
+    'User said: "' + escapedQuery + '"',
+    "",
+    "Figure out which category fits. Reply with JSON only:",
+    '{"category": "<exact category name from the list above, or null if none fit>", "suggestedCategories": ["up to 3 category names from the list if relevant"]}',
+  ].join("\n");
 
   const url = `${GEMINI_BASE}/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const body = {

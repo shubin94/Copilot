@@ -47,7 +47,7 @@ export const config = {
   },
   session: {
     useMemory: isDev || (process.env.SESSION_USE_MEMORY === "true" && !isProd),
-    secret: isProd ? requireEnv("SESSION_SECRET") : (process.env.SESSION_SECRET || "dev-session-secret"),
+    secret: isProd ? (process.env.SESSION_SECRET || "") : (process.env.SESSION_SECRET || "dev-session-secret"),
     ttlMs: getNumber("SESSION_TTL_MS", 1000 * 60 * 60 * 24 * 7)!,
     secureCookies: isProd,
   },
@@ -69,8 +69,8 @@ export const config = {
     enabled: process.env.SENDPULSE_ENABLED === "true",
   },
   supabase: {
-    url: isProd ? requireEnv("SUPABASE_URL") : (process.env.SUPABASE_URL || ""),
-    serviceRoleKey: isProd ? requireEnv("SUPABASE_SERVICE_ROLE_KEY") : (process.env.SUPABASE_SERVICE_ROLE_KEY || ""),
+    url: isProd ? (process.env.SUPABASE_URL || "") : (process.env.SUPABASE_URL || ""),
+    serviceRoleKey: isProd ? (process.env.SUPABASE_SERVICE_ROLE_KEY || "") : (process.env.SUPABASE_SERVICE_ROLE_KEY || ""),
   },
   csrf: {
     allowedOrigins: getStringList(
@@ -105,24 +105,30 @@ export const config = {
 
 export function validateConfig() {
   if (isProd) {
-    // Server host must be provided in production
-    if (!config.server.host) throw new Error("Missing required environment variable: HOST");
+    // Server host must be provided in production (env HOST or app_secrets host)
+    if (!config.server.host || String(config.server.host).trim() === "") {
+      throw new Error("Missing required: HOST (set in env or app_secrets)");
+    }
+
+    // Session secret required (env SESSION_SECRET or app_secrets session_secret)
+    if (!config.session.secret || String(config.session.secret).trim() === "") {
+      throw new Error("Missing required: SESSION_SECRET (set in env or app_secrets)");
+    }
 
     // Email: require at least one provider configured fully
     const hasSendgrid = !!config.email.sendgridApiKey && !!config.email.sendgridFromEmail;
     const hasSmtp = !!config.email.smtpHost && !!config.email.smtpFromEmail;
     const hasSendpulse = !!config.sendpulse.apiId && !!config.sendpulse.apiSecret && !!config.sendpulse.senderEmail;
     if (!hasSendgrid && !hasSmtp && !hasSendpulse) {
-      throw new Error("Email not configured: set SENDGRID_API_KEY + SENDGRID_FROM_EMAIL or SMTP_HOST + SMTP_FROM_EMAIL or SENDPULSE_API_ID + SENDPULSE_API_SECRET + SENDPULSE_SENDER_EMAIL");
+      throw new Error("Email not configured: set SENDGRID_API_KEY + SENDGRID_FROM_EMAIL or SMTP_HOST + SMTP_FROM_EMAIL or SENDPULSE_API_ID + SENDPULSE_API_SECRET + SENDPULSE_SENDER_EMAIL (env or app_secrets)");
     }
 
-    // Supabase required for asset storage
+    // Supabase required for asset storage (env or app_secrets)
     if (!config.supabase.url || !config.supabase.serviceRoleKey) {
-      throw new Error("Supabase not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
+      throw new Error("Supabase not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (env or app_secrets)");
     }
 
-    if (!config.razorpay.keyId || !config.razorpay.keySecret) {
-      throw new Error("Razorpay not configured: set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
-    }
+    // Payment gateways: validated separately in validatePaymentGateways() after DB is available.
+    // Gateways can be disabled via payment_gateways table; no hard requirement here.
   }
 }

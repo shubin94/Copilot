@@ -8,6 +8,7 @@ import { db } from "../db/index.ts";
 import { appSecrets } from "../shared/schema.ts";
 
 const ENV_TO_KEY: Record<string, string> = {
+  HOST: "host",
   GOOGLE_CLIENT_ID: "google_client_id",
   GOOGLE_CLIENT_SECRET: "google_client_secret",
   SESSION_SECRET: "session_secret",
