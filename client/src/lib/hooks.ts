@@ -158,6 +158,8 @@ export function useServices(limit?: number, offset?: number) {
 export function useSearchServices(params?: {
   category?: string;
   country?: string;
+  state?: string;
+  city?: string;
   search?: string;
   minPrice?: number;
   maxPrice?: number;
@@ -589,5 +591,32 @@ export function useDeleteServiceCategory() {
       }
       queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
     },
+  });
+}
+
+// Location hooks
+export function useCountries() {
+  return useQuery({
+    queryKey: ["locations", "countries"],
+    queryFn: () => api.locations.getCountries(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+export function useStates(country: string | undefined) {
+  return useQuery({
+    queryKey: ["locations", "states", country],
+    queryFn: () => api.locations.getStates(country!),
+    enabled: !!country,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCities(country: string | undefined, state: string | undefined) {
+  return useQuery({
+    queryKey: ["locations", "cities", country, state],
+    queryFn: () => api.locations.getCities(country!, state!),
+    enabled: !!country && !!state,
+    staleTime: 5 * 60 * 1000,
   });
 }

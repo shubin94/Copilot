@@ -403,29 +403,29 @@ export const api = {
   },
   services: {
     search: async (params?: {
-
-
-
-
       category?: string;
       country?: string;
+      state?: string;
+      city?: string;
       search?: string;
       minPrice?: number;
       maxPrice?: number;
       sortBy?: string;
+      minRating?: number;
       limit?: number;
       offset?: number;
     }): Promise<{ services: Array<Service & { detective: Detective; avgRating: number; reviewCount: number }> }> => {
       const queryParams = new URLSearchParams();
       if (params?.category) queryParams.append("category", params.category);
       if (params?.country) queryParams.append("country", params.country);
+      if (params?.state) queryParams.append("state", params.state);
+      if (params?.city) queryParams.append("city", params.city);
       if (params?.search) queryParams.append("search", params.search);
       if (params?.minPrice !== undefined) queryParams.append("minPrice", params.minPrice.toString());
       if (params?.maxPrice !== undefined) queryParams.append("maxPrice", params.maxPrice.toString());
       if (params?.sortBy) queryParams.append("sortBy", params.sortBy);
       if (params?.minRating !== undefined) queryParams.append("minRating", params.minRating.toString());
       if (params?.limit !== undefined) queryParams.append("limit", params.limit.toString());
-
       if (params?.offset !== undefined) queryParams.append("offset", params.offset.toString());
 
       try {
@@ -836,6 +836,20 @@ export const api = {
         }
         throw err;
       }
+    },
+  },
+  locations: {
+    getCountries: async (): Promise<{ countries: string[] }> => {
+      const response = await csrfFetch(`/api/locations/countries`, { credentials: "include" });
+      return handleResponse(response);
+    },
+    getStates: async (country: string): Promise<{ states: string[] }> => {
+      const response = await csrfFetch(`/api/locations/states?country=${encodeURIComponent(country)}`, { credentials: "include" });
+      return handleResponse(response);
+    },
+    getCities: async (country: string, state: string): Promise<{ cities: string[] }> => {
+      const response = await csrfFetch(`/api/locations/cities?country=${encodeURIComponent(country)}&state=${encodeURIComponent(state)}`, { credentials: "include" });
+      return handleResponse(response);
     },
   },
 };

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
-import { Search, MapPin, Filter, ChevronDown, Star, Check, Globe, Loader2 } from "lucide-react";
+import { Search, MapPin, Filter, ChevronDown, Star, Check, Globe, Loader2, X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect, useRef } from "react";
 import {
   DropdownMenu,
@@ -23,10 +24,8 @@ import { Link, useLocation } from "wouter";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SEO } from "@/components/seo";
-import { useSearchServices, useServiceCategories } from "@/lib/hooks";
-import { COUNTRY_STATES } from "@/lib/geo";
+import { useSearchServices, useServiceCategories, useCountries, useStates, useCities } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
-import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import type { Service, Detective } from "@shared/schema";
 import { buildBadgesFromEffective } from "@/lib/badges";
 
@@ -67,18 +66,15 @@ export default function SearchPage() {
   const searchParams = new URLSearchParams(window.location.search);
   const query = searchParams.get("q") || "All Services";
   const countryFilter = searchParams.get("country");
-  const [countryInput, setCountryInput] = useState<string>("");
-  const countryInputRef = useRef<HTMLInputElement | null>(null);
   const [countryFilterState, setCountryFilterState] = useState<string | undefined>(countryFilter || undefined);
-  const [stateInput, setStateInput] = useState<string>(searchParams.get("state") || "");
   const [appliedState, setAppliedState] = useState<string>(searchParams.get("state") || "");
-  const [pendingCountryCode, setPendingCountryCode] = useState<string | undefined>(undefined);
-  const [pendingState, setPendingState] = useState<string>("");
-  const [stateQuery, setStateQuery] = useState<string>("");
-  const stateInputRef = useRef<HTMLInputElement | null>(null);
-  const [countrySuggestions, setCountrySuggestions] = useState<Array<{ name: string; code: string }>>([]);
-  const [loadingCountry, setLoadingCountry] = useState(false);
-  const [allCountries, setAllCountries] = useState<Array<{ name: string; code: string }>>([]);
+  const [appliedCity, setAppliedCity] = useState<string>(searchParams.get("city") || "");
+  const [countrySearch, setCountrySearch] = useState<string>("");
+  const [stateSearch, setStateSearch] = useState<string>("");
+  const [citySearch, setCitySearch] = useState<string>("");
+  const countrySearchRef = useRef<HTMLInputElement>(null);
+  const stateSearchRef = useRef<HTMLInputElement>(null);
+  const citySearchRef = useRef<HTMLInputElement>(null);
   
   
   const [minRating, setMinRating] = useState<number | undefined>(() => {
@@ -86,6 +82,7 @@ export default function SearchPage() {
     return mr ? parseFloat(mr) : undefined;
   });
   const [selectedCategory, setSelectedCategory] = useState<string | undefined>(searchParams.get("category") || undefined);
+  const [categoryQuery, setCategoryQuery] = useState<string>("");
   const [minPriceInput, setMinPriceInput] = useState<string>(searchParams.get("minPrice") || "");
   const [maxPriceInput, setMaxPriceInput] = useState<string>(searchParams.get("maxPrice") || "");
   const [minPrice, setMinPrice] = useState<number | undefined>(() => {
@@ -106,6 +103,8 @@ export default function SearchPage() {
   const { data: servicesData, isLoading } = useSearchServices({
     search: selectedCategory ? undefined : (query !== "All Services" ? query : undefined),
     country: countryFilterState || undefined,
+    state: appliedState || undefined,
+    city: appliedCity || undefined,
     category: selectedCategory,
     minRating,
     limit: 50,
@@ -115,8 +114,18 @@ export default function SearchPage() {
   const categories = categoriesData?.categories || [];
   const [openSections, setOpenSections] = useState<string[]>(["category", "location"]);
 
+  // Dynamic location data from database
+  const { data: countriesData } = useCountries();
+  const { data: statesData } = useStates(countryFilterState);
+  const { data: citiesData } = useCities(countryFilterState, appliedState);
+  
+  const availableCountries = countriesData?.countries || [];
+  const availableStates = statesData?.states || [];
+  const availableCities = citiesData?.cities || [];
+
   const results = servicesData?.services?.map(mapServiceToCard) || [];
-  const resultsWithImages = results.filter((s: any) => Array.isArray(s.images) && s.images.length > 0);
+  // Don't filter out services without images - show all results
+  const resultsWithImages = results;
   const filteredByBudget = resultsWithImages.filter((s) => {
     if (minPrice === undefined && maxPrice === undefined) return true;
     const converted = convertPriceFromTo(s.price, (s as any).countryCode, selectedCountry.code);
@@ -124,11 +133,8 @@ export default function SearchPage() {
     if (maxPrice !== undefined && converted > maxPrice) return false;
     return true;
   });
-  const filteredByState = filteredByBudget.filter((s) => {
-    if (!appliedState.trim()) return true;
-    const loc = ((s as any).location || "").toLowerCase();
-    return loc.startsWith(appliedState.trim().toLowerCase());
-  });
+  // Backend handles state/city filtering, no need to filter again on frontend
+  const filteredByState = filteredByBudget;
   const filteredByOptions = filteredByState.filter((s: any) => {
     if (proOnly && (s.plan !== "pro")) return false;
     if (agencyOnly && (s.plan !== "agency")) return false;
@@ -155,8 +161,8 @@ export default function SearchPage() {
     setMaxPrice(undefined);
     setMinPriceInput("");
     setMaxPriceInput("");
-    setStateInput("");
     setAppliedState("");
+    setAppliedCity("");
     setProOnly(false);
     setAgencyOnly(false);
     setLocalOnly(false);
@@ -174,10 +180,9 @@ export default function SearchPage() {
     const country = params.get("country");
     if (country != null) setCountryFilterState(country);
     const stateParam = params.get("state");
-    if (stateParam != null) {
-      setAppliedState(stateParam);
-      setStateInput(stateParam);
-    }
+    if (stateParam != null) setAppliedState(stateParam);
+    const cityParam = params.get("city");
+    if (cityParam != null) setAppliedCity(cityParam);
     const mr = params.get("minRating");
     setMinRating(mr ? parseFloat(mr) : undefined);
     const mp = params.get("minPrice");
@@ -204,6 +209,7 @@ export default function SearchPage() {
     if (minPrice !== undefined) params.set("minPrice", String(minPrice));
     if (maxPrice !== undefined) params.set("maxPrice", String(maxPrice));
     if (appliedState.trim()) params.set("state", appliedState.trim());
+    if (appliedCity.trim()) params.set("city", appliedCity.trim());
     if (proOnly) params.set("proOnly", "1");
     if (agencyOnly) params.set("agencyOnly", "1");
     if (localOnly) params.set("localOnly", "1");
@@ -212,7 +218,7 @@ export default function SearchPage() {
     if (sortBy) params.set("sortBy", sortBy);
     const url = `/search?${params.toString()}`;
     window.history.replaceState(null, "", url);
-  }, [selectedCategory, minRating, countryFilterState, minPrice, maxPrice, appliedState, proOnly, agencyOnly, localOnly, level1Only, level2Only, sortBy, query]);
+  }, [selectedCategory, minRating, countryFilterState, minPrice, maxPrice, appliedState, appliedCity, proOnly, agencyOnly, localOnly, level1Only, level2Only, sortBy, query]);
 
   // removed remote country fetch; using local COUNTRIES list
 
@@ -222,17 +228,39 @@ export default function SearchPage() {
          <AccordionTrigger className="font-bold text-sm">Category</AccordionTrigger>
          <AccordionContent>
               <div className="space-y-2">
-                {categories.map((cat) => (
-                  <button
-                    key={cat.id}
-                    className={`flex items-center justify-between w-full text-left px-2 py-1 rounded ${selectedCategory === cat.name ? 'bg-green-50 text-green-700 border border-green-200' : 'hover:bg-gray-50 text-gray-700'}`}
-                    onClick={() => setSelectedCategory(selectedCategory === cat.name ? undefined : cat.name)}
-                    data-testid={`checkbox-category-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
-                  >
-                    <span className="text-sm font-medium">{cat.name}</span>
-                    {selectedCategory === cat.name && <Check className="h-4 w-4" />}
-                  </button>
-                ))}
+                <Input
+                  placeholder="Search category..."
+                  className="h-8 text-sm"
+                  value={categoryQuery}
+                  onChange={(e) => setCategoryQuery(e.target.value)}
+                  data-testid="input-category-search"
+                />
+                <div 
+                  className="max-h-[180px] overflow-y-auto pr-1 space-y-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400"
+                  style={{ 
+                    overscrollBehavior: 'contain',
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: '#d1d5db #f3f4f6'
+                  }}
+                >
+                  {(categoryQuery.trim()
+                    ? categories.filter((cat) => cat.name.toLowerCase().includes(categoryQuery.trim().toLowerCase()))
+                    : categories
+                  ).map((cat) => (
+                    <button
+                      key={cat.id}
+                      className={`flex items-center justify-between w-full text-left px-2 py-1 rounded ${selectedCategory === cat.name ? 'bg-green-50 text-green-700 border border-green-200' : 'hover:bg-gray-50 text-gray-700'}`}
+                      onClick={() => setSelectedCategory(selectedCategory === cat.name ? undefined : cat.name)}
+                      data-testid={`checkbox-category-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <span className="text-sm font-medium">{cat.name}</span>
+                      {selectedCategory === cat.name && <Check className="h-4 w-4" />}
+                    </button>
+                  ))}
+                  {categoryQuery.trim() && categories.filter((cat) => cat.name.toLowerCase().includes(categoryQuery.trim().toLowerCase())).length === 0 && (
+                    <div className="text-xs text-gray-500 px-2">No categories found</div>
+                  )}
+                </div>
                 {selectedCategory && (
                   <button className="text-xs text-gray-500 mt-2 underline" onClick={() => setSelectedCategory(undefined)} data-testid="filter-category-clear">Clear</button>
                 )}
@@ -294,46 +322,173 @@ export default function SearchPage() {
          <AccordionTrigger className="font-bold text-sm">Location</AccordionTrigger>
          <AccordionContent>
            <div className="space-y-3">
+             {/* Country Dropdown with Search */}
              <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">Country</Label>
-              <Input ref={countryInputRef} placeholder="Type to search…" className="h-8 text-sm" data-testid="input-country-filter" value={countryInput} onChange={(e) => { setCountryInput(e.target.value); setPendingCountryCode(undefined); setPendingState(""); setStateQuery(""); }} />
-              {countryInput.trim().length >= 2 && (
-                <div className="border rounded-md mt-1 max-h-48 overflow-auto">
-                  {WORLD_COUNTRIES.filter(c => c.name.toLowerCase().includes(countryInput.toLowerCase()) || c.code.toLowerCase().includes(countryInput.toLowerCase())).map(c => (
-                    <div
-                      key={c.code}
-                      role="option"
-                      tabIndex={-1}
-                      className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50 cursor-pointer"
-                      onPointerDown={(e) => { e.preventDefault(); setCountryInput(c.name); setPendingCountryCode(c.code); setPendingState(""); setStateQuery(""); countryInputRef.current?.focus(); }}
-                    >
-                      {c.name}
-                    </div>
-                  ))}
-                </div>
-              )}
-             </div>
-             <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">State / City</Label>
-              <Input ref={stateInputRef} placeholder="Type to search state" className="h-8 text-sm" value={stateQuery} onChange={(e) => setStateQuery(e.target.value)} />
-              <div className="border rounded-md mt-1 max-h-48 overflow-auto">
-                {(COUNTRY_STATES[pendingCountryCode || countryFilterState || ""] || []).filter(s => s.toLowerCase().includes(stateQuery.toLowerCase())).map(s => (
-                  <div
-                    key={s}
-                    role="option"
-                    tabIndex={-1}
-                    className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50 cursor-pointer"
-                    onPointerDown={(e) => { e.preventDefault(); setPendingState(s); setStateQuery(s); stateInputRef.current?.focus(); }}
-                  >
-                    {s}
+              <Select 
+                value={countryFilterState || ""} 
+                onValueChange={(value) => {
+                  setCountryFilterState(value || undefined);
+                  setAppliedState("");
+                  setAppliedCity("");
+                  setStateSearch("");
+                  setCitySearch("");
+                }}
+              >
+                <SelectTrigger className="h-8 text-sm" data-testid="select-country-filter">
+                  <SelectValue placeholder="Select country..." />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]" onOpenAutoFocus={(e) => {
+                  e.preventDefault();
+                  setTimeout(() => {
+                    countrySearchRef.current?.focus();
+                  }, 0);
+                }}>
+                  <div className="px-2 py-1.5 sticky top-0 bg-popover z-10" onMouseDown={(e) => e.stopPropagation()}>
+                    <Input 
+                      ref={countrySearchRef}
+                      placeholder="Search countries..." 
+                      className="h-8 text-sm"
+                      value={countrySearch}
+                      onChange={(e) => setCountrySearch(e.target.value)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                      }}
+                    />
                   </div>
-                ))}
-              </div>
+                  {availableCountries
+                    .filter(code => 
+                      !countrySearch.trim() || 
+                      code.toLowerCase().includes(countrySearch.toLowerCase())
+                    )
+                    .map(code => (
+                      <SelectItem key={code} value={code} className="text-sm">
+                        {code}
+                      </SelectItem>
+                    ))
+                  }
+                </SelectContent>
+              </Select>
              </div>
-             <div className="flex gap-2 pt-2">
-               <Button size="sm" variant="outline" className="h-8" onClick={() => { setCountryFilterState(pendingCountryCode); setAppliedState(pendingState); }}>Apply</Button>
-               <Button size="sm" variant="ghost" className="h-8" onClick={() => { setCountryFilterState(undefined); setCountryInput(""); setPendingCountryCode(undefined); setPendingState(""); setStateQuery(""); setAppliedState(""); }}>Clear</Button>
+
+             {/* State Dropdown with Search - Enabled only when Country is selected */}
+             <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">State / Province</Label>
+              <Select 
+                value={appliedState || ""}
+                onValueChange={(value) => {
+                  setAppliedState(value || "");
+                  setAppliedCity("");
+                  setCitySearch("");
+                }}
+                disabled={!countryFilterState || availableStates.length === 0}
+              >
+                <SelectTrigger className="h-8 text-sm" data-testid="select-state-filter">
+                  <SelectValue placeholder={!countryFilterState ? "Select country first..." : "Select state..."} />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]" onOpenAutoFocus={(e) => {
+                  e.preventDefault();
+                  setTimeout(() => {
+                    stateSearchRef.current?.focus();
+                  }, 0);
+                }}>
+                  <div className="px-2 py-1.5 sticky top-0 bg-popover z-10" onMouseDown={(e) => e.stopPropagation()}>
+                    <Input 
+                      ref={stateSearchRef}
+                      placeholder="Search states..." 
+                      className="h-8 text-sm"
+                      value={stateSearch}
+                      onChange={(e) => setStateSearch(e.target.value)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                      }}
+                    />
+                  </div>
+                  {availableStates
+                    .filter(s => 
+                      !stateSearch.trim() || 
+                      s.toLowerCase().includes(stateSearch.toLowerCase())
+                    )
+                    .map(s => (
+                      <SelectItem key={s} value={s} className="text-sm">
+                        {s}
+                      </SelectItem>
+                    ))
+                  }
+                </SelectContent>
+              </Select>
              </div>
+
+             {/* City Dropdown with Search - Enabled only when State is selected */}
+             <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">City</Label>
+              <Select 
+                value={appliedCity || ""}
+                onValueChange={(value) => setAppliedCity(value || "")}
+                disabled={!appliedState || availableCities.length === 0}
+              >
+                <SelectTrigger className="h-8 text-sm" data-testid="select-city-filter">
+                  <SelectValue placeholder={!appliedState ? "Select state first..." : "Select city..."} />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]" onOpenAutoFocus={(e) => {
+                  e.preventDefault();
+                  setTimeout(() => {
+                    citySearchRef.current?.focus();
+                  }, 0);
+                }}>
+                  <div className="px-2 py-1.5 sticky top-0 bg-popover z-10" onMouseDown={(e) => e.stopPropagation()}>
+                    <Input 
+                      ref={citySearchRef}
+                      placeholder="Search cities..." 
+                      className="h-8 text-sm"
+                      value={citySearch}
+                      onChange={(e) => setCitySearch(e.target.value)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                      }}
+                    />
+                  </div>
+                  {availableCities
+                    .filter(city => 
+                      !citySearch.trim() || 
+                      city.toLowerCase().includes(citySearch.toLowerCase())
+                    )
+                    .map(city => (
+                      <SelectItem key={city} value={city} className="text-sm">
+                        {city}
+                      </SelectItem>
+                    ))
+                  }
+                </SelectContent>
+              </Select>
+             </div>
+
+             {/* Clear Button - Only shown when any location filter is active */}
+             {(countryFilterState || appliedState || appliedCity) && (
+               <Button 
+                 size="sm" 
+                 variant="ghost" 
+                 className="h-8 w-full" 
+                 onClick={() => { 
+                   setCountryFilterState(undefined); 
+                   setAppliedState(""); 
+                   setAppliedCity("");
+                   setCountrySearch("");
+                   setStateSearch("");
+                   setCitySearch("");
+                 }}
+                 data-testid="button-clear-location"
+               >
+                 <X className="h-4 w-4 mr-1" />
+                 Clear Location
+               </Button>
+             )}
             
             <div className="flex items-center space-x-2 pt-2">
               <Switch id="local-only" data-testid="switch-local-only" checked={localOnly} onCheckedChange={(v: boolean) => { setLocalOnly(v); if (v && selectedCountry.code !== 'ALL') { setCountryFilterState(selectedCountry.code); } }} />
@@ -503,8 +658,9 @@ export default function SearchPage() {
                         setMaxPrice(undefined);
                         setMinPriceInput("");
                         setMaxPriceInput("");
-                        setStateInput("");
                         setAppliedState("");
+                        setAppliedCity("");
+                        setCountryFilterState(undefined);
                         window.location.href = "/search";
                       }}
                       variant="outline"

@@ -1,10 +1,10 @@
 /**
  * Smart AI Search: prohibited check, category matching (existing only), location resolution.
- * Uses Gemini when GEMINI_API_KEY is set to understand user text; otherwise keyword match.
+ * Uses Deepseek when DEEPSEEK_API_KEY is set to understand user text; otherwise keyword match.
  */
 
 import { resolveLocation } from "./geo.ts";
-import { matchCategoryWithGemini } from "./gemini-category.ts";
+import { matchCategoryWithDeepseek } from "./deepseek-category.ts";
 import { config } from "../config.ts";
 
 const PROHIBITED_KEYWORDS = [
@@ -139,14 +139,24 @@ export async function runSmartSearch(query: string, deps: SmartSearchDeps): Prom
 
   let category: string | null = null;
   let suggestedCategories: string[] = [];
-  const geminiKey = config.gemini?.apiKey?.trim();
+  const deepseekKey = config.deepseek?.apiKey?.trim();
 
-  if (geminiKey) {
-    // Use only Gemini for category matching when configured
-    const geminiResult = await matchCategoryWithGemini(geminiKey, q, deps.categoryNames);
-    category = geminiResult.category;
-    suggestedCategories = geminiResult.suggestedCategories ?? [];
-    // If Gemini says no match → fallback to "browse all services" (no keyword fallback)
+  if (deepseekKey) {
+    // Use only Deepseek for category matching when configured
+    try {
+      const deepseekResult = await matchCategoryWithDeepseek(deepseekKey, q, deps.categoryNames);
+      category = deepseekResult.category;
+      suggestedCategories = deepseekResult.suggestedCategories ?? [];
+      console.log("[deepseek-debug] final_filter_category:", category);
+    } catch (error) {
+      console.error("[deepseek-error] DeepSeek call failed:", error);
+      return {
+        kind: "category_not_found",
+        message: "We didn't find a relevant category for that. You can browse all services below.",
+        suggestedCategories: [],
+      };
+    }
+    // If Deepseek says no match → fallback to "browse all services" (no keyword fallback)
     if (!category) {
       return {
         kind: "category_not_found",

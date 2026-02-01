@@ -382,6 +382,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
   
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
+  // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
+  // Using crypto.randomBytes(32) provides 256 bits of entropy.
   app.get("/api/csrf-token", (req: Request, res: Response) => {
     if (!req.session.csrfToken) {
       req.session.csrfToken = randomBytes(32).toString("hex");
@@ -440,6 +442,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Dev endpoint removed - Trial Inactive plan cannot be auto-recreated
 
   // Login
+  // SECURITY: Admin credentials must NEVER be hardcoded. Admin access is DB-driven only.
+  // Admin status is determined solely by user.role === "admin" from the database.
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
       let { email, password } = req.body as { email: string; password: string };
@@ -2517,8 +2521,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Detective not found" });
       }
 
-      // Generate a random temporary password
-      const tempPassword = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10).toUpperCase();
+      // SECURITY: Generate temporary password using cryptographically secure randomness
+      const tempPassword = randomBytes(16).toString('hex');
       
       await storage.resetDetectivePassword(detective.userId, tempPassword);
       
@@ -2591,10 +2595,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return list.length;
       };
       const result = await runSmartSearch(query, { categoryNames, checkAvailability });
+      
+      // Ensure result is valid before sending
+      if (!result || typeof result !== 'object') {
+        console.error("[deepseek-error] Invalid result from runSmartSearch:", result);
+        return res.status(200).json({
+          kind: "category_not_found",
+          message: "We didn't find any relevant categories. You can browse here to find what you need.",
+        });
+      }
+      
       res.json(result);
     } catch (error) {
-      console.error("Smart search error:", error);
-      res.status(500).json({
+      console.error("[deepseek-error] Smart search error:", error);
+      res.status(200).json({
         kind: "category_not_found",
         message: "We didn't find any relevant categories. You can browse here to find what you need.",
       });
@@ -3583,7 +3597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 });
 
                 // Build claim URL and send invitation email
-                const claimUrl = buildClaimUrl(token);
+                const claimUrl = buildClaimUrl(token, config.baseUrl || "https://askdetectives.com");
                 sendpulseEmail.sendTransactionalEmail(
                   application.email,
                   EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_INVITATION,
@@ -4362,6 +4376,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============== LOCATION ROUTES ==============
+
+  // Get distinct countries with detectives
+  app.get("/api/locations/countries", async (req: Request, res: Response) => {
+    try {
+      const result = await db
+        .selectDistinct({ country: detectives.country })
+        .from(detectives)
+        .where(eq(detectives.isActive, true));
+      
+      const countries = result
+        .map(r => r.country)
+        .filter(c => c != null && c !== '')
+        .sort();
+      
+      res.json({ countries });
+    } catch (error) {
+      console.error("Get countries error:", error);
+      res.status(500).json({ error: "Failed to get countries" });
+    }
+  });
+
+  // Get distinct states for a country
+  app.get("/api/locations/states", async (req: Request, res: Response) => {
+    try {
+      const { country } = req.query;
+      if (!country || typeof country !== 'string') {
+        return res.status(400).json({ error: "Country parameter required" });
+      }
+
+      const result = await db
+        .selectDistinct({ state: detectives.state })
+        .from(detectives)
+        .where(and(
+          eq(detectives.country, country),
+          eq(detectives.isActive, true)
+        ));
+      
+      const states = result
+        .map(r => r.state)
+        .filter(s => s != null && s !== '')
+        .sort();
+      
+      res.json({ states });
+    } catch (error) {
+      console.error("Get states error:", error);
+      res.status(500).json({ error: "Failed to get states" });
+    }
+  });
+
+  // Get distinct cities for a country + state
+  app.get("/api/locations/cities", async (req: Request, res: Response) => {
+    try {
+      const { country, state } = req.query;
+      if (!country || typeof country !== 'string') {
+        return res.status(400).json({ error: "Country parameter required" });
+      }
+      if (!state || typeof state !== 'string') {
+        return res.status(400).json({ error: "State parameter required" });
+      }
+
+      const result = await db
+        .selectDistinct({ city: detectives.city })
+        .from(detectives)
+        .where(and(
+          eq(detectives.country, country),
+          eq(detectives.state, state),
+          eq(detectives.isActive, true)
+        ));
+      
+      const cities = result
+        .map(r => r.city)
+        .filter(c => c != null && c !== '')
+        .sort();
+      
+      res.json({ cities });
+    } catch (error) {
+      console.error("Get cities error:", error);
+      res.status(500).json({ error: "Failed to get cities" });
+    }
+  });
+
   // ============== SERVICE CATEGORY ROUTES ==============
 
   // Get all service categories (public, with optional active filter)
@@ -4540,6 +4636,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ ok: false, error: error?.message || "DB error" });
     }
   });
+
+  if (!config.env.isProd) {
+    app.get("/api/dev/sentry-test", (_req: Request, _res: Response) => {
+      throw new Error("Sentry test error – safe to ignore");
+    });
+  }
 
   // Dev bootstrap endpoints removed to avoid any hard-coded credentials
 

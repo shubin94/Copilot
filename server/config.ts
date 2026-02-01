@@ -46,7 +46,7 @@ export const config = {
     max: getNumber("RATE_LIMIT_MAX", isProd ? 100 : 1000)!,
   },
   session: {
-    useMemory: isDev || (process.env.SESSION_USE_MEMORY === "true" && !isProd),
+    useMemory: !isProd || (process.env.SESSION_USE_MEMORY === "true"),
     secret: isProd ? (process.env.SESSION_SECRET || "") : (process.env.SESSION_SECRET || "dev-session-secret"),
     ttlMs: getNumber("SESSION_TTL_MS", 1000 * 60 * 60 * 24 * 7)!,
     secureCookies: isProd,
@@ -92,43 +92,59 @@ export const config = {
     clientSecret: process.env.PAYPAL_CLIENT_SECRET || "",
     mode: (process.env.PAYPAL_MODE || "sandbox") as "sandbox" | "live",
   },
-  gemini: {
-    apiKey: process.env.GEMINI_API_KEY || "",
+  deepseek: {
+    apiKey: process.env.DEEPSEEK_API_KEY || "",
   },
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || "",
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
   },
+  sentryDsn: "",
   // Base URL for OAuth redirect_uri (e.g. https://yoursite.com or http://localhost:5000)
   baseUrl: process.env.BASE_URL || (isProd ? "" : "http://localhost:5000"),
 };
 
-export function validateConfig() {
-  if (isProd) {
-    // Server host must be provided in production (env HOST or app_secrets host)
+export function validateConfig(secretsLoaded: boolean = true) {
+  const isProduction = process.env.NODE_ENV === "production";
+  
+  // In non-production mode with no database, apply safe defaults
+  if (!isProduction && !secretsLoaded) {
     if (!config.server.host || String(config.server.host).trim() === "") {
-      throw new Error("Missing required: HOST (set in env or app_secrets)");
+      config.server.host = "127.0.0.1";
+      console.log("[dev] Using fallback host because DB/app_secrets are unavailable");
     }
-
-    // Session secret required (env SESSION_SECRET or app_secrets session_secret)
-    if (!config.session.secret || String(config.session.secret).trim() === "") {
-      throw new Error("Missing required: SESSION_SECRET (set in env or app_secrets)");
-    }
-
-    // Email: require at least one provider configured fully
-    const hasSendgrid = !!config.email.sendgridApiKey && !!config.email.sendgridFromEmail;
-    const hasSmtp = !!config.email.smtpHost && !!config.email.smtpFromEmail;
-    const hasSendpulse = !!config.sendpulse.apiId && !!config.sendpulse.apiSecret && !!config.sendpulse.senderEmail;
-    if (!hasSendgrid && !hasSmtp && !hasSendpulse) {
-      throw new Error("Email not configured: set SENDGRID_API_KEY + SENDGRID_FROM_EMAIL or SMTP_HOST + SMTP_FROM_EMAIL or SENDPULSE_API_ID + SENDPULSE_API_SECRET + SENDPULSE_SENDER_EMAIL (env or app_secrets)");
-    }
-
-    // Supabase required for asset storage (env or app_secrets)
-    if (!config.supabase.url || !config.supabase.serviceRoleKey) {
-      throw new Error("Supabase not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (env or app_secrets)");
-    }
-
-    // Payment gateways: validated separately in validatePaymentGateways() after DB is available.
-    // Gateways can be disabled via payment_gateways table; no hard requirement here.
+    return; // Skip strict validation in dev when DB unavailable
   }
+  
+  // Only run strict validation in production
+  if (!isProduction) {
+    return; // Skip validation unless NODE_ENV=production
+  }
+  
+  // Production validations (strict)
+  // Server host must be provided in production (env HOST or app_secrets host)
+  if (!config.server.host || String(config.server.host).trim() === "") {
+    throw new Error("Missing required: HOST (set in env or app_secrets)");
+  }
+
+  // Session secret required (env SESSION_SECRET or app_secrets session_secret)
+  if (!config.session.secret || String(config.session.secret).trim() === "") {
+    throw new Error("Missing required: SESSION_SECRET (set in env or app_secrets)");
+  }
+
+  // Email: require at least one provider configured fully
+  const hasSendgrid = !!config.email.sendgridApiKey && !!config.email.sendgridFromEmail;
+  const hasSmtp = !!config.email.smtpHost && !!config.email.smtpFromEmail;
+  const hasSendpulse = !!config.sendpulse.apiId && !!config.sendpulse.apiSecret && !!config.sendpulse.senderEmail;
+  if (!hasSendgrid && !hasSmtp && !hasSendpulse) {
+    throw new Error("Email not configured: set SENDGRID_API_KEY + SENDGRID_FROM_EMAIL or SMTP_HOST + SMTP_FROM_EMAIL or SENDPULSE_API_ID + SENDPULSE_API_SECRET + SENDPULSE_SENDER_EMAIL (env or app_secrets)");
+  }
+
+  // Supabase required for asset storage (env or app_secrets)
+  if (!config.supabase.url || !config.supabase.serviceRoleKey) {
+    throw new Error("Supabase not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (env or app_secrets)");
+  }
+
+  // Payment gateways: validated separately in validatePaymentGateways() after DB is available.
+  // Gateways can be disabled via payment_gateways table; no hard requirement here.
 }

@@ -13,37 +13,7 @@ import { config, validateConfig } from "./config.ts";
 import { loadSecretsFromDatabase } from "./lib/secretsLoader.ts";
 import { validateDatabase } from "./startup.ts";
 
-// Initialize Sentry error tracking (kill-switch: set SENTRY_DSN="" to disable)
-if (process.env.SENTRY_DSN) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    environment: process.env.NODE_ENV || "production",
-    integrations: [nodeProfilingIntegration()],
-    tracesSampleRate: 0.1, // 10% of requests for performance monitoring
-    profilesSampleRate: 0.1, // 10% profiling
-    beforeSend(event, hint) {
-      // PII scrubbing: redact sensitive fields
-      if (event.request) {
-        // Redact sensitive headers
-        if (event.request.headers) {
-          delete event.request.headers['authorization'];
-          delete event.request.headers['cookie'];
-          delete event.request.headers['x-api-key'];
-        }
-        // Redact sensitive body fields
-        if (event.request.data && typeof event.request.data === 'object') {
-          const sensitiveKeys = ['password', 'temporaryPassword', 'token', 'apiKey', 'creditCard', 'ssn', 'passport'];
-          for (const key of sensitiveKeys) {
-            if (key in event.request.data) {
-              event.request.data[key] = '[REDACTED]';
-            }
-          }
-        }
-      }
-      return event;
-    },
-  });
-}
+// Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 
 export async function serveStatic(app: Express, server: Server) {
   const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
@@ -74,7 +44,7 @@ export async function serveStatic(app: Express, server: Server) {
 // Global error handlers
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
-  if (process.env.SENTRY_DSN) {
+  if (config.env.isProd && config.sentryDsn) {
     Sentry.captureException(error);
   }
   process.exit(1);
@@ -82,7 +52,7 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-  if (process.env.SENTRY_DSN) {
+  if (config.env.isProd && config.sentryDsn) {
     Sentry.captureException(reason);
   }
   process.exit(1);
@@ -107,12 +77,46 @@ async function main() {
   try {
     console.log('🚀 Starting server initialization...');
 
+    if (process.env.NODE_ENV !== "production") {
+      throw new Error("NODE_ENV must be production for production boot. Set NODE_ENV=production.");
+    }
+
     console.log('🔐 Loading auth/secrets from database...');
-    await loadSecretsFromDatabase();
+    await loadSecretsFromDatabase();  const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
+    if (config.env.isProd && config.sentryDsn) {
+      Sentry.init({
+        dsn: config.sentryDsn,
+        environment: process.env.NODE_ENV || "production",
+        integrations: [nodeProfilingIntegration()],
+        tracesSampleRate: 0.1, // 10% of requests for performance monitoring
+        profilesSampleRate: 0.1, // 10% profiling
+        beforeSend(event, hint) {
+          // PII scrubbing: redact sensitive fields
+          if (event.request) {
+            // Redact sensitive headers
+            if (event.request.headers) {
+              delete event.request.headers['authorization'];
+              delete event.request.headers['cookie'];
+              delete event.request.headers['x-api-key'];
+            }
+            // Redact sensitive body fields
+            if (event.request.data && typeof event.request.data === 'object') {
+              const sensitiveKeys = ['password', 'temporaryPassword', 'token', 'apiKey', 'creditCard', 'ssn', 'passport', 'csrfToken', 'session_secret'];
+              for (const key of sensitiveKeys) {
+                if (key in event.request.data) {
+                  event.request.data[key] = '[REDACTED]';
+                }
+              }
+            }
+          }
+          return event;
+        },
+      });
+    }
 
     if (config.env.isProd) {
       console.log('📋 Validating production config...');
-      validateConfig();
+      validateConfig(secretsLoadedSuccessfully);
     }
 
     console.log('🔍 Validating database connection...');
@@ -122,9 +126,10 @@ async function main() {
     await runApp(serveStatic);
     
     console.log('✅ Server started successfully');
+    console.log("✅ Production ready: DB-backed secrets loaded, validations passed");
   } catch (error) {
     console.error('❌ Failed to start server:', error);
-    if (process.env.SENTRY_DSN) {
+    if (config.env.isProd && config.sentryDsn) {
       Sentry.captureException(error);
     }
     process.exit(1);

@@ -1112,9 +1112,9 @@ export class DatabaseStorage implements IStorage {
     
     // If not, create a user account for the claimant
     if (!claimantUser) {
-      // Generate a temporary password (claimant will need to reset it)
-      // TODO: Send password reset email to claimant so they can set their own password
-      tempPassword = Math.random().toString(36).slice(-12);
+      // SECURITY: Generate temporary password using cryptographically secure randomness
+      // Claimant will need to reset it via email
+      tempPassword = randomBytes(16).toString('hex');
       
       claimantUser = await this.createUser({
         email: claim.claimantEmail,

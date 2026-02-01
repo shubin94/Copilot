@@ -1,5 +1,5 @@
 import { db, pool } from "../db/index.ts";
-import { appPolicies, siteSettings } from "../shared/schema.ts";
+import { appPolicies, siteSettings, appSecrets } from "../shared/schema.ts";
 import { inArray, sql } from "drizzle-orm";
 import { config } from "./config.ts";
 import { getPaymentGateway } from "./services/paymentGateway.ts";
@@ -23,8 +23,19 @@ async function checkTablesExist(): Promise<void> {
 }
 
 export async function validateDatabase(): Promise<void> {
-  // 1. Explicit table existence check
-  await checkTablesExist();
+  const isProduction = process.env.NODE_ENV === "production";
+  
+  try {
+    // 1. Explicit table existence check
+    await checkTablesExist();
+  } catch (e) {
+    // In dev mode, allow startup without database
+    if (!isProduction) {
+      console.warn("[dev] Database validation skipped - database unavailable");
+      return;
+    }
+    throw e;
+  }
 
   const requiredPolicies = [
     "pagination_default_limit",
@@ -39,20 +50,25 @@ export async function validateDatabase(): Promise<void> {
   const missingPolicies = requiredPolicies.filter((k) => !present.has(k));
 
   const [{ count: settingsCount }] = await db.select({ count: sql<number>`count(*)` }).from(siteSettings);
-  const hasSiteSettings = Number(settingsCount) > 0;
+  const siteSettingsCount = Number(settingsCount);
 
-  if (config.env.isProd) {
+  if (isProduction) {
+    await validateRequiredSecretsProd();
+
     if (missingPolicies.length > 0) {
       throw new Error(`Missing required app_policies rows: ${missingPolicies.join(", ")}. Seed app_policies table (see migrations/0003_add_app_policies.sql). Do NOT auto-create in production.`);
     }
-    if (!hasSiteSettings) {
-      throw new Error("Missing required site_settings row. Seed site_settings (see migrations/0004_seed_site_settings.sql). Do NOT auto-create in production.");
+    if (siteSettingsCount === 0) {
+      throw new Error("site_settings is empty. Run: npx tsx scripts/seed-site-settings.ts. Do NOT auto-create in production.");
+    }
+    if (siteSettingsCount !== 1) {
+      throw new Error("site_settings must contain exactly one row. Fix data integrity before production deployment.");
     }
   } else {
     if (missingPolicies.length > 0) {
       console.warn(`[startup] Missing policies (dev/test): ${missingPolicies.join(", ")}`);
     }
-    if (!hasSiteSettings) {
+    if (siteSettingsCount === 0) {
       console.warn("[startup] Missing site settings row (dev/test)");
     }
   }
@@ -65,6 +81,47 @@ export async function validateDatabase(): Promise<void> {
   // 4. Google OAuth: in production, if enabled, must have valid BASE_URL (no localhost)
   if (config.env.isProd) {
     validateGoogleOAuth();
+  }
+}
+
+async function validateRequiredSecretsProd(): Promise<void> {
+  const requiredSecretKeys = [
+    "session_secret",
+    "base_url",
+    "csrf_allowed_origins",
+    "host",
+    "supabase_service_role_key",
+  ] as const;
+
+  const emailKeys = [
+    "sendpulse_api_id",
+    "sendpulse_api_secret",
+    "sendpulse_sender_email",
+    "sendgrid_api_key",
+    "sendgrid_from_email",
+    "smtp_host",
+    "smtp_from_email",
+  ] as const;
+
+  const rows = await db
+    .select({ key: appSecrets.key, value: appSecrets.value })
+    .from(appSecrets)
+    .where(inArray(appSecrets.key, [...requiredSecretKeys, ...emailKeys]));
+
+  const values = new Map(rows.map((r) => [r.key, (r.value ?? "").trim()]));
+
+  for (const key of requiredSecretKeys) {
+    if (!values.get(key)) {
+      throw new Error(`Set ${key} in app_secrets (env secrets are disabled in production)`);
+    }
+  }
+
+  const hasSendpulse = !!values.get("sendpulse_api_id") && !!values.get("sendpulse_api_secret") && !!values.get("sendpulse_sender_email");
+  const hasSendgrid = !!values.get("sendgrid_api_key") && !!values.get("sendgrid_from_email");
+  const hasSmtp = !!values.get("smtp_host") && !!values.get("smtp_from_email");
+
+  if (!hasSendpulse && !hasSendgrid && !hasSmtp) {
+    throw new Error("At least one email provider must be configured in app_secrets (SendPulse, SendGrid, or SMTP).");
   }
 }
 

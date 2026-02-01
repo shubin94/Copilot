@@ -1,14 +1,19 @@
 import { db } from "./index";
 import { users, detectives, services, reviews, orders, serviceCategories } from "../shared/schema.ts";
 import bcrypt from "bcrypt";
+import { nanoid } from "nanoid";
 
 async function seed() {
   console.log("🌱 Starting database seeding...");
 
-  const hashedPassword = await bcrypt.hash("admin123", 10);
+  // SECURITY: Admin credentials must NEVER be hardcoded.
+  // This seed file is for DEVELOPMENT ONLY. Use scripts/reset-auth for production.
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || `dev-admin+${nanoid(6)}@example.com`;
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || nanoid(16);
+  const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
   await db.insert(users).values({
-    email: "admin@finddetectives.com",
+    email: adminEmail,
     password: hashedPassword,
     name: "Administrator",
     role: "admin",
@@ -16,6 +21,9 @@ async function seed() {
   });
 
   console.log("✅ Admin user created");
+  console.log(`   Email: ${adminEmail}`);
+  console.log(`   Password: ${adminPassword}`);
+  console.log(`   (Save these credentials securely!)`);
 
   await db.insert(serviceCategories).values([
     {
@@ -152,15 +160,15 @@ async function seed() {
 
   console.log("\n🎉 Database seeding completed successfully!");
   console.log("\n📊 Summary:");
-  console.log(`- 1 Admin user`);
+  console.log(`- 1 Admin user (email and password printed above)`);
   console.log(`- 1 Detective user + profile`);
   console.log(`- 2 Services`);
   console.log(`- 2 Orders`);
   console.log(`- 2 Reviews`);
   console.log(`- 6 Service categories`);
-  console.log("\n🔐 Admin credentials:");
-  console.log("Email: admin@finddetectives.com");
-  console.log("Password: admin123");
+  console.log("\n⚠️  IMPORTANT: This is a DEVELOPMENT seed file.");
+  console.log("   For production, use: npm run reset-auth");
+  console.log("   Admin credentials are generated randomly (see above).");
   console.log("\n👤 Detective credentials:");
   console.log("Email: jane.doe@detectives.example");
   console.log("Password: detective123");

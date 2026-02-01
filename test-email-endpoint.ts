@@ -4,6 +4,16 @@ async function testEmailSending() {
   const baseUrl = "http://localhost:5000";
 
   try {
+    // SECURITY: Use environment variables for test credentials
+    const adminEmail = process.env.TEST_ADMIN_EMAIL;
+    const adminPassword = process.env.TEST_ADMIN_PASSWORD;
+    
+    if (!adminEmail || !adminPassword) {
+      console.error("[Test] ERROR: TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD must be set");
+      console.error("Usage: TEST_ADMIN_EMAIL=admin@example.com TEST_ADMIN_PASSWORD=pass tsx test-email-endpoint.ts");
+      process.exit(1);
+    }
+    
     // Step 1: Login as admin to get session
     console.log("[Test] Step 1: Logging in as admin...");
     const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
@@ -11,8 +21,8 @@ async function testEmailSending() {
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({
-        email: "admin@askdetectives.com",
-        password: "Admin@123",
+        email: adminEmail,
+        password: adminPassword,
       }),
     });
 
