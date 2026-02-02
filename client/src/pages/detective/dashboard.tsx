@@ -81,7 +81,9 @@ export default function DetectiveDashboard() {
     if (!detective) return;
     if (!Array.isArray(myServicesData?.services)) return;
     const hasServices = (myServicesData?.services?.length || 0) > 0;
-    setSelectedPlan((detective.subscriptionPlan as any) || "free");
+    // Use actual subscription package name, not legacy subscriptionPlan field
+    const actualPlan = (detective as any).subscriptionPackage?.name || "free";
+    setSelectedPlan(actualPlan);
     if (hasServices) {
       setShowPlanDialog(false);
       setShowCategoriesDialog(false);
@@ -590,7 +592,9 @@ export default function DetectiveDashboard() {
 
         {/* Service Slots Reminder */}
         {(() => {
-          const plan = (detective.subscriptionPlan as any) || "free";
+          // Use actual subscription package, not legacy subscriptionPlan field
+          const subscriptionPackage = (detective as any).subscriptionPackage;
+          const plan = subscriptionPackage?.name || "free";
           const limits = getPlanLimits(plan);
           const current = (myServicesData?.services?.length || 0);
           const remaining = Math.max((limits.max || 0) - current, 0);

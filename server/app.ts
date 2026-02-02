@@ -153,6 +153,9 @@ app.use((req, res, next) => {
 
   const origin = req.headers.origin;
   const referer = req.headers.referer;
+  const requestedWith = req.get("x-requested-with");
+  const token = req.get("x-csrf-token");
+  const sessionToken = (req.session as any)?.csrfToken;
 
   const isAllowedOrigin = (urlValue: string | undefined): boolean => {
     if (!urlValue) return false;
@@ -181,14 +184,11 @@ app.use((req, res, next) => {
     return res.status(403).json({ message: "Forbidden" });
   }
 
-  const requestedWith = req.get("x-requested-with");
   if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
     log("CSRF blocked: missing or invalid X-Requested-With header", "csrf");
     return res.status(403).json({ message: "Forbidden" });
   }
 
-  const token = req.get("x-csrf-token");
-  const sessionToken = (req.session as any)?.csrfToken;
   if (!sessionToken || token !== sessionToken) {
     log("CSRF blocked: missing or invalid CSRF token", "csrf");
     return res.status(403).json({ message: "Forbidden" });

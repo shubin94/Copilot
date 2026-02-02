@@ -288,7 +288,9 @@ export default function DetectiveProfileEdit() {
     );
   }
 
-  const subscriptionPlan = detective.subscriptionPlan;
+  // Get actual subscription package name (not legacy field)
+  const subscriptionPackage = (detective as any).subscriptionPackage;
+  const subscriptionPlanName = subscriptionPackage?.displayName || subscriptionPackage?.name || detective.subscriptionPlan || "Free";
   // PAID FEATURE CHECK: Use subscriptionPackageId presence, NOT plan name
   // If subscriptionPackageId is set, detective has paid package
   const hasPaidPackage = !!detective.subscriptionPackageId;
@@ -310,7 +312,7 @@ export default function DetectiveProfileEdit() {
             <p className="text-gray-500">Manage your profile information and public listing</p>
           </div>
           <Badge className={isPremium ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}>
-            {subscriptionPlan.charAt(0).toUpperCase() + subscriptionPlan.slice(1)} Plan
+            {subscriptionPlanName} Plan
           </Badge>
         </div>
 

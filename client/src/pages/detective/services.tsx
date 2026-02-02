@@ -55,15 +55,12 @@ interface Service {
 
 const SERVICE_CATEGORIES: string[] = [];
 
-const PLAN_LIMITS = {
-  free: { max: 1, label: "Free Plan - 1 Service" },
-  pro: { max: 3, label: "Pro Plan - 3 Services" },
-  agency: { max: Infinity, label: "Agency Plan - Unlimited Services" },
-};
+// Minimum base price in INR (applies to all countries)
+const MIN_BASE_PRICE_INR = 1000;
 
 export default function DetectiveServices() {
   const { toast } = useToast();
-  const { formatPriceExactForCountry } = useCurrency();
+  const { formatPriceExactForCountry, convertPrice } = useCurrency();
   const { data, isLoading: detectiveLoading, error: detectiveError } = useCurrentDetective();
   const detective = data?.detective;
   const queryClient = useQueryClient();
@@ -129,10 +126,21 @@ export default function DetectiveServices() {
       const res = await api.services.update(id, data);
       return res;
     },
-    onSuccess: (_result: any, variables: { id: string; data: any }) => {
-      queryClient.invalidateQueries({ queryKey: ["services", "detective", detective?.id] });
-      queryClient.invalidateQueries({ queryKey: ["services", "all"] });
+    onSuccess: (result: any, variables: { id: string; data: any }) => {
+      // Invalidate all query variations for this specific service
       queryClient.invalidateQueries({ queryKey: ["services", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "preview"] });
+      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "public"] });
+      // Invalidate detective's service lists
+      queryClient.invalidateQueries({ queryKey: ["services", "detective", detective?.id] });
+      // Invalidate all services list
+      queryClient.invalidateQueries({ queryKey: ["services", "all"] });
+      
+      // Refetch to ensure UI updates immediately
+      queryClient.refetchQueries({ queryKey: ["services", variables.id, "preview"] });
+      queryClient.refetchQueries({ queryKey: ["services", variables.id, "public"] });
+      queryClient.refetchQueries({ queryKey: ["services", "detective", detective?.id] });
+      
       toast({ title: "Service Updated", description: "Your changes have been saved." });
       setIsDialogOpen(false);
       resetForm();
@@ -221,12 +229,33 @@ export default function DetectiveServices() {
       return;
     }
 
-    // Validate and format prices as decimal strings
-    const basePriceNum = parseFloat(formData.basePrice);
+    // Validate and format prices as integer strings
+    const basePriceNum = parseInt(formData.basePrice, 10);
     if (isNaN(basePriceNum) || basePriceNum <= 0) {
       toast({
         title: "Invalid Price",
-        description: "Base price must be a valid positive number",
+        description: "Base price must be a valid positive integer",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate minimum base price (₹1000 INR minimum)
+    // Convert minimum to user's currency for validation
+    const detectiveCountry = detective?.country || "US";
+    const countryData = COUNTRIES.find(c => c.code === detectiveCountry);
+    const userCurrency = countryData?.effectiveCurrency || "USD";
+    const minPriceInUserCurrency = detectiveCountry === "IN" 
+      ? MIN_BASE_PRICE_INR
+      : Math.ceil(convertPrice(MIN_BASE_PRICE_INR, "INR", userCurrency));
+    
+    if (basePriceNum < minPriceInUserCurrency) {
+      const minDisplay = detectiveCountry === "IN" 
+        ? `₹${MIN_BASE_PRICE_INR}`
+        : `${countryData?.currencySymbol || "$"}${minPriceInUserCurrency} (₹${MIN_BASE_PRICE_INR} equivalent)`;
+      toast({
+        title: "Price Below Minimum",
+        description: `Minimum base price is ${minDisplay}`,
         variant: "destructive",
       });
       return;
@@ -234,11 +263,11 @@ export default function DetectiveServices() {
 
     let offerPriceNum: number | null = null;
     if (formData.offerPrice) {
-      offerPriceNum = parseFloat(formData.offerPrice);
+      offerPriceNum = parseInt(formData.offerPrice, 10);
       if (isNaN(offerPriceNum) || offerPriceNum <= 0) {
         toast({
           title: "Invalid Offer Price",
-          description: "Offer price must be a valid positive number",
+          description: "Offer price must be a valid positive integer",
           variant: "destructive",
         });
         return;
@@ -257,12 +286,15 @@ export default function DetectiveServices() {
 
     // Enforce plan limits on creation (not on edit)
     if (!editingService) {
-      const subscriptionPlan = detective.subscriptionPlan as keyof typeof PLAN_LIMITS;
-      const planLimit = PLAN_LIMITS[subscriptionPlan];
-      if (services.length >= planLimit.max) {
+      // Use live subscription package data from API, not hardcoded values
+      const subscriptionPackage = (detective as any).subscriptionPackage;
+      const serviceLimit = subscriptionPackage?.serviceLimit ?? 1; // Default to 1 if no package
+      const planName = subscriptionPackage?.displayName ?? detective.subscriptionPlan ?? "Free";
+      
+      if (services.length >= serviceLimit) {
         toast({
           title: "Plan Limit Reached",
-          description: `Your ${subscriptionPlan} plan allows only ${planLimit.max} service${planLimit.max > 1 ? 's' : ''}. Upgrade to add more.`,
+          description: `Your ${planName} plan allows only ${serviceLimit} service${serviceLimit > 1 ? 's' : ''}. Upgrade to add more.`,
           variant: "destructive",
         });
         return;
@@ -274,8 +306,8 @@ export default function DetectiveServices() {
       }
     }
 
-    // Format prices as decimal strings with up to 2 decimal places (matches backend schema regex)
-    const basePriceStr = basePriceNum.toFixed(2);
+    // Format prices as integer strings (no decimals)
+    const basePriceStr = basePriceNum.toString();
 
     const serviceData: any = {
       category: formData.category,
@@ -288,10 +320,10 @@ export default function DetectiveServices() {
     // For updates, always include offerPrice (null if cleared, string if set)
     // For creates, include only if provided
     if (editingService) {
-      serviceData.offerPrice = offerPriceNum !== null ? offerPriceNum.toFixed(2) : null;
+      serviceData.offerPrice = offerPriceNum !== null ? offerPriceNum.toString() : null;
       if (bannerImage) serviceData.images = [bannerImage];
     } else if (offerPriceNum !== null) {
-      serviceData.offerPrice = offerPriceNum.toFixed(2);
+      serviceData.offerPrice = offerPriceNum.toString();
     }
     if (!editingService && bannerImage) {
       serviceData.images = [bannerImage];
@@ -361,9 +393,12 @@ export default function DetectiveServices() {
     );
   }
 
-  const subscriptionPlan = detective.subscriptionPlan as keyof typeof PLAN_LIMITS;
-  const planLimit = PLAN_LIMITS[subscriptionPlan];
-  const canAddMore = services.length < planLimit.max;
+  // Use live subscription package data from API, not hardcoded values
+  const subscriptionPackage = (detective as any).subscriptionPackage;
+  const serviceLimit = subscriptionPackage?.serviceLimit ?? 1; // Default to 1 if no package
+  const planName = subscriptionPackage?.displayName ?? detective.subscriptionPlan ?? "Free";
+  const planLabel = `${planName} - ${serviceLimit} Service${serviceLimit > 1 ? 's' : ''}`;
+  const canAddMore = services.length < serviceLimit;
 
   return (
     <DashboardLayout role="detective">
@@ -374,7 +409,7 @@ export default function DetectiveServices() {
             <p className="text-gray-500">Manage your service offerings</p>
           </div>
           <Badge className="bg-blue-100 text-blue-700">
-            {planLimit.label}
+            {planLabel}
           </Badge>
         </div>
 
@@ -393,7 +428,7 @@ export default function DetectiveServices() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Service Limit Reached</AlertTitle>
             <AlertDescription>
-              You've reached your plan's limit of {planLimit.max} service{planLimit.max > 1 ? "s" : ""}. 
+              You've reached your plan's limit of {serviceLimit} service{serviceLimit > 1 ? "s" : ""}. 
               Upgrade to add more services.
               <Link href="/detective/subscription">
                 <Button variant="link" className="p-0 h-auto ml-2">
@@ -501,11 +536,31 @@ export default function DetectiveServices() {
                       id="basePrice"
                       data-testid="input-service-basePrice"
                       type="number"
-                      step="0.01"
+                      step="1"
                       value={formData.basePrice}
                       onChange={(e) => setFormData({ ...formData, basePrice: e.target.value })}
-                      placeholder={currencySymbol + " 0.00"}
+                      placeholder={currencySymbol + " 0"}
                     />
+                    {(() => {
+                      const detectiveCountry = detective?.country || "US";
+                      const countryData = COUNTRIES.find(c => c.code === detectiveCountry);
+                      const userCurrency = countryData?.effectiveCurrency || "USD";
+                      const minPriceInUserCurrency = detectiveCountry === "IN" 
+                        ? MIN_BASE_PRICE_INR
+                        : Math.ceil(convertPrice(MIN_BASE_PRICE_INR, "INR", userCurrency));
+                      const inputValue = formData.basePrice ? parseInt(formData.basePrice, 10) : 0;
+                      const isBelowMinimum = inputValue > 0 && inputValue < minPriceInUserCurrency;
+                      
+                      const minDisplay = detectiveCountry === "IN" 
+                        ? `₹${MIN_BASE_PRICE_INR}`
+                        : `${countryData?.currencySymbol || "$"}${minPriceInUserCurrency} (₹${MIN_BASE_PRICE_INR} equivalent)`;
+                      
+                      return (
+                        <p className={`text-sm ${isBelowMinimum ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
+                          Minimum base price is {minDisplay}
+                        </p>
+                      );
+                    })()}
                   </div>
 
                   <div className="space-y-2">
@@ -514,10 +569,10 @@ export default function DetectiveServices() {
                       id="offerPrice"
                       data-testid="input-service-offerPrice"
                       type="number"
-                      step="0.01"
+                      step="1"
                       value={formData.offerPrice}
                       onChange={(e) => setFormData({ ...formData, offerPrice: e.target.value })}
-                      placeholder={currencySymbol + " 0.00"}
+                      placeholder={currencySymbol + " 0"}
                     />
                   </div>
                 </div>
@@ -683,7 +738,7 @@ export default function DetectiveServices() {
 
         {/* Service count indicator */}
         <div className="text-center text-sm text-gray-500">
-          {services.length} of {planLimit.max === Infinity ? "∞" : planLimit.max} services used
+          {services.length} of {serviceLimit === Infinity ? "∞" : serviceLimit} services used
         </div>
       </div>
     </DashboardLayout>

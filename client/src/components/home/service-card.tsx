@@ -185,36 +185,20 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
                     ) : (
                       <>
                         {/* Order: Verified → Blue Tick → Pro → Recommended (labels from BADGE_LABELS) */}
-                        {badges.includes('verified') && (
+                        {/* Render blue tick for either verified or blueTick badge (only ONE icon) */}
+                        {(badges.includes('verified') || badges.includes('blueTick')) && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <img 
                                   src="/blue-tick.png" 
-                                  alt="Verified" 
+                                  alt={badges.includes('verified') ? "Verified" : "Blue Tick"} 
                                   className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title="Verified"
+                                  title={badges.includes('verified') ? "Verified" : "Blue Tick"}
                                 />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Verified</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                        {badges.includes('blueTick') && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <img 
-                                  src="/blue-tick.png" 
-                                  alt="Blue Tick" 
-                                  className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title="Blue Tick"
-                                />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Blue Tick</p>
+                                <p>{badges.includes('verified') ? "Verified" : "Blue Tick"}</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>

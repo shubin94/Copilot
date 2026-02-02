@@ -149,9 +149,9 @@ export const api = {
           signal: controller.signal,
         });
         const data = await handleResponse(response);
-        if (data && typeof data === "object" && "csrfToken" in data) {
-          setCsrfToken((data as { csrfToken: string }).csrfToken);
-        }
+        // After login, the backend regenerates the session and issues a new CSRF token
+        // Always clear cache and let next request fetch fresh token
+        clearCsrfToken();
         return data;
       } catch (err: any) {
         if (err?.name === "AbortError") {
@@ -225,8 +225,12 @@ export const api = {
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ email, password, name }),
         credentials: "include",
-      });;
-      return handleResponse(response);
+      });
+      const data = await handleResponse(response);
+      // After register, the backend regenerates the session and issues a new CSRF token
+      // Always clear cache and let next request fetch fresh token
+      clearCsrfToken();
+      return data;
     },
   },
 

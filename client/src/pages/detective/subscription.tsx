@@ -888,7 +888,7 @@ export default function DetectiveSubscription() {
                   </div>
                   <div className="flex items-baseline gap-1">
                     <span className="text-4xl font-extrabold text-gray-900">
-                      {formatPriceForCountry(price, detectiveCountry)}
+                      ${Math.round(price)}
                     </span>
                     <span className="text-gray-500 font-medium">{period}</span>
                   </div>
@@ -1072,7 +1072,7 @@ export default function DetectiveSubscription() {
                 </div>
                 <div className="text-right">
                    <div className="text-2xl font-bold text-blue-900">
-                     {formatPriceForCountry(isAnnual ? 150 : 15, detectiveCountry)}
+                     ${isAnnual ? 150 : 15}
                    </div>
                    <div className="text-xs text-blue-600">{isAnnual ? "/year" : "/month"}</div>
                 </div>

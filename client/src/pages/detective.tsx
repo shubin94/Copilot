@@ -7,7 +7,7 @@ import { ServiceCard } from "@/components/home/service-card";
 import { useRoute } from "wouter";
 import { useDetective, useServicesByDetective } from "@/lib/hooks";
 import { buildBadgesFromEffective } from "@/lib/badges";
-import { ShieldCheck, MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
+import { MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
@@ -49,14 +49,9 @@ export default function DetectivePublicPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-lg" data-testid="text-detective-name">{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</span>
-                    {/* Order: Verified → Blue Tick → Pro → Recommended (effectiveBadges + isVerified only) */}
-                    {detective.isVerified && (
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-verified">
-                        <ShieldCheck className="h-3 w-3" /> Verified
-                      </Badge>
-                    )}
-                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
-                      <img src="/blue-tick.png" alt="Blue Tick" className="h-5 w-5 flex-shrink-0" title="Blue Tick" />
+                    {/* Order: Blue Tick → Pro → Recommended (Blue Tick & Pro icons, Recommended text) */}
+                    {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick) && (
+                      <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title="Verified" data-testid="badge-verified" />
                     )}
                     {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
                       <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" />

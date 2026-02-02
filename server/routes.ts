@@ -902,6 +902,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return masked;
       }));
 
+      // Disable caching for dashboard - always fetch fresh data
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.set("Pragma", "no-cache");
+      res.set("Expires", "0");
       res.json({ detectives: maskedDetectives, total });
     } catch (error) {
       console.error("Get detectives error:", error);
@@ -2763,7 +2767,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Cache failure must not break the request
         }
       }
-      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      // Disable caching for dashboard - always fetch fresh data
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.set("Pragma", "no-cache");
+      res.set("Expires", "0");
       sendCachedJson(req, res, { services: masked });
     } catch (error) {
       console.error("Search services error:", error);
@@ -2886,7 +2893,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/services/detective/:id", async (req: Request, res: Response) => {
     try {
       const services = await storage.getServicesByDetective(req.params.id);
-      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      // Disable caching for detective dashboard - always fetch fresh data
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.set("Pragma", "no-cache");
+      res.set("Expires", "0");
       sendCachedJson(req, res, { services });
     } catch (error) {
       console.error("Get services by detective error:", error);

@@ -53,8 +53,13 @@ export default function DetectiveProfile() {
       return api.reviews.create({ serviceId: serviceId!, rating, comment });
     },
     onSuccess: () => {
+      // Invalidate review queries
       queryClient.invalidateQueries({ queryKey: ["reviews", "service", serviceId] });
       queryClient.invalidateQueries({ queryKey: ["reviews", "detective"] });
+      
+      // CRITICAL: Invalidate service data so service detail page shows updated avgRating/reviewCount
+      queryClient.invalidateQueries({ queryKey: ["services", serviceId] });
+      
       setRating(5);
       setComment("");
       toast({ title: "Review submitted", description: "Thanks for your feedback" });
@@ -163,7 +168,9 @@ export default function DetectiveProfile() {
   const reviews = reviewsData?.reviews || [];
 
   const isClaimable = detective.isClaimable && !detective.isClaimed;
-  const detectiveTier = detective.subscriptionPlan;
+  // Use actual subscription package name, not legacy subscriptionPlan field
+  const subscriptionPackage = (detective as any).subscriptionPackage;
+  const detectiveTier = subscriptionPackage?.name || detective.subscriptionPlan || "free";
   const recognitionAllowed = Array.isArray((detective as any)?.subscriptionPackage?.features)
     ? (detective as any).subscriptionPackage.features.includes("recognition")
     : false;
@@ -178,6 +185,32 @@ export default function DetectiveProfile() {
   // Use actual detective logo and service images from database - NO MOCK DATA
   const detectiveLogo = detective.logo;
   const serviceImage = service.images && service.images.length > 0 ? service.images[0] : null;
+
+  // Parse prices properly - handle decimal strings from database
+  const basePrice = (() => {
+    const raw = service.basePrice;
+    if (!raw) return 0;
+    const parsed = typeof raw === 'string' ? parseFloat(raw) : Number(raw);
+    return isNaN(parsed) ? 0 : parsed;
+  })();
+  
+  const offerPrice = (() => {
+    const raw = service.offerPrice;
+    if (!raw) return null;
+    const parsed = typeof raw === 'string' ? parseFloat(raw) : Number(raw);
+    return (isNaN(parsed) || parsed <= 0) ? null : parsed;
+  })();
+
+  // Debug log for troubleshooting (can be removed after fix)
+  if (basePrice === 0) {
+    console.warn('Service basePrice is 0 or invalid:', { 
+      serviceId: service.id, 
+      rawBasePrice: service.basePrice,
+      rawOfferPrice: service.offerPrice,
+      parsedBasePrice: basePrice,
+      parsedOfferPrice: offerPrice
+    });
+  }
 
   const handleToggleFavorite = () => {
     if (!user) {
@@ -302,8 +335,8 @@ export default function DetectiveProfile() {
                     <span className="hover:underline cursor-pointer">{detectiveName}</span>
                   </Link>
                   
-                  {/* Badge order: Verified → Blue Tick → Pro → Recommended (effectiveBadges + isVerified only) */}
-                  {detective.isVerified && (
+                  {/* Badge order: Blue Tick → Pro → Recommended (icon-only, no duplicates) */}
+                  {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <img 
@@ -315,21 +348,6 @@ export default function DetectiveProfile() {
                       </TooltipTrigger>
                       <TooltipContent>
                         <p>Verified</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                  {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <img 
-                          src="/blue-tick.png" 
-                          alt="Blue Tick" 
-                          className="h-5 w-5 flex-shrink-0 cursor-help"
-                          title="Blue Tick"
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Blue Tick</p>
                       </TooltipContent>
                     </Tooltip>
                   )}
@@ -366,13 +384,12 @@ export default function DetectiveProfile() {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-3 text-sm text-gray-700 mt-1">
-                  {whatsappAllowed && detective.whatsapp ? (
+                {/* Only show WhatsApp status if the feature is allowed in their plan */}
+                {whatsappAllowed && detective.whatsapp && (
+                  <div className="flex items-center gap-3 text-sm text-gray-700 mt-1">
                     <span data-testid="text-contact-whatsapp">WhatsApp Available</span>
-                  ) : (
-                    <span className="opacity-50 text-gray-400" data-testid="text-contact-whatsapp-disabled">WhatsApp: Not Available</span>
-                  )}
-                </div>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 text-sm text-gray-500"></div>
               </div>
             </div>
@@ -417,13 +434,13 @@ export default function DetectiveProfile() {
                       <div className="flex justify-between items-baseline">
                         <h3 className="font-bold text-lg">Service Price</h3>
                         <div className="text-right">
-                          {service.offerPrice ? (
+                          {offerPrice && offerPrice > 0 ? (
                             <>
-                              <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price-mobile">{formatPriceFromTo(Number(service.offerPrice), detective.country, selectedCountry.code)}</span>
-                              <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price-mobile">{formatPriceFromTo(Number(service.basePrice), detective.country, selectedCountry.code)}</span>
+                              <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price-mobile">{formatPriceFromTo(offerPrice, detective.country, selectedCountry.code)}</span>
+                              <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price-mobile">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
                             </>
                           ) : (
-                            <span className="text-2xl font-bold text-gray-900" data-testid="text-price-mobile">{formatPriceFromTo(Number(service.basePrice), detective.country, selectedCountry.code)}</span>
+                            <span className="text-2xl font-bold text-gray-900" data-testid="text-price-mobile">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
                           )}
                           <div className="text-xs text-gray-500 mt-1">
                             {(detective as any).level ? (((detective as any).level === 'pro') ? 'Pro Level' : ((detective as any).level as string).replace('level', 'Level ')) : 'Level 1'}
@@ -462,7 +479,8 @@ export default function DetectiveProfile() {
                           </Button>
                         )
                       )}
-                      {whatsappAllowed && detective.whatsapp ? (
+                      {/* Only show WhatsApp button if the feature is allowed in their plan */}
+                      {whatsappAllowed && detective.whatsapp && (
                         <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-whatsapp-mobile" onClick={() => {
                           const raw = String(detective.whatsapp);
                           const num = raw.replace(/[^+\d]/g, "");
@@ -472,18 +490,6 @@ export default function DetectiveProfile() {
                           <MessageCircle className="h-5 w-5" />
                           <span className="font-bold">WhatsApp</span>
                         </Button>
-                      ) : (
-                        <div className="w-full">
-                          <Button 
-                            className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-400 border border-gray-200 shadow-sm h-12 cursor-not-allowed opacity-50" 
-                            data-testid="button-contact-whatsapp-mobile-disabled"
-                            disabled
-                          >
-                            <MessageCircle className="h-5 w-5" />
-                            <span className="font-bold">WhatsApp</span>
-                          </Button>
-                          <p className="text-xs text-amber-600 mt-2 text-center">Upgrade the subscription to avail this option</p>
-                        </div>
                       )}
                     </div>
                   </Card>
@@ -514,19 +520,12 @@ export default function DetectiveProfile() {
                         <span className="hover:underline cursor-pointer">{detectiveName}</span>
                       </Link>
                     </h3>
-                    {/* Inline badges: Verified → Blue Tick → Pro → Recommended */}
-                    {detective.isVerified && (
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-verified-inline">
-                        <ShieldCheck className="h-3 w-3" /> Verified
-                      </Badge>
-                    )}
-                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-bluetick-inline">Blue Tick</Badge>
+                    {/* Inline badges: Blue Tick → Pro → Recommended (Blue Tick & Pro icons, Recommended text) */}
+                    {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick) && (
+                      <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title="Verified" data-testid="badge-verified-inline" />
                     )}
                     {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
-                      <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-pro-inline">
-                        Pro
-                      </Badge>
+                      <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" data-testid="badge-pro-inline" />
                     )}
                     {(detectiveTier === "agency" || (detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended) && (
                       <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-agency-inline">
@@ -550,54 +549,49 @@ export default function DetectiveProfile() {
                       </div>
                     )}
                   </div>
-                  {/* Recognitions (visible even when not allowed; greyed out if restricted by plan) */}
-                  <div>
-                    <div className={`text-sm ${recognitionAllowed ? "" : "opacity-50 pointer-events-none"}`}>
-                      <div className="text-gray-500">Recognitions</div>
-                      {Array.isArray((detective as any).recognitions) && (detective as any).recognitions.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-3">
-                          {(detective as any).recognitions.map((rec: any, idx: number) => (
-                            <Popover key={`${rec?.title || "recognition"}-${idx}`}>
-                              <PopoverTrigger asChild>
-                                <button type="button" className="flex flex-col items-center gap-1">
-                                  {rec?.image ? (
-                                    <img
-                                      src={rec.image}
-                                      alt={rec.title || "Recognition"}
-                                      className="h-10 w-10 object-cover rounded"
-                                    />
-                                  ) : (
-                                    <div className="h-10 w-10 rounded bg-gray-100 text-[10px] text-gray-500 flex items-center justify-center">
-                                      No Image
-                                    </div>
-                                  )}
-                                  {rec?.year && <span className="text-xs text-gray-500">{rec.year}</span>}
-                                </button>
-                              </PopoverTrigger>
-                              <PopoverContent side="bottom" align="center" className="w-auto px-3 py-2">
-                                <div className="text-xs font-semibold text-gray-800">{rec?.title || "Recognition"}</div>
-                              </PopoverContent>
-                            </Popover>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400 text-xs" data-testid="text-recognitions-empty">None</span>
-                      )}
+                  {/* Only show Recognitions section if the feature is allowed in their plan */}
+                  {recognitionAllowed && (
+                    <div>
+                      <div className="text-sm">
+                        <div className="text-gray-500">Recognitions</div>
+                        {Array.isArray((detective as any).recognitions) && (detective as any).recognitions.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-3">
+                            {(detective as any).recognitions.map((rec: any, idx: number) => (
+                              <Popover key={`${rec?.title || "recognition"}-${idx}`}>
+                                <PopoverTrigger asChild>
+                                  <button type="button" className="flex flex-col items-center gap-1">
+                                    {rec?.image ? (
+                                      <img
+                                        src={rec.image}
+                                        alt={rec.title || "Recognition"}
+                                        className="h-10 w-10 object-cover rounded"
+                                      />
+                                    ) : (
+                                      <div className="h-10 w-10 rounded bg-gray-100 text-[10px] text-gray-500 flex items-center justify-center">
+                                        No Image
+                                      </div>
+                                    )}
+                                    {rec?.year && <span className="text-xs text-gray-500">{rec.year}</span>}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent side="bottom" align="center" className="w-auto px-3 py-2">
+                                  <div className="text-xs font-semibold text-gray-800">{rec?.title || "Recognition"}</div>
+                                </PopoverContent>
+                              </Popover>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-xs" data-testid="text-recognitions-empty">None</span>
+                        )}
+                      </div>
                     </div>
-                    {!recognitionAllowed && (
-                      <p className="text-xs text-amber-600 mt-1">Upgrade the subscription to avail this option</p>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
-            </section>
-            
-            <Separator className="my-8" />
 
-            {/* Reviews Section */}
-            <section>
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold font-heading">Reviews</h2>
+              {/* Reviews Section */}
+              <div className="mb-10">
+                <h2 className="text-xl font-bold font-heading mb-6">Reviews</h2>
                 <div className="flex items-center gap-2">
                   {reviewCount > 0 ? (
                     <>
@@ -715,13 +709,13 @@ export default function DetectiveProfile() {
                   <div className="flex justify-between items-baseline">
                     <h3 className="font-bold text-lg">Service Price</h3>
                     <div className="text-right">
-                      {service.offerPrice ? (
+                      {offerPrice && offerPrice > 0 ? (
                         <>
-                  <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price">{formatPriceFromTo(Number(service.offerPrice), detective.country, selectedCountry.code)}</span>
-                  <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price">{formatPriceFromTo(Number(service.basePrice), detective.country, selectedCountry.code)}</span>
+                  <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price">{formatPriceFromTo(offerPrice, detective.country, selectedCountry.code)}</span>
+                  <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
                         </>
                       ) : (
-                        <span className="text-2xl font-bold text-gray-900" data-testid="text-price">{formatPriceFromTo(Number(service.basePrice), detective.country, selectedCountry.code)}</span>
+                        <span className="text-2xl font-bold text-gray-900" data-testid="text-price">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
                       )}
                       <div className="text-xs text-gray-500 mt-1">
                         {(detective as any).level ? (((detective as any).level === 'pro') ? 'Pro Level' : ((detective as any).level as string).replace('level', 'Level ')) : 'Level 1'}
@@ -769,7 +763,8 @@ export default function DetectiveProfile() {
                     )
                    )}
                    
-                   {whatsappAllowed && detective.whatsapp ? (
+                   {/* Only show WhatsApp button if the feature is allowed in their plan */}
+                   {whatsappAllowed && detective.whatsapp && (
                     <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-whatsapp" onClick={() => {
                       const raw = String(detective.whatsapp);
                       const num = raw.replace(/[^+\d]/g, "");
@@ -779,18 +774,6 @@ export default function DetectiveProfile() {
                       <MessageCircle className="h-5 w-5" />
                       <span className="font-bold">WhatsApp</span>
                     </Button>
-                   ) : (
-                    <div className="w-full">
-                      <Button 
-                        className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-400 border border-gray-200 shadow-sm h-12 cursor-not-allowed opacity-50" 
-                        data-testid="button-contact-whatsapp-disabled"
-                        disabled
-                      >
-                        <MessageCircle className="h-5 w-5" />
-                        <span className="font-bold">WhatsApp</span>
-                      </Button>
-                      <p className="text-xs text-amber-600 mt-2 text-center">Upgrade the subscription to avail this option</p>
-                    </div>
                    )}
                 </div>
               </Card>
@@ -802,7 +785,6 @@ export default function DetectiveProfile() {
               </div>
             </div>
           </div>
-
         </div>
       </main>
       <Footer />
