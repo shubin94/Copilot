@@ -22,6 +22,7 @@ interface ServiceCardProps {
   reviews: number;
   price: number;
   offerPrice?: number | null;
+  isOnEnquiry?: boolean;
   isUnclaimed?: boolean;
   countryCode?: string;
   phone?: string;
@@ -36,7 +37,7 @@ import { Button } from "@/components/ui/button";
 
 import { useToast } from "@/hooks/use-toast";
 
-export function ServiceCard({ id, detectiveId, images, image, avatar, name, level, category, badges = [], title, rating, reviews, price, offerPrice, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) {
+export function ServiceCard({ id, detectiveId, images, image, avatar, name, level, category, badges = [], title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) {
   const [, setLocation] = useLocation();
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -263,16 +264,27 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
              />
             
             <div className="flex flex-col items-end">
-              <span className="text-xs text-gray-500 uppercase font-semibold">
-                {offerPrice ? "Offer Price" : "Starting at"}
-              </span>
-              {offerPrice ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400 line-through font-medium">{formatPriceFromTo(price, countryCode, selectedCountry.code)}</span>
-                  <span className="text-lg font-bold text-green-600">{formatPriceFromTo(offerPrice!, countryCode, selectedCountry.code)}</span>
-                </div>
+              {isOnEnquiry ? (
+                <>
+                  <span className="text-xs text-gray-500 uppercase font-semibold">
+                    Pricing
+                  </span>
+                  <span className="text-sm font-bold text-green-600">On Enquiry</span>
+                </>
               ) : (
-                <span className="text-lg font-bold text-gray-900">{formatPriceFromTo(price, countryCode, selectedCountry.code)}</span>
+                <>
+                  <span className="text-xs text-gray-500 uppercase font-semibold">
+                    {offerPrice ? "Offer Price" : "Starting at"}
+                  </span>
+                  {offerPrice ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-400 line-through font-medium">{formatPriceFromTo(price, countryCode, selectedCountry.code)}</span>
+                      <span className="text-lg font-bold text-green-600">{formatPriceFromTo(offerPrice!, countryCode, selectedCountry.code)}</span>
+                    </div>
+                  ) : (
+                    <span className="text-lg font-bold text-gray-900">{formatPriceFromTo(price, countryCode, selectedCountry.code)}</span>
+                  )}
+                </>
               )}
             </div>
           </CardFooter>

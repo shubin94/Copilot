@@ -11,6 +11,7 @@ import { MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export default function DetectivePublicPage() {
   const [, params] = useRoute("/p/:id");
@@ -120,6 +121,48 @@ export default function DetectivePublicPage() {
                   </div>
                 </div>
               </div>
+              
+              {/* Recognitions Section */}
+              {Array.isArray((detective as any).recognitions) && (detective as any).recognitions.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <div className="text-sm font-semibold text-gray-700 mb-3">Recognitions</div>
+                  <div className="flex flex-wrap gap-3">
+                    {(detective as any).recognitions.map((rec: any, idx: number) => (
+                      <Popover key={`${rec?.title || "recognition"}-${idx}`}>
+                        <PopoverTrigger asChild>
+                          <button type="button" className="flex flex-col items-center gap-1">
+                            {rec?.image ? (
+                              <img
+                                src={rec.image}
+                                alt={rec.title || "Recognition"}
+                                className="h-10 w-10 object-cover rounded"
+                              />
+                            ) : (
+                              <div className="h-10 w-10 rounded bg-gray-100 text-[10px] text-gray-500 flex items-center justify-center">
+                                No Image
+                              </div>
+                            )}
+                            {rec?.year && <span className="text-xs text-gray-500">{rec.year}</span>}
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent side="bottom" align="center" className="w-auto px-3 py-2">
+                          <div className="text-xs font-semibold text-gray-800">{rec?.title || "Recognition"}</div>
+                        </PopoverContent>
+                      </Popover>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Bio Section */}
+              {detective.bio && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <div className="text-sm font-semibold text-gray-700 mb-2">About</div>
+                  <div className="text-gray-700 text-sm leading-relaxed max-w-full overflow-hidden" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                    <p>{detective.bio}</p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         ) : null}

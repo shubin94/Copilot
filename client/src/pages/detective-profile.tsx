@@ -413,34 +413,43 @@ export default function DetectiveProfile() {
             {/* About This Service */}
             <section className="mb-10 space-y-4">
               <h2 className="text-xl font-bold font-heading">About This Service</h2>
-              <div className="prose max-w-none text-gray-700 leading-relaxed" data-testid="text-service-description">
+              <div className="text-gray-700 leading-relaxed max-w-full overflow-hidden" data-testid="text-service-description" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                 <p>{service.description}</p>
-                
-                {detective.bio && (
-                  <p className="mt-4">{detective.bio}</p>
-                )}
+              </div>
+            </section>
 
-                <div className="mt-6 mb-6">
-                  <h3 className="text-lg font-bold mb-3 text-gray-900">Service Type</h3>
-                  <Badge variant="secondary" className="bg-green-50 text-green-700 hover:bg-green-100 px-3 py-1 text-sm border-green-100" data-testid="badge-category">
-                    {service.category}
-                  </Badge>
-                </div>
+            {/* Service Type - Separate Section */}
+            <section className="mb-10 space-y-4">
+              <h2 className="text-xl font-bold font-heading">Service Type</h2>
+              <div>
+                <Badge variant="secondary" className="bg-green-50 text-green-700 hover:bg-green-100 px-3 py-1 text-sm border-green-100" data-testid="badge-category">
+                  {service.category}
+                </Badge>
+              </div>
+            </section>
 
-                {/* Mobile only: Price / Contact card below Service Type */}
+            {/* Mobile only: Price / Contact card below Service Type */}
                 <div className="block lg:hidden mt-6">
                   <Card className="border-gray-200 shadow-lg overflow-hidden">
                     <div className="p-6 space-y-4">
                       <div className="flex justify-between items-baseline">
                         <h3 className="font-bold text-lg">Service Price</h3>
                         <div className="text-right">
-                          {offerPrice && offerPrice > 0 ? (
+                          {service.isOnEnquiry ? (
                             <>
-                              <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price-mobile">{formatPriceFromTo(offerPrice, detective.country, selectedCountry.code)}</span>
-                              <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price-mobile">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                              <span className="text-lg font-bold text-blue-600" data-testid="text-price-on-enquiry-mobile">On Enquiry</span>
                             </>
                           ) : (
-                            <span className="text-2xl font-bold text-gray-900" data-testid="text-price-mobile">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                            <>
+                              {offerPrice && offerPrice > 0 ? (
+                                <>
+                                  <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price-mobile">{formatPriceFromTo(offerPrice, detective.country, selectedCountry.code)}</span>
+                                  <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price-mobile">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                                </>
+                              ) : (
+                                <span className="text-2xl font-bold text-gray-900" data-testid="text-price-mobile">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                              )}
+                            </>
                           )}
                           <div className="text-xs text-gray-500 mt-1">
                             {(detective as any).level ? (((detective as any).level === 'pro') ? 'Pro Level' : ((detective as any).level as string).replace('level', 'Level ')) : 'Level 1'}
@@ -497,8 +506,6 @@ export default function DetectiveProfile() {
                     <ShieldCheck className="h-3 w-3" /> 100% Secure & Confidential
                   </p>
                 </div>
-              </div>
-            </section>
 
             <Separator className="my-8" />
 
@@ -586,8 +593,15 @@ export default function DetectiveProfile() {
                       </div>
                     </div>
                   )}
+                  {detective.bio && (
+                    <div className="text-gray-700 leading-relaxed max-w-full overflow-hidden mt-4" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                      <p>{detective.bio}</p>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              <Separator className="my-8" />
 
               {/* Reviews Section */}
               <div className="mb-10">
@@ -709,13 +723,21 @@ export default function DetectiveProfile() {
                   <div className="flex justify-between items-baseline">
                     <h3 className="font-bold text-lg">Service Price</h3>
                     <div className="text-right">
-                      {offerPrice && offerPrice > 0 ? (
+                      {service.isOnEnquiry ? (
                         <>
-                  <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price">{formatPriceFromTo(offerPrice, detective.country, selectedCountry.code)}</span>
-                  <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                          <span className="text-lg font-bold text-blue-600" data-testid="text-price-on-enquiry">On Enquiry</span>
                         </>
                       ) : (
-                        <span className="text-2xl font-bold text-gray-900" data-testid="text-price">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                        <>
+                          {offerPrice && offerPrice > 0 ? (
+                            <>
+                              <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price">{formatPriceFromTo(offerPrice, detective.country, selectedCountry.code)}</span>
+                              <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                            </>
+                          ) : (
+                            <span className="text-2xl font-bold text-gray-900" data-testid="text-price">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                          )}
+                        </>
                       )}
                       <div className="text-xs text-gray-500 mt-1">
                         {(detective as any).level ? (((detective as any).level === 'pro') ? 'Pro Level' : ((detective as any).level as string).replace('level', 'Level ')) : 'Level 1'}

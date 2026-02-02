@@ -39,6 +39,7 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     reviews: service.reviewCount,
     price: Number(service.basePrice),
     offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
+    isOnEnquiry: service.isOnEnquiry,
     countryCode: service.detective.country,
     location: service.detective.location || "",
     phone: service.detective.phone || undefined,

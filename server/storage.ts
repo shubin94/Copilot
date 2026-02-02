@@ -517,7 +517,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateService(id: string, updates: Partial<Service>): Promise<Service | undefined> {
     // Whitelist only allowed fields - prevent modification of protected columns
-    const allowedFields: (keyof Service)[] = ['title', 'description', 'category', 'basePrice', 'offerPrice', 'images', 'isActive'];
+    const allowedFields: (keyof Service)[] = ['title', 'description', 'category', 'basePrice', 'offerPrice', 'images', 'isActive', 'isOnEnquiry'];
     const safeUpdates: Partial<Service> = {};
     
     for (const key of allowedFields) {

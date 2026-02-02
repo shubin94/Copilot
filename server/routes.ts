@@ -2843,18 +2843,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         detectiveId: detective.id,
       });
 
+      // If isOnEnquiry is true, prices are optional
+      const isOnEnquiry = (validatedData as any).isOnEnquiry === true;
+      
       const pricing = await requirePolicy<{ offerLessThanBase: boolean }>("pricing_constraints");
-      const base = parseFloat(validatedData.basePrice as any);
-      if (!(base > 0)) {
-        return res.status(400).json({ error: "Base price must be a positive number" });
-      }
-      if ((validatedData as any).offerPrice !== undefined && (validatedData as any).offerPrice !== null) {
-        const offer = parseFloat((validatedData as any).offerPrice as any);
-        if (!(offer > 0)) {
-          return res.status(400).json({ error: "Offer price must be positive" });
+      if (!isOnEnquiry) {
+        // basePrice is required when not on enquiry
+        if (!validatedData.basePrice) {
+          return res.status(400).json({ error: "Base price is required when not using Price on Enquiry" });
         }
-        if (pricing?.offerLessThanBase && !(offer < base)) {
-          return res.status(400).json({ error: "Offer price must be strictly lower than base price" });
+        const base = parseFloat(validatedData.basePrice as any);
+        if (!(base > 0)) {
+          return res.status(400).json({ error: "Base price must be a positive number" });
+        }
+        if ((validatedData as any).offerPrice !== undefined && (validatedData as any).offerPrice !== null) {
+          const offer = parseFloat((validatedData as any).offerPrice as any);
+          if (!(offer > 0)) {
+            return res.status(400).json({ error: "Offer price must be positive" });
+          }
+          if (pricing?.offerLessThanBase && !(offer < base)) {
+            return res.status(400).json({ error: "Offer price must be strictly lower than base price" });
+          }
         }
       }
 
@@ -2935,14 +2944,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const currentBase = validatedData.basePrice !== undefined ? parseFloat(validatedData.basePrice as any) : parseFloat((service as any).basePrice as any);
-      if (!(currentBase > 0)) {
-        return res.status(400).json({ error: "Base price must be a positive number" });
-      }
-      if (validatedData.offerPrice !== undefined && validatedData.offerPrice !== null) {
-        const offer = parseFloat(validatedData.offerPrice as any);
-        if (!(offer > 0) || !(offer < currentBase)) {
-          return res.status(400).json({ error: "Offer price must be positive and strictly lower than base price" });
+      // Check if isOnEnquiry is being set
+      const isOnEnquiry = (validatedData as any).isOnEnquiry !== undefined ? (validatedData as any).isOnEnquiry : (service as any).isOnEnquiry;
+      
+      // Only validate pricing if isOnEnquiry is false
+      if (!isOnEnquiry) {
+        // For updates, basePrice can come from the update or from existing service
+        const basePriceValue = validatedData.basePrice !== undefined ? validatedData.basePrice : ((service as any).basePrice);
+        if (!basePriceValue) {
+          return res.status(400).json({ error: "Base price is required when not using Price on Enquiry" });
+        }
+        const currentBase = parseFloat(basePriceValue as any);
+        if (!(currentBase > 0)) {
+          return res.status(400).json({ error: "Base price must be a positive number" });
+        }
+        if (validatedData.offerPrice !== undefined && validatedData.offerPrice !== null) {
+          const offer = parseFloat(validatedData.offerPrice as any);
+          if (!(offer > 0) || !(offer < currentBase)) {
+            return res.status(400).json({ error: "Offer price must be positive and strictly lower than base price" });
+          }
         }
       }
 
