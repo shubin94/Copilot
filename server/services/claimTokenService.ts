@@ -4,7 +4,7 @@
  * for admin-created claimable detective accounts.
  */
 
-import { randomBytes, createHash, timingSafeEqual } from "crypto";
+import { randomBytes, randomInt, createHash, timingSafeEqual } from "crypto";
 
 interface TokenPair {
   token: string;        // Plain token (send to user)
@@ -67,8 +67,9 @@ export function isTokenExpired(expiresAt: Date | string): boolean {
 /**
  * Build claim account URL with token
  * Frontend will handle /claim-account?token=...
+ * @param baseUrl - Required: the full base URL from config (e.g., https://deployed-domain.com)
  */
-export function buildClaimUrl(token: string, baseUrl: string = "https://askdetectives.com"): string {
+export function buildClaimUrl(token: string, baseUrl: string): string {
   const url = new URL("/claim-account", baseUrl);
   url.searchParams.set("token", token);
   return url.toString();
@@ -78,6 +79,9 @@ export function buildClaimUrl(token: string, baseUrl: string = "https://askdetec
  * Generate a secure temporary password for claimed accounts
  * Format: 12+ characters with uppercase, lowercase, and numbers
  * Example: Xk9mL2pQ7nRt
+ * 
+ * SECURITY: Password generation must use cryptographically secure randomness.
+ * Using crypto.randomInt() instead of Math.random() for secure password generation.
  */
 export function generateTempPassword(length: number = 12): string {
   const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -93,21 +97,23 @@ export function generateTempPassword(length: number = 12): string {
   let password = "";
 
   // Ensure at least one of each required character type
-  password += uppercase[Math.floor(Math.random() * uppercase.length)];
-  password += lowercase[Math.floor(Math.random() * lowercase.length)];
-  password += numbers[Math.floor(Math.random() * numbers.length)];
+  password += uppercase[randomInt(0, uppercase.length)];
+  password += lowercase[randomInt(0, lowercase.length)];
+  password += numbers[randomInt(0, numbers.length)];
 
   // Fill remaining length with random characters
   for (let i = password.length; i < length; i++) {
-    const randomIndex = Math.floor(Math.random() * allChars.length);
-    password += allChars[randomIndex];
+    password += allChars[randomInt(0, allChars.length)];
   }
 
-  // Shuffle the password to randomize position of required characters
-  return password
-    .split("")
-    .sort(() => Math.random() - 0.5)
-    .join("");
+  // Shuffle using Fisher-Yates with crypto randomness
+  const chars = password.split("");
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(0, i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  
+  return chars.join("");
 }
 
 /**

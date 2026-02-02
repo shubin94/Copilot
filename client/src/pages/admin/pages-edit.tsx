@@ -122,6 +122,7 @@ export default function PagesAdminEdit() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/pages"] });
+      queryClient.refetchQueries({ queryKey: ["/api/admin/pages"] });
     },
   });
 

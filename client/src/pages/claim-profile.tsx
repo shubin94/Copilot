@@ -38,18 +38,11 @@ export default function ClaimProfile() {
 
   const submitClaim = useMutation({
     mutationFn: async (claimData: any) => {
-      const response = await fetch("/api/claims", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(claimData),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to submit claim");
+      try {
+        return await api.post("/api/claims", claimData);
+      } catch (err: any) {
+        throw new Error(err?.message || "Failed to submit claim");
       }
-
-      return response.json();
     },
     onSuccess: () => {
       setTimeout(() => {

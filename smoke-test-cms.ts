@@ -21,13 +21,23 @@ async function authenticateAsAdmin(): Promise<void> {
   console.log("\n🔐 AUTHENTICATING AS ADMIN...\n");
   
   try {
-    // Try login with admin credentials
+    // SECURITY: Use environment variables for test credentials
+    const adminEmail = process.env.TEST_ADMIN_EMAIL;
+    const adminPassword = process.env.TEST_ADMIN_PASSWORD;
+    
+    if (!adminEmail || !adminPassword) {
+      console.log("⚠️  TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD not set. Skipping authentication.");
+      console.log("   Set these environment variables to test authenticated endpoints.\n");
+      return;
+    }
+    
+    // Try login with admin credentials from environment
     const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email: "admin@finddetectives.com",
-        password: "admin123"
+        email: adminEmail,
+        password: adminPassword
       })
     });
     

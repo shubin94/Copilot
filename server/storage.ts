@@ -1,4 +1,5 @@
 import { db } from "../db/index.ts";
+import { randomBytes } from "node:crypto";
 import { 
   users, detectives, services, servicePackages, reviews, orders, favorites, 
   detectiveApplications, profileClaims, billingHistory, serviceCategories,
@@ -1105,26 +1106,27 @@ export class DatabaseStorage implements IStorage {
     }
 
     // Check if claimant already has a user account
-    let claimantUser = await this.getUserByEmail(claim.claimantEmail);
+    const normalizedEmail = (claim.claimantEmail || "").toLowerCase().trim();
+    let claimantUser = await this.getUserByEmail(normalizedEmail);
     let wasNewUser = false;
     let tempPassword: string | undefined;
     const originalRole = claimantUser?.role;
     
     // If not, create a user account for the claimant
     if (!claimantUser) {
-      // Generate a temporary password (claimant will need to reset it)
-      // TODO: Send password reset email to claimant so they can set their own password
-      tempPassword = Math.random().toString(36).slice(-12);
+      // SECURITY: Generate temporary password using cryptographically secure randomness
+      // Claimant will need to reset it via email
+      tempPassword = randomBytes(16).toString('hex');
       
       claimantUser = await this.createUser({
-        email: claim.claimantEmail,
+        email: normalizedEmail,
         name: claim.claimantName,
         password: tempPassword,
         role: "detective",
       });
 
       wasNewUser = true;
-      console.log(`Created user account for claimant: ${claim.claimantEmail}`);
+      console.log(`Created user account for claimant: ${normalizedEmail}`);
       console.log(`IMPORTANT: Claimant needs password reset email to access account`);
     } else if (claimantUser.role !== "detective") {
       // Update user role to detective if they're not already
@@ -1203,7 +1205,7 @@ export class DatabaseStorage implements IStorage {
       claimantUserId: claimantUser.id,
       wasNewUser,
       temporaryPassword: wasNewUser ? tempPassword : undefined,
-      email: claim.claimantEmail,
+      email: normalizedEmail,
     };
   }
 
@@ -1378,16 +1380,23 @@ export class DatabaseStorage implements IStorage {
     const detective = await this.getDetective(detectiveId);
     if (!detective) return false;
 
-    // Remove dependent records that do not cascade
-    await db.delete(orders).where(eq(orders.detectiveId, detectiveId));
-    await db.delete(profileClaims).where(eq(profileClaims.detectiveId, detectiveId));
+    // Remove detective applications (no FK, cannot cascade)
     if (detective.email) {
       await db.delete(detectiveApplications).where(ilike(detectiveApplications.email, (detective.email || "").toLowerCase().trim()));
     }
 
-    // Delete the owning user; detectives table has ON DELETE CASCADE
-    const result = await db.delete(users).where(eq(users.id, detective.userId));
-    return result.rowCount! > 0;
+    // Check if user exists
+    const user = await this.getUser(detective.userId);
+    
+    if (user) {
+      // Normal case: delete user (cascades to detective and related records)
+      const result = await db.delete(users).where(eq(users.id, detective.userId));
+      return result.rowCount! > 0;
+    } else {
+      // Orphaned detective: delete detective directly (cascades to services, etc.)
+      const result = await db.delete(detectives).where(eq(detectives.id, detectiveId));
+      return result.rowCount! > 0;
+    }
   }
 }
 
@@ -1420,6 +1429,19 @@ function createSafeStorage<T extends object>(raw: T): T {
             return await (val as any).apply(target, args);
           } catch (err) {
             console.error(`[repository] ${String(prop)} failed`, err);
+            // Never mask write failures; surface real error to API layer
+            if (
+              prop.startsWith("delete") ||
+              prop.startsWith("remove") ||
+              prop.startsWith("create") ||
+              prop.startsWith("update") ||
+              prop.startsWith("approve") ||
+              prop.startsWith("reassign") ||
+              prop.startsWith("increment") ||
+              prop.startsWith("record")
+            ) {
+              throw err;
+            }
             return fallbackFor(prop, args);
           }
         };

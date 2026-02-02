@@ -2,11 +2,13 @@
  * Create a new admin user (or upgrade existing user to admin and set password).
  * Does NOT delete any existing users.
  *
+ * SECURITY: Admin credentials must NEVER be hardcoded. This script requires
+ * explicit environment variables to prevent accidental default admin creation.
+ *
  * Usage:
- *   npx tsx scripts/create-admin.ts
  *   ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=YourPassword npx tsx scripts/create-admin.ts
  *
- * If ADMIN_EMAIL / ADMIN_PASSWORD are not set, defaults are used and printed.
+ * ADMIN_EMAIL and ADMIN_PASSWORD MUST be set explicitly - no defaults are provided.
  */
 
 import "dotenv/config";
@@ -18,15 +20,18 @@ import bcrypt from "bcrypt";
 const SALT_ROUNDS = 10;
 
 async function run() {
-  const email = (process.env.ADMIN_EMAIL || "admin@askdetectives.com").toLowerCase().trim();
-  const plainPassword = process.env.ADMIN_PASSWORD || "Admin123!";
+  // SECURITY: NO default credentials - must be explicitly provided
+  const email = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+  const plainPassword = process.env.ADMIN_PASSWORD;
 
   if (!email) {
-    console.error("ADMIN_EMAIL is required (or use default).");
+    console.error("ERROR: ADMIN_EMAIL environment variable is required.");
+    console.error("Usage: ADMIN_EMAIL=your@email.com ADMIN_PASSWORD=SecurePass123 npx tsx scripts/create-admin.ts");
     process.exit(1);
   }
   if (!plainPassword || plainPassword.length < 8) {
-    console.error("ADMIN_PASSWORD must be at least 8 characters.");
+    console.error("ERROR: ADMIN_PASSWORD environment variable is required and must be at least 8 characters.");
+    console.error("Usage: ADMIN_EMAIL=your@email.com ADMIN_PASSWORD=SecurePass123 npx tsx scripts/create-admin.ts");
     process.exit(1);
   }
 

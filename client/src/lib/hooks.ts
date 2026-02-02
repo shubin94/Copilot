@@ -50,6 +50,9 @@ export function useDetectives(limit?: number, offset?: number) {
   return useQuery({
     queryKey: ["detectives", "all", limit, offset],
     queryFn: () => api.detectives.getAll(limit, offset),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -65,7 +68,9 @@ export function useCurrentDetective() {
   return useQuery({
     queryKey: ["detectives", "current"],
     queryFn: () => api.detectives.getCurrent(),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -139,11 +144,14 @@ export function useAdminDeleteDetective() {
   return useMutation({
     mutationFn: (id: string) => api.detectives.adminDelete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["detectives", "all"] });
+      // Invalidate all detective queries to update the UI immediately
+      queryClient.invalidateQueries({ queryKey: ["detectives"] });
       queryClient.invalidateQueries({ queryKey: ["applications"] });
-      queryClient.invalidateQueries({ queryKey: ["applications", "approved"] });
-      queryClient.invalidateQueries({ queryKey: ["applications", "pending"] });
-      queryClient.invalidateQueries({ queryKey: ["applications", "rejected"] });
+      // Force refetch to ensure UI updates immediately
+      queryClient.refetchQueries({ queryKey: ["detectives"] });
+      // Also invalidate services since detective deletion cascades to their services
+      queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.refetchQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -152,12 +160,17 @@ export function useServices(limit?: number, offset?: number) {
   return useQuery({
     queryKey: ["services", "all", limit, offset],
     queryFn: () => api.services.getAll(limit, offset),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
   });
 }
 
 export function useSearchServices(params?: {
   category?: string;
   country?: string;
+  state?: string;
+  city?: string;
   search?: string;
   minPrice?: number;
   maxPrice?: number;
@@ -193,6 +206,9 @@ export function useServicesByDetective(detectiveId: string | null | undefined) {
     queryKey: ["services", "detective", detectiveId],
     queryFn: () => api.services.getByDetective(detectiveId!),
     enabled: !!detectiveId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -219,9 +235,18 @@ export function useUpdateService() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Service> }) =>
       api.services.update(id, data),
-    onSuccess: (_, variables) => {
+    onSuccess: (result: { service: Service }, variables) => {
+      // Invalidate all variations of the specific service query
       queryClient.invalidateQueries({ queryKey: ["services", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "preview"] });
+      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "public"] });
+      // Invalidate service lists
       queryClient.invalidateQueries({ queryKey: ["services", "all"] });
+      // Invalidate detective's services if detectiveId is known
+      if (result?.service?.detectiveId) {
+        queryClient.invalidateQueries({ queryKey: ["services", "detective", result.service.detectiveId] });
+        queryClient.invalidateQueries({ queryKey: ["services", "detective", result.service.detectiveId, "admin"] });
+      }
     },
   });
 }
@@ -249,8 +274,14 @@ export function useAdminUpdateService() {
     mutationFn: ({ id, detectiveId, data }: { id: string; detectiveId: string; data: Partial<Service> }) =>
       api.services.update(id, data),
     onSuccess: (_: any, variables: { id: string; detectiveId: string; data: Partial<Service> }) => {
+      // Invalidate all variations of the specific service query
       queryClient.invalidateQueries({ queryKey: ["services", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "preview"] });
+      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "public"] });
+      // Invalidate detective's services
       queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId, "admin"] });
+      queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId] });
+      // Invalidate all services list
       queryClient.invalidateQueries({ queryKey: ["services", "all"] });
     },
   });
@@ -262,6 +293,7 @@ export function useDeleteService() {
     mutationFn: (id: string) => api.services.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.refetchQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -295,8 +327,14 @@ export function useCreateReview() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: InsertReview) => api.reviews.create(data),
-    onSuccess: () => {
+    onSuccess: (response: any) => {
+      // Invalidate all review queries
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      
+      // CRITICAL: Also invalidate service queries since avgRating/reviewCount changed
+      // This ensures service cards, detail pages, and search results show updated data
+      queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.invalidateQueries({ queryKey: ["detectives"] });
     },
   });
 }
@@ -307,8 +345,15 @@ export function useUpdateReview() {
     mutationFn: ({ id, data }: { id: string; data: Partial<Review> }) =>
       api.reviews.update(id, data),
     onSuccess: (_, variables) => {
+      // Invalidate all review queries
       queryClient.invalidateQueries({ queryKey: ["reviews", variables.id] });
       queryClient.invalidateQueries({ queryKey: ["reviews", "all"] });
+      queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      
+      // CRITICAL: Also invalidate service queries since avgRating/reviewCount changed
+      // This ensures service cards, detail pages, and search results show updated data
+      queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.invalidateQueries({ queryKey: ["detectives"] });
     },
   });
 }
@@ -319,6 +364,7 @@ export function useDeleteReview() {
     mutationFn: (id: string) => api.reviews.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      queryClient.refetchQueries({ queryKey: ["reviews"] });
     },
   });
 }
@@ -589,5 +635,32 @@ export function useDeleteServiceCategory() {
       }
       queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
     },
+  });
+}
+
+// Location hooks
+export function useCountries() {
+  return useQuery({
+    queryKey: ["locations", "countries"],
+    queryFn: () => api.locations.getCountries(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+export function useStates(country: string | undefined) {
+  return useQuery({
+    queryKey: ["locations", "states", country],
+    queryFn: () => api.locations.getStates(country!),
+    enabled: !!country,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCities(country: string | undefined, state: string | undefined) {
+  return useQuery({
+    queryKey: ["locations", "cities", country, state],
+    queryFn: () => api.locations.getCities(country!, state!),
+    enabled: !!country && !!state,
+    staleTime: 5 * 60 * 1000,
   });
 }

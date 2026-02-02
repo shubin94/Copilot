@@ -68,9 +68,8 @@ export async function setupVite(app: Express, server: Server) {
 (async () => {
   try {
     await loadSecretsFromDatabase();
-    if (config.env.isProd) {
-      validateConfig();
-    }
+    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
+    validateConfig(secretsLoadedSuccessfully);
     await validateDatabase();
     const server = await runApp(setupVite);
     console.log(`✅ Server fully started and listening on port ${config.server.port}`);

@@ -30,6 +30,8 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     avatar: detectiveLogo || "",
     name: detectiveName,
     level: service.detective.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1",
+    levelValue: (() => { const m = String(service.detective.level || "level1").match(/\d+/); return m ? parseInt(m[0], 10) : 1; })(),
+    plan: service.detective.subscriptionPlan,
     category: service.category,
     badges,
     title: service.title,
@@ -38,6 +40,10 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     price: Number(service.basePrice),
     offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
     countryCode: service.detective.country,
+    location: service.detective.location || "",
+    phone: service.detective.phone || undefined,
+    whatsapp: service.detective.whatsapp || undefined,
+    contactEmail: service.detective.contactEmail || undefined,
   };
 }
 
@@ -221,50 +227,52 @@ export default function Home() {
           <div className="container mx-auto px-6 md:px-12 lg:px-24 flex flex-col lg:flex-row items-stretch gap-12">
             <div className="flex-1 space-y-6 flex flex-col justify-center">
               <h2 className="text-3xl md:text-4xl font-bold font-heading">
-                The best part? Everything.
+                The best part? Everything that matters.
               </h2>
               
               <div className="space-y-4">
                 <div>
                   <h3 className="flex items-center text-lg font-bold mb-1">
                     <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Stick to your budget
+                    The world's first dedicated detective service platform
                   </h3>
-                  <p className="text-gray-600 ml-8">Find the right service for every price point. No hourly rates, just project-based pricing.</p>
+                  <p className="text-gray-600 ml-8">A single place to discover, compare, and hire professional detectives across verified categories.</p>
                 </div>
                 
                 <div>
                   <h3 className="flex items-center text-lg font-bold mb-1">
                     <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Get quality work done quickly
+                    Trusted detectives, faster results
                   </h3>
-                  <p className="text-gray-600 ml-8">Hand your project over to a talented detective in minutes, get long-lasting results.</p>
+                  <p className="text-gray-600 ml-8">Work only with verified and recommended detectives, so you get accurate outcomes without delays.</p>
                 </div>
                 
                 <div>
                   <h3 className="flex items-center text-lg font-bold mb-1">
                     <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Pay when you're happy
+                    Talk first. Pay only if it feels right
                   </h3>
-                  <p className="text-gray-600 ml-8">Upfront quotes mean no surprises. Payments only get released when you approve.</p>
+                  <p className="text-gray-600 ml-8">Connect directly with the detective, discuss your case, and proceed with payment only when you're confident.</p>
                 </div>
                 
                 <div>
                   <h3 className="flex items-center text-lg font-bold mb-1">
                     <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Count on 24/7 support
+                    Your review helps others choose better
                   </h3>
-                  <p className="text-gray-600 ml-8">Our round-the-clock support team is available to help anytime, anywhere.</p>
+                  <p className="text-gray-600 ml-8">Share your experience after the service — your review guides others to make the right decision.</p>
                 </div>
               </div>
             </div>
             
             <div className="flex-1 relative min-h-[400px] lg:min-h-full">
-              <div className="absolute inset-0 h-full w-full bg-gradient-to-br from-blue-100 to-green-50 rounded-lg shadow-xl flex items-center justify-center">
-                <div className="text-center text-gray-400">
-                  <Layers className="h-20 w-20 mx-auto mb-4 opacity-30" />
-                  <p className="text-sm">Marketing Image Placeholder</p>
-                </div>
+              <div className="absolute inset-0 h-full w-full rounded-lg shadow-xl overflow-hidden">
+                <img
+                  src="/pub.png"
+                  alt="Professional detectives collaborating on a case"
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
               </div>
             </div>
           </div>

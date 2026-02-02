@@ -296,13 +296,24 @@ class SendPulseEmailService {
   /**
    * Send email to admin
    * Uses the same template system but sends to admin email from env
+   * 
+   * SECURITY: Admin email must be configured via ADMIN_EMAIL environment variable.
+   * No hardcoded fallback to prevent accidental email leaks.
    */
   async sendAdminEmail(
     templateId: number,
     variables: EmailVariable
   ): Promise<{ success: boolean; error?: string }> {
-    // For now, uses same implementation but admin email could be configured separately
-    const adminEmail = process.env.ADMIN_EMAIL || "admin@askdetectives.com";
+    const adminEmail = process.env.ADMIN_EMAIL;
+    
+    if (!adminEmail) {
+      console.error("[SendPulse] ADMIN_EMAIL not configured - cannot send admin notification");
+      return { 
+        success: false, 
+        error: "ADMIN_EMAIL environment variable not configured" 
+      };
+    }
+    
     return this.sendTransactionalEmail(adminEmail, templateId, variables);
   }
 

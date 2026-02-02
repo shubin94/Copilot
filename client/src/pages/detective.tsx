@@ -7,7 +7,7 @@ import { ServiceCard } from "@/components/home/service-card";
 import { useRoute } from "wouter";
 import { useDetective, useServicesByDetective } from "@/lib/hooks";
 import { buildBadgesFromEffective } from "@/lib/badges";
-import { ShieldCheck, MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
+import { MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
@@ -20,6 +20,8 @@ export default function DetectivePublicPage() {
   const { data: servicesData, isLoading: servicesLoading } = useServicesByDetective(detectiveId);
   const services = servicesData?.services || [];
   const { toast } = useToast();
+
+  const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   return (
     <div className="min-h-screen bg-white">
@@ -47,14 +49,9 @@ export default function DetectivePublicPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-lg" data-testid="text-detective-name">{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</span>
-                    {/* Order: Verified → Blue Tick → Pro → Recommended (effectiveBadges + isVerified only) */}
-                    {detective.isVerified && (
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-verified">
-                        <ShieldCheck className="h-3 w-3" /> Verified
-                      </Badge>
-                    )}
-                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
-                      <img src="/blue-tick.png" alt="Blue Tick" className="h-5 w-5 flex-shrink-0" title="Blue Tick" />
+                    {/* Order: Blue Tick → Pro → Recommended (Blue Tick & Pro icons, Recommended text) */}
+                    {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick) && (
+                      <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title="Verified" data-testid="badge-verified" />
                     )}
                     {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
                       <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" />
@@ -82,35 +79,33 @@ export default function DetectivePublicPage() {
                       <span className="font-bold text-xs ml-1">Email</span>
                     </Button>
                     {(detective as any).phone && (
-                      <Button className="bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-9 px-3" data-testid="button-contact-phone" onClick={() => {
-                        const raw = String((detective as any).phone);
-                        const num = raw.replace(/[^+\d]/g, "");
-                        const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                        if (isMobile) {
+                      isMobileDevice ? (
+                        <Button className="bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-9 px-3" data-testid="button-contact-phone" onClick={() => {
+                          const raw = String((detective as any).phone);
+                          const num = raw.replace(/[^+\d]/g, "");
                           window.location.href = `tel:${num}`;
-                        } else {
-                          const text = `Phone: ${num}`;
+                        }}>
+                          <Phone className="h-4 w-4" />
+                          <span className="font-bold text-xs ml-1">Call</span>
+                        </Button>
+                      ) : (
+                        <Button className="bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-9 px-3" data-testid="button-contact-phone" onClick={() => {
+                          const raw = String((detective as any).phone);
+                          const num = raw.replace(/[^+\d]/g, "");
                           navigator.clipboard?.writeText(num).catch(() => {});
-                          try { toast({ title: "Number Copied", description: text }); } catch {}
-                        }
-                      }}>
-                        <Phone className="h-4 w-4" />
-                        <span className="font-bold text-xs ml-1">Call</span>
-                      </Button>
+                          try { toast({ title: "Number Copied", description: `Phone: ${num}` }); } catch {}
+                        }}>
+                          <Phone className="h-4 w-4" />
+                          <span className="font-bold text-xs ml-1">Call Now</span>
+                        </Button>
+                      )
                     )}
                     {(detective as any).whatsapp && (
                       <Button className="bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-9 px-3" data-testid="button-contact-whatsapp" onClick={() => {
                         const raw = String((detective as any).whatsapp);
                         const num = raw.replace(/[^+\d]/g, "");
-                        const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                        if (isMobile) {
-                          const url = `https://wa.me/${num.replace(/^\+/, "")}`;
-                          window.open(url, "_blank");
-                        } else {
-                          const text = `WhatsApp: ${num}`;
-                          navigator.clipboard?.writeText(num).catch(() => {});
-                          try { toast({ title: "Number Copied", description: text }); } catch {}
-                        }
+                        const url = `https://wa.me/${num.replace(/^\+/, "")}`;
+                        window.open(url, "_blank");
                       }}>
                         <MessageCircle className="h-4 w-4" />
                         <span className="font-bold text-xs ml-1">WhatsApp</span>

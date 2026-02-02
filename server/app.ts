@@ -14,8 +14,6 @@ import { registerRoutes } from "./routes.ts";
 import { config } from "./config.ts";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.ts";
 
-const PgSession = connectPgSimple(session);
-
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -47,36 +45,90 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
-app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+// Security headers - CSP disabled for dev flexibility, enable in production
+app.use(helmet({ 
+  contentSecurityPolicy: config.env.isProd ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  } : false,
+  crossOriginEmbedderPolicy: false,
+  hsts: config.env.isProd ? {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  } : false,
+}));
 app.use(compression());
 
+// SECURITY: Auth endpoints must always be rate-limited to prevent brute force attacks.
+// Strict limits: 10 failed attempts per 15 minutes per IP (successful requests don't count)
 const authLimiter = rateLimit({
-  windowMs: config.rateLimit.windowMs,
-  max: config.rateLimit.max,
+  windowMs: config.rateLimit.windowMs, // 15 minutes
+  max: 10, // Strict limit: 10 failed attempts per window
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true,
+  skipSuccessfulRequests: true, // Only failed auth attempts count
+  skip: config.env.isProd ? undefined : () => true, // Disable auth rate limit in dev/test
+  message: { error: "Too many authentication attempts. Please try again later." },
 });
 app.use("/api/auth/", authLimiter);
 
+// SECURITY: Claim account endpoints are public and must be rate-limited
+// These endpoints use tokens but can be brute-forced
+const claimLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 15, // 15 attempts per 15 minutes per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many claim attempts. Please try again later." },
+});
+app.use("/api/claim-account/", claimLimiter);
+
+// SECURITY: Profile claim submissions are public and can be spammed
+const claimSubmissionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // 5 claim submissions per hour per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many claim submissions. Please try again later." },
+});
+app.use("/api/claims", claimSubmissionLimiter);
+
 const useMemorySession = config.session.useMemory;
-const sessionStore = useMemorySession
-  ? new (session as any).MemoryStore()
-  : new PgSession({
-      pool: new Pool({
-        connectionString: config.db.url,
-        // Session store pool sizing - handles session read/write/cleanup only
-        max: 5,                      // Smaller pool (sessions are lightweight queries)
-        min: 1,                      // Keep 1 warm connection for session checks
-        idleTimeoutMillis: 30000,    // Close idle connections after 30s
-        connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
-        ssl: config.env.isProd
-          ? { rejectUnauthorized: true }
-          : (process.env.DB_ALLOW_INSECURE_DEV === "true" ? { rejectUnauthorized: false } : undefined),
-      }),
-      tableName: "session",
-      createTableIfMissing: true,
-    });
+
+let sessionStore;
+if (useMemorySession) {
+  // Use in-memory session store in development (no Postgres required)
+  sessionStore = new (session as any).MemoryStore();
+  console.log("[dev] Using in-memory session store (Postgres not required)");
+} else {
+  // Use Postgres session store in production
+  const PgSession = connectPgSimple(session);
+  sessionStore = new PgSession({
+    pool: new Pool({
+      connectionString: config.db.url,
+      // Session store pool sizing - handles session read/write/cleanup only
+      max: 5,                      // Smaller pool (sessions are lightweight queries)
+      min: 1,                      // Keep 1 warm connection for session checks
+      idleTimeoutMillis: 30000,    // Close idle connections after 30s
+      connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
+      ssl: config.env.isProd
+        ? { rejectUnauthorized: true }
+        : (process.env.DB_ALLOW_INSECURE_DEV === "true" ? { rejectUnauthorized: false } : undefined),
+    }),
+    tableName: "session",
+    createTableIfMissing: true,
+  });
+}
 
 app.use(
   session({
@@ -101,6 +153,9 @@ app.use((req, res, next) => {
 
   const origin = req.headers.origin;
   const referer = req.headers.referer;
+  const requestedWith = req.get("x-requested-with");
+  const token = req.get("x-csrf-token");
+  const sessionToken = (req.session as any)?.csrfToken;
 
   const isAllowedOrigin = (urlValue: string | undefined): boolean => {
     if (!urlValue) return false;
@@ -129,14 +184,11 @@ app.use((req, res, next) => {
     return res.status(403).json({ message: "Forbidden" });
   }
 
-  const requestedWith = req.get("x-requested-with");
   if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
     log("CSRF blocked: missing or invalid X-Requested-With header", "csrf");
     return res.status(403).json({ message: "Forbidden" });
   }
 
-  const token = req.get("x-csrf-token");
-  const sessionToken = (req.session as any)?.csrfToken;
   if (!sessionToken || token !== sessionToken) {
     log("CSRF blocked: missing or invalid CSRF token", "csrf");
     return res.status(403).json({ message: "Forbidden" });
@@ -158,7 +210,8 @@ app.use((req, res, next) => {
 
   const redact = (obj: any): any => {
     if (!obj || typeof obj !== 'object') return obj;
-    const maskKeys = new Set(["password", "temporaryPassword", "token", "apiKey", "smtpPass"]);
+    // SECURITY: Redact sensitive fields from logs (passwords, tokens, API keys, etc.)
+    const maskKeys = new Set(["password", "temporaryPassword", "token", "csrfToken", "apiKey", "smtpPass"]);
     if (Array.isArray(obj)) return obj.map(redact);
     const out: any = {};
     for (const k of Object.keys(obj)) {
@@ -192,17 +245,37 @@ export default async function runApp(
 ): Promise<Server> {
   const server = await registerRoutes(app);
 
+  // Global error handler - SECURITY: Never leak stack traces or sensitive data in production
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
     // Capture 5xx errors in Sentry (skip 4xx user errors)
-    if (status >= 500 && process.env.SENTRY_DSN) {
+    if (status >= 500 && config.env.isProd && config.sentryDsn) {
       const Sentry = require("@sentry/node");
       Sentry.captureException(err);
     }
 
-    res.status(status).json({ message });
+    // Log full error details server-side for debugging
+    if (status >= 500) {
+      console.error('[ERROR]', {
+        status,
+        message,
+        stack: config.env.isProd ? undefined : err.stack,
+        url: _req.originalUrl,
+        method: _req.method,
+      });
+    }
+
+    // SECURITY: In production, return generic error messages only (no stack traces)
+    const responseMessage = config.env.isProd && status >= 500 
+      ? "An internal error occurred. Please try again later."
+      : message;
+
+    res.status(status).json({ 
+      message: responseMessage,
+      ...(config.env.isProd ? {} : { stack: err.stack })
+    });
     return;
   });
 

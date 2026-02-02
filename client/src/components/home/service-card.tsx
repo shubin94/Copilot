@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ServiceActionButton } from "@/components/home/service-action-button";
 
 interface ServiceCardProps {
   id: string;
@@ -23,6 +24,9 @@ interface ServiceCardProps {
   offerPrice?: number | null;
   isUnclaimed?: boolean;
   countryCode?: string;
+  phone?: string;
+  whatsapp?: string;
+  contactEmail?: string;
 }
 
 import { useCurrency } from "@/lib/currency-context";
@@ -32,7 +36,7 @@ import { Button } from "@/components/ui/button";
 
 import { useToast } from "@/hooks/use-toast";
 
-export function ServiceCard({ id, detectiveId, images, image, avatar, name, level, category, badges = [], title, rating, reviews, price, offerPrice, isUnclaimed, countryCode }: ServiceCardProps) {
+export function ServiceCard({ id, detectiveId, images, image, avatar, name, level, category, badges = [], title, rating, reviews, price, offerPrice, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) {
   const [, setLocation] = useLocation();
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -181,36 +185,20 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
                     ) : (
                       <>
                         {/* Order: Verified → Blue Tick → Pro → Recommended (labels from BADGE_LABELS) */}
-                        {badges.includes('verified') && (
+                        {/* Render blue tick for either verified or blueTick badge (only ONE icon) */}
+                        {(badges.includes('verified') || badges.includes('blueTick')) && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <img 
                                   src="/blue-tick.png" 
-                                  alt="Verified" 
+                                  alt={badges.includes('verified') ? "Verified" : "Blue Tick"} 
                                   className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title="Verified"
+                                  title={badges.includes('verified') ? "Verified" : "Blue Tick"}
                                 />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Verified</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                        {badges.includes('blueTick') && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <img 
-                                  src="/blue-tick.png" 
-                                  alt="Blue Tick" 
-                                  className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title="Blue Tick"
-                                />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Blue Tick</p>
+                                <p>{badges.includes('verified') ? "Verified" : "Blue Tick"}</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
@@ -265,10 +253,13 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
           </CardContent>
 
           <CardFooter className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/50">
-             {/* Footer heart icon - can also serve as favorite toggle or just visual */}
-             <Heart 
-               className={`h-4 w-4 hover:scale-110 transition-transform cursor-pointer ${isFavorite(id) ? "fill-red-500 text-red-500" : "text-gray-400 hover:text-red-500"}`}
-               onClick={handleFavoriteClick}
+             <ServiceActionButton
+               service={{
+                 id,
+                 phone,
+                 whatsapp,
+                 contactEmail,
+               }}
              />
             
             <div className="flex flex-col items-end">

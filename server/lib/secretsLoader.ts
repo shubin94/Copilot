@@ -7,6 +7,9 @@ import { db } from "../../db/index.ts";
 import { appSecrets } from "../../shared/schema.ts";
 import { config } from "../config.ts";
 
+// Track if secrets were loaded successfully (used for dev fallbacks)
+export let secretsLoadedSuccessfully = false;
+
 const KEY_MAP: Record<string, (v: string) => void> = {
   host: (v) => { (config as any).server.host = v; },
   google_client_id: (v) => { (config as any).google.clientId = v; },
@@ -33,7 +36,8 @@ const KEY_MAP: Record<string, (v: string) => void> = {
   paypal_client_id: (v) => { (config as any).paypal.clientId = v; },
   paypal_client_secret: (v) => { (config as any).paypal.clientSecret = v; },
   paypal_mode: (v) => { (config as any).paypal.mode = (v || "sandbox") as "sandbox" | "live"; },
-  gemini_api_key: (v) => { (config as any).gemini.apiKey = v; },
+  deepseek_api_key: (v) => { (config as any).deepseek.apiKey = v; },
+  sentry_dsn: (v) => { (config as any).sentryDsn = v; },
 };
 
 export async function loadSecretsFromDatabase(): Promise<void> {
@@ -45,7 +49,21 @@ export async function loadSecretsFromDatabase(): Promise<void> {
         setter(row.value);
       }
     }
+    secretsLoadedSuccessfully = true;
   } catch (e) {
-    console.warn("[secrets] Could not load app_secrets (table may not exist yet):", (e as Error).message);
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    
+    // In dev mode (not production), allow startup without database
+    const isProduction = process.env.NODE_ENV === "production";
+    
+    if (!isProduction) {
+      console.warn("[dev] Database unavailable - using fallback configuration");
+      secretsLoadedSuccessfully = false;
+      return; // Continue startup in dev mode
+    }
+    
+    // In production, database is required
+    console.error("[secrets] Failed to load app_secrets:", errorMsg);
+    throw e;
   }
 }

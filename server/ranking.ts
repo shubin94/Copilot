@@ -242,17 +242,18 @@ export async function getRankedDetectives(options?: {
   try {
     // Handle backward compatibility - if options is a number, treat it as limit
     const opts = typeof options === "number" ? { limit: options } : options || {};
-    const status = opts.status || "active";
     const limitVal = opts.limit || 100;
 
     // Get detectives with their visibility records
-    const statusValue = status as "active" | "pending" | "suspended" | "inactive";
+    let query = db.select().from(detectives);
     
-    const detList = await db
-      .select()
-      .from(detectives)
-      .where(eq(detectives.status, statusValue))
-      .limit(limitVal);
+    // Only filter by status if explicitly provided
+    if (opts.status) {
+      const statusValue = opts.status as "active" | "pending" | "suspended" | "inactive";
+      query = query.where(eq(detectives.status, statusValue)) as any;
+    }
+    
+    const detList = await query.limit(limitVal);
 
     // Enhance with visibility data
     const enhancedList = await Promise.all(
