@@ -32,11 +32,17 @@ export default function AdminSettings() {
   const [headerLogo, setHeaderLogo] = useState<LogoState>({ preview: null, file: null, dataUrl: null });
   const [stickyLogo, setStickyLogo] = useState<LogoState>({ preview: null, file: null, dataUrl: null });
   const [footerLogo, setFooterLogo] = useState<LogoState>({ preview: null, file: null, dataUrl: null });
+  
+  // Hero and features images
+  const [heroBackground, setHeroBackground] = useState<LogoState>({ preview: null, file: null, dataUrl: null });
+  const [featuresImage, setFeaturesImage] = useState<LogoState>({ preview: null, file: null, dataUrl: null });
 
   // Refs for file inputs
   const headerInputRef = useRef<HTMLInputElement>(null);
   const stickyInputRef = useRef<HTMLInputElement>(null);
   const footerInputRef = useRef<HTMLInputElement>(null);
+  const heroInputRef = useRef<HTMLInputElement>(null);
+  const featuresInputRef = useRef<HTMLInputElement>(null);
 
   // Load existing logos when site data loads
   useEffect(() => {
@@ -58,6 +64,14 @@ export default function AdminSettings() {
         setFooterLogo({ preview: site.footerLogoUrl, file: null, dataUrl: null });
       } else if (site.logoUrl) {
         setFooterLogo({ preview: site.logoUrl, file: null, dataUrl: null });
+      }
+      
+      if (site.heroBackgroundImage) {
+        setHeroBackground({ preview: site.heroBackgroundImage, file: null, dataUrl: null });
+      }
+      
+      if (site.featuresImage) {
+        setFeaturesImage({ preview: site.featuresImage, file: null, dataUrl: null });
       }
     }
   }, [site]);
@@ -126,6 +140,18 @@ export default function AdminSettings() {
       } else if (footerLogo.preview === null && (site?.footerLogoUrl || site?.logoUrl)) {
         payload.footerLogoUrl = null;
       }
+      
+      if (heroBackground.dataUrl) {
+        payload.heroBackgroundImage = heroBackground.dataUrl;
+      } else if (heroBackground.preview === null && site?.heroBackgroundImage) {
+        payload.heroBackgroundImage = null;
+      }
+      
+      if (featuresImage.dataUrl) {
+        payload.featuresImage = featuresImage.dataUrl;
+      } else if (featuresImage.preview === null && site?.featuresImage) {
+        payload.featuresImage = null;
+      }
 
       // Only send request if there are changes
       if (Object.keys(payload).length === 0) {
@@ -136,10 +162,11 @@ export default function AdminSettings() {
         return;
       }
 
-      await api.settings.updateSite(payload);
+      const updated = await api.settings.updateSite(payload);
       
-      // Invalidate cache to refetch
-      await queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+      // Update cache immediately and also mark stale
+      queryClient.setQueryData(["settings", "site"], updated);
+      await queryClient.invalidateQueries({ queryKey: ["settings", "site"] });
       
       toast({ 
         title: "Success", 
@@ -150,6 +177,8 @@ export default function AdminSettings() {
       setHeaderLogo(prev => ({ ...prev, file: null, dataUrl: null }));
       setStickyLogo(prev => ({ ...prev, file: null, dataUrl: null }));
       setFooterLogo(prev => ({ ...prev, file: null, dataUrl: null }));
+      setHeroBackground(prev => ({ ...prev, file: null, dataUrl: null }));
+      setFeaturesImage(prev => ({ ...prev, file: null, dataUrl: null }));
 
     } catch (error: any) {
       toast({ 
@@ -183,6 +212,18 @@ export default function AdminSettings() {
       setFooterLogo({ preview: site.footerLogoUrl || site.logoUrl || null, file: null, dataUrl: null });
     } else {
       setFooterLogo({ preview: null, file: null, dataUrl: null });
+    }
+    
+    if (site?.heroBackgroundImage) {
+      setHeroBackground({ preview: site.heroBackgroundImage, file: null, dataUrl: null });
+    } else {
+      setHeroBackground({ preview: null, file: null, dataUrl: null });
+    }
+    
+    if (site?.featuresImage) {
+      setFeaturesImage({ preview: site.featuresImage, file: null, dataUrl: null });
+    } else {
+      setFeaturesImage({ preview: null, file: null, dataUrl: null });
     }
     
     toast({ title: "Reset", description: "All changes discarded" });
@@ -265,7 +306,7 @@ export default function AdminSettings() {
     );
   }
 
-  const hasChanges = headerLogo.dataUrl || stickyLogo.dataUrl || footerLogo.dataUrl;
+  const hasChanges = headerLogo.dataUrl || stickyLogo.dataUrl || footerLogo.dataUrl || heroBackground.dataUrl || featuresImage.dataUrl;
 
   return (
     <DashboardLayout role="admin">
@@ -278,6 +319,7 @@ export default function AdminSettings() {
         <Tabs defaultValue="logos" className="space-y-6">
           <TabsList>
             <TabsTrigger value="logos">Logo Settings</TabsTrigger>
+            <TabsTrigger value="home">Home Page Images</TabsTrigger>
             <TabsTrigger value="footer">Footer Content</TabsTrigger>
           </TabsList>
 
@@ -353,6 +395,71 @@ export default function AdminSettings() {
                   <p className="text-xs">• <strong>Optimal dimensions:</strong> 200x50px (width x height)</p>
                   <p className="text-xs">• <strong>Max file size:</strong> 2MB per image</p>
                   <p className="text-xs">• <strong>Tip:</strong> You can use different logos for each location to match the design context</p>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="home" className="space-y-6">
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="outline" onClick={handleResetAll} disabled={isSaving}>
+                <RefreshCw className="h-4 w-4 mr-2" /> Reset
+              </Button>
+              <Button 
+                onClick={handleSave} 
+                disabled={isSaving || !hasChanges}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" /> Save Images
+                  </>
+                )}
+              </Button>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+              <LogoUploadCard
+                title="Hero Background Image"
+                description="Background image for the hero section on the home page"
+                state={heroBackground}
+                setState={setHeroBackground}
+                inputRef={heroInputRef}
+              />
+
+              <LogoUploadCard
+                title="Features Section Image"
+                description="Image displayed in the features/highlights section"
+                state={featuresImage}
+                setState={setFeaturesImage}
+                inputRef={featuresInputRef}
+              />
+            </div>
+
+            <Card className="bg-blue-50 border-blue-200">
+              <CardHeader>
+                <CardTitle className="text-blue-900">Home Page Image Guide</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-blue-800 space-y-3">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="bg-white rounded-lg p-4 border border-blue-200">
+                    <h4 className="font-semibold mb-2">Hero Background</h4>
+                    <p className="text-xs text-blue-700">Large banner image shown at the top of the home page behind the main headline</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 border border-blue-200">
+                    <h4 className="font-semibold mb-2">Features Image</h4>
+                    <p className="text-xs text-blue-700">Highlighted image in the features/benefits section of the home page</p>
+                  </div>
+                </div>
+                <div className="pt-2 space-y-1">
+                  <p className="text-xs">• <strong>Hero Background:</strong> Recommended 1920x600px (landscape)</p>
+                  <p className="text-xs">• <strong>Features Image:</strong> Recommended 800x600px (portrait/square)</p>
+                  <p className="text-xs">• <strong>Max file size:</strong> 2MB per image</p>
+                  <p className="text-xs">• <strong>Tip:</strong> Use high-quality images that align with your brand identity</p>
                 </div>
               </CardContent>
             </Card>

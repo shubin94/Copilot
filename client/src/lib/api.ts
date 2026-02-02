@@ -815,6 +815,8 @@ export const api = {
       headerLogoUrl?: string | null;
       stickyHeaderLogoUrl?: string | null;
       footerLogoUrl?: string | null;
+      heroBackgroundImage?: string | null;
+      featuresImage?: string | null;
       footerLinks?: Array<{ label: string; href: string }>;
       footerSections?: any[];
       socialLinks?: any;

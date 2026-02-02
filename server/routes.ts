@@ -4686,6 +4686,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const validated = updateSiteSettingsSchema.parse(req.body);
+      const payloadKeys = Object.keys(req.body || {});
+      console.log("[site-settings] PATCH payload keys:", payloadKeys);
+      if (typeof (req.body as any)?.heroBackgroundImage === "string") {
+        console.log("[site-settings] heroBackgroundImage length:", (req.body as any).heroBackgroundImage.length);
+      }
+      if (typeof (req.body as any)?.featuresImage === "string") {
+        console.log("[site-settings] featuresImage length:", (req.body as any).featuresImage.length);
+      }
       const current = await storage.getSiteSettings();
       
       // Handle legacy logoUrl upload
@@ -4718,6 +4726,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if ((validated as any).footerLogoUrl && current?.footerLogoUrl && (validated as any).footerLogoUrl !== current.footerLogoUrl) {
         await deletePublicUrl(current.footerLogoUrl as any);
+      }
+      
+      // Handle heroBackgroundImage upload
+      if (typeof (validated as any).heroBackgroundImage === "string" && (validated as any).heroBackgroundImage?.startsWith("data:")) {
+        (validated as any).heroBackgroundImage = await uploadDataUrl("site-assets", `hero/background-${Date.now()}-${Math.random()}.png`, (validated as any).heroBackgroundImage);
+      }
+      if ((validated as any).heroBackgroundImage && current?.heroBackgroundImage && (validated as any).heroBackgroundImage !== current.heroBackgroundImage) {
+        await deletePublicUrl(current.heroBackgroundImage as any);
+      }
+      
+      // Handle featuresImage upload
+      if (typeof (validated as any).featuresImage === "string" && (validated as any).featuresImage?.startsWith("data:")) {
+        (validated as any).featuresImage = await uploadDataUrl("site-assets", `features/image-${Date.now()}-${Math.random()}.png`, (validated as any).featuresImage);
+      }
+      if ((validated as any).featuresImage && current?.featuresImage && (validated as any).featuresImage !== current.featuresImage) {
+        await deletePublicUrl(current.featuresImage as any);
       }
       
       const s = await storage.upsertSiteSettings(validated as any);

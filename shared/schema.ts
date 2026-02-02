@@ -276,6 +276,8 @@ export const siteSettings = pgTable("site_settings", {
   headerLogoUrl: text("header_logo_url"),
   stickyHeaderLogoUrl: text("sticky_header_logo_url"),
   footerLogoUrl: text("footer_logo_url"),
+  heroBackgroundImage: text("hero_background_image"), // Hero section background image
+  featuresImage: text("features_image"), // Features section image
   footerLinks: jsonb("footer_links").default(sql`'[]'::jsonb`), // Legacy field
   footerSections: jsonb("footer_sections").default(sql`'[]'::jsonb`), // New structured footer
   socialLinks: jsonb("social_links").default(sql`'{}'::jsonb`), // Social media links
@@ -544,6 +546,8 @@ export const updateSiteSettingsSchema = z.object({
   headerLogoUrl: z.string().optional(),
   stickyHeaderLogoUrl: z.string().optional(),
   footerLogoUrl: z.string().optional(),
+  heroBackgroundImage: z.string().optional(),
+  featuresImage: z.string().optional(),
   footerLinks: z.array(z.object({
     label: z.string(),
     href: z.string(),
