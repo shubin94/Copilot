@@ -9,7 +9,7 @@ import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./servi
 import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
 import { db, pool } from "../db/index.ts";
-import { eq, and, desc, avg, count, min } from "drizzle-orm";
+import { eq, and, desc, avg, count, min, ilike } from "drizzle-orm";
 import {
   detectives,
   detectiveVisibility,
@@ -455,7 +455,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Only database-backed credentials are allowed
 
-      const user = await storage.getUserByEmail(email);
+      let user = await storage.getUserByEmail(email);
+      if (!user) {
+        // Try detective contactEmail (case-insensitive) to find linked user
+        const detectiveUser = await db
+          .select({ user: users, detective: detectives })
+          .from(users)
+          .innerJoin(detectives, eq(detectives.userId, users.id))
+          .where(ilike(detectives.contactEmail, email))
+          .limit(1);
+        if (detectiveUser.length > 0) {
+          user = detectiveUser[0].user;
+          console.info("[auth] Login matched detective contactEmail", { email, userId: user.id, detectiveId: detectiveUser[0].detective.id });
+        }
+      }
       if (!user) {
         // Check pending detective application
         const application = await storage.getDetectiveApplicationByEmail(email);
@@ -465,26 +478,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return res.json({ applicant: { email: application.email, status: application.status } });
           }
         }
-        console.warn("[auth] Login failed: invalid credentials");
+        console.warn("[auth] Login failed: email not found", { email });
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
       let validPassword = false;
       try {
-        validPassword = await bcrypt.compare(password, user.password);
+        if (typeof user.password === "string" && user.password.startsWith("$2")) {
+          validPassword = await bcrypt.compare(password, user.password);
+        } else {
+          // Legacy/plain password stored - compare directly
+          validPassword = user.password === password;
+          if (validPassword) {
+            // Rehash and store securely
+            await storage.setUserPassword(user.id, password, false);
+            console.info("[auth] Legacy password upgraded to bcrypt", { userId: user.id, email });
+          }
+        }
       } catch (_e) {
-        console.warn("[auth] Login failed: invalid credentials");
+        console.warn("[auth] Login failed: password compare error", { email });
         return res.status(401).json({ error: "Invalid email or password" });
       }
       if (!validPassword) {
-        console.warn("[auth] Login failed: invalid credentials");
+        console.warn("[auth] Login failed: password mismatch", { email, userId: user.id });
         return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Log detective status for troubleshooting (do not block login)
+      try {
+        const detective = await storage.getDetectiveByUserId(user.id);
+        if (detective) {
+          console.info("[auth] Detective login", { userId: user.id, email, status: detective.status, isClaimed: detective.isClaimed });
+        }
+      } catch (e) {
+        console.warn("[auth] Detective lookup failed", { userId: user.id, email });
       }
 
       // Session fixation prevention: regenerate session before setting auth data
       req.session.regenerate((err) => {
         if (err) {
-          console.warn("[auth] Session error during login");
+          console.warn("[auth] Session error during login", { userId: user.id, email });
           return res.status(500).json({ error: "Failed to log in" });
         }
         req.session.userId = user.id;
@@ -835,7 +868,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { getRankedDetectives } = await import("./ranking.ts");
       let detectives = await getRankedDetectives({
         country: country as string,
-        status: ((status as string) || "active") as string,
+        status: status as string || undefined, // Don't default to "active" - let ranking decide
         plan: plan as string,
         searchQuery: search as string,
         limit: 100,
@@ -845,7 +878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (country) {
         detectives = detectives.filter((d: any) => d.country === country);
       }
-      if (status && status !== "active") {
+      if (status) {
         detectives = detectives.filter((d: any) => d.status === status);
       }
 
@@ -869,7 +902,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return masked;
       }));
 
-      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       res.json({ detectives: maskedDetectives, total });
     } catch (error) {
       console.error("Get detectives error:", error);
@@ -2416,6 +2448,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Validate request body - only allow whitelisted fields
       const validatedData = updateDetectiveSchema.parse(req.body);
+      
+      // SUBSCRIPTION PERMISSION ENFORCEMENT: Validate WhatsApp and Recognition
+      // Prevent users from bypassing frontend restrictions by directly calling the API
+      if (req.session.userRole !== "admin") {
+        let subscriptionPackage = (detective as any).subscriptionPackage;
+        
+        // Fetch subscription package if not already loaded
+        if (!subscriptionPackage && detective.subscriptionPackageId) {
+          try {
+            subscriptionPackage = await storage.getSubscriptionPlanById(detective.subscriptionPackageId);
+          } catch (error) {
+            console.error("[profile-update] Failed to fetch subscription package:", error);
+          }
+        }
+        
+        const features = Array.isArray(subscriptionPackage?.features) ? (subscriptionPackage.features as string[]) : [];
+        const hasWhatsAppPermission = features.includes("contact_whatsapp");
+        const hasRecognitionPermission = features.includes("recognition");
+        
+        // Block WhatsApp update if subscription doesn't allow it
+        if ("whatsapp" in validatedData && !hasWhatsAppPermission) {
+          return res.status(403).json({ 
+            error: "Your subscription plan does not allow WhatsApp contact visibility. Please upgrade to add WhatsApp." 
+          });
+        }
+        
+        // Block Recognition update if subscription doesn't allow it
+        if ("recognitions" in validatedData && !hasRecognitionPermission) {
+          return res.status(403).json({ 
+            error: "Your subscription plan does not allow Recognition features. Please upgrade to add Recognitions." 
+          });
+        }
+      }
+      
       if (typeof (validatedData as any).logo === "string" && (validatedData as any).logo.startsWith("data:")) {
         (validatedData as any).logo = await uploadDataUrl("detective-assets", `logos/${Date.now()}-${Math.random()}.png`, (validatedData as any).logo);
       }
@@ -2655,13 +2721,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ratingMin: minRating ? parseFloat(minRating as string) : undefined,
       }, 10000, 0, sortBy as string);
 
+      // Filter out services without images
+      const servicesWithImages = allServices.filter((s: any) => {
+        const hasImages = Array.isArray(s.images) && s.images.length > 0;
+        return hasImages;
+      });
+
       // Get detective rankings for sorting (NOT filtering)
       const { getRankedDetectives } = await import("./ranking");
       const rankedDetectives = await getRankedDetectives({ limit: 1000 });
       const detectiveRankMap = new Map(rankedDetectives.map((d: any, idx: number) => [d.id, { score: d.visibilityScore, rank: idx }]));
 
       // Sort services by detective ranking (higher score = higher position)
-      const sortedServices = allServices.sort((a: any, b: any) => {
+      const sortedServices = servicesWithImages.sort((a: any, b: any) => {
         const aRank = detectiveRankMap.get(a.detectiveId);
         const bRank = detectiveRankMap.get(b.detectiveId);
         // Higher score = better ranking = appears first
@@ -3725,13 +3797,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const claimedDetective = await storage.getDetective(result.claim.detectiveId);
           
-          // Send legacy email (keep for backward compatibility)
-          await sendClaimApprovedEmail({
-            to: result.email,
-            detectiveName: claimedDetective?.businessName || "Detective",
-            wasNewUser: result.wasNewUser,
-            temporaryPassword: result.temporaryPassword,
-          });
+          // Send legacy email (keep for backward compatibility) - do not block approval
+          try {
+            await sendClaimApprovedEmail({
+              to: result.email,
+              detectiveName: claimedDetective?.businessName || "Detective",
+              wasNewUser: result.wasNewUser,
+              temporaryPassword: result.temporaryPassword,
+            });
+          } catch (emailError) {
+            console.error("[Email] Failed to send claim approval email:", emailError);
+          }
 
           // Send SendPulse email (non-blocking)
           if (result.wasNewUser && result.temporaryPassword) {
@@ -4381,19 +4457,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get distinct countries with detectives
   app.get("/api/locations/countries", async (req: Request, res: Response) => {
     try {
+      console.log("[locations/countries] Starting query...");
+      
       const result = await db
         .selectDistinct({ country: detectives.country })
         .from(detectives)
-        .where(eq(detectives.isActive, true));
+        .where(eq(detectives.status, "active"));
+      
+      console.log("[locations/countries] Query result:", result);
+      
+      if (!Array.isArray(result)) {
+        console.warn("[locations/countries] Query result is not an array:", typeof result);
+        return res.json({ countries: [] });
+      }
       
       const countries = result
         .map(r => r.country)
         .filter(c => c != null && c !== '')
         .sort();
       
+      console.log("[locations/countries] Filtered countries:", countries);
       res.json({ countries });
     } catch (error) {
-      console.error("Get countries error:", error);
+      console.error("[locations/countries] ERROR DETAILS:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        type: error instanceof Error ? error.constructor.name : typeof error
+      });
       res.status(500).json({ error: "Failed to get countries" });
     }
   });
@@ -4406,22 +4496,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Country parameter required" });
       }
 
+      console.log("[locations/states] Query for country:", country);
       const result = await db
         .selectDistinct({ state: detectives.state })
         .from(detectives)
         .where(and(
           eq(detectives.country, country),
-          eq(detectives.isActive, true)
+          eq(detectives.status, "active")
         ));
+      
+      console.log("[locations/states] Query result:", result);
+      
+      if (!Array.isArray(result)) {
+        console.warn("[locations/states] Query result is not an array:", typeof result);
+        return res.json({ states: [] });
+      }
       
       const states = result
         .map(r => r.state)
         .filter(s => s != null && s !== '')
         .sort();
       
+      console.log("[locations/states] Filtered states:", states);
       res.json({ states });
     } catch (error) {
-      console.error("Get states error:", error);
+      console.error("[locations/states] ERROR DETAILS:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        type: error instanceof Error ? error.constructor.name : typeof error
+      });
       res.status(500).json({ error: "Failed to get states" });
     }
   });
@@ -4437,23 +4540,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "State parameter required" });
       }
 
+      console.log("[locations/cities] Query for country:", country, "state:", state);
       const result = await db
         .selectDistinct({ city: detectives.city })
         .from(detectives)
         .where(and(
           eq(detectives.country, country),
           eq(detectives.state, state),
-          eq(detectives.isActive, true)
+          eq(detectives.status, "active")
         ));
+      
+      console.log("[locations/cities] Query result:", result);
+      
+      if (!Array.isArray(result)) {
+        console.warn("[locations/cities] Query result is not an array:", typeof result);
+        return res.json({ cities: [] });
+      }
       
       const cities = result
         .map(r => r.city)
         .filter(c => c != null && c !== '')
         .sort();
       
+      console.log("[locations/cities] Filtered cities:", cities);
       res.json({ cities });
     } catch (error) {
-      console.error("Get cities error:", error);
+      console.error("[locations/cities] ERROR DETAILS:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        type: error instanceof Error ? error.constructor.name : typeof error
+      });
       res.status(500).json({ error: "Failed to get cities" });
     }
   });

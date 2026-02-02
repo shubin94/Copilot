@@ -26,6 +26,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SEO } from "@/components/seo";
 import { useSearchServices, useServiceCategories, useCountries, useStates, useCities } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
+import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import type { Service, Detective } from "@shared/schema";
 import { buildBadgesFromEffective } from "@/lib/badges";
 
@@ -58,6 +59,9 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
     countryCode: service.detective.country,
     location: service.detective.location || "",
+    phone: service.detective.phone || undefined,
+    whatsapp: service.detective.whatsapp || undefined,
+    contactEmail: service.detective.contactEmail || undefined,
   };
 }
 
@@ -119,9 +123,15 @@ export default function SearchPage() {
   const { data: statesData } = useStates(countryFilterState);
   const { data: citiesData } = useCities(countryFilterState, appliedState);
   
-  const availableCountries = countriesData?.countries || [];
+  const availableCountryCodes = countriesData?.countries || [];
   const availableStates = statesData?.states || [];
   const availableCities = citiesData?.cities || [];
+  
+  // Map country codes to names for display
+  const availableCountries = availableCountryCodes.map(code => {
+    const country = WORLD_COUNTRIES.find(c => c.code === code);
+    return { code, name: country?.name || code };
+  });
 
   const results = servicesData?.services?.map(mapServiceToCard) || [];
   // Don't filter out services without images - show all results
@@ -152,6 +162,9 @@ export default function SearchPage() {
   }
   const hasActiveFilters = !!(selectedCategory || minRating !== undefined || countryFilterState || minPrice !== undefined || maxPrice !== undefined || appliedState.trim() || proOnly || agencyOnly || localOnly || level1Only || level2Only);
 
+  // Track if we've done initial URL sync to avoid loops
+  const hasInitializedFromUrl = useRef(false);
+
   // Clear all filters when the main search query (q) changes
   useEffect(() => {
     setSelectedCategory(undefined);
@@ -171,33 +184,16 @@ export default function SearchPage() {
     setSortBy("popular");
   }, [query]);
 
-  // Sync filters FROM URL when user lands or navigates with ?category=... (e.g. from smart-search "View this category")
-  const searchString = typeof window !== "undefined" ? window.location.search : "";
+  // Sync filters FROM URL ONLY on initial mount (state is already initialized from URL in useState)
+  // We don't need to keep syncing from URL since we update it ourselves
+  // This prevents infinite loops between URL updates and state updates
   useEffect(() => {
-    const params = new URLSearchParams(searchString);
-    const cat = params.get("category");
-    if (cat != null) setSelectedCategory(cat);
-    const country = params.get("country");
-    if (country != null) setCountryFilterState(country);
-    const stateParam = params.get("state");
-    if (stateParam != null) setAppliedState(stateParam);
-    const cityParam = params.get("city");
-    if (cityParam != null) setAppliedCity(cityParam);
-    const mr = params.get("minRating");
-    setMinRating(mr ? parseFloat(mr) : undefined);
-    const mp = params.get("minPrice");
-    const maxP = params.get("maxPrice");
-    setMinPrice(mp ? parseFloat(mp) : undefined);
-    setMaxPrice(maxP ? parseFloat(maxP) : undefined);
-    setMinPriceInput(params.get("minPrice") || "");
-    setMaxPriceInput(params.get("maxPrice") || "");
-    setProOnly(params.get("proOnly") === "1");
-    setAgencyOnly(params.get("agencyOnly") === "1");
-    setLocalOnly(params.get("localOnly") === "1");
-    setLevel1Only(params.get("lvl1") === "1");
-    setLevel2Only(params.get("lvl2") === "1");
-    setSortBy(params.get("sortBy") || "popular");
-  }, [searchString]);
+    if (!hasInitializedFromUrl.current) {
+      hasInitializedFromUrl.current = true;
+      // State is already initialized from searchParams in useState, so we don't need to do anything here
+      // This effect just ensures we don't re-sync when the URL changes due to our own updates
+    }
+  }, []);
 
   // Persist filters to URL for shareable links
   useEffect(() => {
@@ -268,6 +264,169 @@ export default function SearchPage() {
          </AccordionContent>
        </AccordionItem>
 
+       <AccordionItem value="location">
+         <AccordionTrigger className="font-bold text-sm">Location</AccordionTrigger>
+         <AccordionContent>
+           <div className="space-y-3">
+             {/* Country Dropdown with Search */}
+             <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">Country</Label>
+              <Select 
+                value={countryFilterState || ""} 
+                onValueChange={(value) => {
+                  setCountryFilterState(value || undefined);
+                  setAppliedState("");
+                  setAppliedCity("");
+                  setStateSearch("");
+                  setCitySearch("");
+                }}
+              >
+                <SelectTrigger className="h-8 text-sm" data-testid="select-country-filter">
+                  <SelectValue placeholder="Select country..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <div className="p-2 border-b">
+                    <Input 
+                      ref={countrySearchRef}
+                      placeholder="Search countries..." 
+                      className="h-7 text-sm"
+                      value={countrySearch}
+                      onChange={(e) => setCountrySearch(e.target.value)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      autoFocus
+                    />
+                  </div>
+                  {availableCountries
+                    .filter(c => 
+                      !countrySearch.trim() || 
+                      c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
+                      c.code.toLowerCase().includes(countrySearch.toLowerCase())
+                    )
+                    .map(c => (
+                      <SelectItem key={c.code} value={c.code}>
+                        {c.name}
+                      </SelectItem>
+                    ))
+                  }
+                </SelectContent>
+              </Select>
+             </div>
+
+             {/* State Dropdown with Search - Enabled only when Country is selected */}
+             <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">State / Province</Label>
+              <Select 
+                value={appliedState || ""}
+                onValueChange={(value) => {
+                  setAppliedState(value || "");
+                  setAppliedCity("");
+                  setCitySearch("");
+                }}
+                disabled={!countryFilterState || availableStates.length === 0}
+              >
+                <SelectTrigger className="h-8 text-sm" data-testid="select-state-filter">
+                  <SelectValue placeholder={!countryFilterState ? "Select country first..." : "Select state..."} />
+                </SelectTrigger>
+                <SelectContent>
+                  <div className="p-2 border-b">
+                    <Input 
+                      ref={stateSearchRef}
+                      placeholder="Search states..." 
+                      className="h-7 text-sm"
+                      value={stateSearch}
+                      onChange={(e) => setStateSearch(e.target.value)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      autoFocus
+                    />
+                  </div>
+                  {availableStates
+                    .filter(s => 
+                      !stateSearch.trim() || 
+                      s.toLowerCase().includes(stateSearch.toLowerCase())
+                    )
+                    .map(s => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))
+                  }
+                </SelectContent>
+              </Select>
+             </div>
+
+             {/* City Dropdown with Search - Enabled only when State is selected */}
+             <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">City</Label>
+              <Select 
+                value={appliedCity || ""}
+                onValueChange={(value) => setAppliedCity(value || "")}
+                disabled={!appliedState || availableCities.length === 0}
+              >
+                <SelectTrigger className="h-8 text-sm" data-testid="select-city-filter">
+                  <SelectValue placeholder={!appliedState ? "Select state first..." : "Select city..."} />
+                </SelectTrigger>
+                <SelectContent>
+                  <div className="p-2 border-b">
+                    <Input 
+                      ref={citySearchRef}
+                      placeholder="Search cities..." 
+                      className="h-7 text-sm"
+                      value={citySearch}
+                      onChange={(e) => setCitySearch(e.target.value)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      autoFocus
+                    />
+                  </div>
+                  {availableCities
+                    .filter(city => 
+                      !citySearch.trim() || 
+                      city.toLowerCase().includes(citySearch.toLowerCase())
+                    )
+                    .map(city => (
+                      <SelectItem key={city} value={city}>
+                        {city}
+                      </SelectItem>
+                    ))
+                  }
+                </SelectContent>
+              </Select>
+             </div>
+
+             {/* Clear Button - Only shown when any location filter is active */}
+             {(countryFilterState || appliedState || appliedCity) && (
+               <Button 
+                 size="sm" 
+                 variant="ghost" 
+                 className="h-8 w-full" 
+                 onClick={() => { 
+                   setCountryFilterState(undefined); 
+                   setAppliedState(""); 
+                   setAppliedCity("");
+                   setCountrySearch("");
+                   setStateSearch("");
+                   setCitySearch("");
+                 }}
+                 data-testid="button-clear-location"
+               >
+                 <X className="h-4 w-4 mr-1" />
+                 Clear Location
+               </Button>
+             )}
+            
+            <div className="flex items-center space-x-2 pt-2">
+              <Switch id="local-only" data-testid="switch-local-only" checked={localOnly} onCheckedChange={(v: boolean) => { setLocalOnly(v); if (v && selectedCountry.code !== 'ALL') { setCountryFilterState(selectedCountry.code); } }} />
+              <Label htmlFor="local-only" className="text-sm">Local Sellers Only</Label>
+            </div>
+           </div>
+         </AccordionContent>
+       </AccordionItem>
+
       <AccordionItem value="budget">
         <AccordionTrigger className="font-bold text-sm">Budget</AccordionTrigger>
         <AccordionContent>
@@ -317,186 +476,6 @@ export default function SearchPage() {
           </div>
         </AccordionContent>
       </AccordionItem>
-
-       <AccordionItem value="location">
-         <AccordionTrigger className="font-bold text-sm">Location</AccordionTrigger>
-         <AccordionContent>
-           <div className="space-y-3">
-             {/* Country Dropdown with Search */}
-             <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">Country</Label>
-              <Select 
-                value={countryFilterState || ""} 
-                onValueChange={(value) => {
-                  setCountryFilterState(value || undefined);
-                  setAppliedState("");
-                  setAppliedCity("");
-                  setStateSearch("");
-                  setCitySearch("");
-                }}
-              >
-                <SelectTrigger className="h-8 text-sm" data-testid="select-country-filter">
-                  <SelectValue placeholder="Select country..." />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]" onOpenAutoFocus={(e) => {
-                  e.preventDefault();
-                  setTimeout(() => {
-                    countrySearchRef.current?.focus();
-                  }, 0);
-                }}>
-                  <div className="px-2 py-1.5 sticky top-0 bg-popover z-10" onMouseDown={(e) => e.stopPropagation()}>
-                    <Input 
-                      ref={countrySearchRef}
-                      placeholder="Search countries..." 
-                      className="h-8 text-sm"
-                      value={countrySearch}
-                      onChange={(e) => setCountrySearch(e.target.value)}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                      }}
-                    />
-                  </div>
-                  {availableCountries
-                    .filter(code => 
-                      !countrySearch.trim() || 
-                      code.toLowerCase().includes(countrySearch.toLowerCase())
-                    )
-                    .map(code => (
-                      <SelectItem key={code} value={code} className="text-sm">
-                        {code}
-                      </SelectItem>
-                    ))
-                  }
-                </SelectContent>
-              </Select>
-             </div>
-
-             {/* State Dropdown with Search - Enabled only when Country is selected */}
-             <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">State / Province</Label>
-              <Select 
-                value={appliedState || ""}
-                onValueChange={(value) => {
-                  setAppliedState(value || "");
-                  setAppliedCity("");
-                  setCitySearch("");
-                }}
-                disabled={!countryFilterState || availableStates.length === 0}
-              >
-                <SelectTrigger className="h-8 text-sm" data-testid="select-state-filter">
-                  <SelectValue placeholder={!countryFilterState ? "Select country first..." : "Select state..."} />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]" onOpenAutoFocus={(e) => {
-                  e.preventDefault();
-                  setTimeout(() => {
-                    stateSearchRef.current?.focus();
-                  }, 0);
-                }}>
-                  <div className="px-2 py-1.5 sticky top-0 bg-popover z-10" onMouseDown={(e) => e.stopPropagation()}>
-                    <Input 
-                      ref={stateSearchRef}
-                      placeholder="Search states..." 
-                      className="h-8 text-sm"
-                      value={stateSearch}
-                      onChange={(e) => setStateSearch(e.target.value)}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                      }}
-                    />
-                  </div>
-                  {availableStates
-                    .filter(s => 
-                      !stateSearch.trim() || 
-                      s.toLowerCase().includes(stateSearch.toLowerCase())
-                    )
-                    .map(s => (
-                      <SelectItem key={s} value={s} className="text-sm">
-                        {s}
-                      </SelectItem>
-                    ))
-                  }
-                </SelectContent>
-              </Select>
-             </div>
-
-             {/* City Dropdown with Search - Enabled only when State is selected */}
-             <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">City</Label>
-              <Select 
-                value={appliedCity || ""}
-                onValueChange={(value) => setAppliedCity(value || "")}
-                disabled={!appliedState || availableCities.length === 0}
-              >
-                <SelectTrigger className="h-8 text-sm" data-testid="select-city-filter">
-                  <SelectValue placeholder={!appliedState ? "Select state first..." : "Select city..."} />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]" onOpenAutoFocus={(e) => {
-                  e.preventDefault();
-                  setTimeout(() => {
-                    citySearchRef.current?.focus();
-                  }, 0);
-                }}>
-                  <div className="px-2 py-1.5 sticky top-0 bg-popover z-10" onMouseDown={(e) => e.stopPropagation()}>
-                    <Input 
-                      ref={citySearchRef}
-                      placeholder="Search cities..." 
-                      className="h-8 text-sm"
-                      value={citySearch}
-                      onChange={(e) => setCitySearch(e.target.value)}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                      }}
-                    />
-                  </div>
-                  {availableCities
-                    .filter(city => 
-                      !citySearch.trim() || 
-                      city.toLowerCase().includes(citySearch.toLowerCase())
-                    )
-                    .map(city => (
-                      <SelectItem key={city} value={city} className="text-sm">
-                        {city}
-                      </SelectItem>
-                    ))
-                  }
-                </SelectContent>
-              </Select>
-             </div>
-
-             {/* Clear Button - Only shown when any location filter is active */}
-             {(countryFilterState || appliedState || appliedCity) && (
-               <Button 
-                 size="sm" 
-                 variant="ghost" 
-                 className="h-8 w-full" 
-                 onClick={() => { 
-                   setCountryFilterState(undefined); 
-                   setAppliedState(""); 
-                   setAppliedCity("");
-                   setCountrySearch("");
-                   setStateSearch("");
-                   setCitySearch("");
-                 }}
-                 data-testid="button-clear-location"
-               >
-                 <X className="h-4 w-4 mr-1" />
-                 Clear Location
-               </Button>
-             )}
-            
-            <div className="flex items-center space-x-2 pt-2">
-              <Switch id="local-only" data-testid="switch-local-only" checked={localOnly} onCheckedChange={(v: boolean) => { setLocalOnly(v); if (v && selectedCountry.code !== 'ALL') { setCountryFilterState(selectedCountry.code); } }} />
-              <Label htmlFor="local-only" className="text-sm">Local Sellers Only</Label>
-            </div>
-           </div>
-         </AccordionContent>
-       </AccordionItem>
 
        <AccordionItem value="options">
          <AccordionTrigger className="font-bold text-sm">Service Options</AccordionTrigger>
@@ -686,3 +665,4 @@ export default function SearchPage() {
     </div>
   );
 }
+

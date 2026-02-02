@@ -15,6 +15,7 @@ function ClaimItem({ claim }: { claim: any }) {
   const detective = detectiveData?.detective;
   const updateStatus = useUpdateClaimStatus();
   const { toast } = useToast();
+  const [showDetails, setShowDetails] = useState(false);
 
   const handleApprove = async () => {
     try {
@@ -24,9 +25,10 @@ function ClaimItem({ claim }: { claim: any }) {
         description: `${claim.claimantName} can now manage this detective profile.`,
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to approve claim. Please try again.";
       toast({
         title: "Error",
-        description: "Failed to approve claim. Please try again.",
+        description: message,
         variant: "destructive",
       });
     }
@@ -40,9 +42,10 @@ function ClaimItem({ claim }: { claim: any }) {
         description: `${claim.claimantName}'s claim has been rejected.`,
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to reject claim. Please try again.";
       toast({
         title: "Error",
-        description: "Failed to reject claim. Please try again.",
+        description: message,
         variant: "destructive",
       });
     }
@@ -70,7 +73,15 @@ function ClaimItem({ claim }: { claim: any }) {
             )}
           </div>
           <div className="text-sm text-gray-600 mt-1">
-            Claimed by: <span className="font-medium">{claim.claimantName}</span> ({claim.claimantEmail})
+            Claimed by:{" "}
+            <button
+              type="button"
+              className="font-medium text-blue-600 hover:underline"
+              onClick={() => setShowDetails((v) => !v)}
+            >
+              {claim.claimantName}
+            </button>{" "}
+            ({claim.claimantEmail})
           </div>
           {claim.claimantPhone && (
             <div className="text-xs text-gray-500">{claim.claimantPhone}</div>
@@ -78,9 +89,39 @@ function ClaimItem({ claim }: { claim: any }) {
           <div className="text-xs text-gray-500 mt-1">
             Submitted {format(new Date(claim.createdAt), "MMM dd, yyyy")}
           </div>
-          {claim.details && (
-            <div className="text-xs text-gray-600 mt-2 bg-white p-2 rounded border border-gray-200">
-              {claim.details}
+          {showDetails && (
+            <div className="mt-3 space-y-2">
+              <div className="text-xs text-gray-700 bg-white p-2 rounded border border-gray-200">
+                <div><span className="font-semibold">Full Name:</span> {claim.claimantName}</div>
+                <div><span className="font-semibold">Email:</span> {claim.claimantEmail}</div>
+                {claim.claimantPhone && (
+                  <div><span className="font-semibold">Phone:</span> {claim.claimantPhone}</div>
+                )}
+              </div>
+              {claim.details && (
+                <div className="text-xs text-gray-600 bg-white p-2 rounded border border-gray-200">
+                  <div className="font-semibold text-gray-700 mb-1">Details</div>
+                  {claim.details}
+                </div>
+              )}
+              {Array.isArray(claim.documents) && claim.documents.length > 0 && (
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Uploaded Documents</div>
+                  <div className="flex flex-wrap gap-2">
+                    {claim.documents.map((doc: string, idx: number) => (
+                      <a
+                        key={`${claim.id}-doc-${idx}`}
+                        href={doc}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-blue-600 underline bg-white px-2 py-1 rounded border border-gray-200"
+                      >
+                        Document {idx + 1}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

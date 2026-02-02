@@ -1,0 +1,9 @@
+    price: Number(service.basePrice),
+    offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
+    countryCode: service.detective.country,
+    location: service.detective.location || "",
+    phone: service.detective.phone || undefined,
+    whatsapp: service.detective.whatsapp || undefined,
+    contactEmail: service.detective.contactEmail || undefined,
+  };
+}

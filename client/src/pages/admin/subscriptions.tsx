@@ -567,6 +567,18 @@ export default function AdminSubscriptions() {
                   }} 
                 />
               </div>
+              <div className="flex items-center justify-between border p-3 rounded-md">
+                <Label htmlFor="contact-recognition" className="cursor-pointer">Recognition</Label>
+                <Switch 
+                  id="contact-recognition" 
+                  checked={Array.isArray(formData.features) ? formData.features.includes("recognition") : false}
+                  onCheckedChange={(c) => {
+                    const set = new Set(formData.features || []);
+                    c ? set.add("recognition") : set.delete("recognition");
+                    setFormData({ ...formData, features: Array.from(set) as any });
+                  }} 
+                />
+              </div>
             </div>
           </div>
             </div>

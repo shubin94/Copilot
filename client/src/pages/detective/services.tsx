@@ -151,6 +151,7 @@ export default function DetectiveServices() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["services", "detective", detective?.id] });
       queryClient.invalidateQueries({ queryKey: ["services", "all"] });
+      queryClient.refetchQueries({ queryKey: ["services"] });
       toast({ title: "Service Deleted", description: "Service has been removed." });
     },
     onError: (error: any) => {

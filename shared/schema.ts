@@ -167,7 +167,7 @@ export const orders = pgTable("orders", {
   serviceId: varchar("service_id").notNull().references(() => services.id),
   packageId: varchar("package_id").references(() => servicePackages.id),
   userId: varchar("user_id").notNull().references(() => users.id),
-  detectiveId: varchar("detective_id").notNull().references(() => detectives.id),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id, { onDelete: "cascade" }),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   status: orderStatusEnum("status").notNull().default("pending"),
   requirements: text("requirements"),
@@ -230,7 +230,7 @@ export const detectiveApplications = pgTable("detective_applications", {
 
 export const profileClaims = pgTable("profile_claims", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  detectiveId: varchar("detective_id").notNull().references(() => detectives.id),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id, { onDelete: "cascade" }),
   claimantName: text("claimant_name").notNull(),
   claimantEmail: text("claimant_email").notNull(),
   claimantPhone: text("claimant_phone"),
@@ -325,7 +325,7 @@ export const subscriptionPlans = pgTable("subscription_plans", {
 export const paymentOrders = pgTable("payment_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
-  detectiveId: varchar("detective_id").notNull().references(() => detectives.id),
+  detectiveId: varchar("detective_id").notNull().references(() => detectives.id, { onDelete: "cascade" }),
   plan: text("plan").notNull(),
   packageId: text("package_id"),
   billingCycle: text("billing_cycle"),

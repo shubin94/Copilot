@@ -298,25 +298,17 @@ export default function DetectiveSubscription() {
   // Process Razorpay payment
   const processRazorpayPayment = async (packageId: string, packageName: string, billingCycle: 'monthly' | 'yearly') => {
     // Step 1: Create payment order
-    const orderRes = await fetch('/api/payments/create-order', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
-      body: JSON.stringify({ 
+    let orderData: { orderId: string; amount: number; key: string };
+    try {
+      orderData = await api.post('/api/payments/create-order', { 
         packageId: packageId,
         billingCycle: billingCycle
-      }),
-    });
-    
-    if (!orderRes.ok) {
-      const err = await orderRes.json();
-      throw new Error(err.error || 'Failed to create payment order');
+      });
+    } catch (error: any) {
+      throw new Error(error?.message || 'Failed to create payment order');
     }
     
-    const { orderId, amount, key } = await orderRes.json();
+    const { orderId, amount, key } = orderData;
     
     // Step 2: Open Razorpay checkout
     const options = {
@@ -329,26 +321,16 @@ export default function DetectiveSubscription() {
       handler: async (response: any) => {
         try {
           // Step 3: Verify payment
-          const verifyRes = await fetch('/api/payments/verify', {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'X-Requested-With': 'XMLHttpRequest',
-            },
-            credentials: 'include',
-            body: JSON.stringify({
+          let verifyData: any;
+          try {
+            verifyData = await api.post('/api/payments/verify', {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
-            }),
-          });
-          
-          if (!verifyRes.ok) {
-            const err = await verifyRes.json();
-            throw new Error(err.error || 'Payment verification failed');
+            });
+          } catch (error: any) {
+            throw new Error(error?.message || 'Payment verification failed');
           }
-          
-          const verifyData = await verifyRes.json();
           console.log('[subscription] Payment verified, response:', verifyData);
           
           toast({ 
@@ -414,25 +396,17 @@ export default function DetectiveSubscription() {
       console.log(`[subscription] Creating PayPal order for package: ${packageName}`);
       
       // Step 1: Create PayPal order
-      const createOrderRes = await fetch('/api/payments/paypal/create-order', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ 
+      let orderData: { orderId: string; clientId: string };
+      try {
+        orderData = await api.post('/api/payments/paypal/create-order', { 
           packageId,
           billingCycle
-        }),
-      });
-      
-      if (!createOrderRes.ok) {
-        const err = await createOrderRes.json();
-        throw new Error(err.error || 'Failed to create PayPal order');
+        });
+      } catch (error: any) {
+        throw new Error(error?.message || 'Failed to create PayPal order');
       }
       
-      const { orderId, clientId } = await createOrderRes.json();
+      const { orderId, clientId } = orderData;
       console.log(`[subscription] PayPal order created: ${orderId}`);
       
       // Step 2: Load PayPal SDK and open payment UI
@@ -489,19 +463,10 @@ export default function DetectiveSubscription() {
             console.log(`[subscription] PayPal order approved: ${data.orderID}`);
             
             // Step 3: Capture payment
-            const captureRes = await fetch('/api/payments/paypal/capture', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-              },
-              credentials: 'include',
-              body: JSON.stringify({ orderId }),
-            });
-            
-            if (!captureRes.ok) {
-              const err = await captureRes.json();
-              throw new Error(err.error || 'Payment capture failed');
+            try {
+              await api.post('/api/payments/paypal/capture', { paypalOrderId: orderId });
+            } catch (error: any) {
+              throw new Error(error?.message || 'Payment capture failed');
             }
             
             console.log(`[subscription] Payment captured successfully`);
@@ -638,22 +603,14 @@ export default function DetectiveSubscription() {
   const processBlueTickRazorpay = async (billingCycle: 'monthly' | 'yearly') => {
     try {
       // Step 1: Create Blue Tick payment order
-      const orderRes = await fetch('/api/payments/create-blue-tick-order', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ billingCycle }),
-      });
-      
-      if (!orderRes.ok) {
-        const err = await orderRes.json();
-        throw new Error(err.error || 'Failed to create payment order');
+      let orderData: { orderId: string; amount: number; key: string };
+      try {
+        orderData = await api.post('/api/payments/create-blue-tick-order', { billingCycle });
+      } catch (error: any) {
+        throw new Error(error?.message || 'Failed to create payment order');
       }
       
-      const { orderId, amount, key } = await orderRes.json();
+      const { orderId, amount, key } = orderData;
       
       // Step 2: Open Razorpay checkout
       const options = {
@@ -666,23 +623,14 @@ export default function DetectiveSubscription() {
         handler: async (response: any) => {
           try {
             // Step 3: Verify Blue Tick payment
-            const verifyRes = await fetch('/api/payments/verify-blue-tick', {
-              method: 'POST',
-              headers: { 
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-              },
-              credentials: 'include',
-              body: JSON.stringify({
+            try {
+              await api.post('/api/payments/verify-blue-tick', {
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_signature: response.razorpay_signature,
-              }),
-            });
-            
-            if (!verifyRes.ok) {
-              const err = await verifyRes.json();
-              throw new Error(err.error || 'Payment verification failed');
+              });
+            } catch (error: any) {
+              throw new Error(error?.message || 'Payment verification failed');
             }
             
             toast({ 
@@ -752,25 +700,17 @@ export default function DetectiveSubscription() {
       console.log(`[blue-tick] Creating PayPal order for Blue Tick`);
       
       // Step 1: Create PayPal order for Blue Tick
-      const createOrderRes = await fetch('/api/payments/paypal/create-order', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ 
+      let orderData: { orderId: string; clientId: string };
+      try {
+        orderData = await api.post('/api/payments/paypal/create-order', { 
           packageId: 'blue-tick',
           billingCycle
-        }),
-      });
-      
-      if (!createOrderRes.ok) {
-        const err = await createOrderRes.json();
-        throw new Error(err.error || 'Failed to create PayPal order');
+        });
+      } catch (error: any) {
+        throw new Error(error?.message || 'Failed to create PayPal order');
       }
       
-      const { orderId, clientId } = await createOrderRes.json();
+      const { orderId, clientId } = orderData;
       console.log(`[blue-tick] PayPal order created: ${orderId}`);
       
       // Step 2: Load PayPal SDK and open payment UI
@@ -827,19 +767,10 @@ export default function DetectiveSubscription() {
             console.log(`[blue-tick] PayPal order approved: ${data.orderID}`);
             
             // Step 3: Capture payment
-            const captureRes = await fetch('/api/payments/paypal/capture', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-              },
-              credentials: 'include',
-              body: JSON.stringify({ orderId }),
-            });
-            
-            if (!captureRes.ok) {
-              const err = await captureRes.json();
-              throw new Error(err.error || 'Payment capture failed');
+            try {
+              await api.post('/api/payments/paypal/capture', { paypalOrderId: orderId });
+            } catch (error: any) {
+              throw new Error(error?.message || 'Payment capture failed');
             }
             
             console.log(`[blue-tick] Payment captured successfully`);

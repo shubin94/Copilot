@@ -69,6 +69,7 @@ export default function TagsAdmin() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/tags"] });
+      queryClient.refetchQueries({ queryKey: ["/api/admin/tags"] });
     },
   });
 

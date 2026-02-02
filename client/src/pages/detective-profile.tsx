@@ -8,6 +8,7 @@ import { Star, Mail, Phone, MessageCircle, ShieldCheck, AlertTriangle, FileText,
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useCurrency } from "@/lib/currency-context";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -135,13 +136,44 @@ export default function DetectiveProfile() {
   }
 
   const { service, detective, avgRating, reviewCount } = serviceData;
+  
+  // Handle case where detective was deleted but service data is cached
+  if (!detective) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <Navbar />
+        <main className="flex-grow container mx-auto px-4 py-8">
+          <div className="max-w-4xl mx-auto text-center">
+            <AlertTriangle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-2">Detective Profile Not Available</h1>
+            <p className="text-gray-600 mb-6">This detective profile is no longer available.</p>
+            <Link href="/">
+              <Button>
+                <ChevronLeft className="h-4 w-4 mr-2" />
+                Back to Home
+              </Button>
+            </Link>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+  
   const reviews = reviewsData?.reviews || [];
 
   const isClaimable = detective.isClaimable && !detective.isClaimed;
   const detectiveTier = detective.subscriptionPlan;
+  const recognitionAllowed = Array.isArray((detective as any)?.subscriptionPackage?.features)
+    ? (detective as any).subscriptionPackage.features.includes("recognition")
+    : false;
+  const whatsappAllowed = Array.isArray((detective as any)?.subscriptionPackage?.features)
+    ? (detective as any).subscriptionPackage.features.includes("contact_whatsapp")
+    : false;
   const detectiveName = detective.businessName || "Unknown Detective";
   
   const memberSince = format(new Date(detective.memberSince), "MMMM yyyy");
+  const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   
   // Use actual detective logo and service images from database - NO MOCK DATA
   const detectiveLogo = detective.logo;
@@ -335,8 +367,10 @@ export default function DetectiveProfile() {
                   )}
                 </div>
                 <div className="flex items-center gap-3 text-sm text-gray-700 mt-1">
-                  {detective.whatsapp && (
-                    <span data-testid="text-contact-whatsapp">{detective.whatsapp}</span>
+                  {whatsappAllowed && detective.whatsapp ? (
+                    <span data-testid="text-contact-whatsapp">WhatsApp Available</span>
+                  ) : (
+                    <span className="opacity-50 text-gray-400" data-testid="text-contact-whatsapp-disabled">WhatsApp: Not Available</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-sm text-gray-500"></div>
@@ -407,28 +441,49 @@ export default function DetectiveProfile() {
                         <span className="font-bold">Contact via Email</span>
                       </Button>
                       {detective.phone && (
-                        <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-phone-mobile" onClick={() => {
-                          const raw = String(detective.phone);
-                          const num = raw.replace(/[^+\d]/g, "");
-                          const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                          if (isMobile) window.location.href = `tel:${num}`;
-                          else { navigator.clipboard?.writeText(num).catch(() => {}); try { toast({ title: "Number Copied", description: `Phone: ${num}` }); } catch {} }
-                        }}>
-                          <Phone className="h-5 w-5" />
-                          <span className="font-bold">Call Now</span>
-                        </Button>
+                        isMobileDevice ? (
+                          <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-phone-mobile" onClick={() => {
+                            const raw = String(detective.phone);
+                            const num = raw.replace(/[^+\d]/g, "");
+                            window.location.href = `tel:${num}`;
+                          }}>
+                            <Phone className="h-5 w-5" />
+                            <span className="font-bold">Call Now</span>
+                          </Button>
+                        ) : (
+                          <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-phone-mobile" onClick={() => {
+                            const raw = String(detective.phone);
+                            const num = raw.replace(/[^+\d]/g, "");
+                            navigator.clipboard?.writeText(num).catch(() => {});
+                            try { toast({ title: "Number Copied", description: `Phone: ${num}` }); } catch {}
+                          }}>
+                            <Phone className="h-5 w-5" />
+                            <span className="font-bold">Call Now</span>
+                          </Button>
+                        )
                       )}
-                      {detective.whatsapp && (
+                      {whatsappAllowed && detective.whatsapp ? (
                         <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-whatsapp-mobile" onClick={() => {
                           const raw = String(detective.whatsapp);
                           const num = raw.replace(/[^+\d]/g, "");
-                          const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                          if (isMobile) window.open(`https://wa.me/${num.replace(/^\+/, "")}`, "_blank");
-                          else { navigator.clipboard?.writeText(num).catch(() => {}); try { toast({ title: "Number Copied", description: `WhatsApp: ${num}` }); } catch {} }
+                          const url = `https://wa.me/${num.replace(/^\+/, "")}`;
+                          window.open(url, "_blank");
                         }}>
                           <MessageCircle className="h-5 w-5" />
                           <span className="font-bold">WhatsApp</span>
                         </Button>
+                      ) : (
+                        <div className="w-full">
+                          <Button 
+                            className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-400 border border-gray-200 shadow-sm h-12 cursor-not-allowed opacity-50" 
+                            data-testid="button-contact-whatsapp-mobile-disabled"
+                            disabled
+                          >
+                            <MessageCircle className="h-5 w-5" />
+                            <span className="font-bold">WhatsApp</span>
+                          </Button>
+                          <p className="text-xs text-amber-600 mt-2 text-center">Upgrade the subscription to avail this option</p>
+                        </div>
                       )}
                     </div>
                   </Card>
@@ -495,30 +550,44 @@ export default function DetectiveProfile() {
                       </div>
                     )}
                   </div>
-                  {/* Recognitions (only if any are set; replaces duplicate bio – bio already shown in About This Service) */}
-                  {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges?.blueTick || (detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro || (detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended) && (
-                    <div className="flex items-center gap-2 text-sm flex-wrap">
-                      <span className="text-gray-500">Recognitions</span>
-                      {detective.isVerified && (
-                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-verified">
-                          <ShieldCheck className="h-3 w-3" /> Verified
-                        </Badge>
-                      )}
-                      {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
-                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-bluetick">Blue Tick</Badge>
-                      )}
-                      {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
-                        <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-pro">
-                          Pro
-                        </Badge>
-                      )}
-                      {(detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended && (
-                        <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-recognitions-recommended">
-                          Recommended
-                        </Badge>
+                  {/* Recognitions (visible even when not allowed; greyed out if restricted by plan) */}
+                  <div>
+                    <div className={`text-sm ${recognitionAllowed ? "" : "opacity-50 pointer-events-none"}`}>
+                      <div className="text-gray-500">Recognitions</div>
+                      {Array.isArray((detective as any).recognitions) && (detective as any).recognitions.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-3">
+                          {(detective as any).recognitions.map((rec: any, idx: number) => (
+                            <Popover key={`${rec?.title || "recognition"}-${idx}`}>
+                              <PopoverTrigger asChild>
+                                <button type="button" className="flex flex-col items-center gap-1">
+                                  {rec?.image ? (
+                                    <img
+                                      src={rec.image}
+                                      alt={rec.title || "Recognition"}
+                                      className="h-10 w-10 object-cover rounded"
+                                    />
+                                  ) : (
+                                    <div className="h-10 w-10 rounded bg-gray-100 text-[10px] text-gray-500 flex items-center justify-center">
+                                      No Image
+                                    </div>
+                                  )}
+                                  {rec?.year && <span className="text-xs text-gray-500">{rec.year}</span>}
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent side="bottom" align="center" className="w-auto px-3 py-2">
+                                <div className="text-xs font-semibold text-gray-800">{rec?.title || "Recognition"}</div>
+                              </PopoverContent>
+                            </Popover>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs" data-testid="text-recognitions-empty">None</span>
                       )}
                     </div>
-                  )}
+                    {!recognitionAllowed && (
+                      <p className="text-xs text-amber-600 mt-1">Upgrade the subscription to avail this option</p>
+                    )}
+                  </div>
                 </div>
               </div>
             </section>
@@ -678,40 +747,50 @@ export default function DetectiveProfile() {
                    </Button>
                    
                    {detective.phone && (
-                    <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-phone" onClick={() => {
-                      const raw = String(detective.phone);
-                      const num = raw.replace(/[^+\d]/g, "");
-                      const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                      if (isMobile) {
+                    isMobileDevice ? (
+                      <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-phone" onClick={() => {
+                        const raw = String(detective.phone);
+                        const num = raw.replace(/[^+\d]/g, "");
                         window.location.href = `tel:${num}`;
-                      } else {
-                        const text = `Phone: ${num}`;
+                      }}>
+                        <Phone className="h-5 w-5" />
+                        <span className="font-bold">Call Now</span>
+                      </Button>
+                    ) : (
+                      <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-phone" onClick={() => {
+                        const raw = String(detective.phone);
+                        const num = raw.replace(/[^+\d]/g, "");
                         navigator.clipboard?.writeText(num).catch(() => {});
-                        try { toast({ title: "Number Copied", description: text }); } catch {}
-                      }
-                    }}>
-                      <Phone className="h-5 w-5" />
-                      <span className="font-bold">Call Now</span>
-                    </Button>
+                        try { toast({ title: "Number Copied", description: `Phone: ${num}` }); } catch {}
+                      }}>
+                        <Phone className="h-5 w-5" />
+                        <span className="font-bold">Call Now</span>
+                      </Button>
+                    )
                    )}
                    
-                   {detective.whatsapp && (
+                   {whatsappAllowed && detective.whatsapp ? (
                     <Button className="w-full flex items-center justify-center gap-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-12" data-testid="button-contact-whatsapp" onClick={() => {
                       const raw = String(detective.whatsapp);
                       const num = raw.replace(/[^+\d]/g, "");
-                      const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                      if (isMobile) {
-                        const url = `https://wa.me/${num.replace(/^\+/, "")}`;
-                        window.open(url, "_blank");
-                      } else {
-                        const text = `WhatsApp: ${num}`;
-                        navigator.clipboard?.writeText(num).catch(() => {});
-                        try { toast({ title: "Number Copied", description: text }); } catch {}
-                      }
+                      const url = `https://wa.me/${num.replace(/^\+/, "")}`;
+                      window.open(url, "_blank");
                     }}>
                       <MessageCircle className="h-5 w-5" />
                       <span className="font-bold">WhatsApp</span>
                     </Button>
+                   ) : (
+                    <div className="w-full">
+                      <Button 
+                        className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-400 border border-gray-200 shadow-sm h-12 cursor-not-allowed opacity-50" 
+                        data-testid="button-contact-whatsapp-disabled"
+                        disabled
+                      >
+                        <MessageCircle className="h-5 w-5" />
+                        <span className="font-bold">WhatsApp</span>
+                      </Button>
+                      <p className="text-xs text-amber-600 mt-2 text-center">Upgrade the subscription to avail this option</p>
+                    </div>
                    )}
                 </div>
               </Card>

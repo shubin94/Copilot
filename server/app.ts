@@ -77,6 +77,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Only failed auth attempts count
+  skip: config.env.isProd ? undefined : () => true, // Disable auth rate limit in dev/test
   message: { error: "Too many authentication attempts. Please try again later." },
 });
 app.use("/api/auth/", authLimiter);

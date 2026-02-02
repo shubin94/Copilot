@@ -21,6 +21,8 @@ export default function DetectivePublicPage() {
   const services = servicesData?.services || [];
   const { toast } = useToast();
 
+  const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
   return (
     <div className="min-h-screen bg-white">
       <SEO 
@@ -82,35 +84,33 @@ export default function DetectivePublicPage() {
                       <span className="font-bold text-xs ml-1">Email</span>
                     </Button>
                     {(detective as any).phone && (
-                      <Button className="bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-9 px-3" data-testid="button-contact-phone" onClick={() => {
-                        const raw = String((detective as any).phone);
-                        const num = raw.replace(/[^+\d]/g, "");
-                        const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                        if (isMobile) {
+                      isMobileDevice ? (
+                        <Button className="bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-9 px-3" data-testid="button-contact-phone" onClick={() => {
+                          const raw = String((detective as any).phone);
+                          const num = raw.replace(/[^+\d]/g, "");
                           window.location.href = `tel:${num}`;
-                        } else {
-                          const text = `Phone: ${num}`;
+                        }}>
+                          <Phone className="h-4 w-4" />
+                          <span className="font-bold text-xs ml-1">Call</span>
+                        </Button>
+                      ) : (
+                        <Button className="bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-9 px-3" data-testid="button-contact-phone" onClick={() => {
+                          const raw = String((detective as any).phone);
+                          const num = raw.replace(/[^+\d]/g, "");
                           navigator.clipboard?.writeText(num).catch(() => {});
-                          try { toast({ title: "Number Copied", description: text }); } catch {}
-                        }
-                      }}>
-                        <Phone className="h-4 w-4" />
-                        <span className="font-bold text-xs ml-1">Call</span>
-                      </Button>
+                          try { toast({ title: "Number Copied", description: `Phone: ${num}` }); } catch {}
+                        }}>
+                          <Phone className="h-4 w-4" />
+                          <span className="font-bold text-xs ml-1">Call Now</span>
+                        </Button>
+                      )
                     )}
                     {(detective as any).whatsapp && (
                       <Button className="bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-9 px-3" data-testid="button-contact-whatsapp" onClick={() => {
                         const raw = String((detective as any).whatsapp);
                         const num = raw.replace(/[^+\d]/g, "");
-                        const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                        if (isMobile) {
-                          const url = `https://wa.me/${num.replace(/^\+/, "")}`;
-                          window.open(url, "_blank");
-                        } else {
-                          const text = `WhatsApp: ${num}`;
-                          navigator.clipboard?.writeText(num).catch(() => {});
-                          try { toast({ title: "Number Copied", description: text }); } catch {}
-                        }
+                        const url = `https://wa.me/${num.replace(/^\+/, "")}`;
+                        window.open(url, "_blank");
                       }}>
                         <MessageCircle className="h-4 w-4" />
                         <span className="font-bold text-xs ml-1">WhatsApp</span>

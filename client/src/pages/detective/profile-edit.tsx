@@ -216,15 +216,19 @@ export default function DetectiveProfileEdit() {
         languages: formData.languages.split(",").map(l => l.trim()).filter(Boolean),
       };
 
-      // ALWAYS preserve recognitions (even for Free plan)
-      // This prevents accidental data loss when Free users edit their profile
-      const validRecognitions = recognitions.filter(r => r.title && r.issuer && r.year && r.image);
-      updateData.recognitions = validRecognitions;
+      // Only include recognitions if user has permission
+      // This prevents backend validation errors when updating other fields
+      if (hasRecognitionPermission) {
+        const validRecognitions = recognitions.filter(r => r.title && r.issuer && r.year && r.image);
+        updateData.recognitions = validRecognitions;
+      }
 
-      // Only include phone/whatsapp if plan is not free (TODO: check features instead)
+      // Only include phone/whatsapp if permission allows
       if (detective.subscriptionPackageId) {
+        if (hasWhatsAppPermission) {
+          updateData.whatsapp = formData.whatsapp;
+        }
         updateData.phone = formData.phone;
-        updateData.whatsapp = formData.whatsapp;
       }
 
       // Include logo if changed
@@ -289,6 +293,13 @@ export default function DetectiveProfileEdit() {
   // If subscriptionPackageId is set, detective has paid package
   const hasPaidPackage = !!detective.subscriptionPackageId;
   const isPremium = hasPaidPackage;
+  
+  // FEATURE-SPECIFIC PERMISSIONS: Check subscription package features array
+  const subscriptionFeatures = Array.isArray((detective as any)?.subscriptionPackage?.features) 
+    ? (detective as any).subscriptionPackage.features as string[] 
+    : [];
+  const hasWhatsAppPermission = subscriptionFeatures.includes("contact_whatsapp");
+  const hasRecognitionPermission = subscriptionFeatures.includes("recognition");
 
   return (
     <DashboardLayout role="detective">
@@ -652,7 +663,7 @@ export default function DetectiveProfileEdit() {
               )}
             </div>
 
-            {/* WhatsApp (Pro/Agency Only) */}
+            {/* WhatsApp (Requires contact_whatsapp feature) */}
             <div className="space-y-2">
               <Label htmlFor="whatsapp">WhatsApp Number</Label>
               <Input
@@ -661,30 +672,30 @@ export default function DetectiveProfileEdit() {
                 value={formData.whatsapp}
                 onChange={(e) => handleInputChange("whatsapp", e.target.value)}
                 placeholder="+1 (555) 000-0000"
-                disabled={!isPremium}
-                className={!isPremium ? "bg-gray-100" : ""}
+                disabled={!hasWhatsAppPermission}
+                className={!hasWhatsAppPermission ? "bg-gray-100 cursor-not-allowed" : ""}
               />
-              {isPremium && (
+              {hasWhatsAppPermission && (
                 <p className="text-xs text-green-600">✓ Visible on your public profile</p>
               )}
-              {!isPremium && (
-                <p className="text-xs text-gray-500">
-                  Upgrade to Pro or Agency to display your WhatsApp publicly
+              {!hasWhatsAppPermission && (
+                <p className="text-xs text-amber-600">
+                  Upgrade the subscription to avail this option
                 </p>
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Recognitions & Awards (Pro/Agency Only) */}
+        {/* Recognitions & Awards (Requires recognition feature) */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Recognitions & Awards
-              {!isPremium && (
+              {!hasRecognitionPermission && (
                 <Badge variant="outline" className="text-xs">
                   <Lock className="h-3 w-3 mr-1" />
-                  Pro/Agency Only
+                  Upgrade Required
                 </Badge>
               )}
             </CardTitle>
@@ -693,16 +704,16 @@ export default function DetectiveProfileEdit() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {!isPremium && (
+            {!hasRecognitionPermission && (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Upgrade to Pro or Agency to add recognitions and awards to your profile.
+                  Upgrade the subscription to avail this option
                 </AlertDescription>
               </Alert>
             )}
 
-            {isPremium && (
+            {hasRecognitionPermission && (
               <>
                 {recognitions.map((recognition, index) => (
                   <div key={index} className="p-4 border rounded-lg space-y-4">

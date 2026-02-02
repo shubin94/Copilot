@@ -139,11 +139,14 @@ export function useAdminDeleteDetective() {
   return useMutation({
     mutationFn: (id: string) => api.detectives.adminDelete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["detectives", "all"] });
+      // Invalidate all detective queries to update the UI immediately
+      queryClient.invalidateQueries({ queryKey: ["detectives"] });
       queryClient.invalidateQueries({ queryKey: ["applications"] });
-      queryClient.invalidateQueries({ queryKey: ["applications", "approved"] });
-      queryClient.invalidateQueries({ queryKey: ["applications", "pending"] });
-      queryClient.invalidateQueries({ queryKey: ["applications", "rejected"] });
+      // Force refetch to ensure UI updates immediately
+      queryClient.refetchQueries({ queryKey: ["detectives"] });
+      // Also invalidate services since detective deletion cascades to their services
+      queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.refetchQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -264,6 +267,7 @@ export function useDeleteService() {
     mutationFn: (id: string) => api.services.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.refetchQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -321,6 +325,7 @@ export function useDeleteReview() {
     mutationFn: (id: string) => api.reviews.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      queryClient.refetchQueries({ queryKey: ["reviews"] });
     },
   });
 }

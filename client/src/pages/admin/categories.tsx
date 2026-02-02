@@ -70,6 +70,7 @@ export default function CategoriesAdmin() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/categories"] });
+      queryClient.refetchQueries({ queryKey: ["/api/admin/categories"] });
     },
   });
 

@@ -30,6 +30,8 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     avatar: detectiveLogo || "",
     name: detectiveName,
     level: service.detective.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1",
+    levelValue: (() => { const m = String(service.detective.level || "level1").match(/\d+/); return m ? parseInt(m[0], 10) : 1; })(),
+    plan: service.detective.subscriptionPlan,
     category: service.category,
     badges,
     title: service.title,
@@ -38,6 +40,10 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     price: Number(service.basePrice),
     offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
     countryCode: service.detective.country,
+    location: service.detective.location || "",
+    phone: service.detective.phone || undefined,
+    whatsapp: service.detective.whatsapp || undefined,
+    contactEmail: service.detective.contactEmail || undefined,
   };
 }
 
