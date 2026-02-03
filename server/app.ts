@@ -46,15 +46,15 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
-// CORS configuration for cross-origin requests (Vercel frontend -> Render backend)
-const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+// CORS configuration for cross-origin requests
+const configuredOrigins = config.csrf.allowedOrigins;
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
     const allowedOrigins = [
-      frontendUrl,
+      ...configuredOrigins,
       "http://localhost:5173",
       "http://localhost:5000",
       "http://127.0.0.1:5173",
