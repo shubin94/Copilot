@@ -16,6 +16,10 @@ const KEY_MAP: Record<string, (v: string) => void> = {
   google_client_secret: (v) => { (config as any).google.clientSecret = v; },
   session_secret: (v) => { (config as any).session.secret = v; },
   base_url: (v) => { (config as any).baseUrl = v; },
+  csrf_allowed_origins: (v) => {
+    const list = v.split(",").map((item) => item.trim()).filter(Boolean);
+    (config as any).csrf.allowedOrigins = list;
+  },
   supabase_url: (v) => { (config as any).supabase.url = v; },
   supabase_service_role_key: (v) => { (config as any).supabase.serviceRoleKey = v; },
   sendgrid_api_key: (v) => { (config as any).email.sendgridApiKey = v; },
