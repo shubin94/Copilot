@@ -4,6 +4,7 @@ import express from "express";
 import type { Express, Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import compression from "compression";
+import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { randomBytes } from "node:crypto";
 import session from "express-session";
@@ -44,6 +45,33 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+
+// CORS configuration for cross-origin requests (Vercel frontend -> Render backend)
+const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      frontendUrl,
+      "http://localhost:5173",
+      "http://localhost:5000",
+      "http://127.0.0.1:5173",
+      "http://127.0.0.1:5000",
+    ];
+    
+    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Requested-With"],
+  exposedHeaders: ["Set-Cookie"],
+}));
 
 // Security headers - CSP disabled for dev flexibility, enable in production
 app.use(helmet({ 
@@ -121,9 +149,9 @@ if (useMemorySession) {
       min: 1,                      // Keep 1 warm connection for session checks
       idleTimeoutMillis: 30000,    // Close idle connections after 30s
       connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
-      ssl: config.env.isProd
-        ? { rejectUnauthorized: true }
-        : (process.env.DB_ALLOW_INSECURE_DEV === "true" ? { rejectUnauthorized: false } : undefined),
+      ssl: !config.db.url?.includes("localhost") && !config.db.url?.includes("127.0.0.1")
+        ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases
+        : undefined,
     }),
     tableName: "session",
     createTableIfMissing: true,
@@ -139,8 +167,10 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: config.session.secureCookies,
-      sameSite: "lax",
+      sameSite: config.env.isProd ? "none" : "lax", // 'none' required for cross-domain in production
       maxAge: config.session.ttlMs,
+      // In production, allow cookies across Vercel frontend and Render backend
+      domain: config.env.isProd ? undefined : undefined,
     },
   })
 );

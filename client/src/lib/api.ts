@@ -1,5 +1,11 @@
 import type { User, Detective, Service, Review, Order, DetectiveApplication, ProfileClaim, ServiceCategory, InsertDetective, InsertService, InsertReview, InsertOrder, InsertServiceCategory, InsertDetectiveApplication } from "@shared/schema";
 
+// API Base URL configuration for different environments
+const API_BASE_URL = import.meta.env.VITE_API_URL || 
+  (import.meta.env.PROD 
+    ? "https://askdetectives-backend.onrender.com" 
+    : "");
+
 class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -60,7 +66,8 @@ export function clearCsrfToken() {
 
 async function getOrFetchCsrfToken(): Promise<string> {
   if (csrfToken) return csrfToken;
-  const r = await fetch("/api/csrf-token", { method: "GET", credentials: "include" });
+  const url = API_BASE_URL ? `${API_BASE_URL}/api/csrf-token` : "/api/csrf-token";
+  const r = await fetch(url, { method: "GET", credentials: "include" });
   if (!r.ok) throw new ApiError(r.status, "Failed to get CSRF token");
   const d = (await r.json()) as { csrfToken: string };
   csrfToken = d.csrfToken;
@@ -69,6 +76,9 @@ async function getOrFetchCsrfToken(): Promise<string> {
 
 // Central fetch wrapper that adds CSRF headers for mutation methods
 async function csrfFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  // Prepend API_BASE_URL if URL doesn't start with http
+  const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+  
   const method = (options.method || "GET").toUpperCase();
   const requiresCSRF = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
 
@@ -80,7 +90,7 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
   }
   options.headers = headers;
 
-  return fetch(url, options);
+  return fetch(fullUrl, options);
 }
 
 export const api = {
