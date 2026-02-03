@@ -36,6 +36,11 @@ async function initSecrets() {
         description: "Session encryption secret"
       },
       {
+        key: "base_url",
+        value: process.env.BASE_URL || "https://askdetectives-backend.onrender.com",
+        description: "Backend base URL"
+      },
+      {
         key: "supabase_url",
         value: process.env.SUPABASE_URL || "",
         description: "Supabase project URL"
