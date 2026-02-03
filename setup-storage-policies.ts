@@ -20,7 +20,7 @@ async function setupStoragePolicies() {
   try {
     console.log("🔧 Setting up Supabase Storage Upload Policies\n");
 
-    const buckets = ["site-assets", "detective-profiles", "service-images"];
+    const buckets = ["site-assets", "page-assets", "detective-assets", "service-images"];
 
     for (const bucketName of buckets) {
       console.log(`📦 ${bucketName}`);
@@ -55,7 +55,10 @@ CREATE POLICY "Authenticated Upload" ON storage.objects FOR INSERT
 WITH CHECK (bucket_id = 'site-assets' AND auth.role() = 'authenticated');
 
 CREATE POLICY "Authenticated Upload" ON storage.objects FOR INSERT
-WITH CHECK (bucket_id = 'detective-profiles' AND auth.role() = 'authenticated');
+WITH CHECK (bucket_id = 'page-assets' AND auth.role() = 'authenticated');
+
+CREATE POLICY "Authenticated Upload" ON storage.objects FOR INSERT
+WITH CHECK (bucket_id = 'detective-assets' AND auth.role() = 'authenticated');
 
 CREATE POLICY "Authenticated Upload" ON storage.objects FOR INSERT
 WITH CHECK (bucket_id = 'service-images' AND auth.role() = 'authenticated');
