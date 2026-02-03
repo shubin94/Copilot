@@ -41,6 +41,11 @@ async function initSecrets() {
         description: "Backend base URL"
       },
       {
+        key: "csrf_allowed_origins",
+        value: process.env.CSRF_ALLOWED_ORIGINS || "https://askdetectives.vercel.app,https://askdetectives-backend.onrender.com",
+        description: "Comma-separated list of allowed CSRF origins"
+      },
+      {
         key: "supabase_url",
         value: process.env.SUPABASE_URL || "",
         description: "Supabase project URL"
