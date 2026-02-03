@@ -41,6 +41,11 @@ async function initSecrets() {
         description: "Backend base URL"
       },
       {
+        key: "host",
+        value: process.env.HOST || "0.0.0.0",
+        description: "Server host binding"
+      },
+      {
         key: "csrf_allowed_origins",
         value: process.env.CSRF_ALLOWED_ORIGINS || "https://askdetectives.vercel.app,https://askdetectives-backend.onrender.com",
         description: "Comma-separated list of allowed CSRF origins"
