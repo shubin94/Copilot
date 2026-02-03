@@ -36,7 +36,8 @@ export const config = {
   env: { isProd, isDev, isTest },
   server: {
     port: getNumber("PORT", isProd ? undefined : 5000)!,
-    host: process.env.HOST || (isProd ? undefined as any : "127.0.0.1"),
+    // HOST: defaults to 0.0.0.0 in production (Render standard), 127.0.0.1 in dev
+    host: process.env.HOST || (isProd ? "0.0.0.0" : "127.0.0.1"),
   },
   db: {
     url: isProd ? requireEnv("DATABASE_URL") : (process.env.DATABASE_URL || ""),

@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: askdetectives-backend
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: postgresql://postgres.gjgrwxxtkyggwfrydpdb:AKshubin123@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
+      - key: PORT
+        value: 10000
+      - key: HOST
+        value: 0.0.0.0
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SUPABASE_URL
+        value: https://gjgrwxxtkyggwfrydpdb.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_Xc9EoaUadxNIjlBCQmwySw_3R9cR2eY
+      - key: SUPABASE_SECRET_KEY
+        value: sb_secret_rhq41xUgtj4qLfNnWg226Q_KpkOkoNW
+      - key: SENDPULSE_API_ID
+        sync: false
+      - key: SENDPULSE_API_SECRET
+        sync: false
+      - key: SENDPULSE_SENDER_EMAIL
+        value: noreply@askdetectives.com
+      - key: SENDPULSE_SENDER_NAME
+        value: AskDetectives
+      - key: SENDPULSE_ENABLED
+        value: true
+      - key: FRONTEND_URL
+        value: https://askdetectives.vercel.app
+      - key: CSRF_ALLOWED_ORIGINS
+        value: https://askdetectives.vercel.app
+      - key: BASE_URL
+        value: https://askdetectives-backend.onrender.com
