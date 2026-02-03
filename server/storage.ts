@@ -517,7 +517,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateService(id: string, updates: Partial<Service>): Promise<Service | undefined> {
     // Whitelist only allowed fields - prevent modification of protected columns
-    const allowedFields: (keyof Service)[] = ['title', 'description', 'category', 'basePrice', 'offerPrice', 'images', 'isActive'];
+    const allowedFields: (keyof Service)[] = ['title', 'description', 'category', 'basePrice', 'offerPrice', 'images', 'isActive', 'isOnEnquiry'];
     const safeUpdates: Partial<Service> = {};
     
     for (const key of allowedFields) {
@@ -1333,6 +1333,8 @@ export class DatabaseStorage implements IStorage {
         headerLogoUrl: settings.headerLogoUrl ?? null as any,
         stickyHeaderLogoUrl: settings.stickyHeaderLogoUrl ?? null as any,
         footerLogoUrl: settings.footerLogoUrl ?? null as any,
+        heroBackgroundImage: settings.heroBackgroundImage ?? null as any,
+        featuresImage: settings.featuresImage ?? null as any,
         footerLinks: (settings.footerLinks as any) ?? sql`'[]'::jsonb`,
         footerSections: (settings.footerSections as any) ?? sql`'[]'::jsonb`,
         socialLinks: (settings.socialLinks as any) ?? sql`'{}'::jsonb`,
@@ -1346,6 +1348,8 @@ export class DatabaseStorage implements IStorage {
         headerLogoUrl: settings.headerLogoUrl ?? current.headerLogoUrl,
         stickyHeaderLogoUrl: settings.stickyHeaderLogoUrl ?? current.stickyHeaderLogoUrl,
         footerLogoUrl: settings.footerLogoUrl ?? current.footerLogoUrl,
+        heroBackgroundImage: settings.heroBackgroundImage ?? current.heroBackgroundImage,
+        featuresImage: settings.featuresImage ?? current.featuresImage,
         footerLinks: (settings.footerLinks as any) ?? current.footerLinks,
         footerSections: (settings.footerSections as any) ?? current.footerSections,
         socialLinks: (settings.socialLinks as any) ?? current.socialLinks,

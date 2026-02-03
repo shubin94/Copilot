@@ -2843,18 +2843,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         detectiveId: detective.id,
       });
 
+      // If isOnEnquiry is true, prices are optional
+      const isOnEnquiry = (validatedData as any).isOnEnquiry === true;
+      
       const pricing = await requirePolicy<{ offerLessThanBase: boolean }>("pricing_constraints");
-      const base = parseFloat(validatedData.basePrice as any);
-      if (!(base > 0)) {
-        return res.status(400).json({ error: "Base price must be a positive number" });
-      }
-      if ((validatedData as any).offerPrice !== undefined && (validatedData as any).offerPrice !== null) {
-        const offer = parseFloat((validatedData as any).offerPrice as any);
-        if (!(offer > 0)) {
-          return res.status(400).json({ error: "Offer price must be positive" });
+      if (!isOnEnquiry) {
+        // basePrice is required when not on enquiry
+        if (!validatedData.basePrice) {
+          return res.status(400).json({ error: "Base price is required when not using Price on Enquiry" });
         }
-        if (pricing?.offerLessThanBase && !(offer < base)) {
-          return res.status(400).json({ error: "Offer price must be strictly lower than base price" });
+        const base = parseFloat(validatedData.basePrice as any);
+        if (!(base > 0)) {
+          return res.status(400).json({ error: "Base price must be a positive number" });
+        }
+        if ((validatedData as any).offerPrice !== undefined && (validatedData as any).offerPrice !== null) {
+          const offer = parseFloat((validatedData as any).offerPrice as any);
+          if (!(offer > 0)) {
+            return res.status(400).json({ error: "Offer price must be positive" });
+          }
+          if (pricing?.offerLessThanBase && !(offer < base)) {
+            return res.status(400).json({ error: "Offer price must be strictly lower than base price" });
+          }
         }
       }
 
@@ -2935,14 +2944,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const currentBase = validatedData.basePrice !== undefined ? parseFloat(validatedData.basePrice as any) : parseFloat((service as any).basePrice as any);
-      if (!(currentBase > 0)) {
-        return res.status(400).json({ error: "Base price must be a positive number" });
-      }
-      if (validatedData.offerPrice !== undefined && validatedData.offerPrice !== null) {
-        const offer = parseFloat(validatedData.offerPrice as any);
-        if (!(offer > 0) || !(offer < currentBase)) {
-          return res.status(400).json({ error: "Offer price must be positive and strictly lower than base price" });
+      // Check if isOnEnquiry is being set
+      const isOnEnquiry = (validatedData as any).isOnEnquiry !== undefined ? (validatedData as any).isOnEnquiry : (service as any).isOnEnquiry;
+      
+      // Only validate pricing if isOnEnquiry is false
+      if (!isOnEnquiry) {
+        // For updates, basePrice can come from the update or from existing service
+        const basePriceValue = validatedData.basePrice !== undefined ? validatedData.basePrice : ((service as any).basePrice);
+        if (!basePriceValue) {
+          return res.status(400).json({ error: "Base price is required when not using Price on Enquiry" });
+        }
+        const currentBase = parseFloat(basePriceValue as any);
+        if (!(currentBase > 0)) {
+          return res.status(400).json({ error: "Base price must be a positive number" });
+        }
+        if (validatedData.offerPrice !== undefined && validatedData.offerPrice !== null) {
+          const offer = parseFloat(validatedData.offerPrice as any);
+          if (!(offer > 0) || !(offer < currentBase)) {
+            return res.status(400).json({ error: "Offer price must be positive and strictly lower than base price" });
+          }
         }
       }
 
@@ -4666,6 +4686,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const validated = updateSiteSettingsSchema.parse(req.body);
+      const payloadKeys = Object.keys(req.body || {});
+      console.log("[site-settings] PATCH payload keys:", payloadKeys);
+      if (typeof (req.body as any)?.heroBackgroundImage === "string") {
+        console.log("[site-settings] heroBackgroundImage length:", (req.body as any).heroBackgroundImage.length);
+      }
+      if (typeof (req.body as any)?.featuresImage === "string") {
+        console.log("[site-settings] featuresImage length:", (req.body as any).featuresImage.length);
+      }
       const current = await storage.getSiteSettings();
       
       // Handle legacy logoUrl upload
@@ -4698,6 +4726,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if ((validated as any).footerLogoUrl && current?.footerLogoUrl && (validated as any).footerLogoUrl !== current.footerLogoUrl) {
         await deletePublicUrl(current.footerLogoUrl as any);
+      }
+      
+      // Handle heroBackgroundImage upload
+      if (typeof (validated as any).heroBackgroundImage === "string" && (validated as any).heroBackgroundImage?.startsWith("data:")) {
+        (validated as any).heroBackgroundImage = await uploadDataUrl("site-assets", `hero/background-${Date.now()}-${Math.random()}.png`, (validated as any).heroBackgroundImage);
+      }
+      if ((validated as any).heroBackgroundImage && current?.heroBackgroundImage && (validated as any).heroBackgroundImage !== current.heroBackgroundImage) {
+        await deletePublicUrl(current.heroBackgroundImage as any);
+      }
+      
+      // Handle featuresImage upload
+      if (typeof (validated as any).featuresImage === "string" && (validated as any).featuresImage?.startsWith("data:")) {
+        (validated as any).featuresImage = await uploadDataUrl("site-assets", `features/image-${Date.now()}-${Math.random()}.png`, (validated as any).featuresImage);
+      }
+      if ((validated as any).featuresImage && current?.featuresImage && (validated as any).featuresImage !== current.featuresImage) {
+        await deletePublicUrl(current.featuresImage as any);
       }
       
       const s = await storage.upsertSiteSettings(validated as any);

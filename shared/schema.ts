@@ -117,8 +117,9 @@ export const services = pgTable("services", {
   title: text("title").notNull(),
   description: text("description").notNull(),
   images: text("images").array().default(sql`ARRAY[]::text[]`),
-  basePrice: decimal("base_price", { precision: 10, scale: 2 }).notNull(),
+  basePrice: decimal("base_price", { precision: 10, scale: 2 }),
   offerPrice: decimal("offer_price", { precision: 10, scale: 2 }),
+  isOnEnquiry: boolean("is_on_enquiry").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   viewCount: integer("view_count").notNull().default(0),
   orderCount: integer("order_count").notNull().default(0),
@@ -275,6 +276,8 @@ export const siteSettings = pgTable("site_settings", {
   headerLogoUrl: text("header_logo_url"),
   stickyHeaderLogoUrl: text("sticky_header_logo_url"),
   footerLogoUrl: text("footer_logo_url"),
+  heroBackgroundImage: text("hero_background_image"), // Hero section background image
+  featuresImage: text("features_image"), // Features section image
   footerLinks: jsonb("footer_links").default(sql`'[]'::jsonb`), // Legacy field
   footerSections: jsonb("footer_sections").default(sql`'[]'::jsonb`), // New structured footer
   socialLinks: jsonb("social_links").default(sql`'{}'::jsonb`), // Social media links
@@ -360,8 +363,9 @@ export const insertServiceSchema = createInsertSchema(services, {
   title: z.string().min(10).max(200),
   description: z.string().min(50),
   category: z.string().min(3),
-  basePrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  basePrice: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   offerPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
+  isOnEnquiry: z.boolean().optional(),
   images: z.array(z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
     message: "Image must be a valid data URL or HTTP URL"
   })).optional(),
@@ -470,6 +474,7 @@ export const updateServiceSchema = z.object({
   category: z.string().min(3).optional(),
   basePrice: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   offerPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
+  isOnEnquiry: z.boolean().optional(),
   images: z.array(z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
     message: "Image must be a valid data URL or HTTP URL"
   })).optional(),
@@ -541,6 +546,8 @@ export const updateSiteSettingsSchema = z.object({
   headerLogoUrl: z.string().optional(),
   stickyHeaderLogoUrl: z.string().optional(),
   footerLogoUrl: z.string().optional(),
+  heroBackgroundImage: z.string().optional(),
+  featuresImage: z.string().optional(),
   footerLinks: z.array(z.object({
     label: z.string(),
     href: z.string(),

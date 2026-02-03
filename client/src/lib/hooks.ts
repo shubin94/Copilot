@@ -562,9 +562,9 @@ export function useSiteSettings() {
   return useQuery({
     queryKey: ["settings", "site"],
     queryFn: () => api.settings.getSite(),
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    staleTime: 5 * 60 * 1000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 }
 

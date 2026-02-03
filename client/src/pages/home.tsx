@@ -8,9 +8,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, AlertCircle, Layers } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Link } from "wouter";
-import { useSearchServices, useServiceCategories, useSearchDetectives } from "@/lib/hooks";
+import { useSearchServices, useServiceCategories, useSearchDetectives, useSiteSettings } from "@/lib/hooks";
 import type { Service, Detective, ServiceCategory } from "@shared/schema";
 import { buildBadgesFromEffective } from "@/lib/badges";
+import { useEffect, useRef } from "react";
 
 function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number }) {
   const badges = buildBadgesFromEffective(service.detective.effectiveBadges, !!service.detective.isVerified);
@@ -39,6 +40,7 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     reviews: service.reviewCount,
     price: Number(service.basePrice),
     offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
+    isOnEnquiry: service.isOnEnquiry,
     countryCode: service.detective.country,
     location: service.detective.location || "",
     phone: service.detective.phone || undefined,
@@ -52,13 +54,37 @@ export default function Home() {
   const categories = categoriesData?.categories || [];
 
   const { data: popularServicesData, isLoading: isLoadingPopular } = useSearchServices({ 
-    limit: 12, 
+    limit: 8, 
     sortBy: "recent" 
   });
 
   const popularServices = popularServicesData?.services?.map(mapServiceToCard) || [];
   const { data: featuredDetectivesData, isLoading: isLoadingDetectives } = useSearchDetectives({ status: "active", limit: 4 });
   const featuredDetectives = featuredDetectivesData?.detectives || [];
+  const { data: siteData } = useSiteSettings();
+  const featuresImage = siteData?.settings?.featuresImage;
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || categories.length === 0) return;
+
+    const scrollInterval = setInterval(() => {
+      const scrollAmount = container.offsetWidth * 0.33; // Scroll one card width (approx 1/3 of viewport)
+      const maxScroll = container.scrollWidth - container.offsetWidth;
+      
+      if (container.scrollLeft >= maxScroll - 10) {
+        // Reset to start
+        container.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        // Scroll to next
+        container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+      }
+    }, 5000); // Every 5 seconds
+
+    return () => clearInterval(scrollInterval);
+  }, [categories.length]);
 
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900">
@@ -84,24 +110,49 @@ export default function Home() {
           </div>
         </div>
 
-        <section className="py-16 container mx-auto px-6 md:px-12 lg:px-24">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h2 className="text-3xl font-bold font-heading">Browse by Category</h2>
-              <p className="text-gray-600 mt-2">Explore professional detective services organized by specialty</p>
+        <section className="py-16">
+          <style>{`
+            .category-scroll-container {
+              scrollbar-width: none;
+              -ms-overflow-style: none;
+            }
+            .category-scroll-container::-webkit-scrollbar {
+              display: none;
+            }
+            .category-card {
+              flex: 0 0 calc((100% - 2 * 1.5rem) / 3);
+            }
+            @media (max-width: 1023px) {
+              .category-card {
+                flex-basis: calc((100% - 1 * 1.5rem) / 2);
+              }
+            }
+            @media (max-width: 639px) {
+              .category-card {
+                flex-basis: 100%;
+              }
+            }
+          `}</style>
+
+          <div className="container mx-auto px-6 md:px-12 lg:px-24">
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h2 className="text-3xl font-bold font-heading">Browse by Category</h2>
+                <p className="text-gray-600 mt-2">Explore professional detective services organized by specialty</p>
+              </div>
+              <Link href="/categories">
+                <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 font-normal" data-testid="button-view-all-categories">
+                  View All <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
             </div>
-            <Link href="/categories">
-              <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50" data-testid="button-view-all-categories">
-                View All <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {isLoadingCategories ? (
-              [1, 2, 3].map((i) => (
-                <Card key={i} className="hover:shadow-lg transition-shadow">
-                  <CardContent className="p-6">
+
+            <div ref={scrollContainerRef} className="category-scroll-container overflow-x-auto overflow-y-hidden pb-4">
+              <div className="flex gap-6 w-full">
+              {isLoadingCategories ? (
+                [1, 2, 3].map((i) => (
+                  <Card key={i} className="category-card hover:shadow-lg transition-shadow">
+                    <CardContent className="p-6">
                     <div className="flex items-start gap-4">
                       <div className="p-3 bg-green-50 rounded-lg">
                         <Layers className="h-6 w-6 text-green-600" />
@@ -114,12 +165,12 @@ export default function Home() {
                     </div>
                   </CardContent>
                 </Card>
-              ))
-            ) : categories.length > 0 ? (
-              categories.map((category: ServiceCategory) => (
-                <Link key={category.id} href={`/search?q=${encodeURIComponent(category.name)}`}>
-                  <Card className="hover:shadow-lg transition-all hover:border-green-500 cursor-pointer group" data-testid={`card-category-${category.id}`}>
-                    <CardContent className="p-6">
+                ))
+              ) : categories.length > 0 ? (
+                categories.map((category: ServiceCategory) => (
+                  <Link key={category.id} href={`/search?q=${encodeURIComponent(category.name)}`} className="category-card">
+                    <Card className="hover:shadow-lg transition-all hover:border-green-500 cursor-pointer group h-full" data-testid={`card-category-${category.id}`}>
+                      <CardContent className="p-6">
                       <div className="flex items-start gap-4">
                         <div className="p-3 bg-green-50 rounded-lg group-hover:bg-green-100 transition-colors">
                           <Layers className="h-6 w-6 text-green-600" />
@@ -138,14 +189,16 @@ export default function Home() {
                       </div>
                     </CardContent>
                   </Card>
-                </Link>
-              ))
-            ) : (
-              <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200" data-testid="empty-categories">
-                <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
-                <p className="text-sm text-gray-500">No categories yet</p>
+                  </Link>
+                ))
+              ) : (
+                <div className="w-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200" data-testid="empty-categories">
+                  <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
+                  <p className="text-sm text-gray-500">No categories yet</p>
+                </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </section>
 
@@ -153,18 +206,18 @@ export default function Home() {
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-3xl font-bold font-heading">Latest Services</h2>
             <Link href="/search">
-              <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50" data-testid="button-view-all-popular">
+              <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 font-normal" data-testid="button-view-all-popular">
                 View All <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {isLoadingPopular ? (
-              [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => (
+              [1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <ServiceCardSkeleton key={i} />
               ))
             ) : popularServices.length > 0 ? (
-              popularServices.map((service) => (
+              popularServices.slice(0, 8).map((service) => (
                 <ServiceCard key={service.id} {...service} />
               ))
             ) : (
@@ -181,7 +234,7 @@ export default function Home() {
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-3xl font-bold font-heading">Featured Detectives</h2>
               <Link href="/search">
-                <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50">
+                <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 font-normal">
                   Explore <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
@@ -268,7 +321,7 @@ export default function Home() {
             <div className="flex-1 relative min-h-[400px] lg:min-h-full">
               <div className="absolute inset-0 h-full w-full rounded-lg shadow-xl overflow-hidden">
                 <img
-                  src="/pub.png"
+                  src={featuresImage || "/pub.png"}
                   alt="Professional detectives collaborating on a case"
                   className="h-full w-full object-cover"
                   loading="lazy"

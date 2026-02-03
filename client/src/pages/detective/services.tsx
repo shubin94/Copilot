@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Loader2, AlertCircle, Lock, Plus, Edit, Trash2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useState } from "react";
 import { Link } from "wouter";
 import { api } from "@/lib/api";
@@ -50,6 +51,7 @@ interface Service {
   basePrice: string;
   offerPrice: string | null;
   isActive: boolean;
+  isOnEnquiry: boolean;
   images: string[] | null;
 }
 
@@ -81,6 +83,7 @@ export default function DetectiveServices() {
     description: "",
     basePrice: "",
     offerPrice: "",
+    isOnEnquiry: false,
   });
   const [bannerImage, setBannerImage] = useState<string>("");
   const [imageError, setImageError] = useState<string>("");
@@ -174,6 +177,7 @@ export default function DetectiveServices() {
       description: "",
       basePrice: "",
       offerPrice: "",
+      isOnEnquiry: false,
     });
     setEditingService(null);
     setBannerImage("");
@@ -189,6 +193,7 @@ export default function DetectiveServices() {
         description: service.description,
         basePrice: service.basePrice,
         offerPrice: service.offerPrice || "",
+        isOnEnquiry: service.isOnEnquiry,
       });
       setBannerImage(service.images && service.images.length > 0 ? service.images[0] : "");
     } else {
@@ -229,58 +234,61 @@ export default function DetectiveServices() {
       return;
     }
 
-    // Validate and format prices as integer strings
-    const basePriceNum = parseInt(formData.basePrice, 10);
-    if (isNaN(basePriceNum) || basePriceNum <= 0) {
-      toast({
-        title: "Invalid Price",
-        description: "Base price must be a valid positive integer",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Validate minimum base price (₹1000 INR minimum)
-    // Convert minimum to user's currency for validation
-    const detectiveCountry = detective?.country || "US";
-    const countryData = COUNTRIES.find(c => c.code === detectiveCountry);
-    const userCurrency = countryData?.effectiveCurrency || "USD";
-    const minPriceInUserCurrency = detectiveCountry === "IN" 
-      ? MIN_BASE_PRICE_INR
-      : Math.ceil(convertPrice(MIN_BASE_PRICE_INR, "INR", userCurrency));
-    
-    if (basePriceNum < minPriceInUserCurrency) {
-      const minDisplay = detectiveCountry === "IN" 
-        ? `₹${MIN_BASE_PRICE_INR}`
-        : `${countryData?.currencySymbol || "$"}${minPriceInUserCurrency} (₹${MIN_BASE_PRICE_INR} equivalent)`;
-      toast({
-        title: "Price Below Minimum",
-        description: `Minimum base price is ${minDisplay}`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    let offerPriceNum: number | null = null;
-    if (formData.offerPrice) {
-      offerPriceNum = parseInt(formData.offerPrice, 10);
-      if (isNaN(offerPriceNum) || offerPriceNum <= 0) {
+    // Skip price validation if isOnEnquiry is true
+    if (!formData.isOnEnquiry) {
+      // Validate and format prices as integer strings
+      const basePriceNum = parseInt(formData.basePrice, 10);
+      if (isNaN(basePriceNum) || basePriceNum <= 0) {
         toast({
-          title: "Invalid Offer Price",
-          description: "Offer price must be a valid positive integer",
+          title: "Invalid Price",
+          description: "Base price must be a valid positive integer",
           variant: "destructive",
         });
         return;
       }
+
+      // Validate minimum base price (₹1000 INR minimum)
+      // Convert minimum to user's currency for validation
+      const detectiveCountry = detective?.country || "US";
+      const countryData = COUNTRIES.find(c => c.code === detectiveCountry);
+      const userCurrency = countryData?.effectiveCurrency || "USD";
+      const minPriceInUserCurrency = detectiveCountry === "IN" 
+        ? MIN_BASE_PRICE_INR
+        : Math.ceil(convertPrice(MIN_BASE_PRICE_INR, "INR", userCurrency));
       
-      // Validate offerPrice strictly less than basePrice
-      if (offerPriceNum >= basePriceNum) {
+      if (basePriceNum < minPriceInUserCurrency) {
+        const minDisplay = detectiveCountry === "IN" 
+          ? `₹${MIN_BASE_PRICE_INR}`
+          : `${countryData?.currencySymbol || "$"}${minPriceInUserCurrency} (₹${MIN_BASE_PRICE_INR} equivalent)`;
         toast({
-          title: "Invalid Offer Price",
-          description: "Offer price must be strictly lower than base price",
+          title: "Price Below Minimum",
+          description: `Minimum base price is ${minDisplay}`,
           variant: "destructive",
         });
         return;
+      }
+
+      let offerPriceNum: number | null = null;
+      if (formData.offerPrice) {
+        offerPriceNum = parseInt(formData.offerPrice, 10);
+        if (isNaN(offerPriceNum) || offerPriceNum <= 0) {
+          toast({
+            title: "Invalid Offer Price",
+            description: "Offer price must be a valid positive integer",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        // Validate offerPrice strictly less than basePrice
+        if (offerPriceNum >= basePriceNum) {
+          toast({
+            title: "Invalid Offer Price",
+            description: "Offer price must be strictly lower than base price",
+            variant: "destructive",
+          });
+          return;
+        }
       }
     }
 
@@ -306,32 +314,40 @@ export default function DetectiveServices() {
       }
     }
 
-    // Format prices as integer strings (no decimals)
-    const basePriceStr = basePriceNum.toString();
-
+    // Build service data
     const serviceData: any = {
       category: formData.category,
       title: formData.title,
       description: formData.description,
-      basePrice: basePriceStr,
+      isOnEnquiry: formData.isOnEnquiry,
       isActive: true,
     };
 
-    // For updates, always include offerPrice (null if cleared, string if set)
-    // For creates, include only if provided
-    if (editingService) {
-      serviceData.offerPrice = offerPriceNum !== null ? offerPriceNum.toString() : null;
-      if (bannerImage) serviceData.images = [bannerImage];
-    } else if (offerPriceNum !== null) {
-      serviceData.offerPrice = offerPriceNum.toString();
-    }
-    if (!editingService && bannerImage) {
-      serviceData.images = [bannerImage];
+    // Only include pricing if not on enquiry
+    if (!formData.isOnEnquiry) {
+      const basePriceNum = parseInt(formData.basePrice, 10);
+      const basePriceStr = basePriceNum.toString();
+      serviceData.basePrice = basePriceStr;
+
+      // For updates, always include offerPrice (null if cleared, string if set)
+      // For creates, include only if provided
+      let offerPriceNum: number | null = null;
+      if (formData.offerPrice) {
+        offerPriceNum = parseInt(formData.offerPrice, 10);
+      }
+
+      if (editingService) {
+        serviceData.offerPrice = offerPriceNum !== null ? offerPriceNum.toString() : null;
+      } else if (offerPriceNum !== null) {
+        serviceData.offerPrice = offerPriceNum.toString();
+      }
     }
 
     if (editingService) {
+      if (bannerImage) serviceData.images = [bannerImage];
       updateService.mutate({ id: editingService.id, data: serviceData });
     } else {
+      if (bannerImage) serviceData.images = [bannerImage];
       createService.mutate({ ...serviceData, detectiveId: detective.id });
     }
   };
@@ -529,6 +545,24 @@ export default function DetectiveServices() {
                   />
                 </div>
 
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded border border-blue-200">
+                  <Checkbox
+                    id="isOnEnquiry"
+                    checked={formData.isOnEnquiry}
+                    onCheckedChange={(checked) => setFormData({ ...formData, isOnEnquiry: checked as boolean })}
+                    data-testid="checkbox-price-on-enquiry"
+                  />
+                  <div className="flex-1">
+                    <Label htmlFor="isOnEnquiry" className="cursor-pointer font-medium">
+                      Price on Enquiry
+                    </Label>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Enable this to hide pricing and display "On Enquiry" instead. Clients will need to contact you for pricing.
+                    </p>
+                  </div>
+                </div>
+
+                {!formData.isOnEnquiry && (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="basePrice">Base Price ({currencySymbol})</Label>
@@ -576,6 +610,7 @@ export default function DetectiveServices() {
                     />
                   </div>
                 </div>
+                )}
 
                 <div className="flex justify-end gap-2 pt-4">
                   <Button

@@ -1,7 +1,7 @@
 import { Loader2, AlertCircle, ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
-import { usePopularCategories } from "@/lib/hooks";
+import { usePopularCategories, useSiteSettings } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -28,6 +28,8 @@ export function Hero() {
   const [result, setResult] = useState<SmartSearchResult | null>(null);
   const resultCardRef = useRef<HTMLDivElement>(null);
   const { data: popularData } = usePopularCategories();
+  const { data: siteData } = useSiteSettings();
+  const heroImage = siteData?.settings?.heroBackgroundImage;
 
   useEffect(() => {
     if (result && resultCardRef.current) {
@@ -89,17 +91,28 @@ export function Hero() {
     <div className="relative min-h-[720px] w-full flex items-center justify-center bg-gray-100 overflow-hidden">
       {/* Background Image with glossy overlay */}
       <div className="absolute inset-0 z-0">
-        <picture>
-          <source srcSet={heroBgWebp} type="image/webp" />
+        {heroImage ? (
           <img
-            src={heroBgPng}
+            src={heroImage}
             alt=""
             fetchPriority="low"
             loading="lazy"
             decoding="async"
             className="object-cover w-full h-full"
           />
-        </picture>
+        ) : (
+          <picture>
+            <source srcSet={heroBgWebp} type="image/webp" />
+            <img
+              src={heroBgPng}
+              alt=""
+              fetchPriority="low"
+              loading="lazy"
+              decoding="async"
+              className="object-cover w-full h-full"
+            />
+          </picture>
+        )}
         <div className="absolute inset-0 bg-black/40" />
         {/* Glossy sheen: soft highlight sweep */}
         <div

@@ -129,6 +129,7 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
       reviews={svc.reviewCount}
       price={Number(svc.basePrice)}
       offerPrice={svc.offerPrice ? Number(svc.offerPrice) : null}
+      isOnEnquiry={svc.isOnEnquiry}
       category={svc.category}
       badges={badges}
     />
