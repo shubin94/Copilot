@@ -22,9 +22,14 @@ async function setupStorageBuckets() {
         description: "Site logos, hero images, etc."
       },
       {
-        name: "detective-profiles",
+        name: "page-assets",
         isPublic: true,
-        description: "Detective profile pictures"
+        description: "CMS page and content images"
+      },
+      {
+        name: "detective-assets",
+        isPublic: true,
+        description: "Detective logos and documents"
       },
       {
         name: "service-images",
@@ -65,7 +70,8 @@ async function setupStorageBuckets() {
     console.log("\n✅ Storage buckets setup complete!");
     console.log("\n📋 Buckets created:");
     console.log("   - site-assets (public)");
-    console.log("   - detective-profiles (public)");
+    console.log("   - page-assets (public)");
+    console.log("   - detective-assets (public)");
     console.log("   - service-images (public)");
     console.log("   - service-documents (private)");
 
