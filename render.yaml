@@ -15,28 +15,9 @@ services:
         value: 10000
       - key: HOST
         value: 0.0.0.0
-      - key: SESSION_SECRET
-        generateValue: true
-      - key: SUPABASE_URL
-        value: https://gjgrwxxtkyggwfrydpdb.supabase.co
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SUPABASE_PUBLISHABLE_KEY
-        value: sb_publishable_Xc9EoaUadxNIjlBCQmwySw_3R9cR2eY
-      - key: SUPABASE_SECRET_KEY
-        value: sb_secret_rhq41xUgtj4qLfNnWg226Q_KpkOkoNW
-      - key: SENDPULSE_API_ID
-        sync: false
-      - key: SENDPULSE_API_SECRET
-        sync: false
-      - key: SENDPULSE_SENDER_EMAIL
-        value: noreply@askdetectives.com
-      - key: SENDPULSE_SENDER_NAME
-        value: AskDetectives
-      - key: SENDPULSE_ENABLED
-        value: true
       - key: FRONTEND_URL
         value: https://askdetectives.vercel.app
+      # All other secrets (session_secret, supabase, sendpulse) are stored in app_secrets table
       - key: CSRF_ALLOWED_ORIGINS
         value: https://askdetectives.vercel.app
       - key: BASE_URL
