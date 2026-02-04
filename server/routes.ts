@@ -45,6 +45,7 @@ import { config } from "./config.ts";
 import { bodyParsers } from "./app.ts";
 import * as cache from "./lib/cache.ts";
 import { runSmartSearch } from "./lib/smart-search.ts";
+import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.ts";
 import pkg from "pg";
 const { Pool } = pkg;
 import { requirePolicy } from "./policy.ts";
@@ -181,9 +182,7 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // OPTIMIZED: Apply session middleware selectively to authenticated routes only
-  // This reduces unnecessary database hits on public APIs
-  const sessionMiddleware = getSessionMiddleware();
+  // Session middleware is now applied globally in app.ts
   
   // OPTIMIZED: Apply body parsers with per-route size limits
   // This prevents DoS attacks on public endpoints and reduces memory overhead
@@ -294,6 +293,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let hasEmail = false;
       let hasPhone = false;
       let hasWhatsApp = false;
+      let hasWebsite = false;
+
+      const applyFeatures = (features: string[]) => {
+        hasEmail = features.includes("contact_email");
+        hasPhone = features.includes("contact_phone");
+        hasWhatsApp = features.includes("contact_whatsapp");
+        hasWebsite = features.includes("contact_website");
+      };
+
+      // Default to FREE plan features (email-only) so public cards can show Email
+      try {
+        const freePlanId = await getFreePlanId();
+        const freePlan = await storage.getSubscriptionPlanById(freePlanId);
+        const freeFeatures = Array.isArray(freePlan?.features) ? (freePlan?.features as string[]) : [];
+        applyFeatures(freeFeatures);
+      } catch (error) {
+        console.warn("[SAFETY] Failed to load FREE plan features, defaulting to no contacts.", {
+          detectiveId: d.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
       
       if (hasPaidPackage && d.subscriptionPackage) {
         // SAFETY: Check package is active before granting features
@@ -307,9 +327,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           // Use the already-fetched package data
           const features = Array.isArray(d.subscriptionPackage?.features) ? (d.subscriptionPackage.features as string[]) : [];
-          hasEmail = features.includes("contact_email");
-          hasPhone = features.includes("contact_phone");
-          hasWhatsApp = features.includes("contact_whatsapp");
+          applyFeatures(features);
         }
       } else if (hasPaidPackage && !d.subscriptionPackage) {
         // Fallback: fetch package by ID if not already loaded
@@ -328,9 +346,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           } else {
             const features = Array.isArray(pkg.features) ? (pkg.features as string[]) : [];
-            hasEmail = features.includes("contact_email");
-            hasPhone = features.includes("contact_phone");
-            hasWhatsApp = features.includes("contact_whatsapp");
+            applyFeatures(features);
           }
         } catch (error) {
           console.error("[SAFETY] Error fetching package for contact masking. Masking all contacts.", {
@@ -353,6 +369,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!hasWhatsApp) {
         copy.whatsapp = undefined;
       }
+      if (!hasWebsite) {
+        copy.businessWebsite = undefined;
+      }
       return copy;
     } catch (error) {
       console.error("[SAFETY] Unexpected error in maskDetectiveContactsPublic. Masking all contacts.", {
@@ -365,6 +384,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       copy.email = undefined;
       copy.phone = undefined;
       copy.whatsapp = undefined;
+      copy.businessWebsite = undefined;
       return copy;
     }
   }
@@ -390,30 +410,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error("[seed] Failed to seed subscription plan:", e);
   }
   
-  // ============== BODY PARSER APPLICATION - PER-ROUTE SIZE LIMITS ==============
-  // Public routes: 1MB limit (prevent DoS, reduce memory overhead)
-  app.use('/api/services', bodyParsers.public.json, bodyParsers.public.urlencoded);
-  app.use('/api/detectives', bodyParsers.public.json, bodyParsers.public.urlencoded);
-  app.use('/api/snippets', bodyParsers.public.json, bodyParsers.public.urlencoded);
-  app.use('/api/reviews', bodyParsers.public.json, bodyParsers.public.urlencoded);
-  app.use('/api/favorites', bodyParsers.public.json, bodyParsers.public.urlencoded);
-  
-  // Auth routes: 10KB limit (small payloads for login/register)
-  app.use('/api/auth/', bodyParsers.auth.json, bodyParsers.auth.urlencoded);
-  app.use('/api/claim-account/', bodyParsers.auth.json, bodyParsers.auth.urlencoded);
-  
-  // File upload routes: 10MB limit (large payloads for documents, images)
-  app.use('/api/applications', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
-  app.use('/api/claims', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
-  
-  // Admin and payment routes: 10MB limit (may include file uploads)
-  app.use('/api/admin/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
-  app.use('/api/payments/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
-  app.use('/api/orders/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
-  
-  // User/authenticated routes: 1MB limit (no large files, mostly config/profile updates)
-  app.use('/api/subscription/', bodyParsers.public.json, bodyParsers.public.urlencoded);
-  app.use('/api/site-settings', bodyParsers.public.json, bodyParsers.public.urlencoded);
+  // ============== BODY PARSER APPLICATION - APPLY TO ALL API ROUTES ==============
+  // Apply body parsers globally to all /api routes with 10MB limit
+  // This ensures ALL routes can accept JSON/form data without configuration issues
+  app.use('/api/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
   
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
@@ -425,9 +425,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ csrfToken: req.session.csrfToken });
   });
 
+  app.post("/api/contact", async (req: Request, res: Response) => {
+    const contactSchema = z.object({
+      firstName: z.string().trim().min(1).max(100),
+      lastName: z.string().trim().min(1).max(100),
+      email: z.string().trim().email().max(254),
+      message: z.string().trim().min(1).max(2000),
+    });
+
+    const parsed = contactSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid contact form data" });
+    }
+
+    const { firstName, lastName, email, message } = parsed.data;
+    const result = await sendpulseEmail.sendTransactionalEmail(
+      "contact@askdetectives.com",
+      EMAIL_TEMPLATES.CONTACT_FORM,
+      { firstName, lastName, email, message },
+      "Contact Form Submission"
+    );
+
+    if (!result.success) {
+      return res.status(500).json({ error: "Failed to send message" });
+    }
+
+    return res.json({ success: true });
+  });
+
   // ============== AUTHENTICATION ROUTES ==============
-  // Apply session middleware to auth endpoints
-  app.use("/api/auth/", sessionMiddleware);
   
   // Register new user
   app.post("/api/auth/register", async (req: Request, res: Response) => {
@@ -689,8 +715,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============== ADMIN ROUTES ==============
-  // Apply session middleware to admin endpoints
-  app.use("/api/admin/", sessionMiddleware);
 
   // Admin: verify a user's password
   app.post("/api/admin/users/check-password", requireRole("admin"), async (req: Request, res: Response) => {
@@ -838,6 +862,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
   const RATES_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
   const RATES_UPDATE_INTERVAL = 30 * 60 * 1000; // Update every 30 minutes
+  const MIN_BASE_PRICE_INR = 1000; // Minimum base price in INR (applies to all countries)
 
   // Fallback rates (used if API fails)
   function getFallbackRates(): Record<string, number> {
@@ -849,6 +874,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       AUD: 1.52,
       EUR: 0.92,
     };
+  }
+
+  function convertCurrency(amount: number, from: string, to: string): number {
+    if (from === to) return amount;
+    const fromRate = from === "USD" ? 1 : ratesCache.rates[from];
+    const toRate = to === "USD" ? 1 : ratesCache.rates[to];
+    if (!fromRate || !toRate) return amount;
+    const usd = amount / fromRate;
+    return usd * toRate;
+  }
+
+  function getMinimumBasePriceForCountry(countryCode?: string) {
+    const code = (countryCode || "US").toUpperCase();
+    const currency = getCurrencyForCountry(code);
+    const effectiveCurrency = getEffectiveCurrency(currency.currencyCode);
+    const min = code === "IN"
+      ? MIN_BASE_PRICE_INR
+      : Math.ceil(convertCurrency(MIN_BASE_PRICE_INR, "INR", effectiveCurrency));
+    const display = code === "IN"
+      ? `₹${MIN_BASE_PRICE_INR}`
+      : `${currency.currencySymbol || "$"}${min} (₹${MIN_BASE_PRICE_INR} equivalent)`;
+    return { min, display };
   }
 
   // Helper function to fetch live rates from Frankfurter API (non-blocking)
@@ -1088,6 +1135,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get single subscription plan by ID
+  app.get("/api/subscription-plans/:id", async (req: Request, res: Response) => {
+    console.log("🔍 [GET subscription-plans/:id] Request received");
+    console.log("🔍 [GET subscription-plans/:id] ID:", req.params.id);
+    console.log("🔍 [GET subscription-plans/:id] Headers:", req.headers);
+    try {
+      const plan = await storage.getSubscriptionPlanById(req.params.id);
+      console.log("🔍 [GET subscription-plans/:id] Plan found:", !!plan);
+      if (!plan) {
+        return res.status(404).json({ error: "Subscription plan not found" });
+      }
+      res.set("Cache-Control", "no-store");
+      res.json({ plan });
+    } catch (error) {
+      console.error("❌ [GET subscription-plans/:id] Error:", error);
+      res.status(500).json({ error: "Failed to fetch subscription plan" });
+    }
+  });
+
   // ============== PAYMENT (RAZORPAY) ROUTES ==============
 
   // Upgrade to free or paid plan (price === 0 goes directly, price > 0 requires payment)
@@ -1260,8 +1326,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============== PAYMENT (RAZORPAY) ROUTES ==============
-  // Apply session middleware to payment endpoints
-  app.use("/api/payments/", sessionMiddleware);
 
   app.post("/api/payments/create-order", requireRole("detective"), async (req: Request, res: Response) => {
     try {
@@ -2394,7 +2458,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
         }
       }
-      const payload = { detective: { ...detective, effectiveBadges: computeEffectiveBadges(detective, (detective as any).subscriptionPackage) }, claimInfo };
+      const maskedDetective = await maskDetectiveContactsPublic(detective as any);
+      const payload = { detective: { ...maskedDetective, effectiveBadges: computeEffectiveBadges(maskedDetective, (maskedDetective as any).subscriptionPackage) }, claimInfo };
       if (!skipCache) {
         try {
           cache.set(cacheKey, payload, 60);
@@ -2686,6 +2751,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============== AUTOCOMPLETE SEARCH (navbar) ==============
+  app.get("/api/search/autocomplete", async (req: Request, res: Response) => {
+    try {
+      const query = String(req.query.q || "").trim().toLowerCase();
+      console.log("🔍 [Autocomplete API] Received query:", query, "length:", query.length);
+      
+      if (!query || query.length < 3) {
+        console.log("🔍 [Autocomplete API] Query too short, returning empty");
+        return res.json({ suggestions: [] });
+      }
+
+      const limit = 6;
+      const suggestions: Array<{ type: "category" | "detective" | "location"; label: string; value: string; meta?: string }> = [];
+
+      // Search categories
+      const categories = await storage.getAllServiceCategories(true);
+      const matchingCategories = categories
+        .filter((c: { name: string }) => c.name.toLowerCase().includes(query))
+        .slice(0, 3)
+        .map((c: { name: string }) => ({
+          type: "category" as const,
+          label: c.name,
+          value: c.name,
+        }));
+      suggestions.push(...matchingCategories);
+      console.log("🔍 [Autocomplete API] Found categories:", matchingCategories.length);
+
+      // Search detective business names
+      const detectivesResult = await db
+        .select({
+          id: detectives.id,
+          businessName: detectives.businessName,
+          location: detectives.location,
+        })
+        .from(detectives)
+        .where(and(
+          eq(detectives.status, "active"),
+          ilike(detectives.businessName, `%${query}%`)
+        ))
+        .limit(3);
+      
+      const matchingDetectives = detectivesResult.map((d) => ({
+        type: "detective" as const,
+        label: d.businessName || "Unknown Detective",
+        value: d.id,
+        meta: d.location || undefined,
+      }));
+      suggestions.push(...matchingDetectives);
+      console.log("🔍 [Autocomplete API] Found detectives:", matchingDetectives.length);
+
+      // Search locations (countries, states, cities from WORLD_COUNTRIES)
+      const { WORLD_COUNTRIES } = await import("../client/src/lib/world-countries.ts");
+      const matchingLocations: Array<{ type: "location"; label: string; value: string }> = [];
+      
+      for (const country of WORLD_COUNTRIES) {
+        if (country.name.toLowerCase().includes(query)) {
+          matchingLocations.push({
+            type: "location",
+            label: `${country.flag} ${country.name}`,
+            value: `country:${country.code}`,
+          });
+        }
+        if (matchingLocations.length >= 2) break;
+      }
+      suggestions.push(...matchingLocations.slice(0, 2));
+      console.log("🔍 [Autocomplete API] Found locations:", matchingLocations.length);
+      console.log("🔍 [Autocomplete API] Total suggestions:", suggestions.length);
+
+      res.json({ suggestions: suggestions.slice(0, limit) });
+    } catch (error) {
+      console.error("❌ [Autocomplete API] Error:", error);
+      res.status(500).json({ error: "Failed to fetch suggestions" });
+    }
+  });
+
   // ============== SMART AI SEARCH (homepage) ==============
   app.post("/api/smart-search", async (req: Request, res: Response) => {
     try {
@@ -2917,6 +3057,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const base = parseFloat(validatedData.basePrice as any);
         if (!(base > 0)) {
           return res.status(400).json({ error: "Base price must be a positive number" });
+        }
+        const minPrice = getMinimumBasePriceForCountry(detective.country || undefined);
+        if (base < minPrice.min) {
+          return res.status(400).json({ error: `Minimum base price is ${minPrice.display}` });
         }
         if ((validatedData as any).offerPrice !== undefined && (validatedData as any).offerPrice !== null) {
           const offer = parseFloat((validatedData as any).offerPrice as any);
@@ -3221,6 +3365,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!(base > 0)) {
           return res.status(400).json({ error: "Base price must be a positive number" });
         }
+        const minPrice = getMinimumBasePriceForCountry(detective.country || undefined);
+        if (base < minPrice.min) {
+          return res.status(400).json({ error: `Minimum base price is ${minPrice.display}` });
+        }
         if ((validated as any).offerPrice !== undefined && (validated as any).offerPrice !== null) {
           const offer = parseFloat((validated as any).offerPrice as any);
           if (!(offer > 0) || !(offer < base)) {
@@ -3347,7 +3495,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== ORDER ROUTES ==============
   // Apply session middleware to orders endpoints
-  app.use("/api/orders/", sessionMiddleware);
 
   // Get user's orders
   app.get("/api/orders/user", requireAuth, async (req: Request, res: Response) => {
@@ -3487,10 +3634,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Submit detective application (public)
   app.post("/api/applications", async (req: Request, res: Response) => {
     try {
+      console.log("📝 [Applications] Received POST request");
+      console.log("📝 [Applications] Request size:", JSON.stringify(req.body).length, "bytes");
+      
       // Check if user is admin
       const isAdmin = req.session?.userRole === 'admin';
 
       const validatedData = insertDetectiveApplicationSchema.parse(req.body);
+      console.log("📝 [Applications] Validation passed");
       const hashedPassword = await bcrypt.hash(validatedData.password, 10);
       
       // Duplicate checks for email/phone
@@ -3504,6 +3655,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existingByEmail || existingByPhone) {
         if (!isAdmin) {
           const conflictField = existingByEmail ? "email" : "phone";
+          console.log("📝 [Applications] Duplicate found:", conflictField);
           return res.status(409).json({ error: `An application with this ${conflictField} already exists` });
         }
         const existing = existingByEmail || existingByPhone!;
@@ -3525,9 +3677,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: hashedPassword,
       };
       
-      console.log("Inserting into database...");
+      console.log("📝 [Applications] Inserting into database...");
       const application = await storage.createDetectiveApplication(applicationData);
-      console.log("Application created with ID:", application.id);
+      console.log("📝 [Applications] Application created with ID:", application.id);
       
       // Send application confirmation email (non-blocking)
       sendpulseEmail.sendTransactionalEmail(
@@ -3555,11 +3707,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json({ application });
     } catch (error) {
       console.error("=== APPLICATION CREATION ERROR ===");
+      console.error("Error type:", error?.constructor?.name);
+      console.error("Full error:", error);
+      
       if (error instanceof z.ZodError) {
-        console.error("Validation error:", fromZodError(error).message);
+        console.error("❌ Validation error:", fromZodError(error).message);
         return res.status(400).json({ error: fromZodError(error).message });
       }
-      console.error("Create application error:", error);
+      
+      console.error("❌ Create application error:", error);
       const msg = (typeof (error as any)?.message === "string" && (error as any).message.includes("duplicate key"))
         ? "An application with this email/phone already exists"
         : "Failed to create application";

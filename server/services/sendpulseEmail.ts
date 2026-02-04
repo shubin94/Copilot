@@ -112,7 +112,8 @@ class SendPulseEmailService {
   async sendTransactionalEmail(
     to: string,
     templateId: number,
-    variables: EmailVariable
+    variables: EmailVariable,
+    subject: string = "Welcome to Ask Detectives"
   ): Promise<{ success: boolean; error?: string }> {
     try {
       // Validate recipient email first
@@ -141,7 +142,7 @@ class SendPulseEmailService {
       // ✅ CORRECT structure for SendPulse SMTP API with email wrapper
       const payload = {
         email: {
-          subject: "Welcome to Ask Detectives",
+          subject,
           template: {
             id: templateId,
             variables: this.sanitizeVariables(variables),
@@ -400,6 +401,9 @@ export const EMAIL_TEMPLATES = {
   ADMIN_NEW_SIGNUP: 3001, // Admin: New detective signup
   ADMIN_NEW_PAYMENT: 3002, // Admin: New payment received
   ADMIN_APPLICATION_RECEIVED: 3003, // Admin: New application to review
+
+  // Contact
+  CONTACT_FORM: 5001, // Contact form submission
 
   // Profile & Account
   PROFILE_CLAIM_APPROVED: 4001, // Profile claim approved

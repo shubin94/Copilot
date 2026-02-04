@@ -88,7 +88,7 @@ export function Hero() {
   };
 
   return (
-    <div className="relative min-h-[720px] w-full flex items-center justify-center bg-gray-100 overflow-hidden">
+    <div className="relative min-h-screen w-full flex items-center justify-center bg-gray-100 overflow-hidden">
       {/* Background Image with glossy overlay */}
       <div className="absolute inset-0 z-0">
         {heroImage ? (
@@ -129,13 +129,13 @@ export function Hero() {
         />
       </div>
 
-      <div className="relative z-10 container mx-auto px-4 flex flex-col items-center max-w-3xl w-full py-14">
+      <div className="relative z-10 container mx-auto px-4 flex flex-col items-center max-w-3xl w-full py-8 md:py-12">
         {/* Page title and header text – above the card */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="w-full text-center mb-8"
+          className="w-full text-center mb-12 mt-8 md:mt-12"
         >
           <h1 className="text-3xl md:text-5xl font-bold font-heading text-white leading-tight">
             Find the perfect <i className="font-serif font-light text-green-400">private detective</i>

@@ -4,6 +4,7 @@ import { config } from "./config.ts";
 const url = config.supabase.url;
 const key = config.supabase.serviceRoleKey;
 export const supabase = (url && key) ? createClient(url, key) : null as any;
+const isLocalDev = !config.env.isProd || (config.baseUrl || "").includes("localhost") || (config.baseUrl || "").includes("127.0.0.1");
 
 export async function ensureBucket(name: string) {
   if (!supabase) {
@@ -13,6 +14,7 @@ export async function ensureBucket(name: string) {
   const { data: buckets, error: listError } = await supabase.storage.listBuckets();
   if (listError) {
     console.error("Supabase listBuckets failed", { message: listError.message });
+    if (isLocalDev) return;
     throw new Error(`Supabase listBuckets failed: ${listError.message}`);
   }
   const exists = (buckets || []).some((b: any) => b.name === name);
@@ -83,6 +85,7 @@ export async function uploadDataUrl(bucket: string, path: string, dataUrl: strin
       size: buffer.length,
       message: uploadError.message,
     });
+    if (isLocalDev) return dataUrl;
     throw new Error(`Supabase upload failed: ${uploadError.message}`);
   }
   const { data } = await supabase.storage.from(bucket).getPublicUrl(path);
@@ -121,6 +124,7 @@ export async function uploadFromUrlOrDataUrl(bucket: string, path: string, sourc
         size: buffer.length,
         message: uploadError.message,
       });
+      if (isLocalDev) return source;
       throw new Error(`Supabase upload failed: ${uploadError.message}`);
     }
     const { data } = await supabase.storage.from(bucket).getPublicUrl(path);

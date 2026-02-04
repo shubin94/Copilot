@@ -14,7 +14,6 @@ const { Pool } = pkg;
 import { registerRoutes } from "./routes.ts";
 import { config } from "./config.ts";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.ts";
-import { getSessionMiddleware } from "./app.ts";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -202,9 +201,18 @@ export function getSessionMiddleware() {
   });
 }
 
-// Session middleware is NOT applied globally - see routes.ts for selective application
+// Apply session middleware globally so all routes have access to CSRF tokens
+const globalSessionMiddleware = getSessionMiddleware();
+app.use(globalSessionMiddleware);
 
 const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const CSRF_ALLOWED_ORIGINS = [
+  ...config.csrf.allowedOrigins,
+  "http://localhost:5173",
+  "http://localhost:5000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5000",
+];
 
 app.use((req, res, next) => {
   if (!CSRF_METHODS.has(req.method)) return next();
@@ -220,7 +228,7 @@ app.use((req, res, next) => {
     if (!urlValue) return false;
     try {
       const incoming = new URL(urlValue);
-      return config.csrf.allowedOrigins.some((allowed) => {
+      return CSRF_ALLOWED_ORIGINS.some((allowed) => {
         try {
           const allowUrl = new URL(allowed);
           return allowUrl.protocol === incoming.protocol && allowUrl.host === incoming.host;
@@ -239,18 +247,17 @@ app.use((req, res, next) => {
   }
 
   if (!origin && referer && !isAllowedOrigin(referer)) {
-    log(`CSRF blocked: referer not allowed (${referer})`, "csrf");
-    return res.status(403).json({ message: "Forbidden" });
-  }
-
-  if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
-    log("CSRF blocked: missing or invalid X-Requested-With header", "csrf");
+    log(`CSRF blocked: referer not allowed (${referer}) ${req.method} ${req.path}`, "csrf");
     return res.status(403).json({ message: "Forbidden" });
   }
 
   if (!sessionToken || token !== sessionToken) {
-    log("CSRF blocked: missing or invalid CSRF token", "csrf");
+    log(`CSRF blocked: missing or invalid CSRF token ${req.method} ${req.path}`, "csrf");
     return res.status(403).json({ message: "Forbidden" });
+  }
+
+  if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
+    log(`CSRF warning: missing or invalid X-Requested-With header ${req.method} ${req.path}`, "csrf");
   }
 
   return next();

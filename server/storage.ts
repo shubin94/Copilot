@@ -489,8 +489,7 @@ export class DatabaseStorage implements IStorage {
       .from(services)
       .where(and(
         eq(services.detectiveId, detectiveId),
-        eq(services.isActive, true),
-        sql<boolean>`cardinality(${services.images}) > 0`
+        eq(services.isActive, true)
       ))
       .orderBy(desc(services.createdAt));
   }
@@ -605,16 +604,18 @@ export class DatabaseStorage implements IStorage {
     let query = db.select({
       service: services,
       detective: detectives,
+      email: users.email,
       package: subscriptionPlans,
       avgRating: sql<number>`COALESCE(AVG(${reviews.rating}), 0)`.as('avg_rating'),
       reviewCount: count(reviews.id).as('review_count'),
     })
     .from(services)
     .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
+    .leftJoin(users, eq(detectives.userId, users.id))
     .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
     .leftJoin(reviews, and(eq(reviews.serviceId, services.id), eq(reviews.isPublished, true)))
     .where(and(...conditions))
-    .groupBy(services.id, detectives.id, subscriptionPlans.id);
+    .groupBy(services.id, detectives.id, subscriptionPlans.id, users.email);
 
     // rating filter uses HAVING on aggregate
     if (filters.ratingMin !== undefined) {
@@ -638,6 +639,7 @@ export class DatabaseStorage implements IStorage {
       ...r.service,
       detective: {
         ...r.detective!,
+        email: r.email || undefined,
         subscriptionPackage: r.package || undefined,
       },
       avgRating: Number(r.avgRating),
