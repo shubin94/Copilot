@@ -132,6 +132,10 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
       isOnEnquiry={svc.isOnEnquiry}
       category={svc.category}
       badges={badges}
+      phone={svc.detective.phone || undefined}
+      whatsapp={svc.detective.whatsapp || undefined}
+      contactEmail={svc.detective.contactEmail || (svc.detective as any).email || undefined}
+      countryCode={svc.detective.country || undefined}
     />
   );
 }

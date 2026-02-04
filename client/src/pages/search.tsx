@@ -62,7 +62,7 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     location: service.detective.location || "",
     phone: service.detective.phone || undefined,
     whatsapp: service.detective.whatsapp || undefined,
-    contactEmail: service.detective.contactEmail || undefined,
+    contactEmail: service.detective.contactEmail || service.detective.email || undefined,
   };
 }
 
