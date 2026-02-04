@@ -42,6 +42,7 @@ import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.ts";
 import { config } from "./config.ts";
+import { bodyParsers } from "./app.ts";
 import * as cache from "./lib/cache.ts";
 import { runSmartSearch } from "./lib/smart-search.ts";
 import pkg from "pg";
@@ -180,6 +181,14 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // OPTIMIZED: Apply session middleware selectively to authenticated routes only
+  // This reduces unnecessary database hits on public APIs
+  const sessionMiddleware = getSessionMiddleware();
+  
+  // OPTIMIZED: Apply body parsers with per-route size limits
+  // This prevents DoS attacks on public endpoints and reduces memory overhead
+  // Public routes (1MB limit), Auth routes (10KB limit), File upload routes (10MB limit)
+  
   /**
    * SUBSCRIPTION SYSTEM - CRITICAL RULES
    * 
@@ -381,6 +390,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error("[seed] Failed to seed subscription plan:", e);
   }
   
+  // ============== BODY PARSER APPLICATION - PER-ROUTE SIZE LIMITS ==============
+  // Public routes: 1MB limit (prevent DoS, reduce memory overhead)
+  app.use('/api/services', bodyParsers.public.json, bodyParsers.public.urlencoded);
+  app.use('/api/detectives', bodyParsers.public.json, bodyParsers.public.urlencoded);
+  app.use('/api/snippets', bodyParsers.public.json, bodyParsers.public.urlencoded);
+  app.use('/api/reviews', bodyParsers.public.json, bodyParsers.public.urlencoded);
+  app.use('/api/favorites', bodyParsers.public.json, bodyParsers.public.urlencoded);
+  
+  // Auth routes: 10KB limit (small payloads for login/register)
+  app.use('/api/auth/', bodyParsers.auth.json, bodyParsers.auth.urlencoded);
+  app.use('/api/claim-account/', bodyParsers.auth.json, bodyParsers.auth.urlencoded);
+  
+  // File upload routes: 10MB limit (large payloads for documents, images)
+  app.use('/api/applications', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+  app.use('/api/claims', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+  
+  // Admin and payment routes: 10MB limit (may include file uploads)
+  app.use('/api/admin/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+  app.use('/api/payments/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+  app.use('/api/orders/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+  
+  // User/authenticated routes: 1MB limit (no large files, mostly config/profile updates)
+  app.use('/api/subscription/', bodyParsers.public.json, bodyParsers.public.urlencoded);
+  app.use('/api/site-settings', bodyParsers.public.json, bodyParsers.public.urlencoded);
+  
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
   // Using crypto.randomBytes(32) provides 256 bits of entropy.
@@ -392,6 +426,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============== AUTHENTICATION ROUTES ==============
+  // Apply session middleware to auth endpoints
+  app.use("/api/auth/", sessionMiddleware);
   
   // Register new user
   app.post("/api/auth/register", async (req: Request, res: Response) => {
@@ -651,6 +687,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to change password" });
     }
   });
+
+  // ============== ADMIN ROUTES ==============
+  // Apply session middleware to admin endpoints
+  app.use("/api/admin/", sessionMiddleware);
 
   // Admin: verify a user's password
   app.post("/api/admin/users/check-password", requireRole("admin"), async (req: Request, res: Response) => {
@@ -937,21 +977,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/db-check", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
-      const usersCount = await storage.countUsers();
-      const detectivesCount = await storage.countDetectives();
-      const servicesCount = await storage.countServices();
-      const applicationsCount = await storage.countApplications();
-      const claimsCount = await storage.countClaims();
-      res.json({ usersCount, detectivesCount, servicesCount, applicationsCount, claimsCount });
+      // OPTIMIZED: Single database query instead of 5 sequential COUNT queries
+      const counts = await storage.getAllCounts();
+      res.json(counts);
     } catch (error) {
       console.error("DB check error:", error);
       res.status(500).json({ error: "DB check failed" });
     }
   });
 
-  app.get("/api/admin/detectives/raw", requireRole("admin"), async (_req: Request, res: Response) => {
+  app.get("/api/admin/detectives/raw", requireRole("admin"), async (req: Request, res: Response) => {
     try {
-      const detectives = await storage.getAllDetectives(500, 0);
+      // OPTIMIZED: Support pagination parameters with safe limits
+      const limit = Math.min(Math.max(1, parseInt(String(req.query.limit) || "50")), 100); // Default 50, max 100
+      const offset = Math.max(0, parseInt(String(req.query.offset) || "0"));
+      
+      const detectives = await storage.getAllDetectives(limit, offset);
       res.json({ detectives });
     } catch (error) {
       console.error("Admin detectives raw error:", error);
@@ -1219,6 +1260,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============== PAYMENT (RAZORPAY) ROUTES ==============
+  // Apply session middleware to payment endpoints
+  app.use("/api/payments/", sessionMiddleware);
 
   app.post("/api/payments/create-order", requireRole("detective"), async (req: Request, res: Response) => {
     try {
@@ -1648,12 +1691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[paypal-capture] Capturing PayPal order: ${body.paypalOrderId}`);
 
       // Fetch payment order from database using paypalOrderId
-      const paymentOrder = await storage.getPaymentOrderByPaypalOrderId?.(body.paypalOrderId) || 
-        // Fallback query if method doesn't exist yet
-        (await pool.query(
-          "SELECT * FROM payment_orders WHERE paypal_order_id = $1 LIMIT 1",
-          [body.paypalOrderId]
-        )).rows[0];
+      const paymentOrder = await storage.getPaymentOrderByPaypalOrderId(body.paypalOrderId);
 
       if (!paymentOrder) {
         console.error(`[paypal-capture] Payment order not found: ${body.paypalOrderId}`);
@@ -2687,6 +2725,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== SERVICE ROUTES ==============
 
+  // In-memory cache for ranked detectives (TTL: 2 minutes)
+  const RANKED_DETECTIVES_TTL_MS = 2 * 60 * 1000;
+  const rankedDetectivesCache = new Map<string, { expiresAt: number; data: any }>();
+  const getRankedDetectivesCache = (key: string) => {
+    const entry = rankedDetectivesCache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      rankedDetectivesCache.delete(key);
+      return undefined;
+    }
+    return entry.data;
+  };
+  const setRankedDetectivesCache = (key: string, data: any) => {
+    rankedDetectivesCache.set(key, { expiresAt: Date.now() + RANKED_DETECTIVES_TTL_MS, data });
+  };
+
   // Search services (public)
   app.get("/api/services", async (req: Request, res: Response) => {
     try {
@@ -2732,8 +2786,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Get detective rankings for sorting (NOT filtering)
-      const { getRankedDetectives } = await import("./ranking");
-      const rankedDetectives = await getRankedDetectives({ limit: 1000 });
+      const rankedLimit = 1000;
+      const rankedCacheKey = `ranked:${rankedLimit}`;
+      let rankedDetectives = getRankedDetectivesCache(rankedCacheKey);
+      if (!rankedDetectives) {
+        const { getRankedDetectives } = await import("./ranking");
+        rankedDetectives = await getRankedDetectives({ limit: rankedLimit });
+        setRankedDetectivesCache(rankedCacheKey, rankedDetectives);
+      }
       const detectiveRankMap = new Map(rankedDetectives.map((d: any, idx: number) => [d.id, { score: d.visibilityScore, rank: idx }]));
 
       // Sort services by detective ranking (higher score = higher position)
@@ -2767,10 +2827,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Cache failure must not break the request
         }
       }
-      // Disable caching for dashboard - always fetch fresh data
-      res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-      res.set("Pragma", "no-cache");
-      res.set("Expires", "0");
+      if (!skipCache) {
+        res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      } else {
+        // Authenticated/user-specific responses should not be cached
+        res.set("Cache-Control", "private, no-store");
+      }
       sendCachedJson(req, res, { services: masked });
     } catch (error) {
       console.error("Search services error:", error);
@@ -3284,12 +3346,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============== ORDER ROUTES ==============
+  // Apply session middleware to orders endpoints
+  app.use("/api/orders/", sessionMiddleware);
 
   // Get user's orders
   app.get("/api/orders/user", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { limit = "50" } = req.query;
-      const orders = await storage.getOrdersByUser(req.session.userId!, parseInt(limit as string));
+      const { limit = "50", offset = "0" } = req.query;
+      const limitNum = Math.min(Math.max(1, parseInt(limit as string) || 50), 100);
+      const offsetNum = Math.max(0, parseInt(offset as string) || 0);
+      const orders = await storage.getOrdersByUser(req.session.userId!, limitNum, offsetNum);
       res.json({ orders });
     } catch (error) {
       console.error("Get user orders error:", error);
@@ -3297,16 +3363,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get detective's orders
+  // Get detective's orders (OPTIMIZED: single JOIN query instead of two sequential queries)
   app.get("/api/orders/detective", requireRole("detective"), async (req: Request, res: Response) => {
     try {
-      const detective = await storage.getDetectiveByUserId(req.session.userId!);
-      if (!detective) {
-        return res.status(400).json({ error: "Detective profile not found" });
-      }
-
-      const { limit = "50" } = req.query;
-      const orders = await storage.getOrdersByDetective(detective.id, parseInt(limit as string));
+      const { limit = "50", offset = "0" } = req.query;
+      const limitNum = Math.min(Math.max(1, parseInt(limit as string) || 50), 100);
+      const offsetNum = Math.max(0, parseInt(offset as string) || 0);
+      
+      // Single optimized query using JOIN - no need to fetch detective first
+      const orders = await storage.getOrdersByDetectiveUserId(req.session.userId!, limitNum, offsetNum);
       res.json({ orders });
     } catch (error) {
       console.error("Get detective orders error:", error);
@@ -4821,33 +4886,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Not available" });
       }
       const issues: Array<{ table: string; id: string; field: string; value: string }> = [];
-      const detectives = await storage.getAllDetectives();
-      for (const d of detectives) {
-        if (typeof (d as any).logo === "string" && (d as any).logo && !parsePublicUrl((d as any).logo)) {
-          issues.push({ table: "detectives", id: d.id as any, field: "logo", value: (d as any).logo });
-        }
-        const bd = (d as any).businessDocuments || [];
-        for (const v of bd) {
-          if (typeof v === "string" && v && !parsePublicUrl(v)) {
-            issues.push({ table: "detectives", id: d.id as any, field: "businessDocuments", value: v });
+      
+      // OPTIMIZED: Batch process detectives to avoid loading entire table into memory
+      const BATCH_SIZE = 100;
+      let offset = 0;
+      let batch = await storage.getAllDetectives(BATCH_SIZE, offset);
+      
+      while (batch.length > 0) {
+        for (const d of batch) {
+          if (typeof (d as any).logo === "string" && (d as any).logo && !parsePublicUrl((d as any).logo)) {
+            issues.push({ table: "detectives", id: d.id as any, field: "logo", value: (d as any).logo });
+          }
+          const bd = (d as any).businessDocuments || [];
+          for (const v of bd) {
+            if (typeof v === "string" && v && !parsePublicUrl(v)) {
+              issues.push({ table: "detectives", id: d.id as any, field: "businessDocuments", value: v });
+            }
+          }
+          const idDocs = (d as any).identityDocuments || [];
+          for (const v of idDocs) {
+            if (typeof v === "string" && v && !parsePublicUrl(v)) {
+              issues.push({ table: "detectives", id: d.id as any, field: "identityDocuments", value: v });
+            }
           }
         }
-        const idDocs = (d as any).identityDocuments || [];
-        for (const v of idDocs) {
-          if (typeof v === "string" && v && !parsePublicUrl(v)) {
-            issues.push({ table: "detectives", id: d.id as any, field: "identityDocuments", value: v });
-          }
-        }
+        offset += BATCH_SIZE;
+        batch = await storage.getAllDetectives(BATCH_SIZE, offset);
       }
-      const services = await storage.getAllServices();
-      for (const s of services) {
-        const imgs = (s as any).images || [];
-        for (const v of imgs) {
-          if (typeof v === "string" && v && !parsePublicUrl(v)) {
-            issues.push({ table: "services", id: s.id as any, field: "images", value: v });
+      
+      // OPTIMIZED: Batch process services to avoid loading entire table into memory
+      offset = 0;
+      let serviceBatch = await storage.getAllServices(BATCH_SIZE, offset);
+      
+      while (serviceBatch.length > 0) {
+        for (const s of serviceBatch) {
+          const imgs = (s as any).images || [];
+          for (const v of imgs) {
+            if (typeof v === "string" && v && !parsePublicUrl(v)) {
+              issues.push({ table: "services", id: s.id as any, field: "images", value: v });
+            }
           }
         }
+        offset += BATCH_SIZE;
+        serviceBatch = await storage.getAllServices(BATCH_SIZE, offset);
       }
+      
       const settings = await storage.getSiteSettings();
       if (settings && typeof (settings as any).logoUrl === "string" && (settings as any).logoUrl && !parsePublicUrl((settings as any).logoUrl)) {
         issues.push({ table: "siteSettings", id: (settings as any).id, field: "logoUrl", value: (settings as any).logoUrl });
@@ -4968,7 +5051,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Helper: ensure at least one service exists for location + category (same logic as snippet detectives)
-  const countServicesForSnippet = async (country: string, state: string | null, city: string | null, category: string): Promise<number> => {
+  const countServicesForSnippet = async (
+    country: string,
+    state: string | null,
+    city: string | null,
+    category: string,
+    cache?: Map<string, number>
+  ): Promise<number> => {
+    const cacheKey = `${country}|${state}|${city}|${category}`;
+    if (cache?.has(cacheKey)) {
+      return cache.get(cacheKey) as number;
+    }
+
     const whereConditions = [
       eq(detectives.status, "active"),
       eq(detectives.country, String(country)),
@@ -4982,7 +5076,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .from(detectives)
       .innerJoin(services, eq(services.detectiveId, detectives.id))
       .where(and(...whereConditions));
-    return Number(rows[0]?.count ?? 0);
+    const result = Number(rows[0]?.count ?? 0);
+    cache?.set(cacheKey, result);
+    return result;
   };
 
   // POST /api/snippets - Create new snippet (only if at least 1 service exists for location + category)
@@ -4994,7 +5090,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required fields: name, country, category" });
       }
 
-      const serviceCount = await countServicesForSnippet(country, state || null, city || null, category);
+      const countCache = new Map<string, number>();
+      const serviceCount = await countServicesForSnippet(country, state || null, city || null, category, countCache);
       if (serviceCount < 1) {
         return res.status(400).json({
           error: "No services available for this location and category. Add at least one active detective with a service in this category and location before creating a snippet.",
@@ -5036,11 +5133,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const effectiveCity = city !== undefined ? (city || null) : existing[0].city;
       const effectiveCategory = category !== undefined ? category : existing[0].category;
 
+      const countCache = new Map<string, number>();
       const serviceCount = await countServicesForSnippet(
         effectiveCountry,
         effectiveState,
         effectiveCity,
-        effectiveCategory
+        effectiveCategory,
+        countCache
       );
       if (serviceCount < 1) {
         return res.status(400).json({
@@ -5098,6 +5197,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // In-memory cache for snippet location queries (TTL: 5 minutes)
+  const SNIPPET_LOCATIONS_TTL_MS = 5 * 60 * 1000;
+  const snippetLocationsCache = new Map<string, { expiresAt: number; data: any }>();
+  const getSnippetLocationsCache = (key: string) => {
+    const entry = snippetLocationsCache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      snippetLocationsCache.delete(key);
+      return undefined;
+    }
+    return entry.data;
+  };
+  const setSnippetLocationsCache = (key: string, data: any) => {
+    snippetLocationsCache.set(key, { expiresAt: Date.now() + SNIPPET_LOCATIONS_TTL_MS, data });
+  };
+
   // GET /api/snippets/available-locations - Countries/states/cities where at least one service exists (for snippet dropdowns)
   app.get("/api/snippets/available-locations", async (req: Request, res: Response) => {
     try {
@@ -5106,43 +5221,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hasState = typeof stateParam === "string" && stateParam.trim() !== "";
 
       if (!hasCountry) {
-        const countriesResult = await pool.query<{ country: string }>(
-          `SELECT DISTINCT d.country
-           FROM detectives d
-           INNER JOIN services s ON s.detective_id = d.id
-           WHERE d.status = 'active' AND s.is_active = true
-           ORDER BY d.country`
-        );
-        const countries = countriesResult.rows.map((r) => r.country).filter(Boolean);
+        const cacheKey = "snippets:locations:countries";
+        const cached = getSnippetLocationsCache(cacheKey);
+        if (cached) {
+          return res.json({ countries: cached });
+        }
+        const countriesResult = await db
+          .selectDistinct({ country: detectives.country })
+          .from(detectives)
+          .innerJoin(services, eq(services.detectiveId, detectives.id))
+          .where(and(
+            eq(detectives.status, "active"),
+            eq(services.isActive, true)
+          ));
+        const countries = countriesResult
+          .map((r) => r.country)
+          .filter((c) => c != null && c !== "")
+          .sort();
+        setSnippetLocationsCache(cacheKey, countries);
         return res.json({ countries });
       }
 
       if (!hasState) {
-        const statesResult = await pool.query<{ state: string }>(
-          `SELECT DISTINCT d.state
-           FROM detectives d
-           INNER JOIN services s ON s.detective_id = d.id
-           WHERE d.status = 'active' AND s.is_active = true AND d.country = $1
-           ORDER BY d.state`,
-          [country]
-        );
-        const states = statesResult.rows
+        const cacheKey = `snippets:locations:states:${String(country)}`;
+        const cached = getSnippetLocationsCache(cacheKey);
+        if (cached) {
+          return res.json({ states: cached });
+        }
+        const statesResult = await db
+          .selectDistinct({ state: detectives.state })
+          .from(detectives)
+          .innerJoin(services, eq(services.detectiveId, detectives.id))
+          .where(and(
+            eq(detectives.status, "active"),
+            eq(services.isActive, true),
+            eq(detectives.country, String(country))
+          ));
+        const states = statesResult
           .map((r) => r.state)
-          .filter((s) => s && s !== "Not specified");
+          .filter((s) => s && s !== "Not specified")
+          .sort();
+        setSnippetLocationsCache(cacheKey, states);
         return res.json({ states });
       }
 
-      const citiesResult = await pool.query<{ city: string }>(
-        `SELECT DISTINCT d.city
-         FROM detectives d
-         INNER JOIN services s ON s.detective_id = d.id
-         WHERE d.status = 'active' AND s.is_active = true AND d.country = $1 AND d.state = $2
-         ORDER BY d.city`,
-        [country, stateParam]
-      );
-      const cities = citiesResult.rows
+      const cacheKey = `snippets:locations:cities:${String(country)}:${String(stateParam)}`;
+      const cached = getSnippetLocationsCache(cacheKey);
+      if (cached) {
+        return res.json({ cities: cached });
+      }
+      const citiesResult = await db
+        .selectDistinct({ city: detectives.city })
+        .from(detectives)
+        .innerJoin(services, eq(services.detectiveId, detectives.id))
+        .where(and(
+          eq(detectives.status, "active"),
+          eq(services.isActive, true),
+          eq(detectives.country, String(country)),
+          eq(detectives.state, String(stateParam))
+        ));
+      const cities = citiesResult
         .map((r) => r.city)
-        .filter((c) => c && c !== "Not specified");
+        .filter((c) => c && c !== "Not specified")
+        .sort();
+      setSnippetLocationsCache(cacheKey, cities);
       return res.json({ cities });
     } catch (error) {
       console.error("Error fetching available locations:", error);

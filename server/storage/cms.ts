@@ -14,7 +14,7 @@ export interface Category {
 }
 
 export async function getCategories(status?: string): Promise<Category[]> {
-  let query = "SELECT * FROM categories";
+  let query = "SELECT id, name, slug, status, created_at, updated_at FROM categories";
   const params: any[] = [];
 
   if (status) {
@@ -36,7 +36,7 @@ export async function getCategories(status?: string): Promise<Category[]> {
 }
 
 export async function getCategoryById(id: string): Promise<Category | null> {
-  const result = await pool.query("SELECT * FROM categories WHERE id = $1", [id]);
+  const result = await pool.query("SELECT id, name, slug, status, created_at, updated_at FROM categories WHERE id = $1", [id]);
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
@@ -51,7 +51,7 @@ export async function getCategoryById(id: string): Promise<Category | null> {
 }
 
 export async function getCategoryBySlug(slug: string): Promise<Category | null> {
-  const result = await pool.query("SELECT * FROM categories WHERE slug = $1", [slug]);
+  const result = await pool.query("SELECT id, name, slug, status, created_at, updated_at FROM categories WHERE slug = $1", [slug]);
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
