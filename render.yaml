@@ -16,7 +16,9 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: FRONTEND_URL
-        value: https://askdetectives.vercel.app
+        value: https://www.askdetectives.com
+      - key: CSRF_ALLOWED_ORIGINS
+        value: https://www.askdetectives.com,https://askdetectives1.vercel.app,https://copilot-06s5.onrender.com
       # All other secrets (session_secret, supabase, sendpulse) are stored in app_secrets table
       - key: CSRF_ALLOWED_ORIGINS
         value: https://askdetectives.vercel.app

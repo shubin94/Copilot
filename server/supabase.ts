@@ -10,10 +10,18 @@ export async function ensureBucket(name: string) {
     if (config.env.isProd) throw new Error("Supabase not configured");
     return;
   }
-  const { data: buckets } = await supabase.storage.listBuckets();
+  const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+  if (listError) {
+    console.error("Supabase listBuckets failed", { message: listError.message });
+    throw new Error(`Supabase listBuckets failed: ${listError.message}`);
+  }
   const exists = (buckets || []).some((b: any) => b.name === name);
   if (!exists) {
-    await supabase.storage.createBucket(name, { public: true });
+    const { error: createError } = await supabase.storage.createBucket(name, { public: true });
+    if (createError) {
+      console.error("Supabase createBucket failed", { name, message: createError.message });
+      throw new Error(`Supabase createBucket failed: ${createError.message}`);
+    }
   }
 }
 
@@ -58,7 +66,7 @@ export async function uploadDataUrl(bucket: string, path: string, dataUrl: strin
     return dataUrl;
   }
   await ensureBucket(bucket);
-  const m = dataUrl.match(/^data:(.+?);base64,(.+)$/);
+  const m = dataUrl.match(/^data:([^;]+)(?:;[^,]*)?;base64,(.+)$/);
   if (!m) return dataUrl;
   const contentType = m[1].trim().toLowerCase();
   if (!UPLOAD_DATAURL_ALLOWED_TYPES.has(contentType)) {
@@ -66,9 +74,24 @@ export async function uploadDataUrl(bucket: string, path: string, dataUrl: strin
   }
   const base64 = m[2];
   const buffer = Buffer.from(base64, "base64");
-  await supabase.storage.from(bucket).upload(path, buffer, { contentType, upsert: true });
+  const { error: uploadError } = await supabase.storage.from(bucket).upload(path, buffer, { contentType, upsert: true });
+  if (uploadError) {
+    console.error("Supabase upload failed", {
+      bucket,
+      path,
+      contentType,
+      size: buffer.length,
+      message: uploadError.message,
+    });
+    throw new Error(`Supabase upload failed: ${uploadError.message}`);
+  }
   const { data } = await supabase.storage.from(bucket).getPublicUrl(path);
-  return (data as any)?.publicUrl || dataUrl;
+  const publicUrl = (data as any)?.publicUrl;
+  if (!publicUrl) {
+    console.error("Supabase getPublicUrl failed", { bucket, path });
+    throw new Error("Supabase getPublicUrl failed");
+  }
+  return publicUrl;
 }
 
 export async function uploadFromUrlOrDataUrl(bucket: string, path: string, source: string): Promise<string> {
@@ -89,9 +112,24 @@ export async function uploadFromUrlOrDataUrl(bucket: string, path: string, sourc
     const ct = res.headers.get("content-type") || "application/octet-stream";
     const ab = await res.arrayBuffer();
     const buffer = Buffer.from(ab);
-    await supabase.storage.from(bucket).upload(path, buffer, { contentType: ct, upsert: true });
+    const { error: uploadError } = await supabase.storage.from(bucket).upload(path, buffer, { contentType: ct, upsert: true });
+    if (uploadError) {
+      console.error("Supabase upload failed", {
+        bucket,
+        path,
+        contentType: ct,
+        size: buffer.length,
+        message: uploadError.message,
+      });
+      throw new Error(`Supabase upload failed: ${uploadError.message}`);
+    }
     const { data } = await supabase.storage.from(bucket).getPublicUrl(path);
-    return (data as any)?.publicUrl || source;
+    const publicUrl = (data as any)?.publicUrl;
+    if (!publicUrl) {
+      console.error("Supabase getPublicUrl failed", { bucket, path });
+      throw new Error("Supabase getPublicUrl failed");
+    }
+    return publicUrl;
   } catch {
     if (config.env.isProd) throw new Error("Upload failed");
     return source;
