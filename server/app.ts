@@ -14,6 +14,7 @@ const { Pool } = pkg;
 import { registerRoutes } from "./routes.ts";
 import { config } from "./config.ts";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.ts";
+import { getSessionMiddleware } from "./app.ts";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -38,13 +39,37 @@ declare module 'http' {
     rawBody: unknown
   }
 }
-app.use(express.json({
-  limit: '50mb',
-  verify: (req, _res, buf) => {
-    req.rawBody = buf;
+
+// OPTIMIZATION: Per-route body size limits instead of global 50MB
+// These are exported and applied selectively in routes.ts
+export const bodyParsers = {
+  // Public read-only routes: minimal body size (1MB for query params, etc.)
+  public: {
+    json: express.json({
+      limit: '1mb',
+      verify: (req, _res, buf) => { req.rawBody = buf; }
+    }),
+    urlencoded: express.urlencoded({ extended: false, limit: '1mb' })
+  },
+  
+  // Authentication endpoints: small body size (10KB for login/register)
+  auth: {
+    json: express.json({
+      limit: '10kb',
+      verify: (req, _res, buf) => { req.rawBody = buf; }
+    }),
+    urlencoded: express.urlencoded({ extended: false, limit: '10kb' })
+  },
+  
+  // File upload endpoints: large body size (10MB for PDFs, images, etc.)
+  fileUpload: {
+    json: express.json({
+      limit: '10mb',
+      verify: (req, _res, buf) => { req.rawBody = buf; }
+    }),
+    urlencoded: express.urlencoded({ extended: false, limit: '10mb' })
   }
-}));
-app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+};
 
 // CORS configuration for cross-origin requests
 const configuredOrigins = config.csrf.allowedOrigins;
@@ -131,35 +156,37 @@ const claimSubmissionLimiter = rateLimit({
 });
 app.use("/api/claims", claimSubmissionLimiter);
 
-const useMemorySession = config.session.useMemory;
+// OPTIMIZED: Create session middleware but apply selectively to authenticated routes only
+// This avoids unnecessary database lookups on public APIs
+export function getSessionMiddleware() {
+  const useMemorySession = config.session.useMemory;
 
-let sessionStore;
-if (useMemorySession) {
-  // Use in-memory session store in development (no Postgres required)
-  sessionStore = new (session as any).MemoryStore();
-  console.log("[dev] Using in-memory session store (Postgres not required)");
-} else {
-  // Use Postgres session store in production
-  const PgSession = connectPgSimple(session);
-  sessionStore = new PgSession({
-    pool: new Pool({
-      connectionString: config.db.url,
-      // Session store pool sizing - handles session read/write/cleanup only
-      max: 5,                      // Smaller pool (sessions are lightweight queries)
-      min: 1,                      // Keep 1 warm connection for session checks
-      idleTimeoutMillis: 30000,    // Close idle connections after 30s
-      connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
-      ssl: !config.db.url?.includes("localhost") && !config.db.url?.includes("127.0.0.1")
-        ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases
-        : undefined,
-    }),
-    tableName: "session",
-    createTableIfMissing: true,
-  });
-}
+  let sessionStore;
+  if (useMemorySession) {
+    // Use in-memory session store in development (no Postgres required)
+    sessionStore = new (session as any).MemoryStore();
+    console.log("[dev] Using in-memory session store (Postgres not required)");
+  } else {
+    // Use Postgres session store in production
+    const PgSession = connectPgSimple(session);
+    sessionStore = new PgSession({
+      pool: new Pool({
+        connectionString: config.db.url,
+        // Session store pool sizing - handles session read/write/cleanup only
+        max: 5,                      // Smaller pool (sessions are lightweight queries)
+        min: 1,                      // Keep 1 warm connection for session checks
+        idleTimeoutMillis: 30000,    // Close idle connections after 30s
+        connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
+        ssl: !config.db.url?.includes("localhost") && !config.db.url?.includes("127.0.0.1")
+          ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases
+          : undefined,
+      }),
+      tableName: "session",
+      createTableIfMissing: true,
+    });
+  }
 
-app.use(
-  session({
+  return session({
     store: sessionStore,
     secret: config.session.secret,
     resave: false,
@@ -172,8 +199,10 @@ app.use(
       // In production, allow cookies across Vercel frontend and Render backend
       domain: config.env.isProd ? undefined : undefined,
     },
-  })
-);
+  });
+}
+
+// Session middleware is NOT applied globally - see routes.ts for selective application
 
 const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
