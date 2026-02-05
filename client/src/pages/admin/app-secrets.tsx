@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { Lock, Save, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface SecretItem {
   key: string;
@@ -46,14 +47,18 @@ const KEY_LABELS: Record<string, string> = {
 
 export default function AdminAppSecrets() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [secrets, setSecrets] = useState<SecretItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    // Force fresh auth check to ensure we're using the current admin account
+    // This prevents showing stale cached user data from a different session
+    queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     fetchSecrets();
-  }, []);
+  }, [queryClient]);
 
   const fetchSecrets = async () => {
     try {
