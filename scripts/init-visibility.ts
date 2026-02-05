@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../server/lib/loadEnv";
 import { db } from "../db/index.ts";
 import { detectives, detectiveVisibility } from "../shared/schema.ts";
 import { eq } from "drizzle-orm";

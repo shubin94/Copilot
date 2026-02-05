@@ -1072,9 +1072,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // App secrets (auth, Google OAuth, etc.) - stored in DB, never in git
+  // Infrastructure secrets that must NEVER be exposed or editable via UI
+  const INFRASTRUCTURE_SECRETS = [
+    "DATABASE_URL",
+    "supabase_url",
+    "supabase_service_role_key",
+  ];
+
   const SECRET_KEYS = [
     "host", "google_client_id", "google_client_secret", "session_secret", "base_url",
-    "supabase_url", "supabase_service_role_key", "sendgrid_api_key", "sendgrid_from_email",
+    // Supabase credentials removed - must be set via environment variables only
+    "sendgrid_api_key", "sendgrid_from_email",
     "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass", "smtp_from_email",
     "sendpulse_api_id", "sendpulse_api_secret", "sendpulse_sender_email", "sendpulse_sender_name", "sendpulse_enabled",
     "razorpay_key_id", "razorpay_key_secret", "paypal_client_id", "paypal_client_secret", "paypal_mode",
@@ -1085,7 +1093,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/app-secrets", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       const rows = await db.select().from(appSecrets);
-      const byKey = Object.fromEntries(rows.map(r => [r.key, r]));
+      // Filter out infrastructure secrets - they must never be exposed via API
+      const byKey = Object.fromEntries(
+        rows
+          .filter(r => !INFRASTRUCTURE_SECRETS.includes(r.key))
+          .map(r => [r.key, r])
+      );
       const secrets = SECRET_KEYS.map(key => ({
         key,
         value: byKey[key]?.value ? maskValue(byKey[key].value) : "",
@@ -1101,6 +1114,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/admin/app-secrets/:key", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       const key = req.params.key;
+      // Explicitly reject infrastructure secrets
+      if (INFRASTRUCTURE_SECRETS.includes(key)) {
+        return res.status(403).json({ error: "Infrastructure secrets cannot be modified via API. Use environment variables." });
+      }
       if (!SECRET_KEYS.includes(key)) {
         return res.status(400).json({ error: `Invalid key. Allowed: ${SECRET_KEYS.join(", ")}` });
       }

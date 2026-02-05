@@ -2,7 +2,7 @@
  * Quick check: call Gemini API with a simple prompt and log result or error.
  * Run: npx tsx scripts/check-gemini-api.ts
  */
-import "dotenv/config";
+import "../server/lib/loadEnv";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const MODEL = "gemini-2.5-flash";

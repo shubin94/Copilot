@@ -11,7 +11,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pkg from "pg";
 const { Pool } = pkg;
-import { registerRoutes } from "./routes.ts";
+// NOTE: registerRoutes is imported INSIDE runApp() to ensure environment is loaded first
 import { config } from "./config.ts";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.ts";
 
@@ -309,6 +309,8 @@ app.use((req, res, next) => {
 export default async function runApp(
   setup: (app: Express, server: Server) => Promise<void>,
 ): Promise<Server> {
+  // Dynamic import of routes to ensure environment is loaded BEFORE routes are imported
+  const { registerRoutes } = await import("./routes.ts");
   const server = await registerRoutes(app);
 
   // Global error handler - SECURITY: Never leak stack traces or sensitive data in production

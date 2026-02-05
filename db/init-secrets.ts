@@ -29,6 +29,7 @@ async function initSecrets() {
     const sessionSecret = crypto.randomBytes(32).toString("hex");
 
     // Get values from environment or use defaults
+    // NOTE: Supabase credentials are NOT stored in database - they must come from environment variables only
     const secrets = [
       {
         key: "session_secret",
@@ -49,16 +50,6 @@ async function initSecrets() {
         key: "csrf_allowed_origins",
         value: process.env.CSRF_ALLOWED_ORIGINS || "https://askdetectives.vercel.app,https://askdetectives-backend.onrender.com",
         description: "Comma-separated list of allowed CSRF origins"
-      },
-      {
-        key: "supabase_url",
-        value: process.env.SUPABASE_URL || "",
-        description: "Supabase project URL"
-      },
-      {
-        key: "supabase_service_role_key",
-        value: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-        description: "Supabase service role key for storage"
       },
       {
         key: "sendpulse_api_id",

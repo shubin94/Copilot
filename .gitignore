@@ -1,7 +1,14 @@
 node_modules
 dist
-.env
+# Environment files
+# Note: .env is tracked as a template (contains NO real credentials)
+# Real credentials go in .env.local (gitignored)
+# .env
 .env.local
+.env.*.local
+.env.production
+.env.production.test
+.env.development
 .DS_Store
 server/public
 vite.config.ts.*

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../server/lib/loadEnv";
 import { pool } from "../db/index.ts";
 
 async function main() {

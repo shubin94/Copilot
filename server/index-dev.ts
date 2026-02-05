@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./lib/loadEnv";
 import fs from "node:fs";
 import { type Server } from "node:http";
 import path from "node:path";
@@ -13,6 +13,8 @@ import viteConfig from "../vite.config";
 import { config, validateConfig } from "./config";
 import { loadSecretsFromDatabase } from "./lib/secretsLoader";
 import { validateDatabase } from "./startup";
+import { initializeEnv } from "./lib/loadEnv";
+import { getEnvironmentBadge } from "../db/validateDatabase";
 
 const viteLogger = createLogger();
 
@@ -67,6 +69,26 @@ export async function setupVite(app: Express, server: Server) {
 
 (async () => {
   try {
+    // Initialize environment with logging
+    console.log(`\n${getEnvironmentBadge()} Environment`);
+    await initializeEnv();
+
+    // Log Supabase configuration (environment-only)
+    const supabaseUrl = process.env.SUPABASE_URL;
+    if (supabaseUrl) {
+      const supabaseHost = new URL(supabaseUrl).hostname;
+      const isLocal = supabaseHost.includes('localhost') || supabaseHost.includes('127.0.0.1');
+      const envSource = process.env.NODE_ENV === 'production' ? 'Hosting Provider' : '.env.local or .env';
+      console.log(`💾 Supabase: ${isLocal ? '🟢 Local' : '☁️  Cloud'} (${supabaseHost})`);
+      console.log(`   Source: ${envSource}`);
+      if (!isLocal && process.env.NODE_ENV === 'development') {
+        console.warn(`   ⚠️  WARNING: Development mode using CLOUD Supabase!`);
+        console.warn(`   This should only happen if you explicitly set SUPABASE_URL to a cloud instance.`);
+      }
+    } else {
+      console.log(`⚠️  Supabase: Not configured (storage disabled)`);
+    }
+
     await loadSecretsFromDatabase();
     const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
     validateConfig(secretsLoadedSuccessfully);
