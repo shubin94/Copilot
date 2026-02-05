@@ -17,8 +17,13 @@ export function useLogin() {
   return useMutation({
     mutationFn: ({ email, password }: { email: string; password: string }) =>
       api.auth.login(email, password),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
+    onSuccess: async () => {
+      // CRITICAL: Invalidate and REFETCH auth to ensure fresh data before redirect
+      // This prevents race condition where dashboard loads before auth is known
+      await queryClient.invalidateQueries({ queryKey: ["auth"] });
+      await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
+      // Also refetch /api/user since some pages query it separately
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
     },
   });
 }
