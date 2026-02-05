@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,30 +32,9 @@ interface VisibilityRecord {
 }
 
 export default function RankingVisibilityPage() {
-  const [, navigate] = useLocation();
   const { toast } = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, Partial<VisibilityRecord>>>({});
-
-  // Check if user is admin
-  useEffect(() => {
-    const checkAdmin = async () => {
-      try {
-        const response = await fetch("/api/admin/visibility");
-        if (response.status === 401 || response.status === 403) {
-          navigate("/");
-          toast({
-            title: "Access Denied",
-            description: "Admin access required",
-            variant: "destructive",
-          });
-        }
-      } catch (error) {
-        console.error("Auth check failed:", error);
-      }
-    };
-    checkAdmin();
-  }, [navigate, toast]);
 
   // Fetch visibility records
   const { data, isLoading, error, refetch } = useQuery<{ visibility: VisibilityRecord[] }>({
