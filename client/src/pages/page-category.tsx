@@ -102,7 +102,7 @@ export default function PageCategory() {
             ))}
           </div>
         ) : (
-          <div className="text-gray-500">No pages in this category yet</div>
+          <div className="text-gray-500">No pages in this category.</div>
         )}
       </main>
       <Footer />

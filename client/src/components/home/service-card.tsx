@@ -180,24 +180,7 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
                       <Badge variant="outline" className="text-[10px] h-5 bg-gray-100 text-gray-500 border-gray-300 whitespace-nowrap">Unclaimed</Badge>
                     ) : (
                       <>
-                        {/* Order: Verified → Blue Tick → Pro → Recommended (labels from BADGE_LABELS) */}
-                        {badges.includes('verified') && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <img 
-                                  src="/blue-tick.png" 
-                                  alt="Verified" 
-                                  className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title="Verified"
-                                />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Verified</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
+                        {/* Blue Tick Badge - FIRST (Icon only) */}
                         {badges.includes('blueTick') && (
                           <TooltipProvider>
                             <Tooltip>
@@ -206,15 +189,17 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
                                   src="/blue-tick.png" 
                                   alt="Blue Tick" 
                                   className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title="Blue Tick"
+                                  title="Verification Badge"
                                 />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Blue Tick</p>
+                                <p>Verification Badge</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         )}
+
+                        {/* Pro Badge - SECOND (Icon only) */}
                         {badges.includes('pro') && (
                           <TooltipProvider>
                             <Tooltip>
@@ -223,19 +208,40 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
                                   src="/pro.png" 
                                   alt="Pro" 
                                   className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title="Pro"
+                                  title="Pro User Badge"
                                 />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Pro</p>
+                                <p>Pro User Badge</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         )}
+
+                        {/* Recommended Badge - THIRD (Text only) */}
                         {badges.includes('recommended') && (
                           <span className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap">
                             Recommended
                           </span>
+                        )}
+
+                        {/* Verified Badge - FOURTH (Icon only) */}
+                        {badges.includes('verified') && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <img 
+                                  src="/blue-tick.png" 
+                                  alt="Verified" 
+                                  className="h-5 w-5 flex-shrink-0 cursor-help"
+                                  title="Verification Badge"
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Verification Badge</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
                       </>
                     )}

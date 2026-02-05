@@ -315,19 +315,20 @@ export default function DetectiveBilling() {
                       </>
                     )}
                     
-                    {/* Blue Tick Badge - from effectiveBadges only */}
-                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
+                    {/* Blue Tick Badge - separate from package badges */}
+                    {detective.hasBlueTick && detective.subscriptionPackageId && (
                       <Badge className="bg-sky-100 text-sky-700 border-sky-300 text-sm px-3 py-1">
                         <CheckCircle2 className="h-4 w-4 mr-1" /> Blue Tick
                       </Badge>
                     )}
                     
-                    {/* Show message if no badges (from effectiveBadges only) */}
-                    {(() => {
-                      const eb = (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges;
-                      const hasAny = eb?.blueTick || eb?.pro || eb?.recommended;
-                      return !hasAny && <p className="text-sm text-gray-500">No special badges for this plan</p>;
-                    })()}
+                    {/* Show message if no badges */}
+                    {(!detective.subscriptionPackage.badges || 
+                      (Array.isArray(detective.subscriptionPackage.badges) && detective.subscriptionPackage.badges.length === 0) ||
+                      (!Array.isArray(detective.subscriptionPackage.badges) && Object.keys(detective.subscriptionPackage.badges).length === 0)) &&
+                     !detective.hasBlueTick && (
+                      <p className="text-sm text-gray-500">No special badges for this plan</p>
+                    )}
                   </div>
                 </div>
                 
@@ -485,7 +486,7 @@ export default function DetectiveBilling() {
               </div>
             ) : paymentHistory.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-500">No payment history yet</p>
+                <p className="text-gray-500">No payment history available yet</p>
               </div>
             ) : (
               <div className="overflow-x-auto">

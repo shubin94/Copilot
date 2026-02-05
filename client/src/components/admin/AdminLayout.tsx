@@ -21,8 +21,8 @@ export default function AdminLayout({ title, children }: AdminLayoutProps) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Check admin role (response shape: { user } same as /api/auth/me)
-  const { data } = useQuery({
+  // Check admin role
+  const { data: user } = useQuery({
     queryKey: ["/api/user"],
     queryFn: async () => {
       const res = await fetch("/api/user");
@@ -30,7 +30,6 @@ export default function AdminLayout({ title, children }: AdminLayoutProps) {
       return res.json();
     },
   });
-  const user = data?.user;
 
   if (user?.role !== "admin") {
     return (
@@ -79,21 +78,21 @@ export default function AdminLayout({ title, children }: AdminLayoutProps) {
             icon={<FolderOpen size={20} />}
             label="Categories"
             collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/cms/categories")}
+            onClick={() => navigate("/admin/categories")}
             active={title === "Categories"}
           />
           <NavItem
             icon={<Tag size={20} />}
             label="Tags"
             collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/cms/tags")}
+            onClick={() => navigate("/admin/tags")}
             active={title === "Tags"}
           />
           <NavItem
             icon={<FileText size={20} />}
             label="Pages"
             collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/cms/pages")}
+            onClick={() => navigate("/admin/pages")}
             active={title === "Pages"}
           />
         </nav>

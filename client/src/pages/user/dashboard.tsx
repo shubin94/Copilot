@@ -41,7 +41,7 @@ export default function UserDashboard() {
               
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="destructive" disabled title="Not available yet">
+                  <Button variant="destructive">
                     <Trash2 className="h-4 w-4 mr-2" /> Delete Account
                   </Button>
                 </AlertDialogTrigger>
@@ -54,7 +54,7 @@ export default function UserDashboard() {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction className="bg-red-600 hover:bg-red-700" disabled title="Not available yet">Delete Account</AlertDialogAction>
+                    <AlertDialogAction className="bg-red-600 hover:bg-red-700">Delete Account</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>

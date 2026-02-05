@@ -16,8 +16,8 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Check admin role (response shape: { user } same as /api/auth/me)
-  const { data } = useQuery({
+  // Check admin role
+  const { data: user } = useQuery({
     queryKey: ["/api/user"],
     queryFn: async () => {
       const res = await fetch("/api/user");
@@ -25,7 +25,6 @@ export default function AdminDashboard() {
       return res.json();
     },
   });
-  const user = data?.user;
 
   if (user?.role !== "admin") {
     return (
@@ -74,19 +73,19 @@ export default function AdminDashboard() {
             icon={<FolderOpen size={20} />}
             label="Categories"
             collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/cms/categories")}
+            onClick={() => navigate("/admin/categories")}
           />
           <NavItem
             icon={<Tag size={20} />}
             label="Tags"
             collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/cms/tags")}
+            onClick={() => navigate("/admin/tags")}
           />
           <NavItem
             icon={<FileText size={20} />}
             label="Pages"
             collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/cms/pages")}
+            onClick={() => navigate("/admin/pages")}
           />
           <NavItem
             icon={<Settings size={20} />}
@@ -119,17 +118,17 @@ export default function AdminDashboard() {
             <StatsCard
               title="Categories"
               icon={<FolderOpen size={32} />}
-              action={() => navigate("/admin/cms/categories")}
+              action={() => navigate("/admin/categories")}
             />
             <StatsCard
               title="Tags"
               icon={<Tag size={32} />}
-              action={() => navigate("/admin/cms/tags")}
+              action={() => navigate("/admin/tags")}
             />
             <StatsCard
               title="Pages"
               icon={<FileText size={32} />}
-              action={() => navigate("/admin/cms/pages")}
+              action={() => navigate("/admin/pages")}
             />
             <StatsCard
               title="Settings"

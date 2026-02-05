@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Edit2, Trash2, AlertCircle, ChevronDown, Eye } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { imageFileToDataUrl } from "@/utils/image-upload";
-import { api } from "@/lib/api";
 
 interface Page {
   id: string;
@@ -49,42 +48,63 @@ export default function PagesAdminEdit() {
   // Fetch pages
   const { data: pagesData, isLoading } = useQuery({
     queryKey: ["/api/admin/pages", statusFilter],
-    queryFn: () =>
-      api.get<{ pages: Page[] }>(
-        `/api/admin/pages${statusFilter ? `?status=${statusFilter}` : ""}`
-      ),
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/admin/pages${statusFilter ? `?status=${statusFilter}` : ""}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("Failed to fetch pages");
+      return res.json();
+    },
   });
 
   // Fetch categories
   const { data: categoriesData } = useQuery({
     queryKey: ["/api/admin/categories"],
-    queryFn: () => api.get<{ categories: Category[] }>("/api/admin/categories"),
+    queryFn: async () => {
+      const res = await fetch("/api/admin/categories", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch categories");
+      return res.json();
+    },
   });
 
   // Fetch tags
   const { data: tagsData } = useQuery({
     queryKey: ["/api/admin/tags"],
-    queryFn: () => api.get<{ tags: Tag[] }>("/api/admin/tags"),
+    queryFn: async () => {
+      const res = await fetch("/api/admin/tags", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch tags");
+      return res.json();
+    },
   });
 
   const pages: Page[] = pagesData?.pages || [];
   const categories: Category[] = categoriesData?.categories || [];
   const tags: Tag[] = tagsData?.tags || [];
 
-  // Create/Update mutation (api client adds CSRF token for POST/PATCH)
+  // Create/Update mutation
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
       if (data.tagIds.length === 0) {
         throw new Error("At least one tag is required");
       }
-      try {
-        if (editingId) {
-          return await api.patch<{ page: Page }>(`/api/admin/pages/${editingId}`, data);
-        }
-        return await api.post<{ page: Page }>("/api/admin/pages", data);
-      } catch (err: any) {
-        throw new Error(err?.message || "Failed to save page");
+
+      const method = editingId ? "PATCH" : "POST";
+      const url = editingId ? `/api/admin/pages/${editingId}` : "/api/admin/pages";
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to save page");
       }
+      return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/pages"] });
@@ -114,11 +134,16 @@ export default function PagesAdminEdit() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      try {
-        return await api.delete<{ page: Page }>(`/api/admin/pages/${id}`);
-      } catch (err: any) {
-        throw new Error(err?.message || "Failed to delete page");
+      const res = await fetch(`/api/admin/pages/${id}`, {
+        method: "DELETE",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to delete page");
       }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/pages"] });
@@ -228,7 +253,7 @@ export default function PagesAdminEdit() {
       {isLoading ? (
         <div className="text-center py-8">Loading...</div>
       ) : pages.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">No pages yet</div>
+        <div className="text-center py-8 text-gray-500">No pages found</div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="w-full">

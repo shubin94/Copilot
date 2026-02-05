@@ -1,3 +1,8 @@
+/**
+ * App Secrets – single source of truth for all application credentials.
+ * All credentials are stored and read from the database; saving updates DB only.
+ */
+
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -5,67 +10,101 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { Lock, Save, AlertCircle } from "lucide-react";
+import { Key, Eye, EyeOff, Save } from "lucide-react";
 import { api } from "@/lib/api";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
-interface SecretItem {
-  key: string;
-  value: string;
-  hasValue: boolean;
-}
+// Must match server SECRET_KEYS so the form always shows all fields (even if API fails or returns no keys)
+const ALL_KEYS = [
+  "SERVER_HOST",
+  "GOOGLE_OAUTH_CLIENT_ID",
+  "GOOGLE_OAUTH_CLIENT_SECRET",
+  "SESSION_SECRET",
+  "BASE_URL",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SENDGRID_API_KEY",
+  "SENDGRID_FROM_EMAIL",
+  "SMTP_HOST",
+  "SMTP_PORT",
+  "SMTP_SECURE",
+  "SMTP_USER",
+  "SMTP_PASS",
+  "SMTP_FROM_EMAIL",
+  "SENDPULSE_API_ID",
+  "SENDPULSE_API_SECRET",
+  "SENDPULSE_SENDER_EMAIL",
+  "SENDPULSE_SENDER_NAME",
+  "SENDPULSE_ENABLED",
+  "RAZORPAY_KEY_ID",
+  "RAZORPAY_KEY_SECRET",
+  "PAYPAL_CLIENT_ID",
+  "PAYPAL_CLIENT_SECRET",
+  "PAYPAL_MODE",
+  "GEMINI_API_KEY",
+];
 
 const KEY_LABELS: Record<string, string> = {
-  host: "Server Host",
-  google_client_id: "Google OAuth Client ID",
-  google_client_secret: "Google OAuth Client Secret",
-  session_secret: "Session Secret",
-  base_url: "Base URL",
-  supabase_url: "Supabase URL",
-  supabase_service_role_key: "Supabase Service Role Key",
-  sendgrid_api_key: "SendGrid API Key",
-  sendgrid_from_email: "SendGrid From Email",
-  smtp_host: "SMTP Host",
-  smtp_port: "SMTP Port",
-  smtp_secure: "SMTP Secure",
-  smtp_user: "SMTP User",
-  smtp_pass: "SMTP Password",
-  smtp_from_email: "SMTP From Email",
-  sendpulse_api_id: "SendPulse API ID",
-  sendpulse_api_secret: "SendPulse API Secret",
-  sendpulse_sender_email: "SendPulse Sender Email",
-  sendpulse_sender_name: "SendPulse Sender Name",
-  sendpulse_enabled: "SendPulse Enabled",
-  razorpay_key_id: "Razorpay Key ID",
-  razorpay_key_secret: "Razorpay Key Secret",
-  paypal_client_id: "PayPal Client ID",
-  paypal_client_secret: "PayPal Client Secret",
-  paypal_mode: "PayPal Mode",
-  gemini_api_key: "Gemini API Key",
+  SERVER_HOST: "Server Host",
+  GOOGLE_OAUTH_CLIENT_ID: "Google OAuth Client ID",
+  GOOGLE_OAUTH_CLIENT_SECRET: "Google OAuth Client Secret",
+  SESSION_SECRET: "Session Secret",
+  BASE_URL: "Base URL",
+  SUPABASE_URL: "Supabase URL",
+  SUPABASE_SERVICE_ROLE_KEY: "Supabase Service Role Key",
+  SENDGRID_API_KEY: "SendGrid API Key",
+  SENDGRID_FROM_EMAIL: "SendGrid From Email",
+  SMTP_HOST: "SMTP Host",
+  SMTP_PORT: "SMTP Port",
+  SMTP_SECURE: "SMTP Secure (true/false)",
+  SMTP_USER: "SMTP User",
+  SMTP_PASS: "SMTP Password",
+  SMTP_FROM_EMAIL: "SMTP From Email",
+  SENDPULSE_API_ID: "SendPulse API ID",
+  SENDPULSE_API_SECRET: "SendPulse API Secret",
+  SENDPULSE_SENDER_EMAIL: "SendPulse Sender Email",
+  SENDPULSE_SENDER_NAME: "SendPulse Sender Name",
+  SENDPULSE_ENABLED: "SendPulse Enabled (true/false)",
+  RAZORPAY_KEY_ID: "Razorpay Key ID",
+  RAZORPAY_KEY_SECRET: "Razorpay Key Secret",
+  PAYPAL_CLIENT_ID: "PayPal Client ID",
+  PAYPAL_CLIENT_SECRET: "PayPal Client Secret",
+  PAYPAL_MODE: "PayPal Mode (sandbox/live)",
+  GEMINI_API_KEY: "Gemini API Key",
 };
+
+function isSensitive(key: string): boolean {
+  const lower = key.toLowerCase();
+  return lower.includes("secret") || lower.includes("key") || lower.includes("pass") || lower.includes("token") || lower.includes("oauth");
+}
 
 export default function AdminAppSecrets() {
   const { toast } = useToast();
-  const [secrets, setSecrets] = useState<SecretItem[]>([]);
+  const [keys, setKeys] = useState<string[]>(ALL_KEYS);
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [visible, setVisible] = useState<Record<string, boolean>>({});
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    fetchSecrets();
+    loadSecrets();
   }, []);
 
-  const fetchSecrets = async () => {
+  const loadSecrets = async () => {
     try {
-      const response = await api.get<{ secrets: SecretItem[] }>("/api/admin/app-secrets");
-      setSecrets(response.secrets);
-      const initial: Record<string, string> = {};
-      response.secrets.forEach((s) => { initial[s.key] = ""; });
-      setEditValues(initial);
-    } catch (error) {
+      setLoading(true);
+      setLoadError(false);
+      const res = await api.get<{ keys?: string[]; secrets?: Record<string, string> }>("/api/admin/app-secrets");
+      setKeys(Array.isArray(res.keys) && res.keys.length > 0 ? res.keys : ALL_KEYS);
+      setSecrets(res.secrets || {});
+    } catch (err: any) {
+      setLoadError(true);
+      setKeys(ALL_KEYS);
+      setSecrets({});
+      const msg = err?.message || "Log in as admin to load and save credentials.";
       toast({
-        title: "Error",
-        description: "Failed to load app secrets",
+        title: "Could not load saved values",
+        description: msg,
         variant: "destructive",
       });
     } finally {
@@ -74,21 +113,17 @@ export default function AdminAppSecrets() {
   };
 
   const handleSave = async (key: string) => {
-    const value = editValues[key]?.trim();
-    if (value === undefined || value === "") {
-      toast({ title: "Error", description: "Value cannot be empty", variant: "destructive" });
-      return;
-    }
-    setSaving(key);
+    const value = secrets[key] ?? "";
     try {
+      setSaving(key);
       await api.put(`/api/admin/app-secrets/${key}`, { value });
-      toast({ title: "Success", description: "Secret saved. Restart server to apply." });
-      setEditValues((prev) => ({ ...prev, [key]: "" }));
-      await fetchSecrets();
-    } catch (error: any) {
+      toast({ title: "Saved", description: `${KEY_LABELS[key] || key} saved to database.` });
+      await loadSecrets();
+    } catch (err: any) {
+      const msg = err?.message || err?.details || `Failed to save ${KEY_LABELS[key] || key}`;
       toast({
-        title: "Error",
-        description: error?.message || "Failed to save secret",
+        title: "Save failed",
+        description: msg,
         variant: "destructive",
       });
     } finally {
@@ -96,64 +131,96 @@ export default function AdminAppSecrets() {
     }
   };
 
-  if (loading) {
-    return (
-      <DashboardLayout>
-        <div className="p-6">Loading...</div>
-      </DashboardLayout>
-    );
-  }
+  const toggleVisible = (key: string) => {
+    setVisible((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   return (
-    <DashboardLayout>
-      <div className="p-6 max-w-3xl space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Lock className="h-5 w-5" />
-              App Secrets (Auth & API)
-            </CardTitle>
-            <CardDescription>
-              Store Google OAuth, Supabase, email, and payment credentials in the database. Only DATABASE_URL is required in .env.
-              Secrets are loaded at server startup.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Alert className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                Values are masked. Enter a new value and click Save to update. Restart the server after saving.
-              </AlertDescription>
-            </Alert>
+    <DashboardLayout role="admin">
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <Key className="h-8 w-8" />
+            App Secrets
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Single source of truth for all application credentials. Values are stored in the database and used at runtime. Sensitive fields are masked.
+          </p>
+        </div>
 
-            <div className="space-y-4">
-              {secrets.map((s) => (
-                <div key={s.key} className="flex flex-col gap-2">
-                  <Label htmlFor={s.key}>{KEY_LABELS[s.key] || s.key}</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id={s.key}
-                      type="password"
-                      placeholder={s.hasValue ? "•••••••• (set)" : "Enter value"}
-                      value={editValues[s.key] ?? ""}
-                      onChange={(e) =>
-                        setEditValues((prev) => ({ ...prev, [s.key]: e.target.value }))
-                      }
-                      className="flex-1"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => handleSave(s.key)}
-                      disabled={saving === s.key || !(editValues[s.key]?.trim())}
-                    >
-                      {saving === s.key ? "Saving..." : "Save"}
-                    </Button>
-                  </div>
+        {loading ? (
+          <div className="text-muted-foreground">Loading...</div>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Credentials</CardTitle>
+              <CardDescription>
+              Edit and save each value. Each Save writes to the database (app_secrets table). Those exact values are what the app uses at runtime (session, email, payments, Supabase, etc.). Use the eye icon to show or hide sensitive values.
+            </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {loadError && (
+                <p className="text-sm text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 px-3 py-2 rounded-md">
+                  You must be logged in as an admin to load existing values and to save. Fields below can still be edited and saved once you are admin.
+                </p>
+              )}
+              {!loadError && keys.length > 0 && !keys.some((k) => (secrets[k] ?? "").trim() !== "") && (
+                <div className="text-sm text-blue-700 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300 px-4 py-3 rounded-md border border-blue-200 dark:border-blue-800">
+                  <strong>Why is everything empty?</strong> Nothing has been saved to the database yet. If your app works today, it’s using environment variables (e.g. from <code className="bg-black/10 dark:bg-black/30 px-1 rounded">.env</code>). To store credentials here: paste each value into the field (from your <code className="bg-black/10 dark:bg-black/30 px-1 rounded">.env</code> or wherever you keep them), then click <strong>Save</strong> for that row. Once saved, the app will use these database values.
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+              )}
+              {keys.map((key) => {
+                const label = KEY_LABELS[key] || key;
+                const mask = isSensitive(key);
+                const isVisible = !!visible[key];
+                const value = secrets[key] ?? "";
+                return (
+                  <div key={key} className="flex flex-col gap-2">
+                    <Label htmlFor={key}>{label}</Label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1 min-w-0">
+                        <Input
+                          id={key}
+                          type={mask && !isVisible ? "password" : "text"}
+                          value={value}
+                          onChange={(e) => setSecrets((prev) => ({ ...prev, [key]: e.target.value }))}
+                          placeholder={mask ? "••••••••" : ""}
+                          className={mask ? "pr-10" : ""}
+                          autoComplete="off"
+                          aria-label={label}
+                        />
+                        {mask && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0 top-0 h-full px-3 z-10 shrink-0"
+                            aria-label={isVisible ? "Hide value" : "Show value"}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleVisible(key);
+                            }}
+                          >
+                            {isVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        )}
+                      </div>
+                      <Button onClick={() => handleSave(key)} disabled={saving === key}>
+                        {saving === key ? "Saving..." : <><Save className="h-4 w-4 mr-1" /> Save</>}
+                      </Button>
+                    </div>
+                    {mask && isVisible && (
+                      <div className="text-sm font-mono bg-muted/50 border border-border rounded-md px-3 py-2 break-all" role="textbox" aria-label={`Revealed value for ${label}`}>
+                        {value || "(empty)"}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </DashboardLayout>
   );

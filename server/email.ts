@@ -1,4 +1,3 @@
-import { env } from "process";
 import { config } from "./config.ts";
 import nodemailer from "nodemailer";
 
@@ -11,8 +10,8 @@ type EmailContent = {
 async function sendViaSendGrid(to: string, content: EmailContent): Promise<void> {
   const apiKey = config.email.sendgridApiKey;
   const fromEmail = config.email.sendgridFromEmail;
-  if (!apiKey) throw new Error("SENDGRID_API_KEY not configured");
-  if (!fromEmail) throw new Error("SENDGRID_FROM_EMAIL not configured");
+  if (!apiKey) throw new Error("SENDGRID_API_KEY not configured (Admin → App Secrets)");
+  if (!fromEmail) throw new Error("SENDGRID_FROM_EMAIL not configured (Admin → App Secrets)");
 
   const payload = {
     personalizations: [{ to: [{ email: to }], subject: content.subject }],

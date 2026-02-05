@@ -1,6 +1,5 @@
-// PayPal Payment Gateway Service
+// PayPal Payment Gateway Service – credentials from app_secrets via config only
 import { config } from "../config.ts";
-import { getPaymentGateway } from "./paymentGateway.ts";
 
 // Dynamic import for PayPal SDK (CommonJS module)
 let paypal: any = null;
@@ -9,11 +8,10 @@ let paypal: any = null;
 let paypalClientInstance: any | null = null;
 let paypalCredentialsHash: string | null = null;
 
-// Initialize PayPal SDK (CommonJS package: module.exports is under .default when dynamic-imported in ESM)
+// Initialize PayPal SDK
 async function loadPayPalSDK() {
   if (!paypal) {
-    const module = await import("@paypal/checkout-server-sdk");
-    paypal = (module as any).default ?? module;
+    paypal = await import("@paypal/checkout-server-sdk");
   }
   return paypal;
 }
@@ -46,20 +44,13 @@ async function getPayPalClient(): Promise<any> {
   try {
     // Load PayPal SDK
     const paypalSDK = await loadPayPalSDK();
-    
-    // Fetch PayPal gateway config from database
-    const gateway = await getPaymentGateway('paypal');
-    
-    if (!gateway || !gateway.is_enabled) {
-      throw new Error("[PAYPAL_INIT_ERROR] PayPal gateway not configured or disabled in database");
-    }
 
-    const clientId = gateway.config?.clientId || config.paypal.clientId;
-    const clientSecret = gateway.config?.clientSecret || config.paypal.clientSecret;
-    const mode = gateway.config?.mode || config.paypal.mode || 'sandbox';
+    const clientId = config.paypal.clientId;
+    const clientSecret = config.paypal.clientSecret;
+    const mode = config.paypal.mode;
 
     if (!clientId || !clientSecret) {
-      throw new Error("[PAYPAL_INIT_ERROR] PayPal credentials missing in database config");
+      throw new Error("[PAYPAL_INIT_ERROR] PayPal credentials missing. Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in Admin → App Secrets.");
     }
 
     // Create credentials hash for cache invalidation

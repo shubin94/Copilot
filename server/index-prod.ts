@@ -8,10 +8,6 @@ import path from "node:path";
 import express from "express";
 import type { Express, Request } from "express";
 
-import runApp from "./app.ts";
-import { config, validateConfig } from "./config.ts";
-import { loadSecretsFromDatabase } from "./lib/secretsLoader.ts";
-import { validateDatabase } from "./startup.ts";
 
 // Initialize Sentry error tracking (kill-switch: set SENTRY_DSN="" to disable)
 if (process.env.SENTRY_DSN) {
@@ -107,8 +103,12 @@ async function main() {
   try {
     console.log('🚀 Starting server initialization...');
 
-    console.log('🔐 Loading auth/secrets from database...');
-    await loadSecretsFromDatabase();
+    const { loadAllSecrets } = await import("./lib/secretsLoader.ts");
+    await loadAllSecrets();
+
+    const { config, validateConfig } = await import("./config.ts");
+    const { validateDatabase } = await import("./startup.ts");
+    const runApp = (await import("./app.ts")).default;
 
     if (config.env.isProd) {
       console.log('📋 Validating production config...');
@@ -120,7 +120,7 @@ async function main() {
 
     console.log('⚙️  Starting Express app...');
     await runApp(serveStatic);
-    
+
     console.log('✅ Server started successfully');
   } catch (error) {
     console.error('❌ Failed to start server:', error);

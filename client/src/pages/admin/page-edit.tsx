@@ -7,7 +7,6 @@ import { useToast } from "@/hooks/use-toast";
 import { BlockEditor } from "@/components/content-editor/block-editor";
 import { parseContentBlocks, stringifyContentBlocks, ContentBlock } from "@/shared/content-blocks";
 import { imageFileToDataUrl } from "@/utils/image-upload";
-import { api } from "@/lib/api";
 
 interface Page {
   id: string;
@@ -62,20 +61,38 @@ export default function PageEdit() {
   // Fetch page data
   const { data: pageData, isLoading: pageLoading } = useQuery({
     queryKey: ["/api/admin/pages", pageId],
-    queryFn: () => api.get<{ page: Page }>(`/api/admin/pages/${pageId}`),
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/pages/${pageId}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch page");
+      return res.json();
+    },
     enabled: !!pageId,
   });
 
   // Fetch categories
   const { data: categoriesData } = useQuery({
     queryKey: ["/api/admin/categories"],
-    queryFn: () => api.get<{ categories: Category[] }>("/api/admin/categories"),
+    queryFn: async () => {
+      const res = await fetch("/api/admin/categories", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch categories");
+      return res.json();
+    },
   });
 
   // Fetch tags
   const { data: tagsData } = useQuery({
     queryKey: ["/api/admin/tags"],
-    queryFn: () => api.get<{ tags: Tag[] }>("/api/admin/tags"),
+    queryFn: async () => {
+      const res = await fetch("/api/admin/tags", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch tags");
+      return res.json();
+    },
   });
 
   const page: Page | undefined = pageData?.page;
@@ -99,14 +116,23 @@ export default function PageEdit() {
     }
   }, [page]);
 
-  // Update mutation (api client adds CSRF token for PATCH)
+  // Update mutation
   const updateMutation = useMutation({
     mutationFn: async (data: any) => {
-      try {
-        return await api.patch<{ page: Page }>(`/api/admin/pages/${pageId}`, data);
-      } catch (err: any) {
-        throw new Error(err?.message || "Failed to update page");
+      const res = await fetch(`/api/admin/pages/${pageId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update page");
       }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/pages"] });

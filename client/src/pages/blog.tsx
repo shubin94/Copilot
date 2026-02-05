@@ -16,7 +16,7 @@ export default function BlogPage() {
         </p>
 
         <Card className="p-12 text-center">
-          <p className="text-gray-500">No blog posts yet</p>
+          <p className="text-gray-500">No blog posts available yet. Check back soon for the latest insights and news.</p>
         </Card>
       </main>
       <Footer />

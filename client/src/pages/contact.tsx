@@ -5,16 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Mail, Phone, MapPin } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
 
 export default function ContactPage() {
-  const { toast } = useToast();
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    toast({ title: "Not available yet", description: "This feature is not available yet." });
-  };
-
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <SEO title="Contact Us" description="Get in touch with the FindDetectives team." />
@@ -61,7 +53,7 @@ export default function ContactPage() {
           </div>
 
           <div className="bg-gray-50 p-8 rounded-2xl border border-gray-200">
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            <form className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">First Name</label>
@@ -83,7 +75,7 @@ export default function ContactPage() {
                 <Textarea placeholder="How can we help you?" className="min-h-[120px]" />
               </div>
               
-              <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" title="Not available yet">Send Message</Button>
+              <Button className="w-full bg-green-600 hover:bg-green-700">Send Message</Button>
             </form>
           </div>
         </div>

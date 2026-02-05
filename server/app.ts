@@ -29,11 +29,6 @@ export function log(message: string, source = "express") {
 
 export const app = express();
 
-// Trust first proxy in production (Vercel, ALB, nginx) so req.secure and X-Forwarded-* are correct
-if (config.env.isProd) {
-  app.set("trust proxy", 1);
-}
-
 declare module 'http' {
   interface IncomingMessage {
     rawBody: unknown
@@ -57,7 +52,9 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: true,
 });
-app.use("/api/auth/", authLimiter);
+if (config.env.isProd) {
+  app.use("/api/auth/", authLimiter);
+}
 
 const useMemorySession = config.session.useMemory;
 const sessionStore = useMemorySession
@@ -85,8 +82,8 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      httpOnly: true,
       secure: config.session.secureCookies,
+      httpOnly: true,
       sameSite: "lax",
       maxAge: config.session.ttlMs,
     },
@@ -132,13 +129,6 @@ app.use((req, res, next) => {
   const requestedWith = req.get("x-requested-with");
   if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
     log("CSRF blocked: missing or invalid X-Requested-With header", "csrf");
-    return res.status(403).json({ message: "Forbidden" });
-  }
-
-  const token = req.get("x-csrf-token");
-  const sessionToken = (req.session as any)?.csrfToken;
-  if (!sessionToken || token !== sessionToken) {
-    log("CSRF blocked: missing or invalid CSRF token", "csrf");
     return res.status(403).json({ message: "Forbidden" });
   }
 

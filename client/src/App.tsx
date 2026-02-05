@@ -37,11 +37,11 @@ const AdminAddDetective = lazy(() => import("@/pages/admin/add-detective"));
 const AdminClaims = lazy(() => import("@/pages/admin/claims"));
 const AdminViewDetective = lazy(() => import("@/pages/admin/view-detective"));
 const AdminSettings = lazy(() => import("@/pages/admin/settings"));
-const AdminPaymentGateways = lazy(() => import("@/pages/admin/payment-gateways"));
 const AdminBranding = lazy(() => import("@/pages/admin/branding"));
 const AdminPages = lazy(() => import("@/pages/admin/pages"));
 const AdminRankingVisibility = lazy(() => import("@/pages/admin/ranking-visibility"));
 const AdminEmailTemplates = lazy(() => import("@/pages/admin/email-templates"));
+const AdminAppSecrets = lazy(() => import("@/pages/admin/app-secrets"));
 const AdminSnippets = lazy(() => import("@/pages/admin/snippets"));
 
 // CMS Admin Routes
@@ -129,8 +129,7 @@ function Router() {
           <Route path="/support" component={SupportPage} />
           <Route path="/contact" component={ContactPage} />
           
-          {/* Admin Routes - /admin loads main admin dashboard (auth enforced in component) */}
-          <Route path="/admin" component={AdminDashboard} />
+          {/* Admin Routes */}
           <Route path="/admin/dashboard" component={AdminDashboard} />
           <Route path="/admin/finance" component={AdminFinance} />
           <Route path="/admin/signups" component={AdminSignups} />
@@ -144,11 +143,10 @@ function Router() {
           <Route path="/admin/subscriptions" component={AdminSubscriptions} />
           <Route path="/admin/pages" component={AdminPages} />
           <Route path="/admin/settings" component={AdminSettings} />
-          <Route path="/admin/payment-gateways" component={AdminPaymentGateways} />
-          <Route path="/admin/app-secrets" component={AdminAppSecrets} />
           <Route path="/admin/branding" component={AdminBranding} />
           <Route path="/admin/ranking-visibility" component={AdminRankingVisibility} />
           <Route path="/admin/email-templates" component={AdminEmailTemplates} />
+          <Route path="/admin/app-secrets" component={AdminAppSecrets} />
           <Route path="/admin/snippets" component={AdminSnippets} />
 
           {/* CMS Admin Routes */}

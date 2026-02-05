@@ -8,9 +8,9 @@
     "build": "vite build",
     "start": "tsx server/index-prod.ts",
     "reset-auth": "tsx scripts/reset-auth-and-bootstrap-admin.ts",
-    "create-admin": "tsx scripts/create-admin.ts",
     "db:audit": "tsx scripts/db-audit.ts",
-    "seed-app-secrets": "tsx scripts/seed-app-secrets.ts"
+    "db:ensure-app-secrets": "tsx scripts/ensure-app-secrets-table.ts",
+    "db:seed-payment-gateways": "tsx scripts/seed-payment-gateways.ts"
   },
   "dependencies": {
     "@paypal/checkout-server-sdk": "^1.0.3",
@@ -90,8 +90,5 @@
     "tsx": "^4.7.2",
     "typescript": "^5.4.5",
     "vite": "^5.2.10"
-  },
-  "overrides": {
-    "tar@<=7.5.3": "7.5.3"
   }
 }

@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Edit2, Trash2, AlertCircle } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { api } from "@/lib/api";
 
 
 interface Category {
@@ -27,25 +26,37 @@ export default function CategoriesAdmin() {
   // Fetch categories
   const { data: categoriesData, isLoading } = useQuery({
     queryKey: ["/api/admin/categories", statusFilter],
-    queryFn: () =>
-      api.get<{ categories: Category[] }>(
-        `/api/admin/categories${statusFilter ? `?status=${statusFilter}` : ""}`
-      ),
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/admin/categories${statusFilter ? `?status=${statusFilter}` : ""}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("Failed to fetch categories");
+      return res.json();
+    },
   });
 
   const categories: Category[] = categoriesData?.categories || [];
 
-  // Create/Update mutation (api client adds CSRF token for POST/PATCH)
+  // Create/Update mutation
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
-      try {
-        if (editingId) {
-          return await api.patch<{ category: Category }>(`/api/admin/categories/${editingId}`, data);
-        }
-        return await api.post<{ category: Category }>("/api/admin/categories", data);
-      } catch (err: any) {
-        throw new Error(err?.message || "Failed to save category");
+      const method = editingId ? "PATCH" : "POST";
+      const url = editingId ? `/api/admin/categories/${editingId}` : "/api/admin/categories";
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to save category");
       }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/categories"] });
@@ -59,14 +70,19 @@ export default function CategoriesAdmin() {
     },
   });
 
-  // Delete mutation (api client adds CSRF token for DELETE)
+  // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      try {
-        return await api.delete<{ category: Category }>(`/api/admin/categories/${id}`);
-      } catch (err: any) {
-        throw new Error(err?.message || "Failed to delete category");
+      const res = await fetch(`/api/admin/categories/${id}`, {
+        method: "DELETE",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to delete category");
       }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/categories"] });
@@ -138,7 +154,7 @@ export default function CategoriesAdmin() {
       {isLoading ? (
         <div className="text-center py-8">Loading...</div>
       ) : categories.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">No categories yet</div>
+        <div className="text-center py-8 text-gray-500">No categories found</div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="w-full">

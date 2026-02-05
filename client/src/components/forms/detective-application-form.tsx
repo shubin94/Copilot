@@ -8,7 +8,7 @@ import { Check, Upload, Shield, ArrowRight, ArrowLeft, Loader2 } from "lucide-re
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useServiceCategories, useCreateApplication } from "@/lib/hooks";
+import { useServiceCategories, useSubscriptionLimits, useCreateApplication } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
 import { COUNTRY_STATES, STATE_CITIES } from "@/lib/geo";
 import type { InsertDetectiveApplication } from "@shared/schema";
@@ -122,7 +122,9 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
 
   const createApplication = useCreateApplication();
   const { data: categoriesData } = useServiceCategories();
+  const { data: limitsData } = useSubscriptionLimits();
   const serviceCategories = categoriesData?.categories?.filter(cat => cat.isActive) || [];
+  const maxCategoryCount = limitsData?.limits?.free ?? 2;
 
   const validateStep = (currentStep: number): boolean => {
     const fieldsToValidate: string[] = [];
@@ -480,14 +482,16 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
 
     console.log("Missing fields:", missingFields);
 
-    const categoriesWithoutPrice = formData.categoryPricing.filter(p => !p.price || parseFloat(p.price) <= 0);
+    const categoriesWithoutPrice = formData.categoryPricing.filter(
+      p => !p.price || (p.price !== "on_enquiry" && (isNaN(parseFloat(p.price)) || parseFloat(p.price) <= 0))
+    );
     console.log("Categories without price:", categoriesWithoutPrice);
     
     if (categoriesWithoutPrice.length > 0) {
       console.log("VALIDATION FAILED: Missing pricing");
       toast({
         title: "Missing Pricing Information",
-        description: "Please set a starting price for all selected service categories.",
+        description: "Please set a starting price or select On Enquiry for all selected service categories.",
         variant: "destructive",
       });
       return;
@@ -1015,13 +1019,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                 <Shield className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-blue-800">
                   <p className="font-bold">Service Categories & Verification</p>
-                  <p>Select up to 2 service categories and set your starting prices.</p>
+                  <p>Select up to {maxCategoryCount} service categor{maxCategoryCount === 1 ? "y" : "ies"} and set your starting prices or On Enquiry.</p>
                 </div>
               </div>
 
               <div className="space-y-3">
-                <Label>Service Categories You'll Offer (Max 2) *</Label>
-                <p className="text-xs text-gray-500">Select up to 2 categories and set your starting price for each</p>
+                <Label>Service Categories You'll Offer (Max {maxCategoryCount}) *</Label>
+                <p className="text-xs text-gray-500">Select up to {maxCategoryCount} categor{maxCategoryCount === 1 ? "y" : "ies"} and set your starting price or On Enquiry for each</p>
                 <div className="space-y-3">
                   {serviceCategories.map((category) => {
                     const isSelected = formData.serviceCategories.includes(category.name);
@@ -1036,10 +1040,10 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                             checked={isSelected}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                if (formData.serviceCategories.length >= 2) {
+                                if (formData.serviceCategories.length >= maxCategoryCount) {
                                   toast({
                                     title: "Maximum Limit Reached",
-                                    description: "You can add more categories after your account is approved.",
+                                    description: `You can select up to ${maxCategoryCount} categories (free plan limit).`,
                                     variant: "default",
                                   });
                                   return;
@@ -1067,31 +1071,53 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                           <div className="flex-1">
                             <span className="text-sm font-medium">{category.name}</span>
                             {isSelected && (
-                              <div className="mt-2 flex items-center gap-2">
-                                <span className="text-sm text-gray-600">Starting Price:</span>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-sm font-medium">{selectedCountry?.currency || "$"}</span>
-                                  <Input 
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    placeholder="100"
-                                    value={pricing?.price || ""}
-                                    onChange={(e) => {
+                              <div className="mt-2 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`on-enquiry-${category.id}`}
+                                    checked={pricing?.price === "on_enquiry"}
+                                    onCheckedChange={(checked) => {
                                       setFormData(prev => ({
                                         ...prev,
-                                        categoryPricing: prev.categoryPricing.map(p => 
-                                          p.category === category.name 
-                                            ? { ...p, price: e.target.value }
+                                        categoryPricing: prev.categoryPricing.map(p =>
+                                          p.category === category.name
+                                            ? { ...p, price: checked ? "on_enquiry" : "" }
                                             : p
                                         )
                                       }));
                                     }}
-                                    className="w-32"
-                                    data-testid={`input-price-${category.id}`}
+                                    data-testid={`checkbox-on-enquiry-${category.id}`}
                                   />
-                                  <span className="text-xs text-gray-500">{selectedCountry?.currencyCode || "USD"}</span>
+                                  <label htmlFor={`on-enquiry-${category.id}`} className="text-sm font-medium cursor-pointer">On Enquiry</label>
                                 </div>
+                                {pricing?.price !== "on_enquiry" && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm text-gray-600">Starting Price:</span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-sm font-medium">{selectedCountry?.currency || "$"}</span>
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="100"
+                                        value={pricing?.price || ""}
+                                        onChange={(e) => {
+                                          setFormData(prev => ({
+                                            ...prev,
+                                            categoryPricing: prev.categoryPricing.map(p =>
+                                              p.category === category.name
+                                                ? { ...p, price: e.target.value }
+                                                : p
+                                            )
+                                          }));
+                                        }}
+                                        className="w-32"
+                                        data-testid={`input-price-${category.id}`}
+                                      />
+                                      <span className="text-xs text-gray-500">{selectedCountry?.currencyCode || "USD"}</span>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

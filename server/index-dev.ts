@@ -7,12 +7,7 @@ import type { Express } from "express";
 import { nanoid } from "nanoid";
 import { createServer as createViteServer, createLogger } from "vite";
 
-import runApp from "./app";
-
 import viteConfig from "../vite.config";
-import { config, validateConfig } from "./config";
-import { loadSecretsFromDatabase } from "./lib/secretsLoader";
-import { validateDatabase } from "./startup";
 
 const viteLogger = createLogger();
 
@@ -67,15 +62,20 @@ export async function setupVite(app: Express, server: Server) {
 
 (async () => {
   try {
-    await loadSecretsFromDatabase();
+    const { loadAllSecrets } = await import("./lib/secretsLoader.ts");
+    await loadAllSecrets();
+
+    const { default: runApp } = await import("./app.ts");
+    const { config, validateConfig } = await import("./config.ts");
+    const { validateDatabase } = await import("./startup.ts");
+
     if (config.env.isProd) {
       validateConfig();
     }
     await validateDatabase();
     const server = await runApp(setupVite);
     console.log(`✅ Server fully started and listening on port ${config.server.port}`);
-    
-    // Keep the process alive - prevent premature exit
+
     process.stdin.resume();
   } catch (error) {
     console.error('❌ Failed to start server:', error);

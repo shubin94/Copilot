@@ -54,7 +54,7 @@ export default function AdminDashboard() {
         <div className="flex items-center justify-between">
           <h2 className="text-3xl font-bold font-heading text-gray-900" data-testid="text-page-title">Dashboard Overview</h2>
           <div className="flex gap-2">
-             <Button variant="outline" data-testid="button-download-report" disabled title="Not available yet">Download Report</Button>
+             <Button variant="outline" data-testid="button-download-report">Download Report</Button>
              <Link href="/admin/detectives/add">
                <Button className="bg-green-600 hover:bg-green-700 gap-2" data-testid="button-add-detective">
                  <Plus className="h-4 w-4" /> Add Detective
@@ -180,7 +180,7 @@ export default function AdminDashboard() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-8">No detectives yet</p>
+                <p className="text-sm text-muted-foreground text-center py-8">No detectives yet</p>
               )}
               <Link href="/admin/detectives">
                 <Button variant="outline" className="w-full mt-6" data-testid="button-view-all-detectives">

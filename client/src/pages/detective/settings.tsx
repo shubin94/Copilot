@@ -182,7 +182,7 @@ export default function DetectiveSettings() {
           </Card>
 
           <div className="flex justify-end">
-            <Button variant="destructive" className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200" disabled title="Not available yet">Delete Account</Button>
+            <Button variant="destructive" className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200">Delete Account</Button>
           </div>
         </div>
       </div>

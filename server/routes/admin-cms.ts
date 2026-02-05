@@ -3,7 +3,6 @@ import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import { pool } from "../../db/index.ts";
 import { uploadDataUrl } from "../supabase.ts";
-import { requireRole } from "../authMiddleware.ts";
 import {
   isImageBlock,
   parseContentBlocks,
@@ -24,7 +23,6 @@ import {
   updatePage,
   deletePage,
 } from "../storage/cms.ts";
-import * as cache from "../lib/cache.ts";
 
 const router = Router();
 
@@ -37,6 +35,22 @@ async function getCategoryBySlug(slug: string) {
 async function getTagBySlug(slug: string) {
   const res = await pool.query("SELECT * FROM tags WHERE slug = $1", [slug]);
   return res.rows[0];
+}
+
+// Middleware: Admin-only access
+function requireAdmin(req: Request, res: Response, next: Function) {
+  const userId = (req as any).session?.userId;
+  const userRole = (req as any).session?.userRole;
+
+  if (!userId) {
+    console.warn("[cms] Admin access denied: no session user");
+    return res.status(401).json({ error: "Unauthorized - Please log in" });
+  }
+  if (userRole !== "admin") {
+    console.warn(`[cms] Admin access denied: user ${userId} has role ${userRole}, not admin`);
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
 }
 
 async function uploadContentImages(content?: string) {
@@ -69,7 +83,7 @@ async function uploadContentImages(content?: string) {
 // ============== CATEGORIES ==============
 
 // GET /api/admin/categories
-router.get("/categories", requireRole("admin"), async (req: Request, res: Response) => {
+router.get("/categories", requireAdmin, async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
     const categories = await getCategories(status);
@@ -81,7 +95,7 @@ router.get("/categories", requireRole("admin"), async (req: Request, res: Respon
 });
 
 // POST /api/admin/categories
-router.post("/categories", requireRole("admin"), async (req: Request, res: Response) => {
+router.post("/categories", requireAdmin, async (req: Request, res: Response) => {
   try {
     const { name, slug, status } = z
       .object({
@@ -119,7 +133,7 @@ router.post("/categories", requireRole("admin"), async (req: Request, res: Respo
 });
 
 // PATCH /api/admin/categories/:id
-router.patch("/categories/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.patch("/categories/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const { name, status } = z
       .object({
@@ -139,13 +153,19 @@ router.patch("/categories/:id", requireRole("admin"), async (req: Request, res: 
       console.warn("[cms] Validation error updating category:", fromZodError(error).message);
       return res.status(400).json({ error: fromZodError(error).message });
     }
-    console.error("[cms] Update category error - system error:", error instanceof Error ? error.message : String(error));
+    console.error("[cms] Update category error - system error:", {
+      categoryId: req.params.id,
+      name: req.body.name,
+      status: req.body.status,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     res.status(500).json({ error: "Failed to update category" });
   }
 });
 
 // DELETE /api/admin/categories/:id
-router.delete("/categories/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.delete("/categories/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     // Soft delete via status
     const category = await updateCategory(req.params.id, undefined, "archived");
@@ -155,7 +175,11 @@ router.delete("/categories/:id", requireRole("admin"), async (req: Request, res:
 
     res.json({ message: "Category archived" });
   } catch (error) {
-    console.error("[cms] Delete category error - system error:", error instanceof Error ? error.message : String(error));
+    console.error("[cms] Delete category error - system error:", {
+      categoryId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     res.status(500).json({ error: "Failed to delete category" });
   }
 });
@@ -163,7 +187,7 @@ router.delete("/categories/:id", requireRole("admin"), async (req: Request, res:
 // ============== TAGS ==============
 
 // GET /api/admin/tags
-router.get("/tags", requireRole("admin"), async (req: Request, res: Response) => {
+router.get("/tags", requireAdmin, async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
     const tags = await getTags(status);
@@ -175,7 +199,7 @@ router.get("/tags", requireRole("admin"), async (req: Request, res: Response) =>
 });
 
 // POST /api/admin/tags
-router.post("/tags", requireRole("admin"), async (req: Request, res: Response) => {
+router.post("/tags", requireAdmin, async (req: Request, res: Response) => {
   try {
     const { name, slug, status } = z
       .object({
@@ -193,7 +217,7 @@ router.post("/tags", requireRole("admin"), async (req: Request, res: Response) =
 
     const tag = await createTag(name, slug, status);
     if (!tag) {
-      console.error("[cms] Create tag error - null result after INSERT");
+      console.error("[cms] Create tag error - null result after INSERT", { name, slug, status });
       return res.status(500).json({ error: "Failed to create tag" });
     }
     res.json({ tag });
@@ -202,13 +226,18 @@ router.post("/tags", requireRole("admin"), async (req: Request, res: Response) =
       console.warn("[cms] Validation error creating tag:", fromZodError(error).message);
       return res.status(400).json({ error: fromZodError(error).message });
     }
-    console.error("[cms] Create tag error - system error:", error instanceof Error ? error.message : String(error));
+    console.error("[cms] Create tag error - system error:", {
+      name: req.body.name,
+      slug: req.body.slug,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     res.status(500).json({ error: "Failed to create tag" });
   }
 });
 
 // PATCH /api/admin/tags/:id
-router.patch("/tags/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.patch("/tags/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const { name, status } = z
       .object({
@@ -240,7 +269,7 @@ router.patch("/tags/:id", requireRole("admin"), async (req: Request, res: Respon
 });
 
 // DELETE /api/admin/tags/:id
-router.delete("/tags/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.delete("/tags/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     // Soft delete via status
     const tag = await updateTag(req.params.id, undefined, "archived");
@@ -250,7 +279,11 @@ router.delete("/tags/:id", requireRole("admin"), async (req: Request, res: Respo
 
     res.json({ message: "Tag archived" });
   } catch (error) {
-    console.error("[cms] Delete tag error - system error:", error instanceof Error ? error.message : String(error));
+    console.error("[cms] Delete tag error - system error:", {
+      tagId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     res.status(500).json({ error: "Failed to delete tag" });
   }
 });
@@ -258,7 +291,7 @@ router.delete("/tags/:id", requireRole("admin"), async (req: Request, res: Respo
 // ============== PAGES ==============
 
 // GET /api/admin/pages
-router.get("/pages", requireRole("admin"), async (req: Request, res: Response) => {
+router.get("/pages", requireAdmin, async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
     const pages = await getPages(status);
@@ -270,7 +303,7 @@ router.get("/pages", requireRole("admin"), async (req: Request, res: Response) =
 });
 
 // POST /api/admin/pages
-router.post("/pages", requireRole("admin"), async (req: Request, res: Response) => {
+router.post("/pages", requireAdmin, async (req: Request, res: Response) => {
   try {
     const { title, slug, categoryId, content, bannerImage, tagIds, status } = z
       .object({
@@ -327,13 +360,6 @@ router.post("/pages", requireRole("admin"), async (req: Request, res: Response) 
       console.error("[cms] Create page: returned null page");
       return res.status(500).json({ error: "Failed to create page" });
     }
-    try {
-      cache.del(`cms:page:${page.slug}`);
-      if (category?.slug) cache.del(`cms:page:${category.slug}:${page.slug}`);
-      console.debug("[cache INVALIDATE]", `cms:page:${page.slug}`);
-    } catch (_) {
-      // Cache invalidation must not fail the request
-    }
     res.json({ page });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -346,7 +372,7 @@ router.post("/pages", requireRole("admin"), async (req: Request, res: Response) 
 });
 
 // GET /api/admin/pages/:id
-router.get("/pages/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.get("/pages/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const page = await getPageById(req.params.id);
     if (!page) {
@@ -360,7 +386,7 @@ router.get("/pages/:id", requireRole("admin"), async (req: Request, res: Respons
 });
 
 // PATCH /api/admin/pages/:id
-router.patch("/pages/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.patch("/pages/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const { title, slug, categoryId, status, content, bannerImage, tagIds, metaTitle, metaDescription } = z
       .object({
@@ -442,31 +468,35 @@ router.patch("/pages/:id", requireRole("admin"), async (req: Request, res: Respo
       console.warn("[cms] Validation error updating page:", fromZodError(error).message);
       return res.status(400).json({ error: fromZodError(error).message });
     }
-    console.error("[cms] Update page error - system error:", error instanceof Error ? error.message : String(error));
+    console.error("[cms] Update page error - system error:", {
+      pageId: req.params.id,
+      title: req.body.title,
+      slug: req.body.slug,
+      categoryId: req.body.categoryId,
+      status: req.body.status,
+      bannerImage: req.body.bannerImage,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     res.status(500).json({ error: "Failed to update page" });
   }
 });
 
 // DELETE /api/admin/pages/:id
-router.delete("/pages/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.delete("/pages/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
-    const pageBeforeDelete = await getPageById(req.params.id);
     const success = await deletePage(req.params.id);
     if (!success) {
       return res.status(404).json({ error: "Page not found" });
     }
-    if (pageBeforeDelete) {
-      try {
-        cache.del(`cms:page:${pageBeforeDelete.slug}`);
-        if (pageBeforeDelete.category?.slug) cache.del(`cms:page:${pageBeforeDelete.category.slug}:${pageBeforeDelete.slug}`);
-        console.debug("[cache INVALIDATE]", `cms:page:${pageBeforeDelete.slug}`);
-      } catch (_) {
-        // Cache invalidation must not fail the request
-      }
-    }
+
     res.json({ message: "Page deleted" });
   } catch (error) {
-    console.error("[cms] Delete page error - system error:", error instanceof Error ? error.message : String(error));
+    console.error("[cms] Delete page error - system error:", {
+      pageId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     res.status(500).json({ error: "Failed to delete page" });
   }
 });

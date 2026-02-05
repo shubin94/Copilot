@@ -75,7 +75,7 @@ export default function DetectiveReviews() {
                 {isLoading ? (
                   <TableRow><TableCell colSpan={5} className="text-center text-gray-500">Loading…</TableCell></TableRow>
                 ) : reviews.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center text-gray-500">No reviews yet</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center text-gray-500">No reviews yet.</TableCell></TableRow>
                 ) : reviews.map((review: any) => (
                   <TableRow key={review.id}>
                     <TableCell>

@@ -18,9 +18,8 @@ import {
   Globe,
   TrendingUp,
   Mail,
+  Key,
   Zap,
-  Wallet,
-  Lock,
   FolderOpen,
   Tag,
   DollarSign
@@ -83,10 +82,9 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
     { href: "/admin/snippets", label: "Snippets", icon: Zap },
     { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
-    { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
-    { href: "/admin/app-secrets", label: "App Secrets (Auth)", icon: Lock },
     { href: "/admin/pages", label: "Pages", icon: Globe },
     { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
+    { href: "/admin/app-secrets", label: "App Secrets", icon: Key },
     { href: "/admin/settings", label: "Site Settings", icon: Settings },
     { 
       href: "#cms", 

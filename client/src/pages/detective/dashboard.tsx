@@ -474,7 +474,7 @@ export default function DetectiveDashboard() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Saved Services</label>
                   {selectedServices.length === 0 ? (
-                    <p className="text-xs text-gray-500">You haven't added any services yet</p>
+                    <p className="text-xs text-gray-500">No services added yet.</p>
                   ) : (
                     <div className="space-y-2">
                       {selectedServices.map((s, idx) => (
@@ -575,7 +575,7 @@ export default function DetectiveDashboard() {
           <Card className="border-green-200 bg-green-50">
             <CardContent className="p-6 flex items-center justify-between">
               <div className="space-y-1">
-                <h3 className="font-bold text-lg text-green-800">You haven't added any services yet</h3>
+                <h3 className="font-bold text-lg text-green-800">No services yet</h3>
                 <p className="text-sm text-green-700">Add your first service to activate your profile and make it public.</p>
               </div>
               <div className="flex gap-2">
@@ -649,7 +649,7 @@ export default function DetectiveDashboard() {
         <h3 className="text-xl font-bold font-heading mt-8">Recent Reviews</h3>
         <Card>
           <CardContent className="p-6 text-center text-gray-500">
-            <p>No reviews yet</p>
+            <p>No reviews yet. Reviews will appear here once clients start submitting feedback.</p>
           </CardContent>
         </Card>
 

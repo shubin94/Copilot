@@ -43,15 +43,6 @@ export async function deletePublicUrl(u: string) {
   await supabase.storage.from(parsed.bucket).remove([parsed.path]);
 }
 
-// Allowed MIME types for data-URL uploads (defense-in-depth; path is server-generated)
-const UPLOAD_DATAURL_ALLOWED_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
-  "application/pdf",
-]);
-
 export async function uploadDataUrl(bucket: string, path: string, dataUrl: string): Promise<string> {
   if (!supabase) {
     if (config.env.isProd) throw new Error("Supabase not configured");
@@ -60,10 +51,7 @@ export async function uploadDataUrl(bucket: string, path: string, dataUrl: strin
   await ensureBucket(bucket);
   const m = dataUrl.match(/^data:(.+?);base64,(.+)$/);
   if (!m) return dataUrl;
-  const contentType = m[1].trim().toLowerCase();
-  if (!UPLOAD_DATAURL_ALLOWED_TYPES.has(contentType)) {
-    throw new Error("Unsupported content type");
-  }
+  const contentType = m[1];
   const base64 = m[2];
   const buffer = Buffer.from(base64, "base64");
   await supabase.storage.from(bucket).upload(path, buffer, { contentType, upsert: true });

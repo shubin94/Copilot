@@ -1,5 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import crypto from "crypto";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.ts";
@@ -42,13 +42,11 @@ import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.ts";
 import { config } from "./config.ts";
-import * as cache from "./lib/cache.ts";
-import { runSmartSearch } from "./lib/smart-search.ts";
+import { SECRET_KEYS } from "./lib/secretsLoader.ts";
+import { encryptSecret, decryptSecret } from "./lib/secretsCrypto.ts";
 import pkg from "pg";
 const { Pool } = pkg;
 import { requirePolicy } from "./policy.ts";
-import { requireAuth, requireRole } from "./authMiddleware.ts";
-import { getPaymentGateway, isPaymentGatewayEnabled } from "./services/paymentGateway.ts";
 import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
 import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
 import { getFreePlanId } from "./services/freePlan.ts";
@@ -58,29 +56,11 @@ import publicPagesRouter from "./routes/public-pages.ts";
 import publicCategoriesRouter from "./routes/public-categories.ts";
 import publicTagsRouter from "./routes/public-tags.ts";
 
-// Initialize Razorpay with env fallback (will be overridden by DB config)
-let razorpayClient = new Razorpay({
-  key_id: config.razorpay.keyId || "dummy",
-  key_secret: config.razorpay.keySecret || "dummy",
-});
-
-// Helper to get/refresh Razorpay client from database
-async function getRazorpayClient() {
-  const gateway = await getPaymentGateway('razorpay');
-  
-  if (!gateway) {
-    console.warn('[Razorpay] Gateway not enabled, falling back to env config');
-    return razorpayClient;
-  }
-  
-  // Reinitialize with DB config
-  const dbClient = new Razorpay({
-    key_id: gateway.config.keyId || config.razorpay.keyId,
-    key_secret: gateway.config.keySecret || config.razorpay.keySecret,
-  });
-  
-  console.log(`[Razorpay] Using ${gateway.is_test_mode ? 'TEST' : 'LIVE'} mode from database`);
-  return dbClient;
+// Razorpay client – credentials from app_secrets via config only
+function getRazorpayClient(): Razorpay {
+  const keyId = config.razorpay.keyId || "dummy";
+  const keySecret = config.razorpay.keySecret || "dummy";
+  return new Razorpay({ key_id: keyId, key_secret: keySecret });
 }
 
 // Extend Express Session
@@ -88,9 +68,29 @@ declare module "express-session" {
   interface SessionData {
     userId: string;
     userRole: string;
-    csrfToken?: string;
   }
 }
+
+// Middleware to check if user is authenticated
+const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: "Unauthorized - Please log in" });
+  }
+  next();
+};
+
+// Middleware to check for specific roles
+const requireRole = (...roles: string[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ error: "Unauthorized - Please log in" });
+    }
+    if (!roles.includes(req.session.userRole || "")) {
+      return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
+    }
+    next();
+  };
+};
 
 // Helper to calculate subscription expiry date
 function calculateExpiryDate(activatedAt: Date | null | undefined, billingCycle: string | null | undefined): Date | null {
@@ -132,10 +132,8 @@ async function applyPendingDowngrades(detective: any): Promise<any> {
   return detective;
 }
 
-import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.ts";
-
-// GUARD: Enforce no duplicate Blue Tick add-on purchases
-// Block if detective already has Blue Tick (from add-on OR subscription)
+// GUARD: Enforce no duplicate Blue Tick purchases
+// This is a HARD RULE: A detective with active Blue Tick cannot purchase again
 async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: string): Promise<void> {
   const detective = await storage.getDetective(detectiveId);
   
@@ -143,14 +141,13 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
     throw new Error(`Detective not found: ${detectiveId}`);
   }
   
-  const hasAddon = (detective as any).blueTickAddon === true;
-  const hasFromPackage = detective.hasBlueTick === true;
-  if (hasAddon || hasFromPackage) {
+  // HARD RULE: If hasBlueTick is already true, reject immediately
+  if (detective.hasBlueTick === true) {
     console.error(`[BLUE_TICK_GUARD] Duplicate attempt blocked`, {
       detectiveId,
       provider,
-      blueTickAddon: hasAddon,
-      hasBlueTick: hasFromPackage,
+      hasBlueTickActive: detective.hasBlueTick,
+      activatedAt: detective.blueTickActivatedAt,
     });
     
     const error = new Error("Blue Tick already active");
@@ -158,6 +155,7 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
     throw error;
   }
   
+  // Check for existing unpaid Blue Tick payment orders
   const existingOrder = await storage.getPaymentOrdersByDetectiveId?.(detectiveId)
     ?.then((orders: any[]) => 
       orders.find((o: any) => 
@@ -176,6 +174,73 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
     const error = new Error("Blue Tick payment already in progress");
     (error as any).statusCode = 409; // Conflict
     throw error;
+  }
+}
+
+// ENTITLEMENT SYSTEM: Apply package badges to detective
+// CRITICAL: This is the ONLY place where hasBlueTick and other badges are granted/revoked
+// Badges are DERIVED from subscription_packages.badges, NOT manual flags
+async function applyPackageEntitlements(detectiveId: string, reason: 'activation' | 'renewal' | 'downgrade' | 'expiry'): Promise<void> {
+  const detective = await storage.getDetective(detectiveId);
+  
+  if (!detective) {
+    console.warn(`[ENTITLEMENT] Detective not found: ${detectiveId}`);
+    return;
+  }
+
+  // Determine which package to use for entitlements
+  let activePackageId = detective.subscriptionPackageId;
+  
+  // Check if subscription has expired
+  const now = new Date();
+  if (detective.subscriptionExpiresAt && new Date(detective.subscriptionExpiresAt) < now) {
+    // Subscription expired → downgrade to FREE
+    activePackageId = null;
+    console.log(`[ENTITLEMENT] Subscription expired for detective ${detectiveId}, downgrading to FREE`);
+  }
+
+  // If no active package, use FREE plan defaults (only feature: none)
+  let packageBadges: Record<string, boolean> = {};
+  
+  if (activePackageId) {
+    const activePackage = await storage.getSubscriptionPlanById(activePackageId);
+    if (activePackage && activePackage.badges) {
+      packageBadges = (activePackage.badges as any) || {};
+    }
+  }
+
+  // Build the entitlement update payload
+  const updatePayload: any = {};
+
+  // ENTITLEMENT: Blue Tick
+  // If package includes blueTick badge → grant Blue Tick
+  // If package DOES NOT include blueTick badge → remove Blue Tick
+  const shouldHaveBlueTick = packageBadges.blueTick === true;
+  
+  if (shouldHaveBlueTick && !detective.hasBlueTick) {
+    console.log(`[ENTITLEMENT_APPLY] Granting Blue Tick to detective ${detectiveId}`, {
+      packageId: activePackageId,
+      reason,
+    });
+    updatePayload.hasBlueTick = true;
+    updatePayload.blueTickActivatedAt = new Date();
+  } else if (!shouldHaveBlueTick && detective.hasBlueTick) {
+    console.log(`[ENTITLEMENT_REMOVE] Removing Blue Tick from detective ${detectiveId}`, {
+      packageId: activePackageId,
+      reason,
+    });
+    updatePayload.hasBlueTick = false;
+    updatePayload.blueTickActivatedAt = null;
+  }
+
+  // Apply update if there are changes
+  if (Object.keys(updatePayload).length > 0) {
+    await storage.updateDetectiveAdmin(detectiveId, updatePayload as any);
+    console.log(`[ENTITLEMENT] Entitlements updated for detective ${detectiveId}`, {
+      changes: updatePayload,
+      reason,
+      packageId: activePackageId,
+    });
   }
 }
 
@@ -381,14 +446,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error("[seed] Failed to seed subscription plan:", e);
   }
   
-  // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
-  app.get("/api/csrf-token", (req: Request, res: Response) => {
-    if (!req.session.csrfToken) {
-      req.session.csrfToken = randomBytes(32).toString("hex");
-    }
-    res.json({ csrfToken: req.session.csrfToken });
-  });
-
   // ============== AUTHENTICATION ROUTES ==============
   
   // Register new user
@@ -399,40 +456,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if user already exists
       const existingUser = await storage.getUserByEmail(validatedData.email);
       if (existingUser) {
-        return res.status(400).json({ error: "Registration failed" });
+        return res.status(400).json({ error: "An account with this email already exists." });
       }
 
       const user = await storage.createUser(validatedData);
+      
+      // Set session
+      req.session.userId = user.id;
+      req.session.userRole = user.role;
 
-      // Session fixation prevention: regenerate session before setting auth data
-      req.session.regenerate((err) => {
-        if (err) {
-          console.warn("[auth] Session error during registration");
-          return res.status(500).json({ error: "Failed to register user" });
+      // Send welcome email (non-blocking)
+      sendpulseEmail.sendTransactionalEmail(
+        user.email,
+        EMAIL_TEMPLATES.WELCOME_USER,
+        {
+          userName: user.name,
+          email: user.email,
+          supportEmail: "support@askdetectives.com",
         }
-        req.session.userId = user.id;
-        req.session.userRole = user.role;
-        req.session.csrfToken = randomBytes(32).toString("hex");
+      ).catch(err => console.error("[Email] Failed to send welcome email:", err));
 
-        // Send welcome email (non-blocking)
-        sendpulseEmail.sendTransactionalEmail(
-          user.email,
-          EMAIL_TEMPLATES.WELCOME_USER,
-          {
-            userName: user.name,
-            email: user.email,
-            supportEmail: "support@askdetectives.com",
-          }
-        ).catch(e => console.error("[Email] Failed to send welcome email:", e));
-
-        const { password: _p, ...userWithoutPassword } = user;
-        res.status(201).json({ user: userWithoutPassword, csrfToken: req.session.csrfToken });
-      });
+      // Don't send password in response
+      const { password, ...userWithoutPassword } = user;
+      res.status(201).json({ user: userWithoutPassword });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: fromZodError(error).message });
       }
-      console.warn("[auth] Registration failed");
+      console.error("Registration error:", error);
       res.status(500).json({ error: "Failed to register user" });
     }
   });
@@ -461,128 +512,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return res.json({ applicant: { email: application.email, status: application.status } });
           }
         }
-        console.warn("[auth] Login failed: invalid credentials");
+        console.warn(`[auth] Login failed: user not found for email=${email}`);
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
       let validPassword = false;
       try {
         validPassword = await bcrypt.compare(password, user.password);
-      } catch (_e) {
-        console.warn("[auth] Login failed: invalid credentials");
-        return res.status(401).json({ error: "Invalid email or password" });
+      } catch (e) {
+        console.error("Password compare error:", e);
+        return res.status(400).json({ error: "Invalid email or password" });
       }
       if (!validPassword) {
-        console.warn("[auth] Login failed: invalid credentials");
+        console.warn(`[auth] Login failed: password mismatch for userId=${user.id}, email=${email}`);
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
-      // Session fixation prevention: regenerate session before setting auth data
-      req.session.regenerate((err) => {
-        if (err) {
-          console.warn("[auth] Session error during login");
-          return res.status(500).json({ error: "Failed to log in" });
-        }
-        req.session.userId = user.id;
-        req.session.userRole = user.role;
-        req.session.csrfToken = randomBytes(32).toString("hex");
+      // Set session
+      req.session.userId = user.id;
+      req.session.userRole = user.role;
 
-        const { password: _p, ...userWithoutPassword } = user;
-        res.json({ user: userWithoutPassword, csrfToken: req.session.csrfToken });
-      });
-    } catch (_error) {
-      console.warn("[auth] Login failed");
+      // Don't send password in response
+      const { password: _, ...userWithoutPassword } = user;
+      res.json({ user: userWithoutPassword });
+    } catch (error) {
+      console.error("Login error:", error);
       res.status(500).json({ error: "Failed to log in" });
-    }
-  });
-
-  // Google OAuth: redirect to Google
-  app.get("/api/auth/google", (req: Request, res: Response) => {
-    const { clientId } = config.google;
-    const baseUrl = (config.baseUrl || "").replace(/\/$/, "");
-    if (!clientId || !baseUrl) {
-      return res.status(503).json({ error: "Google sign-in is not configured" });
-    }
-    const redirectUri = `${baseUrl}/api/auth/google/callback`;
-    const scope = "openid email profile";
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}`;
-    res.redirect(302, url);
-  });
-
-  // Google OAuth: callback — exchange code, get user, create/link session, redirect
-  app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
-    const { clientId, clientSecret } = config.google;
-    const baseUrl = (config.baseUrl || "").replace(/\/$/, "");
-    const redirectUri = `${baseUrl}/api/auth/google/callback`;
-    const frontOrigin = baseUrl; // redirect to same origin after login
-    if (!clientId || !clientSecret || !baseUrl) {
-      return res.redirect(`${frontOrigin}/login?error=google_not_configured`);
-    }
-    const code = req.query.code as string | undefined;
-    if (!code) {
-      return res.redirect(`${frontOrigin}/login?error=google_no_code`);
-    }
-    try {
-      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          code,
-          client_id: clientId,
-          client_secret: clientSecret,
-          redirect_uri: redirectUri,
-          grant_type: "authorization_code",
-        }),
-      });
-      if (!tokenRes.ok) {
-        console.warn("[auth] Google token exchange failed:", tokenRes.status);
-        return res.redirect(`${frontOrigin}/login?error=google_token_failed`);
-      }
-      const tokens = (await tokenRes.json()) as { access_token?: string };
-      const accessToken = tokens.access_token;
-      if (!accessToken) {
-        return res.redirect(`${frontOrigin}/login?error=google_no_token`);
-      }
-      const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!userInfoRes.ok) {
-        console.warn("[auth] Google userinfo failed:", userInfoRes.status);
-        return res.redirect(`${frontOrigin}/login?error=google_userinfo_failed`);
-      }
-      const profile = (await userInfoRes.json()) as { id: string; email?: string; name?: string; picture?: string };
-      const googleId = profile.id;
-      const email = (profile.email || "").toLowerCase().trim();
-      const name = (profile.name || email.split("@")[0] || "User").trim();
-      const avatar = profile.picture || null;
-      if (!email) {
-        return res.redirect(`${frontOrigin}/login?error=google_no_email`);
-      }
-      let user = await storage.getUserByGoogleId(googleId);
-      if (!user) {
-        const existingByEmail = await storage.getUserByEmail(email);
-        if (existingByEmail) {
-          user = await storage.setUserGoogleId(existingByEmail.id, googleId, avatar) ?? existingByEmail;
-        } else {
-          user = await storage.createUserWithGoogle({ googleId, email, name, avatar });
-        }
-      }
-      if (!user) {
-        return res.redirect(`${frontOrigin}/login?error=google_login_failed`);
-      }
-      req.session.regenerate((err) => {
-        if (err) {
-          console.warn("[auth] Session error during Google login");
-          return res.redirect(`${frontOrigin}/login?error=session_failed`);
-        }
-        req.session.userId = user!.id;
-        req.session.userRole = user!.role;
-        req.session.csrfToken = randomBytes(32).toString("hex");
-        res.redirect(302, frontOrigin + "/");
-      });
-    } catch (e) {
-      console.warn("[auth] Google callback error:", e instanceof Error ? e.message : "Unknown error");
-      res.redirect(`${frontOrigin}/login?error=google_login_failed`);
     }
   });
 
@@ -609,8 +564,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.setUserPassword(user.id, newPassword, false);
       res.json({ message: "Password updated successfully" });
-    } catch (_error) {
-      console.warn("[auth] Change password failed");
+    } catch (error) {
+      console.error("Change password error:", error);
       res.status(500).json({ error: "Failed to change password" });
     }
   });
@@ -624,8 +579,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) return res.status(404).json({ error: "User not found" });
       const match = await bcrypt.compare(password, user.password);
       res.json({ match, userId: user.id, role: user.role, mustChangePassword: (user as any).mustChangePassword === true });
-    } catch (_error) {
-      console.warn("[auth] Admin check password failed");
+    } catch (error) {
+      console.error("Admin check password error:", error);
       res.status(500).json({ error: "Failed to check password" });
     }
   });
@@ -652,19 +607,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.setUserPassword(user.id, newPassword, false);
       res.json({ message: "Password set successfully" });
-    } catch (_error) {
-      console.warn("[auth] Set password failed");
+    } catch (error) {
+      console.error("Set password error:", error);
       res.status(500).json({ error: "Failed to set password" });
     }
   });
 
   // Logout
   app.post("/api/auth/logout", (req: Request, res: Response) => {
-      req.session.destroy((err) => {
+    req.session.destroy((err) => {
       if (err) {
         return res.status(500).json({ error: "Failed to log out" });
       }
-      res.clearCookie("connect.sid", { path: "/", httpOnly: true, secure: config.session.secureCookies, sameSite: "lax" });
+      res.clearCookie("connect.sid");
       res.json({ message: "Logged out successfully" });
     });
   });
@@ -678,21 +633,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      const { password, ...userWithoutPassword } = user;
-      res.json({ user: userWithoutPassword });
-    } catch (error) {
-      console.error("Get user error:", error);
-      res.status(500).json({ error: "Failed to get user" });
-    }
-  });
-
-  // Alias for admin pages: same response shape as /api/auth/me (single source of truth)
-  app.get("/api/user", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const user = await storage.getUser(req.session.userId!);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
       const { password, ...userWithoutPassword } = user;
       res.json({ user: userWithoutPassword });
     } catch (error) {
@@ -943,67 +883,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // App secrets (auth, Google OAuth, etc.) - stored in DB, never in git
-  const SECRET_KEYS = [
-    "host", "google_client_id", "google_client_secret", "session_secret", "base_url",
-    "supabase_url", "supabase_service_role_key", "sendgrid_api_key", "sendgrid_from_email",
-    "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass", "smtp_from_email",
-    "sendpulse_api_id", "sendpulse_api_secret", "sendpulse_sender_email", "sendpulse_sender_name", "sendpulse_enabled",
-    "razorpay_key_id", "razorpay_key_secret", "paypal_client_id", "paypal_client_secret", "paypal_mode",
-    "gemini_api_key",
-  ];
-  const maskValue = (v: string) => (v && v.length > 4 ? v.slice(0, 2) + "****" + v.slice(-2) : "****");
-
-  app.get("/api/admin/app-secrets", requireRole("admin"), async (_req: Request, res: Response) => {
-    try {
-      const rows = await db.select().from(appSecrets);
-      const byKey = Object.fromEntries(rows.map(r => [r.key, r]));
-      const secrets = SECRET_KEYS.map(key => ({
-        key,
-        value: byKey[key]?.value ? maskValue(byKey[key].value) : "",
-        hasValue: !!(byKey[key]?.value),
-      }));
-      res.json({ secrets });
-    } catch (error) {
-      console.error("Error fetching app secrets:", error);
-      res.status(500).json({ error: "Failed to fetch app secrets" });
-    }
-  });
-
-  app.put("/api/admin/app-secrets/:key", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const key = req.params.key;
-      if (!SECRET_KEYS.includes(key)) {
-        return res.status(400).json({ error: `Invalid key. Allowed: ${SECRET_KEYS.join(", ")}` });
-      }
-      const { value } = req.body as { value?: string };
-      if (typeof value !== "string") {
-        return res.status(400).json({ error: "Body must have value: string" });
-      }
-      await db.insert(appSecrets).values({
-        key,
-        value: value.trim(),
-        updatedAt: new Date(),
-      }).onConflictDoUpdate({
-        target: appSecrets.key,
-        set: { value: value.trim(), updatedAt: new Date() },
-      });
-      res.json({ success: true, key, message: "Secret updated. Restart server to apply." });
-    } catch (error) {
-      console.error("Error updating app secret:", error);
-      res.status(500).json({ error: "Failed to update app secret" });
-    }
-  });
-
   app.get("/api/subscription-plans", async (req: Request, res: Response) => {
     try {
       const includeInactive = (req.query.all === '1' || req.query.includeInactive === '1' || req.query.activeOnly === '0');
       const plans = await storage.getAllSubscriptionPlans(!includeInactive);
-      res.set("Cache-Control", "no-store"); // Admin/list must always reflect current DB (subscription_plans table)
-      res.json({ plans, total: plans.length });
+      res.json({ plans });
     } catch {
-      res.set("Cache-Control", "no-store");
-      res.json({ plans: [], total: 0 });
+      res.json({ plans: [] });
     }
   });
 
@@ -1016,7 +902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
-        console.error("[upgrade-plan] Detective not found");
+        console.error("[upgrade-plan] Detective not found for userId:", req.session.userId);
         return res.status(400).json({ error: "Detective profile not found" });
       }
 
@@ -1182,9 +1068,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/payments/create-order", requireRole("detective"), async (req: Request, res: Response) => {
     try {
-      const gateway = await getPaymentGateway('razorpay');
-      if (!gateway) {
-        console.error("[create-order] Razorpay not configured or not enabled");
+      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+        console.error("[create-order] Razorpay not configured (set credentials in Admin → App Secrets)");
         return res.status(500).json({ error: "Payments not configured" });
       }
 
@@ -1196,7 +1081,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
-        console.error("[create-order] Detective not found");
+        console.error("[create-order] Detective not found for userId:", req.session.userId);
         return res.status(400).json({ error: "Detective profile not found" });
       }
 
@@ -1250,7 +1135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[create-order] Creating Razorpay order for $${priceUSD} USD = ₹${priceINR.toFixed(2)} INR (${amountPaise} paise) - ${billingCycle} - Rate: ${exchangeRate}`);
       
       // Get Razorpay client from database config
-      const rzpClient = await getRazorpayClient();
+      const rzpClient = getRazorpayClient();
       
       // Create Razorpay order (receipt max 40 chars)
       const order = await rzpClient.orders.create({
@@ -1288,7 +1173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         orderId: order.id, 
         amount: amountPaise,
-        key: gateway.config.keyId || config.razorpay.keyId 
+        key: config.razorpay.keyId 
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1303,9 +1188,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payments/verify", requireRole("detective"), async (req: Request, res: Response) => {
     console.log("[verify] === PAYMENT VERIFICATION START ===");
     try {
-      const gateway = await getPaymentGateway('razorpay');
-      if (!gateway) {
-        console.error("[verify] Razorpay not configured or not enabled");
+      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+        console.error("[verify] Razorpay not configured (set credentials in Admin → App Secrets)");
         return res.status(500).json({ error: "Payments not configured" });
       }
 
@@ -1327,13 +1211,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify ownership
       if (paymentOrder.userId !== req.session.userId) {
-        console.error("[verify] Forbidden: user does not own order");
+        console.error(`[verify] Forbidden: User ${req.session.userId} does not own order ${body.razorpay_order_id}`);
         return res.status(403).json({ error: "Forbidden" });
       }
 
       // Verify Razorpay signature
       const expected = crypto
-        .createHmac("sha256", gateway.config.keySecret || config.razorpay.keySecret)
+        .createHmac("sha256", config.razorpay.keySecret)
         .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
         .digest("hex");
 
@@ -1356,23 +1240,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!billingCycle || (billingCycle !== "monthly" && billingCycle !== "yearly")) {
         console.error(`[verify] Invalid billing cycle in payment order: ${billingCycle}`);
         return res.status(400).json({ error: "Invalid billing cycle in payment order" });
-      }
-
-      // Idempotency: already processed — return success without re-running upgrade (prevents replay)
-      const orderStatus = (paymentOrder as any).status;
-      if (orderStatus === "paid") {
-        console.log(`[verify] Order already paid (replay), returning success: ${body.razorpay_order_id}`);
-        const updatedDetective = await storage.getDetective(paymentOrder.detectiveId);
-        if (!updatedDetective) {
-          console.error(`[verify] Could not fetch detective for idempotent response: ${paymentOrder.detectiveId}`);
-          return res.status(500).json({ error: "Failed to fetch updated detective" });
-        }
-        return res.json({
-          success: true,
-          packageId: packageId,
-          billingCycle: billingCycle,
-          detective: updatedDetective,
-        });
       }
 
       console.log(`[verify] Upgrading detective to package ${packageId} with ${billingCycle} billing`);
@@ -1482,9 +1349,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PayPal: Create order endpoint
   app.post("/api/payments/paypal/create-order", requireRole("detective"), async (req: Request, res: Response) => {
     try {
-      const gateway = await getPaymentGateway('paypal');
-      if (!gateway || !gateway.is_enabled) {
-        console.error("[paypal-create-order] PayPal not configured or not enabled");
+      if (!config.paypal.clientId || !config.paypal.clientSecret) {
+        console.error("[paypal-create-order] PayPal not configured (set credentials in Admin → App Secrets)");
         return res.status(500).json({ error: "PayPal payments not configured" });
       }
 
@@ -1496,7 +1362,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
-        console.error("[paypal-create-order] Detective not found");
+        console.error("[paypal-create-order] Detective not found for userId:", req.session.userId);
         return res.status(400).json({ error: "Detective profile not found" });
       }
 
@@ -1578,7 +1444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Return response with clientId from database
       res.json({ 
         orderId: order.id,
-        clientId: gateway.config.clientId || config.paypal.clientId
+        clientId: config.paypal.clientId
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1594,9 +1460,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payments/paypal/capture", requireRole("detective"), async (req: Request, res: Response) => {
     console.log("[paypal-capture] === PAYPAL CAPTURE START ===");
     try {
-      const gateway = await getPaymentGateway('paypal');
-      if (!gateway || !gateway.is_enabled) {
-        console.error("[paypal-capture] PayPal not configured or not enabled");
+      if (!config.paypal.clientId || !config.paypal.clientSecret) {
+        console.error("[paypal-capture] PayPal not configured (set credentials in Admin → App Secrets)");
         return res.status(500).json({ error: "PayPal payments not configured" });
       }
 
@@ -1622,7 +1487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify ownership
       if (paymentOrder.user_id !== req.session.userId) {
-        console.error("[paypal-capture] Forbidden: user does not own order");
+        console.error(`[paypal-capture] Forbidden: User ${req.session.userId} does not own order ${body.paypalOrderId}`);
         return res.status(403).json({ error: "Forbidden" });
       }
 
@@ -1689,13 +1554,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle Blue Tick addon vs regular subscription
       if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
-        // Blue Tick add-on: set add-on flag only (subscription-granted Blue Tick stays in hasBlueTick via applyPackageEntitlements)
+        // Blue Tick addon: update hasBlueTick flag
         await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
-          blueTickAddon: true,
+          hasBlueTick: true,
           blueTickActivatedAt: new Date(),
         } as any);
         
-        console.log(`[paypal-capture] Blue Tick add-on activated for detective ${paymentOrder.detective_id}`);
+        console.log(`[paypal-capture] Blue Tick addon activated for detective ${paymentOrder.detective_id}`);
       } else {
         // Regular subscription: update subscription fields only
         await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
@@ -1846,21 +1711,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Use this if verify endpoint fails but payment is marked as paid
   app.post("/api/admin/payments/sync-detective", requireRole("admin"), async (req: Request, res: Response) => {
     try {
-      const body = req.body;
-      if (body == null || typeof body !== "object") {
-        return res.status(400).json({ error: "Invalid request" });
-      }
-      const detectiveId = typeof body.detectiveId === "string" ? body.detectiveId.trim() : "";
+      const { detectiveId } = req.body;
+      
       if (!detectiveId) {
         return res.status(400).json({ error: "detectiveId is required" });
       }
 
-      console.log("[admin-sync] Starting payment sync recovery");
+      console.log(`[admin-sync] Starting payment sync recovery for detective: ${detectiveId}`);
 
       // Fetch detective to check current state
       const detective = await storage.getDetective(detectiveId);
       if (!detective) {
-        console.error("[admin-sync] Detective not found");
+        console.error(`[admin-sync] Detective not found: ${detectiveId}`);
         return res.status(404).json({ error: "Detective not found" });
       }
 
@@ -1911,7 +1773,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
-        console.error("[blue-tick-order] Detective not found");
+        console.error("[blue-tick-order] Detective not found for userId:", req.session.userId);
         return res.status(400).json({ error: "Detective profile not found" });
       }
 
@@ -1960,14 +1822,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[blue-tick-order] Blue Tick pricing: $${priceUSD} USD = ₹${priceINR.toFixed(2)} INR (${amountPaise} paise) - Rate: ${exchangeRate}`);
       
-      // Get Razorpay client from database config
-      const rzpClient = await getRazorpayClient();
-      const gateway = await getPaymentGateway('razorpay');
-      
-      if (!gateway) {
-        return res.status(503).json({ error: "Razorpay payment gateway is not configured" });
+      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+        return res.status(503).json({ error: "Razorpay payment gateway is not configured (Admin → App Secrets)" });
       }
       
+      const rzpClient = getRazorpayClient();
       // Create Razorpay order
       const order = await rzpClient.orders.create({
         amount: amountPaise,
@@ -1989,7 +1848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         orderId: order.id, 
         amount: amountPaise,
-        key: gateway.config.keyId || config.razorpay.keyId,
+        key: config.razorpay.keyId,
         type: "blue_tick"
       });
     } catch (error) {
@@ -2005,9 +1864,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payments/verify-blue-tick", requireRole("detective"), async (req: Request, res: Response) => {
     console.log("[verify-blue-tick] === BLUE TICK VERIFICATION START ===");
     try {
-      const gateway = await getPaymentGateway('razorpay');
-      if (!gateway) {
-        console.error("[verify-blue-tick] Razorpay not configured or not enabled");
+      if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+        console.error("[verify-blue-tick] Razorpay not configured (set credentials in Admin → App Secrets)");
         return res.status(500).json({ error: "Payments not configured" });
       }
 
@@ -2022,7 +1880,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify Razorpay signature
       const expected = crypto
-        .createHmac("sha256", gateway.config.keySecret || config.razorpay.keySecret)
+        .createHmac("sha256", config.razorpay.keySecret)
         .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
         .digest("hex");
 
@@ -2036,25 +1894,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get detective and verify ownership
       const detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
-        console.error("[verify-blue-tick] Detective not found");
+        console.error(`[verify-blue-tick] Detective not found for user ${req.session.userId}`);
         return res.status(400).json({ error: "Detective not found" });
-      }
-
-      // Idempotency: already processed (replay) — return success if add-on OR subscription Blue Tick
-      const hasAddon = (detective as any).blueTickAddon === true;
-      const hasFromPackage = detective.hasBlueTick === true;
-      if (hasAddon || hasFromPackage) {
-        console.log(`[verify-blue-tick] Blue Tick already active (replay), returning success: ${detective.id}`);
-        const updatedDetective = await storage.getDetective(detective.id);
-        if (!updatedDetective) {
-          console.error(`[verify-blue-tick] Could not fetch detective for idempotent response: ${detective.id}`);
-          return res.status(500).json({ error: "Failed to fetch updated detective" });
-        }
-        return res.json({
-          success: true,
-          hasBlueTick: true,
-          detective: updatedDetective,
-        });
       }
 
       // GUARD: Block duplicate Blue Tick purchases (HARD RULE)
@@ -2106,7 +1947,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ).catch(err => console.error("[Email] Failed to send blue tick success email:", err));
       }
 
-      console.log(`[verify-blue-tick] Successfully activated Blue Tick add-on for detective: blueTickAddon=${(updatedDetective as any).blueTickAddon}`);
+      console.log(`[verify-blue-tick] Successfully activated Blue Tick for detective: hasBlueTick=${updatedDetective.hasBlueTick}`);
       console.log("[verify-blue-tick] === BLUE TICK VERIFICATION COMPLETE ===");
 
       res.json({ 
@@ -2177,9 +2018,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/subscription-plans/:id", requireRole("admin"), async (req: Request, res: Response) => {
     try {
-      if (req.body == null || typeof req.body !== "object") {
-        return res.status(400).json({ error: "Invalid request" });
-      }
       const raw = req.body as any;
       const ALLOWED_SERVICE_LIMITS = [10, 15, 20, 25, 30, 35, 40, 45, 50];
       const input = {
@@ -2263,9 +2101,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Apply pending downgrades if expiry has passed
       detective = await applyPendingDowngrades(detective);
-
-      const effectiveBadges = computeEffectiveBadges(detective, (detective as any).subscriptionPackage);
-      res.json({ detective: { ...detective, effectiveBadges } });
+      
+      res.json({ detective });
     } catch (error) {
       console.error("Get current detective error:", error);
       res.status(500).json({ error: "Failed to get current detective" });
@@ -2289,22 +2126,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!detective) {
         return res.status(404).json({ error: "Detective not found" });
       }
-      const skipCache = !!(req.session?.userId === detective.userId || req.session?.userRole === "admin");
-      const cacheKey = `detective:public:${req.params.id}`;
-      if (!skipCache) {
-        try {
-          const cached = cache.get<{ detective: unknown; claimInfo: unknown }>(cacheKey);
-          if (cached != null && cached.detective != null) {
-            console.debug("[cache HIT]", cacheKey);
-            res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-            sendCachedJson(req, res, cached);
-            return;
-          }
-        } catch (_) {
-          // Cache failure must not break the request
-        }
-        console.debug("[cache MISS]", cacheKey);
-      }
       let claimInfo: any = undefined;
       if (detective.isClaimed) {
         const latestClaim = await storage.getLatestApprovedClaimForDetective(detective.id);
@@ -2316,16 +2137,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
         }
       }
-      const payload = { detective: { ...detective, effectiveBadges: computeEffectiveBadges(detective, (detective as any).subscriptionPackage) }, claimInfo };
-      if (!skipCache) {
-        try {
-          cache.set(cacheKey, payload, 60);
-        } catch (_) {
-          // Cache failure must not break the request
-        }
-      }
-      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-      sendCachedJson(req, res, payload);
+      res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
+      sendCachedJson(req, res, { detective, claimInfo });
     } catch (error) {
       console.error("Get detective error:", error);
       res.status(500).json({ error: "Failed to get detective" });
@@ -2333,17 +2146,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Public: get user profile by id (limited fields)
-  app.get("/api/users/:id", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/users/:id", async (req: Request, res: Response) => {
     try {
       const user = await storage.getUser(req.params.id);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
-      }
-      // Allow only self or admin — no email/role exposure to unauthorized callers
-      const isSelf = req.session.userId === req.params.id;
-      const isAdmin = req.session.userRole === "admin";
-      if (!isSelf && !isAdmin) {
-        return res.status(403).json({ error: "Forbidden" });
       }
       const { password, ...userWithoutPassword } = user as any;
       res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
@@ -2380,6 +2187,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existing) {
         return res.status(400).json({ error: "Detective profile already exists" });
       }
+      if ((validatedData as any).phone) {
+        const existingByPhone = await storage.getDetectiveByPhone((validatedData as any).phone);
+        if (existingByPhone) {
+          return res.status(400).json({ error: "An account with this phone number already exists." });
+        }
+      }
 
       const detective = await storage.createDetective(validatedData);
       
@@ -2391,6 +2204,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: fromZodError(error).message });
+      }
+      const err = error as any;
+      const isDuplicatePhone = err?.code === "23505" && /phone|detectives_phone_unique/i.test(String(err?.constraint ?? err?.detail ?? ""));
+      if (isDuplicatePhone) {
+        return res.status(400).json({ error: "An account with this phone number already exists." });
       }
       console.error("Create detective error:", error);
       res.status(500).json({ error: "Failed to create detective profile" });
@@ -2529,7 +2347,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: detective.email
       });
     } catch (error) {
-      console.warn("[auth] Reset password failed");
+      console.error("Reset password error:", error);
       res.status(500).json({ error: "Failed to reset password" });
     }
   });
@@ -2574,59 +2392,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ============== SMART AI SEARCH (homepage) ==============
-  app.post("/api/smart-search", async (req: Request, res: Response) => {
-    try {
-      const body = req.body && typeof req.body === "object" ? req.body : {};
-      const query = typeof body.query === "string" ? body.query.trim() : "";
-      const categories = await storage.getAllServiceCategories(true);
-      const categoryNames = categories.map((c: { name: string }) => c.name);
-      const checkAvailability = async (opts: { category: string; country: string; state?: string; city?: string }) => {
-        const list = await storage.searchServices({
-          category: opts.category,
-          country: opts.country,
-          state: opts.state,
-          city: opts.city,
-        }, 1, 0);
-        return list.length;
-      };
-      const result = await runSmartSearch(query, { categoryNames, checkAvailability });
-      res.json(result);
-    } catch (error) {
-      console.error("Smart search error:", error);
-      res.status(500).json({
-        kind: "category_not_found",
-        message: "We didn't find any relevant categories. You can browse here to find what you need.",
-      });
-    }
-  });
-
   // ============== SERVICE ROUTES ==============
 
   // Search services (public)
   app.get("/api/services", async (req: Request, res: Response) => {
     try {
       const { category, country, search, minPrice, maxPrice, minRating, limit = "20", offset = "0", sortBy = "popular" } = req.query;
-      const stableParams = [
-        "category", "country", "search", "minPrice", "maxPrice", "minRating", "limit", "offset", "sortBy"
-      ].sort().map(k => `${k}=${String((req.query as Record<string, string>)[k] ?? "").trim()}`).join("&");
-      const cacheKey = `services:search:${stableParams}`;
-      const skipCache = !!(req.session?.userId);
-      if (!skipCache) {
-        try {
-          const cached = cache.get<{ services: unknown[] }>(cacheKey);
-          if (cached != null && Array.isArray(cached.services)) {
-            console.debug("[cache HIT]", cacheKey);
-            res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-            sendCachedJson(req, res, cached);
-            return;
-          }
-        } catch (_) {
-          // Cache failure must not break the request
-        }
-        console.debug("[cache MISS]", cacheKey);
-      }
-
       if (typeof search === 'string' && search.trim()) {
         await storage.recordSearch(search as string);
       }
@@ -2665,18 +2436,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const offsetNum = parseInt(offset as string);
       const paginatedServices = sortedServices.slice(offsetNum, offsetNum + limitNum);
 
-      const masked = await Promise.all(paginatedServices.map(async (s: any) => {
-        const maskedDetective = await maskDetectiveContactsPublic(s.detective);
-        const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
-        return { ...s, detective: { ...maskedDetective, effectiveBadges } };
-      }));
-      if (!skipCache) {
-        try {
-          cache.set(cacheKey, { services: masked }, 60);
-        } catch (_) {
-          // Cache failure must not break the request
-        }
-      }
+      const masked = await Promise.all(paginatedServices.map(async (s: any) => ({ 
+        ...s, 
+        detective: await maskDetectiveContactsPublic(s.detective) 
+      })));
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       sendCachedJson(req, res, { services: masked });
     } catch (error) {
@@ -2724,10 +2487,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!preview && detective) {
         detective = await maskDetectiveContactsPublic(detective as any);
       }
-      const effectiveBadges = detective ? computeEffectiveBadges(detective, (detective as any).subscriptionPackage) : undefined;
       res.json({ 
         service,
-        detective: detective ? { ...detective, effectiveBadges } : undefined,
+        detective,
         avgRating: stats.avgRating,
         reviewCount: stats.reviewCount
       });
@@ -2778,14 +2540,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }));
       }
       const service = await storage.createService(validatedData);
-      try {
-        cache.keys().filter(k => k.startsWith("services:")).forEach(k => cache.del(k));
-        cache.del(`detective:public:${service.detectiveId}`);
-        console.debug("[cache INVALIDATE]", "services:");
-        console.debug("[cache INVALIDATE]", `detective:public:${service.detectiveId}`);
-      } catch (_) {
-        // Cache invalidation must not fail the request
-      }
       res.status(201).json({ service });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -2860,14 +2614,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedService = await storage.updateService(req.params.id, validatedData);
-      try {
-        cache.keys().filter(k => k.startsWith("services:")).forEach(k => cache.del(k));
-        cache.del(`detective:public:${service.detectiveId}`);
-        console.debug("[cache INVALIDATE]", "services:");
-        console.debug("[cache INVALIDATE]", `detective:public:${service.detectiveId}`);
-      } catch (_) {
-        // Cache invalidation must not fail the request
-      }
       res.json({ service: updatedService });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -2899,16 +2645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await deletePublicUrl(u as any);
         }
       }
-      const detectiveIdForCache = service.detectiveId;
       await storage.deleteService(req.params.id);
-      try {
-        cache.keys().filter(k => k.startsWith("services:")).forEach(k => cache.del(k));
-        cache.del(`detective:public:${detectiveIdForCache}`);
-        console.debug("[cache INVALIDATE]", "services:");
-        console.debug("[cache INVALIDATE]", `detective:public:${detectiveIdForCache}`);
-      } catch (_) {
-        // Cache invalidation must not fail the request
-      }
       res.json({ message: "Service deleted successfully" });
     } catch (error) {
       console.error("Delete service error:", error);
@@ -3305,14 +3042,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Submit detective application (public)
   app.post("/api/applications", async (req: Request, res: Response) => {
+    console.log("=== RECEIVED POST /api/applications ===");
+    console.log("Request body size:", JSON.stringify(req.body).length);
+    console.log("Request has logo:", !!req.body.logo);
+    console.log("Request has documents:", !!req.body.documents);
+    
     try {
       // Check if user is admin
       const isAdmin = req.session?.userRole === 'admin';
-
-      const validatedData = insertDetectiveApplicationSchema.parse(req.body);
-      const hashedPassword = await bcrypt.hash(validatedData.password, 10);
       
-      // Duplicate checks for email/phone
+      console.log("Validating request body...");
+      const validatedData = insertDetectiveApplicationSchema.parse(req.body);
+      console.log("Validation passed");
+
+      // Enforce FREE plan service category limit (same limit used elsewhere)
+      const freePlanId = await getFreePlanId();
+      const freePlan = await storage.getSubscriptionPlanById(freePlanId);
+      const freeServiceLimit = freePlan ? Number(freePlan.serviceLimit) : 2;
+      if (validatedData.serviceCategories && validatedData.serviceCategories.length > freeServiceLimit) {
+        return res.status(400).json({ error: `You may select up to ${freeServiceLimit} service categories (free plan limit).` });
+      }
+      
+      // Hash the password before storing - CRITICAL SECURITY
+      console.log("Hashing password...");
+      const hashedPassword = await bcrypt.hash(validatedData.password, 10);
+      console.log("Password hashed");
+      
+      // Duplicate checks: existing user account (email) or existing application (email/phone)
+      const existingUserByEmail = await storage.getUserByEmail(validatedData.email);
+      if (existingUserByEmail) {
+        return res.status(400).json({ error: "An account with this email already exists." });
+      }
       const existingByEmail = await storage.getDetectiveApplicationByEmail(validatedData.email);
       const hasPhone = !!validatedData.phoneCountryCode && !!validatedData.phoneNumber;
       const existingByPhone = hasPhone
@@ -3322,8 +3082,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check for duplicates - allow update if admin, else reject
       if (existingByEmail || existingByPhone) {
         if (!isAdmin) {
-          const conflictField = existingByEmail ? "email" : "phone";
-          return res.status(409).json({ error: `An application with this ${conflictField} already exists` });
+          if (existingByEmail) {
+            return res.status(409).json({ error: "An account with this email already exists." });
+          }
+          return res.status(409).json({ error: "An account with this phone number already exists." });
         }
         const existing = existingByEmail || existingByPhone!;
         console.log("Duplicate found. Admin updating existing application:", existing.id);
@@ -3379,9 +3141,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: fromZodError(error).message });
       }
       console.error("Create application error:", error);
-      const msg = (typeof (error as any)?.message === "string" && (error as any).message.includes("duplicate key"))
-        ? "An application with this email/phone already exists"
-        : "Failed to create application";
+      const err = error as any;
+      const isDuplicate = (err?.code === "23505" || (typeof err?.message === "string" && err.message.includes("duplicate key")));
+      const constraint = (err?.constraint ?? err?.detail ?? "") as string;
+      let msg = "Failed to create application";
+      if (isDuplicate) {
+        msg = /phone|phone_unique/i.test(constraint)
+          ? "An account with this phone number already exists."
+          : "An account with this email already exists.";
+      }
       res.status(500).json({ error: msg });
     }
   });
@@ -3426,28 +3194,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         try {
           const normalizedEmail = (application.email || "").toLowerCase().trim();
-          if (!normalizedEmail) {
-            return res.status(400).json({ error: "Application has no email. Cannot create account." });
-          }
-          // Application password may be missing in some flows (e.g. admin-created); use temp password if so
-          let passwordToUse = application.password;
-          if (!passwordToUse || typeof passwordToUse !== "string" || passwordToUse.trim().length === 0) {
-            const tempPassword = randomBytes(16).toString("hex");
-            passwordToUse = await bcrypt.hash(tempPassword, 10);
-            console.log(`[APPLICATION_APPROVE] Application ${req.params.id} had no password; created user with temporary password (applicant must use password reset).`);
-          }
           let user = await storage.getUserByEmail(normalizedEmail);
           if (!user) {
             try {
               user = await storage.createUserFromHashed({
                 email: normalizedEmail,
                 name: application.fullName,
-                password: passwordToUse,
+                password: application.password,
                 role: "detective",
                 avatar: application.logo || undefined,
               });
             } catch (e: any) {
-              if ((e?.message || "").includes("users_email_unique") || (e?.code === "23505" && (e?.detail || "").includes("email"))) {
+              if ((e?.message || "").includes("users_email_unique")) {
                 user = await storage.getUserByEmail(normalizedEmail);
               } else {
                 throw e;
@@ -3467,6 +3225,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const phone = application.phoneCountryCode && application.phoneNumber 
             ? `${application.phoneCountryCode}${application.phoneNumber}`
             : undefined;
+          if (phone) {
+            const existingByPhone = await storage.getDetectiveByPhone(phone);
+            if (existingByPhone) {
+              return res.status(400).json({ error: "An account with this phone number already exists." });
+            }
+          }
 
           // Create detective profile with ALL application data
           // Determine if this is admin-created or self-registered
@@ -3537,9 +3301,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`Detective account ${user ? "linked/created" : "unknown"} for: ${normalizedEmail} with ${application.serviceCategories?.length || 0} services.`);
         } catch (createError: any) {
           console.error("Failed to create detective account:", createError);
-          const message = createError?.message || String(createError);
+          const ce = createError as any;
+          const isDuplicate = ce?.code === "23505" || (typeof ce?.message === "string" && ce.message.includes("duplicate key"));
+          const constraint = String(ce?.constraint ?? ce?.detail ?? "");
+          if (isDuplicate) {
+            const msg = /phone|detectives_phone_unique/i.test(constraint)
+              ? "An account with this phone number already exists."
+              : "An account with this email already exists.";
+            return res.status(400).json({ error: msg });
+          }
           return res.status(500).json({ 
-            error: message.includes("FREE plan") ? message : `Failed to create detective account: ${message}`,
+            error: "Failed to create detective account. Application not approved.",
+            details: ce?.message 
           });
         }
       }
@@ -3561,7 +3334,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // If this is a claimable account, send claim invitation email
           if (application.isClaimable && application.email) {
             try {
-              const userForClaim = await storage.getUserByEmail((application.email || "").toLowerCase().trim());
               // Generate secure claim token (48-hour expiry)
               const { token, hash } = generateClaimToken();
               const expiresAt = new Date(calculateTokenExpiry());
@@ -3570,7 +3342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const detective = await db
                 .select()
                 .from(detectives)
-                .where(eq(detectives.userId, userForClaim?.id || ""))
+                .where(eq(detectives.userId, user?.id || ""))
                 .limit(1)
                 .then(r => r[0]);
 
@@ -3594,7 +3366,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   }
                 ).catch(err => console.error("[Email] Failed to send claim invitation:", err));
 
-                console.log("[Claim] Sent invitation email");
+                console.log(`[Claim] Sent invitation email to ${application.email} with claim token`);
               }
             } catch (claimError: any) {
               console.error("[Claim] Error sending claim invitation:", claimError);
@@ -3912,7 +3684,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         contactEmail: email,
       });
 
-      console.log("[Claim] Account claimed successfully");
+      console.log(`[Claim] Account claimed successfully: ${detective.businessName} (${email})`);
 
       // STEP 3: Generate credentials and enable login
       try {
@@ -3925,7 +3697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .then(r => r[0]);
 
         if (!user) {
-          console.error("[Claim] User not found for detective");
+          console.error(`[Claim] User not found for detective: ${detective.id}`);
           // Still return success for claim, but log error
           return res.json({
             success: true,
@@ -3939,7 +3711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Check if login is already enabled (prevent re-running)
         if (!user.mustChangePassword && user.password && user.password.length > 0) {
-          console.log("[Claim] Login already enabled");
+          console.log(`[Claim] Login already enabled for: ${email}`);
           return res.json({
             success: true,
             message: "Account claimed successfully",
@@ -3965,7 +3737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })
           .where(eq(users.id, user.id));
 
-        console.log("[Claim] Credentials generated");
+        console.log(`[Claim] Credentials generated for: ${email}`);
 
         // Send temporary password email via SendPulse
         const loginUrl = "https://askdetectives.com/login";
@@ -3981,7 +3753,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         ).catch(err => console.error("[Email] Failed to send temp password email:", err));
 
-        console.log("[Claim] Temporary password email sent");
+        console.log(`[Claim] Temporary password email sent to: ${email}`);
 
       } catch (credentialError: any) {
         console.error("[Claim] Error generating credentials:", credentialError);
@@ -4052,7 +3824,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .then(r => r[0]);
 
       if (existingUser && existingUser.id !== user.id) {
-        console.error("[Claim] Email already in use");
+        console.error(`[Claim] Email already in use: ${claimedEmail}`);
         return res.status(400).json({ 
           error: "Email already in use",
         });
@@ -4067,7 +3839,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })
         .where(eq(users.id, user.id));
 
-      console.log("[Claim] User email updated");
+      console.log(`[Claim] User email updated to: ${claimedEmail}`);
 
       // Mark claim process as completed
       await storage.updateDetectiveAdmin(detective.id, {
@@ -4076,7 +3848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         contactEmail: null,
       });
 
-      console.log("[Claim] Claim finalized");
+      console.log(`[Claim] Claim finalized for: ${detective.businessName}`);
 
       // Clean up any remaining claim tokens for this detective
       try {
@@ -4084,7 +3856,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .delete(claimTokens)
           .where(eq(claimTokens.detectiveId, detective.id));
 
-        console.log("[Claim] Cleaned up claim tokens");
+        console.log(`[Claim] Cleaned up claim tokens for detective: ${detective.id}`);
       } catch (cleanupError: any) {
         console.error("[Claim] Error cleaning up tokens:", cleanupError);
         // Non-blocking: Finalization still succeeded
@@ -4103,7 +3875,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       ).catch(err => console.error("[Email] Failed to send finalization email:", err));
 
-      console.log("[Claim] Finalization confirmation email sent");
+      console.log(`[Claim] Finalization confirmation email sent to: ${claimedEmail}`);
 
       res.json({
         success: true,
@@ -4123,10 +3895,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== ADMIN EMAIL TEMPLATE ROUTES ==============
 
-  app.get("/api/admin/email-templates", requireRole("admin"), async (req: Request, res: Response) => {
+  // Get all email templates (Super Admin only)
+  app.get("/api/admin/email-templates", async (req: Request, res: Response) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const { getAllEmailTemplates } = await import("./services/emailTemplateService");
       const templates = await getAllEmailTemplates();
+
       res.json({ templates });
     } catch (error) {
       console.error("[Admin] Error fetching email templates:", error);
@@ -4134,8 +3925,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/email-templates/:key", requireRole("admin"), async (req: Request, res: Response) => {
+  // Get specific email template (Super Admin only)
+  app.get("/api/admin/email-templates/:key", async (req: Request, res: Response) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const { key } = req.params;
       if (!key) {
         return res.status(400).json({ error: "Template key is required" });
@@ -4160,8 +3969,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/admin/email-templates/:key", requireRole("admin"), async (req: Request, res: Response) => {
+  // Update email template (Super Admin only)
+  app.put("/api/admin/email-templates/:key", async (req: Request, res: Response) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const { key } = req.params;
       const { name, description, subject, body, sendpulseTemplateId } = req.body;
 
@@ -4201,8 +4028,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/email-templates/:key/toggle", requireRole("admin"), async (req: Request, res: Response) => {
+  // Toggle email template status (Super Admin only)
+  app.post("/api/admin/email-templates/:key/toggle", async (req: Request, res: Response) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const { key } = req.params;
       if (!key) {
         return res.status(400).json({ error: "Template key is required" });
@@ -4227,8 +4072,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/email-templates/test-all", requireRole("admin"), async (req: Request, res: Response) => {
+  // Test all email templates (Super Admin only)
+  app.post("/api/admin/email-templates/test-all", async (req: Request, res: Response) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if user is super admin
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(r => r[0]);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const testEmail = "contact@askdetectives.com";
 
       // Mock data for all templates
@@ -4340,6 +4203,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: "Failed to execute test email batch",
         details: error instanceof Error ? error.message : "Unknown error",
       });
+    }
+  });
+
+  // ============== ADMIN APP SECRETS (Super Admin only) ==============
+
+  app.get("/api/admin/app-secrets", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      const user = await db.select().from(users).where(eq(users.id, userId)).limit(1).then(r => r[0]);
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const rows = await db.select().from(appSecrets);
+      const secrets: Record<string, string> = {};
+      try {
+        for (const k of SECRET_KEYS) {
+          const raw = rows.find(r => r.key === k)?.value ?? "";
+          secrets[k] = decryptSecret(raw);
+        }
+      } catch (decErr) {
+        const m = decErr instanceof Error ? decErr.message : String(decErr);
+        if (/APP_SECRETS_ENCRYPTION_KEY|SESSION_SECRET/i.test(m)) {
+          return res.status(503).json({
+            error: "Set APP_SECRETS_ENCRYPTION_KEY (32+ chars) or SESSION_SECRET in .env to decrypt credentials.",
+          });
+        }
+        throw decErr;
+      }
+      res.json({ keys: [...SECRET_KEYS], secrets });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error("[Admin] Error fetching app secrets:", error);
+      if (/relation "app_secrets" does not exist|table.*app_secrets/i.test(msg)) {
+        return res.status(503).json({
+          error: "App Secrets table missing. Run migration: migrations/0025_add_app_secrets.sql",
+        });
+      }
+      res.status(500).json({ error: "Failed to fetch app secrets", details: msg });
+    }
+  });
+
+  app.put("/api/admin/app-secrets/:key", async (req: Request, res: Response) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      const user = await db.select().from(users).where(eq(users.id, userId)).limit(1).then(r => r[0]);
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { key } = req.params;
+      if (!key || !SECRET_KEYS.includes(key as (typeof SECRET_KEYS)[number])) {
+        return res.status(400).json({ error: "Invalid or unknown secret key" });
+      }
+      const { value } = req.body;
+      if (typeof value !== "string") {
+        return res.status(400).json({ error: "value must be a string" });
+      }
+      let valueToStore: string;
+      try {
+        valueToStore = value === "" ? "" : encryptSecret(value);
+      } catch (encErr) {
+        const m = encErr instanceof Error ? encErr.message : String(encErr);
+        if (/APP_SECRETS_ENCRYPTION_KEY|SESSION_SECRET/i.test(m)) {
+          return res.status(503).json({
+            error: "Set APP_SECRETS_ENCRYPTION_KEY (32+ chars) or SESSION_SECRET in .env to encrypt credentials.",
+          });
+        }
+        throw encErr;
+      }
+      await db
+        .insert(appSecrets)
+        .values({ key, value: valueToStore, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: appSecrets.key,
+          set: { value: valueToStore, updatedAt: new Date() },
+        });
+      const { clearAppSecretsCache } = await import("./lib/secretsLoader.ts");
+      clearAppSecretsCache();
+      res.json({ ok: true, key, saved: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error("[Admin] Error updating app secret (key only, value never logged):", key ?? "unknown");
+      if (/relation "app_secrets" does not exist|table.*app_secrets/i.test(msg)) {
+        return res.status(503).json({
+          error: "App Secrets table missing. Run migration: migrations/0025_add_app_secrets.sql",
+        });
+      }
+      res.status(500).json({ error: "Failed to update app secret", details: msg });
     }
   });
 
@@ -4695,38 +4651,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Helper: ensure at least one service exists for location + category (same logic as snippet detectives)
-  const countServicesForSnippet = async (country: string, state: string | null, city: string | null, category: string): Promise<number> => {
-    const whereConditions = [
-      eq(detectives.status, "active"),
-      eq(detectives.country, String(country)),
-      eq(services.category, String(category)),
-    ];
-    if (state) whereConditions.push(eq(detectives.state, String(state)));
-    if (city) whereConditions.push(eq(detectives.city, String(city)));
-
-    const rows = await db
-      .select({ count: count(detectives.id) })
-      .from(detectives)
-      .innerJoin(services, eq(services.detectiveId, detectives.id))
-      .where(and(...whereConditions));
-    return Number(rows[0]?.count ?? 0);
-  };
-
-  // POST /api/snippets - Create new snippet (only if at least 1 service exists for location + category)
+  // POST /api/snippets - Create new snippet
   app.post("/api/snippets", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       const { name, country, state, city, category, limit } = req.body;
 
       if (!name || !country || !category) {
         return res.status(400).json({ error: "Missing required fields: name, country, category" });
-      }
-
-      const serviceCount = await countServicesForSnippet(country, state || null, city || null, category);
-      if (serviceCount < 1) {
-        return res.status(400).json({
-          error: "No services available for this location and category. Add at least one active detective with a service in this category and location before creating a snippet.",
-        });
       }
 
       const snippet = await db
@@ -4748,33 +4679,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // PUT /api/snippets/:id - Update snippet (only if at least 1 service exists for new location + category)
+  // PUT /api/snippets/:id - Update snippet
   app.put("/api/snippets/:id", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const { name, country, state, city, category, limit } = req.body;
-
-      const existing = await db.select().from(detectiveSnippets).where(eq(detectiveSnippets.id, id)).limit(1);
-      if (existing.length === 0) {
-        return res.status(404).json({ error: "Snippet not found" });
-      }
-
-      const effectiveCountry = country !== undefined ? country : existing[0].country;
-      const effectiveState = state !== undefined ? (state || null) : existing[0].state;
-      const effectiveCity = city !== undefined ? (city || null) : existing[0].city;
-      const effectiveCategory = category !== undefined ? category : existing[0].category;
-
-      const serviceCount = await countServicesForSnippet(
-        effectiveCountry,
-        effectiveState,
-        effectiveCity,
-        effectiveCategory
-      );
-      if (serviceCount < 1) {
-        return res.status(400).json({
-          error: "No services available for this location and category. Snippet cannot be updated to a combination with zero services.",
-        });
-      }
 
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
@@ -4791,12 +4700,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(detectiveSnippets.id, id))
         .returning();
 
-      try {
-        cache.del(`snippets:${id}`);
-        console.debug("[cache INVALIDATE]", `snippets:${id}`);
-      } catch (_) {
-        // Cache invalidation must not fail the request
+      if (snippet.length === 0) {
+        return res.status(404).json({ error: "Snippet not found" });
       }
+
       res.json({ success: true, snippet: snippet[0] });
     } catch (error) {
       console.error("Error updating snippet:", error);
@@ -4813,12 +4720,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .delete(detectiveSnippets)
         .where(eq(detectiveSnippets.id, id));
 
-      try {
-        cache.del(`snippets:${id}`);
-        console.debug("[cache INVALIDATE]", `snippets:${id}`);
-      } catch (_) {
-        // Cache invalidation must not fail the request
-      }
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting snippet:", error);
@@ -4826,60 +4727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // GET /api/snippets/available-locations - Countries/states/cities where at least one service exists (for snippet dropdowns)
-  app.get("/api/snippets/available-locations", async (req: Request, res: Response) => {
-    try {
-      const { country, state: stateParam } = req.query;
-      const hasCountry = typeof country === "string" && country.trim() !== "";
-      const hasState = typeof stateParam === "string" && stateParam.trim() !== "";
-
-      if (!hasCountry) {
-        const countriesResult = await pool.query<{ country: string }>(
-          `SELECT DISTINCT d.country
-           FROM detectives d
-           INNER JOIN services s ON s.detective_id = d.id
-           WHERE d.status = 'active' AND s.is_active = true
-           ORDER BY d.country`
-        );
-        const countries = countriesResult.rows.map((r) => r.country).filter(Boolean);
-        return res.json({ countries });
-      }
-
-      if (!hasState) {
-        const statesResult = await pool.query<{ state: string }>(
-          `SELECT DISTINCT d.state
-           FROM detectives d
-           INNER JOIN services s ON s.detective_id = d.id
-           WHERE d.status = 'active' AND s.is_active = true AND d.country = $1
-           ORDER BY d.state`,
-          [country]
-        );
-        const states = statesResult.rows
-          .map((r) => r.state)
-          .filter((s) => s && s !== "Not specified");
-        return res.json({ states });
-      }
-
-      const citiesResult = await pool.query<{ city: string }>(
-        `SELECT DISTINCT d.city
-         FROM detectives d
-         INNER JOIN services s ON s.detective_id = d.id
-         WHERE d.status = 'active' AND s.is_active = true AND d.country = $1 AND d.state = $2
-         ORDER BY d.city`,
-        [country, stateParam]
-      );
-      const cities = citiesResult.rows
-        .map((r) => r.city)
-        .filter((c) => c && c !== "Not specified");
-      return res.json({ cities });
-    } catch (error) {
-      console.error("Error fetching available locations:", error);
-      res.status(500).json({ error: "Failed to fetch available locations" });
-    }
-  });
-
-  // GET /api/snippets/detectives - Get services for snippet (one card per service, correct link + banner)
-  // Returns services matching snippet filters with detective info so cards show real service id, title, images
+  // GET /api/snippets/detectives - Get detectives for snippet configuration
   app.get("/api/snippets/detectives", async (req: Request, res: Response) => {
     try {
       const { country, state, city, category, limit = 4 } = req.query;
@@ -4888,235 +4736,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required parameters: country, category" });
       }
 
-      const limitNum = Math.min(Math.max(parseInt(String(limit)) || 4, 1), 20);
-      const params: (string | number)[] = [String(country), String(category)];
-      let paramIdx = 3;
-      const stateClause = state ? ` AND d.state = $${paramIdx++}` : "";
-      if (state) params.push(String(state));
-      const cityClause = city ? ` AND d.city = $${paramIdx++}` : "";
-      if (city) params.push(String(city));
-      params.push(limitNum);
+      // Build where conditions
+      const whereConditions = [
+        eq(detectives.status, "active"),
+        eq(detectives.country, String(country)),
+        eq(services.category, String(category)),
+      ];
 
-      const q = `
-        SELECT s.id AS service_id, s.title AS service_title, s.images AS service_images,
-               s.base_price, s.offer_price, s.category AS service_category,
-               d.id AS detective_id, d.business_name, d.level, d.logo, d.is_verified, d.location, d.country,
-               d.has_blue_tick, d.blue_tick_addon, d.subscription_package_id, d.subscription_expires_at,
-               sp.badges AS subscription_badges,
-               (SELECT COALESCE(AVG(r.rating), 0) FROM reviews r WHERE r.service_id = s.id) AS avg_rating,
-               (SELECT COUNT(*)::int FROM reviews r WHERE r.service_id = s.id) AS review_count
-        FROM services s
-        INNER JOIN detectives d ON d.id = s.detective_id AND d.status = 'active'
-        LEFT JOIN subscription_plans sp ON sp.id = d.subscription_package_id
-        WHERE s.is_active = true AND d.country = $1 AND s.category = $2${stateClause}${cityClause}
-        ORDER BY avg_rating DESC NULLS LAST
-        LIMIT $${paramIdx}
-      `;
+      if (state) {
+        whereConditions.push(eq(detectives.state, String(state)));
+      }
+      if (city) {
+        whereConditions.push(eq(detectives.city, String(city)));
+      }
 
-      const result = await pool.query<{
-        service_id: string;
-        service_title: string | null;
-        service_images: string[] | null;
-        base_price: string;
-        offer_price: string | null;
-        service_category: string | null;
-        detective_id: string;
-        business_name: string | null;
-        level: string;
-        logo: string | null;
-        is_verified: boolean;
-        location: string;
-        country: string | null;
-        has_blue_tick: boolean;
-        blue_tick_addon: boolean;
-        subscription_package_id: string | null;
-        subscription_expires_at: string | null;
-        subscription_badges: unknown;
-        avg_rating: string;
-        review_count: string;
-      }>(q, params);
+      const results = await db
+        .select({
+          id: detectives.id,
+          fullName: detectives.businessName,
+          level: detectives.level,
+          profilePhoto: detectives.logo,
+          isVerified: detectives.isVerified,
+          location: detectives.location,
+          avgRating: avg(reviews.rating),
+          reviewCount: count(reviews.id),
+          startingPrice: min(services.basePrice),
+        })
+        .from(detectives)
+        .leftJoin(services, eq(services.detectiveId, detectives.id))
+        .leftJoin(reviews, eq(reviews.serviceId, services.id))
+        .where(and(...whereConditions))
+        .groupBy(detectives.id)
+        .orderBy(desc(avg(reviews.rating)))
+        .limit(parseInt(String(limit)) || 4);
 
       res.json({
-        detectives: result.rows.map((r) => {
-          const effectiveBadges = computeEffectiveBadges(
-            {
-              subscriptionPackageId: r.subscription_package_id,
-              subscriptionExpiresAt: r.subscription_expires_at,
-              hasBlueTick: r.has_blue_tick,
-              blueTickAddon: r.blue_tick_addon,
-            },
-            r.subscription_badges ? { badges: r.subscription_badges } : null
-          );
-          return {
-            id: r.detective_id,
-            serviceId: r.service_id,
-            fullName: r.business_name ?? "Unknown",
-            level: r.level,
-            profilePhoto: r.logo ?? "",
-            isVerified: r.is_verified,
-            location: r.location ?? "",
-            country: r.country ?? "",
-            avgRating: parseFloat(r.avg_rating) || 0,
-            reviewCount: parseInt(r.review_count, 10) || 0,
-            startingPrice: parseFloat(r.base_price) || 0,
-            offerPrice: r.offer_price != null ? parseFloat(r.offer_price) : null,
-            serviceTitle: r.service_title ?? r.service_category ?? "Service",
-            serviceImages: Array.isArray(r.service_images) ? r.service_images : (r.service_images ? [r.service_images] : []),
-            serviceCategory: r.service_category ?? "",
-            effectiveBadges,
-          };
-        }),
+        detectives: results.map(d => ({
+          ...d,
+          avgRating: parseFloat(String(d.avgRating)) || 0,
+          reviewCount: parseInt(String(d.reviewCount)) || 0,
+          startingPrice: d.startingPrice ? parseFloat(String(d.startingPrice)) : 0,
+        }))
       });
     } catch (error) {
       console.error("Error fetching snippet detectives:", error);
       res.status(500).json({ error: "Failed to fetch detectives" });
-    }
-  });
-
-  // GET /api/snippets/:id - Get single snippet by id (public: for Live Preview + embedding on pages)
-  app.get("/api/snippets/:id", async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const cacheKey = `snippets:${id}`;
-      try {
-        const cached = cache.get<{ snippet: unknown }>(cacheKey);
-        if (cached != null && cached.snippet != null) {
-          console.debug("[cache HIT]", cacheKey);
-          return res.json(cached);
-        }
-      } catch (_) {
-        // Cache failure must not break the request
-      }
-      console.debug("[cache MISS]", cacheKey);
-
-      const snippet = await db
-        .select()
-        .from(detectiveSnippets)
-        .where(eq(detectiveSnippets.id, id))
-        .limit(1);
-
-      if (snippet.length === 0) {
-        return res.status(404).json({ error: "Snippet not found" });
-      }
-
-      const payload = { snippet: snippet[0] };
-      try {
-        cache.set(cacheKey, payload, 300);
-      } catch (_) {
-        // Cache failure must not break the request
-      }
-      res.json(payload);
-    } catch (error) {
-      console.error("Error fetching snippet:", error);
-      res.status(500).json({ error: "Failed to fetch snippet" });
-    }
-  });
-
-  // ============== PAYMENT GATEWAY SETTINGS (ADMIN) ==============
-  
-  // Get all payment gateways
-  app.get("/api/admin/payment-gateways", requireRole("admin"), async (_req: Request, res: Response) => {
-    try {
-      const result = await pool.query(`
-        SELECT id, name, display_name, is_enabled, is_test_mode, 
-               config, created_at, updated_at
-        FROM payment_gateways
-        ORDER BY name
-      `);
-      
-      res.json({ gateways: result.rows });
-    } catch (error) {
-      console.error("Error fetching payment gateways:", error);
-      res.status(500).json({ error: "Failed to fetch payment gateways" });
-    }
-  });
-
-  // Get a single payment gateway
-  app.get("/api/admin/payment-gateways/:id", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      
-      const result = await pool.query(`
-        SELECT id, name, display_name, is_enabled, is_test_mode, 
-               config, created_at, updated_at
-        FROM payment_gateways
-        WHERE id = $1
-      `, [id]);
-      
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: "Payment gateway not found" });
-      }
-      
-      res.json({ gateway: result.rows[0] });
-    } catch (error) {
-      console.error("Error fetching payment gateway:", error);
-      res.status(500).json({ error: "Failed to fetch payment gateway" });
-    }
-  });
-
-  // Update payment gateway configuration
-  app.put("/api/admin/payment-gateways/:id", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { is_enabled, is_test_mode, config } = req.body;
-      
-      // Validate config is an object
-      if (config && typeof config !== 'object') {
-        return res.status(400).json({ error: "Config must be a JSON object" });
-      }
-      
-      const result = await pool.query(`
-        UPDATE payment_gateways
-        SET is_enabled = COALESCE($1, is_enabled),
-            is_test_mode = COALESCE($2, is_test_mode),
-            config = COALESCE($3::jsonb, config),
-            updated_by = $4,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $5
-        RETURNING id, name, display_name, is_enabled, is_test_mode, config, updated_at
-      `, [is_enabled, is_test_mode, config ? JSON.stringify(config) : null, req.session.userId, id]);
-      
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: "Payment gateway not found" });
-      }
-      
-      res.json({ 
-        success: true, 
-        gateway: result.rows[0],
-        message: "Payment gateway updated successfully"
-      });
-    } catch (error) {
-      console.error("Error updating payment gateway:", error);
-      res.status(500).json({ error: "Failed to update payment gateway" });
-    }
-  });
-
-  // Toggle payment gateway enabled status
-  app.post("/api/admin/payment-gateways/:id/toggle", requireRole("admin"), async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      
-      const result = await pool.query(`
-        UPDATE payment_gateways
-        SET is_enabled = NOT is_enabled,
-            updated_by = $1,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-        RETURNING id, name, display_name, is_enabled, is_test_mode, config, updated_at
-      `, [req.session.userId, id]);
-      
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: "Payment gateway not found" });
-      }
-      
-      res.json({ 
-        success: true, 
-        gateway: result.rows[0],
-        message: `Payment gateway ${result.rows[0].is_enabled ? 'enabled' : 'disabled'} successfully`
-      });
-    } catch (error) {
-      console.error("Error toggling payment gateway:", error);
-      res.status(500).json({ error: "Failed to toggle payment gateway" });
     }
   });
 

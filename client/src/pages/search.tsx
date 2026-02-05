@@ -28,10 +28,42 @@ import { COUNTRY_STATES } from "@/lib/geo";
 import { useCurrency } from "@/lib/currency-context";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import type { Service, Detective } from "@shared/schema";
-import { buildBadgesFromEffective } from "@/lib/badges";
 
-function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number }) {
-  const badges = buildBadgesFromEffective(service.detective.effectiveBadges, !!service.detective.isVerified);
+function mapServiceToCard(service: Service & { detective: Detective; avgRating: number; reviewCount: number }) {
+  
+
+  const badges: string[] = [];
+  
+  // BADGE ORDER: 1. Blue Tick, 2. Pro, 3. Recommended, 4. Verified
+  
+  // Blue Tick Badge - FIRST
+  if (service.detective.hasBlueTick && service.detective.subscriptionPackageId) {
+    badges.push("blueTick");
+  }
+  
+  // Pro Badge - SECOND (from package badges)
+  if (service.detective.subscriptionPackageId && service.detective.subscriptionPackage?.badges) {
+    if (typeof service.detective.subscriptionPackage.badges === 'object' && !Array.isArray(service.detective.subscriptionPackage.badges)) {
+      if (service.detective.subscriptionPackage.badges['pro']) {
+        badges.push("pro");
+      }
+      if (service.detective.subscriptionPackage.badges['recommended']) {
+        badges.push("recommended");
+      }
+    } else if (Array.isArray(service.detective.subscriptionPackage.badges)) {
+      if (service.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'pro')) {
+        badges.push("pro");
+      }
+      if (service.detective.subscriptionPackage.badges.some((b: string) => b.toLowerCase() === 'recommended')) {
+        badges.push("recommended");
+      }
+    }
+  }
+  
+  // Verified Badge - FOURTH
+  if (service.detective.isVerified) {
+    badges.push("verified");
+  }
 
   const detectiveName = service.detective.businessName || "Unknown Detective";
 
@@ -146,7 +178,7 @@ export default function SearchPage() {
   }
   const hasActiveFilters = !!(selectedCategory || minRating !== undefined || countryFilterState || minPrice !== undefined || maxPrice !== undefined || appliedState.trim() || proOnly || agencyOnly || localOnly || level1Only || level2Only);
 
-  // Clear all filters when the main search query (q) changes
+  // Clear all filters whenever the main search query changes
   useEffect(() => {
     setSelectedCategory(undefined);
     setMinRating(undefined);
@@ -164,35 +196,6 @@ export default function SearchPage() {
     setLevel2Only(false);
     setSortBy("popular");
   }, [query]);
-
-  // Sync filters FROM URL when user lands or navigates with ?category=... (e.g. from smart-search "View this category")
-  const searchString = typeof window !== "undefined" ? window.location.search : "";
-  useEffect(() => {
-    const params = new URLSearchParams(searchString);
-    const cat = params.get("category");
-    if (cat != null) setSelectedCategory(cat);
-    const country = params.get("country");
-    if (country != null) setCountryFilterState(country);
-    const stateParam = params.get("state");
-    if (stateParam != null) {
-      setAppliedState(stateParam);
-      setStateInput(stateParam);
-    }
-    const mr = params.get("minRating");
-    setMinRating(mr ? parseFloat(mr) : undefined);
-    const mp = params.get("minPrice");
-    const maxP = params.get("maxPrice");
-    setMinPrice(mp ? parseFloat(mp) : undefined);
-    setMaxPrice(maxP ? parseFloat(maxP) : undefined);
-    setMinPriceInput(params.get("minPrice") || "");
-    setMaxPriceInput(params.get("maxPrice") || "");
-    setProOnly(params.get("proOnly") === "1");
-    setAgencyOnly(params.get("agencyOnly") === "1");
-    setLocalOnly(params.get("localOnly") === "1");
-    setLevel1Only(params.get("lvl1") === "1");
-    setLevel2Only(params.get("lvl2") === "1");
-    setSortBy(params.get("sortBy") || "popular");
-  }, [searchString]);
 
   // Persist filters to URL for shareable links
   useEffect(() => {
@@ -490,7 +493,7 @@ export default function SearchPage() {
                     <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-4">
                       <Globe className="h-8 w-8 text-gray-400" />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">No results yet</h3>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">No detectives found here</h3>
                     <p className="text-gray-500 mb-6 text-center max-w-md">
                       We couldn't find any detectives matching your search for "{query}"{countryFilter ? ` in ${countryFilter}` : ""}.
                     </p>

@@ -203,7 +203,7 @@ export default function AdminDetectives() {
                 ) : detectives.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                      No detectives yet
+                      No detectives found
                     </TableCell>
                   </TableRow>
                 ) : (

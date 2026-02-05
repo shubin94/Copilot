@@ -7,7 +7,6 @@ import {
   VideoBlock,
   ShortcodeBlock,
 } from "@/shared/content-blocks";
-import { DetectiveSnippetGrid } from "@/components/snippets/detective-snippet-grid";
 
 // Utility: Extract embed URL from YouTube/Vimeo URL
 function getEmbedUrl(url: string): string | null {
@@ -100,30 +99,12 @@ function renderVideoBlock(block: VideoBlock): React.ReactNode {
   );
 }
 
-// Parse [detective_snippet id="xxx"] or snippetId="xxx" from shortcode value
-function parseDetectiveSnippetId(value: string): string | null {
-  const trimmed = value.trim();
-  const bracketMatch = trimmed.match(/\[detective_snippet\s+id=["']([^"']+)["']\s*\]/i);
-  if (bracketMatch) return bracketMatch[1];
-  const attrMatch = trimmed.match(/snippetId=["']([^"']+)["']/i);
-  if (attrMatch) return attrMatch[1];
-  return null;
-}
-
 function renderShortcodeBlock(block: ShortcodeBlock): React.ReactNode {
-  const snippetId = parseDetectiveSnippetId(block.value);
-  if (snippetId) {
-    return (
-      <div className="my-8" key={Math.random()}>
-        <DetectiveSnippetGrid snippetId={snippetId} />
-      </div>
-    );
-  }
   return (
     <div className="bg-amber-50 border border-amber-300 rounded p-4 my-6" key={Math.random()}>
       <p className="text-sm text-amber-800 font-mono">{block.value}</p>
       <p className="text-xs text-amber-600 mt-2">
-        ℹ️ Shortcode not recognized. Use [detective_snippet id=&quot;your-snippet-id&quot;] for detective grids.
+        ℹ️ Shortcode rendering coming soon
       </p>
     </div>
   );

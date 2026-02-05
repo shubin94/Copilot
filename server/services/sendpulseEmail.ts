@@ -1,17 +1,8 @@
 /**
- * SendPulse Email Service
- * 
- * Centralized email sending across the platform.
- * All templates managed in SendPulse dashboard - code only references template IDs.
- * 
- * SECURITY:
- * - API credentials stored in .env only
- * - Never logged or exposed to frontend
- * - Graceful failure handling (non-blocking)
- * 
- * DEVELOPMENT:
- * - NODE_ENV !== "production" → logs only, does not send (unless SENDPULSE_ENABLED=true)
+ * SendPulse Email Service – credentials from app_secrets via config only.
  */
+
+import { config } from "../config.ts";
 
 interface EmailVariable {
   [key: string]: string | number | boolean | null | undefined;
@@ -52,16 +43,16 @@ class SendPulseEmailService {
   private tokenExpiry: number = 0;
 
   constructor() {
-    this.apiId = process.env.SENDPULSE_API_ID || "";
-    this.apiSecret = process.env.SENDPULSE_API_SECRET || "";
-    this.senderEmail = process.env.SENDPULSE_SENDER_EMAIL || "noreply@example.com";
-    this.senderName = process.env.SENDPULSE_SENDER_NAME || "Ask Detectives";
-    this.enabled = process.env.SENDPULSE_ENABLED === "true";
+    this.apiId = config.sendpulse.apiId || "";
+    this.apiSecret = config.sendpulse.apiSecret || "";
+    this.senderEmail = config.sendpulse.senderEmail || "noreply@example.com";
+    this.senderName = config.sendpulse.senderName || "Ask Detectives";
+    this.enabled = config.sendpulse.enabled;
     this.isProd = process.env.NODE_ENV === "production";
 
     if (!this.apiId || !this.apiSecret) {
       console.warn(
-        "[SendPulse] Warning: API credentials not configured. Email sending disabled."
+        "[SendPulse] Warning: API credentials not configured. Set in Admin → App Secrets. Email sending disabled."
       );
       this.enabled = false;
     }
