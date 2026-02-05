@@ -80,7 +80,7 @@ export interface IStorage {
 
   // Order operations
   getOrder(id: string): Promise<Order | undefined>;
-  getOrdersByUser(userId: string, limit?: number): Promise<Order[]>;
+  getOrdersByUser(userId: string, limit?: number, offset?: number): Promise<Order[]>;
   getOrdersByDetective(detectiveId: string, limit?: number): Promise<Order[]>;
   createOrder(order: InsertOrder): Promise<Order>;
   updateOrder(id: string, updates: Partial<Order>): Promise<Order | undefined>;
@@ -489,8 +489,7 @@ export class DatabaseStorage implements IStorage {
       .from(services)
       .where(and(
         eq(services.detectiveId, detectiveId),
-        eq(services.isActive, true),
-        sql<boolean>`cardinality(${services.images}) > 0`
+        eq(services.isActive, true)
       ))
       .orderBy(desc(services.createdAt));
   }
@@ -500,6 +499,15 @@ export class DatabaseStorage implements IStorage {
       .from(services)
       .where(eq(services.detectiveId, detectiveId))
       .orderBy(desc(services.createdAt));
+  }
+
+  // OPTIMIZED: Paginated getAllServices for batch processing (Issue 2.6)
+  async getAllServices(limit: number = 100, offset: number = 0): Promise<Service[]> {
+    return await db.select()
+      .from(services)
+      .orderBy(desc(services.createdAt))
+      .limit(limit)
+      .offset(offset);
   }
 
   async getServiceByDetectiveAndCategory(detectiveId: string, category: string): Promise<Service | undefined> {
@@ -596,16 +604,18 @@ export class DatabaseStorage implements IStorage {
     let query = db.select({
       service: services,
       detective: detectives,
+      email: users.email,
       package: subscriptionPlans,
       avgRating: sql<number>`COALESCE(AVG(${reviews.rating}), 0)`.as('avg_rating'),
       reviewCount: count(reviews.id).as('review_count'),
     })
     .from(services)
     .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
+    .leftJoin(users, eq(detectives.userId, users.id))
     .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
     .leftJoin(reviews, and(eq(reviews.serviceId, services.id), eq(reviews.isPublished, true)))
     .where(and(...conditions))
-    .groupBy(services.id, detectives.id, subscriptionPlans.id);
+    .groupBy(services.id, detectives.id, subscriptionPlans.id, users.email);
 
     // rating filter uses HAVING on aggregate
     if (filters.ratingMin !== undefined) {
@@ -629,6 +639,7 @@ export class DatabaseStorage implements IStorage {
       ...r.service,
       detective: {
         ...r.detective!,
+        email: r.email || undefined,
         subscriptionPackage: r.package || undefined,
       },
       avgRating: Number(r.avgRating),
@@ -777,6 +788,33 @@ export class DatabaseStorage implements IStorage {
     const [row] = await db.select({ c: count(profileClaims.id) }).from(profileClaims);
     return Number((row as any)?.c) || 0;
   }
+
+  // OPTIMIZED: Get all counts in a single database query (was 5 sequential queries)
+  async getAllCounts(): Promise<{ usersCount: number; detectivesCount: number; servicesCount: number; applicationsCount: number; claimsCount: number }> {
+    const result = await db.select({
+      usersCount: count(users.id),
+      detectivesCount: count(detectives.id),
+      servicesCount: count(services.id),
+      applicationsCount: count(detectiveApplications.id),
+      claimsCount: count(profileClaims.id),
+    })
+    .from(users)
+    .crossJoin(detectives)
+    .crossJoin(services)
+    .crossJoin(detectiveApplications)
+    .crossJoin(profileClaims)
+    .limit(1);
+
+    const row = result[0];
+    return {
+      usersCount: Number(row?.usersCount) || 0,
+      detectivesCount: Number(row?.detectivesCount) || 0,
+      servicesCount: Number(row?.servicesCount) || 0,
+      applicationsCount: Number(row?.applicationsCount) || 0,
+      claimsCount: Number(row?.claimsCount) || 0,
+    };
+  }
+
   // Review operations
   async getReview(id: string): Promise<Review | undefined> {
     const [review] = await db.select().from(reviews).where(eq(reviews.id, id)).limit(1);
@@ -841,12 +879,13 @@ export class DatabaseStorage implements IStorage {
     return order;
   }
 
-  async getOrdersByUser(userId: string, limit: number = 50): Promise<Order[]> {
+  async getOrdersByUser(userId: string, limit: number = 50, offset: number = 0): Promise<Order[]> {
     return await db.select()
       .from(orders)
       .where(eq(orders.userId, userId))
       .orderBy(desc(orders.createdAt))
-      .limit(limit);
+      .limit(limit)
+      .offset(offset);
   }
 
   async getOrdersByDetective(detectiveId: string, limit: number = 50): Promise<Order[]> {
@@ -855,6 +894,19 @@ export class DatabaseStorage implements IStorage {
       .where(eq(orders.detectiveId, detectiveId))
       .orderBy(desc(orders.createdAt))
       .limit(limit);
+  }
+
+  // OPTIMIZED: Get orders for a detective by their userId using a single JOIN query
+  // Eliminates the N+1 pattern of fetching detective first, then orders
+  async getOrdersByDetectiveUserId(userId: string, limit: number = 50, offset: number = 0): Promise<Order[]> {
+    return await db.select()
+      .from(orders)
+      .innerJoin(detectives, eq(orders.detectiveId, detectives.id))
+      .where(eq(detectives.userId, userId))
+      .orderBy(desc(orders.createdAt))
+      .limit(limit)
+      .offset(offset)
+      .then((results: any[]) => results.map((r: any) => r.orders));
   }
 
   async createOrder(insertOrder: InsertOrder): Promise<Order> {
@@ -906,7 +958,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPaymentOrderByPaypalOrderId(paypalOrderId: string): Promise<PaymentOrder | undefined> {
-    const [row] = await db.select().from(paymentOrders).where(eq(paymentOrders.paypalOrderId, paypalOrderId)).limit(1);
+    // OPTIMIZED: Select only required columns for payment verification
+    const [row] = await db.select({
+      id: paymentOrders.id,
+      userId: paymentOrders.userId,
+      detectiveId: paymentOrders.detectiveId,
+      packageId: paymentOrders.packageId,
+      billingCycle: paymentOrders.billingCycle,
+      status: paymentOrders.status,
+      paypalOrderId: paymentOrders.paypalOrderId,
+    }).from(paymentOrders).where(eq(paymentOrders.paypalOrderId, paypalOrderId)).limit(1);
     return row as any;
   }
 

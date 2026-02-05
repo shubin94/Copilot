@@ -4,15 +4,36 @@ import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Mail, Phone, MapPin } from "lucide-react";
+import { Mail } from "lucide-react";
+import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
 
 export default function ContactPage() {
   const { toast } = useToast();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast({ title: "Not available yet", description: "This feature is not available yet." });
+    if (isSubmitting) return;
+
+    try {
+      setIsSubmitting(true);
+      await api.post("/api/contact", { firstName, lastName, email, message });
+      toast({ title: "Message sent", description: "We’ll get back to you soon." });
+      setFirstName("");
+      setLastName("");
+      setEmail("");
+      setMessage("");
+    } catch (error: any) {
+      toast({ title: "Failed to send", description: error?.message || "Please try again.", variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -34,27 +55,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900">Email Us</h3>
-                  <p className="text-gray-600">support@finddetectives.com</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center text-green-600">
-                  <Phone className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Call Us</h3>
-                  <p className="text-gray-600">+1 (555) 123-4567</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center text-green-600">
-                  <MapPin className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Visit Us</h3>
-                  <p className="text-gray-600">123 Detective Lane, Mystery City, US</p>
+                  <p className="text-gray-600">contact@askdetectives.com</p>
                 </div>
               </div>
             </div>
@@ -65,25 +66,27 @@ export default function ContactPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">First Name</label>
-                  <Input placeholder="Sherlock" />
+                  <Input placeholder="Sherlock" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Last Name</label>
-                  <Input placeholder="Holmes" />
+                  <Input placeholder="Holmes" value={lastName} onChange={(e) => setLastName(e.target.value)} />
                 </div>
               </div>
               
               <div className="space-y-2">
                 <label className="text-sm font-medium">Email</label>
-                <Input type="email" placeholder="sherlock@bakerstreet.com" />
+                <Input type="email" placeholder="sherlock@bakerstreet.com" value={email} onChange={(e) => setEmail(e.target.value)} />
               </div>
               
               <div className="space-y-2">
                 <label className="text-sm font-medium">Message</label>
-                <Textarea placeholder="How can we help you?" className="min-h-[120px]" />
+                <Textarea placeholder="How can we help you?" className="min-h-[120px]" value={message} onChange={(e) => setMessage(e.target.value)} />
               </div>
               
-              <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" title="Not available yet">Send Message</Button>
+              <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={isSubmitting}>
+                {isSubmitting ? "Sending..." : "Send Message"}
+              </Button>
             </form>
           </div>
         </div>

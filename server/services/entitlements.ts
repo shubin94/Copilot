@@ -42,6 +42,10 @@ export function computeEffectiveBadges(
     }
   }
 
+  // Blue tick is ONLY shown if:
+  // 1. User has separate blue tick addon (blueTickAddon = true), OR
+  // 2. User has active subscription AND package includes blue tick
+  // IMPORTANT: Do NOT use hasBlueTick field as it persists after downgrade
   const blueTickFromPackage = packageBadges.blueTick === true;
   const blueTickAddon = (detective as any).blueTickAddon === true;
   const effectiveBlueTick = blueTickAddon || (activeSubscription && blueTickFromPackage);

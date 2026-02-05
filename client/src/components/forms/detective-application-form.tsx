@@ -562,9 +562,30 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
       }
     } catch (error: any) {
       console.error("Submission error:", error);
+      console.error("Error details:", {
+        name: error?.name,
+        message: error?.message,
+        status: error?.status,
+        response: error?.response,
+      });
+      
+      let displayMessage = "Please try again later.";
+      
+      if (error?.name === 'AbortError') {
+        displayMessage = "Request took too long. Your files might be too large. Try reducing file sizes.";
+      } else if (error?.status === 409) {
+        displayMessage = error.message || "An application with this email or phone already exists.";
+      } else if (error?.status === 413) {
+        displayMessage = "Files are too large. Please use smaller images or documents.";
+      } else if (error?.status === 400) {
+        displayMessage = "Invalid form data. Please check all fields and try again.";
+      } else if (error?.message) {
+        displayMessage = error.message;
+      }
+      
       toast({
         title: "Submission Failed",
-        description: error.message || "Please try again later.",
+        description: displayMessage,
         variant: "destructive",
       });
     }

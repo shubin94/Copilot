@@ -50,9 +50,13 @@ export default function DetectivePublicPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-lg" data-testid="text-detective-name">{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</span>
-                    {/* Order: Blue Tick → Pro → Recommended (Blue Tick & Pro icons, Recommended text) */}
-                    {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick) && (
-                      <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title="Verified" data-testid="badge-verified" />
+                    {/* Show Blue Tick ONLY if entitled via subscription package or addon */}
+                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
+                      <img src="/blue-tick.png" alt="Blue Tick" className="h-5 w-5 flex-shrink-0" title="Blue Tick Verified" data-testid="badge-blue-tick" />
+                    )}
+                    {/* Show Verified Badge separately (different icon or badge if needed) */}
+                    {detective.isVerified && !(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
+                      <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0 opacity-60" title="Verified Detective" data-testid="badge-verified" />
                     )}
                     {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
                       <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" />
@@ -198,7 +202,10 @@ export default function DetectivePublicPage() {
                     price={Number(service.basePrice)}
                     offerPrice={service.offerPrice ? Number(service.offerPrice) : null}
                     isUnclaimed={false}
-                    countryCode={service.detective?.country}
+                    countryCode={detective?.country}
+                    phone={(detective as any)?.phone}
+                    whatsapp={(detective as any)?.whatsapp}
+                    contactEmail={(detective as any)?.contactEmail || (detective as any)?.email}
                   />
                 );
               })}

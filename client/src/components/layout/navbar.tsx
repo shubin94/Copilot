@@ -16,8 +16,15 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 import { useCurrency, COUNTRIES } from "@/lib/currency-context";
 import { useUserSafe } from "@/lib/user-context";
-import { useSiteSettings, useServiceCategories, useCurrentDetective } from "@/lib/hooks";
-import { getCategorySuggestions } from "@/lib/autocomplete";
+import { useSiteSettings, useCurrentDetective } from "@/lib/hooks";
+import { api } from "@/lib/api";
+
+type AutocompleteSuggestion = {
+  type: "category" | "detective" | "location";
+  label: string;
+  value: string;
+  meta?: string;
+};
 
 export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { transparentOnHome?: boolean; overlayOnHome?: boolean }) {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -25,25 +32,42 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
   const [searchQuery, setSearchQuery] = useState("");
   const [focused, setFocused] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
   const { selectedCountry, setCountry } = useCurrency();
   const { user, logout } = useUserSafe();
   const { data: currentDetectiveData } = useCurrentDetective();
   const currentDetective = currentDetectiveData?.detective;
   const { data: siteData } = useSiteSettings();
-  const shouldLoadCats = focused || location.startsWith("/search");
-  const { data: categoriesData } = useServiceCategories(true, shouldLoadCats);
   const site = siteData?.settings;
   
-  // Debug logging
-  if (typeof window !== 'undefined' && site) {
-    console.log("🔍 Navbar component received site data:", {
-      headerLogoUrl: site.headerLogoUrl,
-      stickyHeaderLogoUrl: site.stickyHeaderLogoUrl,
-    });
-  }
-  
-  const categoryNames = useMemo(() => (categoriesData?.categories || []).map(c => c.name), [categoriesData]);
-  const suggestions = useMemo(() => getCategorySuggestions(categoryNames, searchQuery, 6), [categoryNames, searchQuery]);
+  // Fetch autocomplete suggestions
+  useEffect(() => {
+    const query = searchQuery.trim();
+    console.log("🔍 Autocomplete query:", query, "length:", query.length);
+    
+    if (!query || query.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      console.log("🔍 Fetching autocomplete for:", query);
+      setLoading(true);
+      try {
+        const data = await api.get<{ suggestions: AutocompleteSuggestion[] }>(`/api/search/autocomplete?q=${encodeURIComponent(query)}`);
+        console.log("🔍 Autocomplete results:", data);
+        setSuggestions(data.suggestions || []);
+      } catch (error) {
+        console.error("❌ Autocomplete error:", error);
+        setSuggestions([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const handleSearch = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -57,13 +81,22 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
       return;
     }
     if (e.key === 'Enter' && searchQuery.trim()) {
-      const val = activeIdx >= 0 && suggestions[activeIdx] ? suggestions[activeIdx] : searchQuery;
-      const params = new URLSearchParams();
-      params.set("q", val);
-      if (selectedCountry.code !== "ALL") {
-        params.set("country", selectedCountry.code);
+      const selected = activeIdx >= 0 && suggestions[activeIdx] ? suggestions[activeIdx] : null;
+      if (selected?.type === "detective") {
+        // Navigate to detective public page
+        setLocation(`/p/${selected.value}`);
+      } else if (selected?.type === "location" && selected.value.startsWith("country:")) {
+        const countryCode = selected.value.replace("country:", "");
+        setLocation(`/search?country=${countryCode}`);
+      } else {
+        const val = selected?.label || searchQuery;
+        const params = new URLSearchParams();
+        params.set("q", val);
+        if (selectedCountry.code !== "ALL" && !selected?.type) {
+          params.set("country", selectedCountry.code);
+        }
+        setLocation(`/search?${params.toString()}`);
       }
-      setLocation(`/search?${params.toString()}`);
     }
   };
 
@@ -98,7 +131,7 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
           : "bg-white border-b border-gray-200 text-gray-700"
       }`}
     >
-      <div className="container mx-auto px-6 md:px-12 lg:px-24 h-20 flex items-center justify-between">
+      <div className="container mx-auto px-6 md:px-12 lg:px-16 h-20 flex items-center justify-between">
         {/* Logo */}
         <div className="flex items-center gap-8">
           <Link href="/" className="text-2xl font-bold tracking-tight font-heading cursor-pointer flex items-center gap-2">
@@ -109,7 +142,7 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                 : (site?.headerLogoUrl || site?.logoUrl);
               
               return logo ? (
-                <img src={logo} alt="Logo" className="h-8 w-auto" />
+                <img src={logo} alt="Logo" className="h-6 w-auto" />
               ) : (
                 <>
                   Find<span className="text-green-500">Detectives</span>
@@ -151,43 +184,79 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
               placeholder={`Search in ${selectedCountry.name === 'Global' ? 'All Countries' : selectedCountry.name}...`}
               className="w-full pl-4 pr-10 h-10 bg-white border-gray-300 text-black"
               value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setActiveIdx(-1); }}
+              onChange={(e) => { 
+                console.log("🔍 Search query changed:", e.target.value);
+                setSearchQuery(e.target.value); 
+                setActiveIdx(-1); 
+              }}
               onKeyDown={handleSearch}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setTimeout(() => setFocused(false), 120)}
+              onFocus={() => { 
+                console.log("🔍 Search input focused");
+                setFocused(true); 
+              }}
+              onBlur={() => { 
+                console.log("🔍 Search input blurred");
+                setTimeout(() => setFocused(false), 200);
+              }}
             />
             <Search 
               className="absolute right-3 top-2.5 h-5 w-5 text-gray-500 cursor-pointer" 
               onClick={() => {
-                 if (searchQuery.trim()) {
-                    const val = activeIdx >= 0 && suggestions[activeIdx] ? suggestions[activeIdx] : searchQuery;
+                if (searchQuery.trim()) {
+                  const selected = activeIdx >= 0 && suggestions[activeIdx] ? suggestions[activeIdx] : null;
+                  if (selected?.type === "detective") {
+                    // Navigate to detective public page
+                    setLocation(`/p/${selected.value}`);
+                  } else if (selected?.type === "location" && selected.value.startsWith("country:")) {
+                    const countryCode = selected.value.replace("country:", "");
+                    setLocation(`/search?country=${countryCode}`);
+                  } else {
+                    const val = selected?.label || searchQuery;
                     const params = new URLSearchParams();
                     params.set("q", val);
-                    if (selectedCountry.code !== "ALL") {
+                    if (selectedCountry.code !== "ALL" && !selected?.type) {
                       params.set("country", selectedCountry.code);
                     }
                     setLocation(`/search?${params.toString()}`);
-                 }
+                  }
+                }
               }}
             />
-            {focused && suggestions.length > 0 && (
-              <div className="absolute left-0 top-full mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-20 text-gray-800">
-                {suggestions.map((s, i) => (
-                  <button
-                    key={s}
-                    onMouseDown={() => {
-                      const params = new URLSearchParams();
-                      params.set("q", s);
-                      if (selectedCountry.code !== "ALL") params.set("country", selectedCountry.code);
-                      setLocation(`/search?${params.toString()}`);
-                    }}
-                    className={`w-full text-left px-3 py-2 hover:bg-gray-100 ${activeIdx === i ? 'bg-gray-100' : ''} text-gray-800`}
+            {(() => {
+              console.log("🔍 Dropdown check:", { focused, suggestionsLength: suggestions.length, suggestions });
+              return focused && suggestions.length > 0 && (
+                <div className="absolute left-0 top-full mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-20 text-gray-800 max-h-96 overflow-y-auto">
+                  {suggestions.map((s, i) => (
+                    <button
+                      key={`${s.type}-${s.value}`}
+                      onMouseDown={() => {
+                        if (s.type === "detective") {
+                          // Navigate to detective public page
+                          setLocation(`/p/${s.value}`);
+                        } else if (s.type === "location" && s.value.startsWith("country:")) {
+                          const countryCode = s.value.replace("country:", "");
+                          setLocation(`/search?country=${countryCode}`);
+                        } else {
+                          const params = new URLSearchParams();
+                          params.set("q", s.label);
+                          if (selectedCountry.code !== "ALL" && s.type !== "location") {
+                            params.set("country", selectedCountry.code);
+                          }
+                          setLocation(`/search?${params.toString()}`);
+                        }
+                      }}
+                    className={`w-full text-left px-3 py-2 hover:bg-gray-100 ${activeIdx === i ? 'bg-gray-100' : ''} text-gray-800 flex items-center gap-2`}
                   >
-                    {s}
+                    <span className="text-xs text-gray-500 uppercase font-semibold min-w-[60px]">
+                      {s.type === "category" ? "📁 Category" : s.type === "detective" ? "👤 Detective" : "📍 Location"}
+                    </span>
+                    <span className="flex-1">{s.label}</span>
+                    {s.meta && <span className="text-xs text-gray-400">{s.meta}</span>}
                   </button>
                 ))}
               </div>
-            )}
+            );
+            })()}
           </div>
         </div>
 

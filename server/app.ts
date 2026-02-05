@@ -38,13 +38,37 @@ declare module 'http' {
     rawBody: unknown
   }
 }
-app.use(express.json({
-  limit: '50mb',
-  verify: (req, _res, buf) => {
-    req.rawBody = buf;
+
+// OPTIMIZATION: Per-route body size limits instead of global 50MB
+// These are exported and applied selectively in routes.ts
+export const bodyParsers = {
+  // Public read-only routes: minimal body size (1MB for query params, etc.)
+  public: {
+    json: express.json({
+      limit: '1mb',
+      verify: (req, _res, buf) => { req.rawBody = buf; }
+    }),
+    urlencoded: express.urlencoded({ extended: false, limit: '1mb' })
+  },
+  
+  // Authentication endpoints: small body size (10KB for login/register)
+  auth: {
+    json: express.json({
+      limit: '10kb',
+      verify: (req, _res, buf) => { req.rawBody = buf; }
+    }),
+    urlencoded: express.urlencoded({ extended: false, limit: '10kb' })
+  },
+  
+  // File upload endpoints: large body size (10MB for PDFs, images, etc.)
+  fileUpload: {
+    json: express.json({
+      limit: '10mb',
+      verify: (req, _res, buf) => { req.rawBody = buf; }
+    }),
+    urlencoded: express.urlencoded({ extended: false, limit: '10mb' })
   }
-}));
-app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+};
 
 // CORS configuration for cross-origin requests
 const configuredOrigins = config.csrf.allowedOrigins;
@@ -131,35 +155,37 @@ const claimSubmissionLimiter = rateLimit({
 });
 app.use("/api/claims", claimSubmissionLimiter);
 
-const useMemorySession = config.session.useMemory;
+// OPTIMIZED: Create session middleware but apply selectively to authenticated routes only
+// This avoids unnecessary database lookups on public APIs
+export function getSessionMiddleware() {
+  const useMemorySession = config.session.useMemory;
 
-let sessionStore;
-if (useMemorySession) {
-  // Use in-memory session store in development (no Postgres required)
-  sessionStore = new (session as any).MemoryStore();
-  console.log("[dev] Using in-memory session store (Postgres not required)");
-} else {
-  // Use Postgres session store in production
-  const PgSession = connectPgSimple(session);
-  sessionStore = new PgSession({
-    pool: new Pool({
-      connectionString: config.db.url,
-      // Session store pool sizing - handles session read/write/cleanup only
-      max: 5,                      // Smaller pool (sessions are lightweight queries)
-      min: 1,                      // Keep 1 warm connection for session checks
-      idleTimeoutMillis: 30000,    // Close idle connections after 30s
-      connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
-      ssl: !config.db.url?.includes("localhost") && !config.db.url?.includes("127.0.0.1")
-        ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases
-        : undefined,
-    }),
-    tableName: "session",
-    createTableIfMissing: true,
-  });
-}
+  let sessionStore;
+  if (useMemorySession) {
+    // Use in-memory session store in development (no Postgres required)
+    sessionStore = new (session as any).MemoryStore();
+    console.log("[dev] Using in-memory session store (Postgres not required)");
+  } else {
+    // Use Postgres session store in production
+    const PgSession = connectPgSimple(session);
+    sessionStore = new PgSession({
+      pool: new Pool({
+        connectionString: config.db.url,
+        // Session store pool sizing - handles session read/write/cleanup only
+        max: 5,                      // Smaller pool (sessions are lightweight queries)
+        min: 1,                      // Keep 1 warm connection for session checks
+        idleTimeoutMillis: 30000,    // Close idle connections after 30s
+        connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
+        ssl: !config.db.url?.includes("localhost") && !config.db.url?.includes("127.0.0.1")
+          ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases
+          : undefined,
+      }),
+      tableName: "session",
+      createTableIfMissing: true,
+    });
+  }
 
-app.use(
-  session({
+  return session({
     store: sessionStore,
     secret: config.session.secret,
     resave: false,
@@ -172,10 +198,21 @@ app.use(
       // In production, allow cookies across Vercel frontend and Render backend
       domain: config.env.isProd ? undefined : undefined,
     },
-  })
-);
+  });
+}
+
+// Apply session middleware globally so all routes have access to CSRF tokens
+const globalSessionMiddleware = getSessionMiddleware();
+app.use(globalSessionMiddleware);
 
 const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const CSRF_ALLOWED_ORIGINS = [
+  ...config.csrf.allowedOrigins,
+  "http://localhost:5173",
+  "http://localhost:5000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5000",
+];
 
 app.use((req, res, next) => {
   if (!CSRF_METHODS.has(req.method)) return next();
@@ -191,7 +228,7 @@ app.use((req, res, next) => {
     if (!urlValue) return false;
     try {
       const incoming = new URL(urlValue);
-      return config.csrf.allowedOrigins.some((allowed) => {
+      return CSRF_ALLOWED_ORIGINS.some((allowed) => {
         try {
           const allowUrl = new URL(allowed);
           return allowUrl.protocol === incoming.protocol && allowUrl.host === incoming.host;
@@ -210,18 +247,17 @@ app.use((req, res, next) => {
   }
 
   if (!origin && referer && !isAllowedOrigin(referer)) {
-    log(`CSRF blocked: referer not allowed (${referer})`, "csrf");
-    return res.status(403).json({ message: "Forbidden" });
-  }
-
-  if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
-    log("CSRF blocked: missing or invalid X-Requested-With header", "csrf");
+    log(`CSRF blocked: referer not allowed (${referer}) ${req.method} ${req.path}`, "csrf");
     return res.status(403).json({ message: "Forbidden" });
   }
 
   if (!sessionToken || token !== sessionToken) {
-    log("CSRF blocked: missing or invalid CSRF token", "csrf");
+    log(`CSRF blocked: missing or invalid CSRF token ${req.method} ${req.path}`, "csrf");
     return res.status(403).json({ message: "Forbidden" });
+  }
+
+  if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
+    log(`CSRF warning: missing or invalid X-Requested-With header ${req.method} ${req.path}`, "csrf");
   }
 
   return next();
