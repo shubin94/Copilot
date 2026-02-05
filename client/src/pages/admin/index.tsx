@@ -1,7 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import {
+import { 
   BarChart3,
   Settings,
   FolderOpen,
@@ -11,135 +9,112 @@ import {
   Menu,
   X,
 } from "lucide-react";
+import { DashboardLayout } from "@/components/layout/dashboard-layout";
 
 export default function AdminDashboard() {
-  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Check admin role (response shape: { user } same as /api/auth/me)
-  const { data } = useQuery({
-    queryKey: ["/api/user"],
-    queryFn: async () => {
-      const res = await fetch("/api/user");
-      if (!res.ok) throw new Error("Not authenticated");
-      return res.json();
-    },
-  });
-  const user = data?.user;
-
-  if (user?.role !== "admin") {
-    return (
-      <div className="min-h-screen bg-red-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-red-600 mb-2">Access Denied</h1>
-          <p className="text-gray-600">You do not have admin privileges.</p>
-          <button
-            onClick={() => navigate("/")}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-          >
-            Go Home
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // DashboardLayout handles auth check automatically
+  // If not admin, it will show Access Denied
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
-      <div
-        className={`${
-          sidebarOpen ? "w-64" : "w-20"
-        } bg-gray-900 text-white transition-all duration-300 flex flex-col`}
-      >
-        <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-          {sidebarOpen && <h1 className="text-xl font-bold">Admin Panel</h1>}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1 hover:bg-gray-800 rounded"
-          >
-            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
+    <DashboardLayout role="admin">
+      <div className="flex h-screen bg-gray-100">
+        {/* Sidebar */}
+        <div
+          className={`${
+            sidebarOpen ? "w-64" : "w-20"
+          } bg-gray-900 text-white transition-all duration-300 flex flex-col`}
+        >
+          <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+            {sidebarOpen && <h1 className="text-xl font-bold">Admin Panel</h1>}
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-1 hover:bg-gray-800 rounded"
+            >
+              {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          </div>
+
+          <nav className="flex-1 p-4 space-y-2">
+            <NavItem
+              icon={<BarChart3 size={20} />}
+              label="Dashboard"
+              active
+              collapsed={!sidebarOpen}
+              onClick={() => window.location.href = "/admin"}
+            />
+            <NavItem
+              icon={<FolderOpen size={20} />}
+              label="Categories"
+              collapsed={!sidebarOpen}
+              onClick={() => window.location.href = "/admin/cms/categories"}
+            />
+            <NavItem
+              icon={<Tag size={20} />}
+              label="Tags"
+              collapsed={!sidebarOpen}
+              onClick={() => window.location.href = "/admin/cms/tags"}
+            />
+            <NavItem
+              icon={<FileText size={20} />}
+              label="Pages"
+              collapsed={!sidebarOpen}
+              onClick={() => window.location.href = "/admin/cms/pages"}
+            />
+            <NavItem
+              icon={<Settings size={20} />}
+              label="Settings"
+              collapsed={!sidebarOpen}
+              onClick={() => window.location.href = "/admin/settings"}
+            />
+          </nav>
+
+          <div className="p-4 border-t border-gray-800">
+            <button
+              onClick={() => {
+                fetch("/api/auth/logout", { method: "POST" });
+                window.location.href = "/login";
+              }}
+              className="w-full flex items-center gap-3 p-2 hover:bg-gray-800 rounded text-sm"
+            >
+              <LogOut size={20} />
+              {sidebarOpen && <span>Logout</span>}
+            </button>
+          </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-2">
-          <NavItem
-            icon={<BarChart3 size={20} />}
-            label="Dashboard"
-            active
-            collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin")}
-          />
-          <NavItem
-            icon={<FolderOpen size={20} />}
-            label="Categories"
-            collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/cms/categories")}
-          />
-          <NavItem
-            icon={<Tag size={20} />}
-            label="Tags"
-            collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/cms/tags")}
-          />
-          <NavItem
-            icon={<FileText size={20} />}
-            label="Pages"
-            collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/cms/pages")}
-          />
-          <NavItem
-            icon={<Settings size={20} />}
-            label="Settings"
-            collapsed={!sidebarOpen}
-            onClick={() => navigate("/admin/settings")}
-          />
-        </nav>
+        {/* Main Content */}
+        <div className="flex-1 overflow-auto">
+          <div className="p-8">
+            <h2 className="text-3xl font-bold text-gray-900 mb-8">Welcome to Admin</h2>
 
-        <div className="p-4 border-t border-gray-800">
-          <button
-            onClick={() => {
-              fetch("/api/logout", { method: "POST" });
-              navigate("/login");
-            }}
-            className="w-full flex items-center gap-3 p-2 hover:bg-gray-800 rounded text-sm"
-          >
-            <LogOut size={20} />
-            {sidebarOpen && <span>Logout</span>}
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 overflow-auto">
-        <div className="p-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-8">Welcome to Admin</h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatsCard
-              title="Categories"
-              icon={<FolderOpen size={32} />}
-              action={() => navigate("/admin/cms/categories")}
-            />
-            <StatsCard
-              title="Tags"
-              icon={<Tag size={32} />}
-              action={() => navigate("/admin/cms/tags")}
-            />
-            <StatsCard
-              title="Pages"
-              icon={<FileText size={32} />}
-              action={() => navigate("/admin/cms/pages")}
-            />
-            <StatsCard
-              title="Settings"
-              icon={<Settings size={32} />}
-              action={() => navigate("/admin/settings")}
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatsCard
+                title="Categories"
+                icon={<FolderOpen size={32} />}
+                action={() => window.location.href = "/admin/cms/categories"}
+              />
+              <StatsCard
+                title="Tags"
+                icon={<Tag size={32} />}
+                action={() => window.location.href = "/admin/cms/tags"}
+              />
+              <StatsCard
+                title="Pages"
+                icon={<FileText size={32} />}
+                action={() => window.location.href = "/admin/cms/pages"}
+              />
+              <StatsCard
+                title="Settings"
+                icon={<Settings size={32} />}
+                action={() => window.location.href = "/admin/settings"}
+              />
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }
 
