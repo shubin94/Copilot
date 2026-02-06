@@ -1,5 +1,5 @@
 import { db } from "../db/index.ts";
-import { detectives, detectiveVisibility, services, reviews } from "../shared/schema.ts";
+import { detectives, detectiveVisibility, services, reviews, subscriptionPlans } from "../shared/schema.ts";
 import { eq, desc, and, avg, count, sql, inArray } from "drizzle-orm";
 
 /**
@@ -95,7 +95,9 @@ export async function calculateVisibilityScore(
     score += levelScores[detective.level] || 100;
 
     // 3️⃣ BADGE SCORE (Additive - stacking badges)
-    if (detective.subscriptionPlan === "pro" || detective.subscriptionPlan === "agency") {
+    // Check if detective has a "pro" or "agency" subscription package
+    const packageName = detective.subscriptionPackage?.name;
+    if (packageName === "pro" || packageName === "agency") {
       score += 100;
     }
 
@@ -276,7 +278,25 @@ export async function getRankedDetectives(options?: {
 
     const detIds = detList.map((d) => d.id);
 
-    // ✅ QUERY 2: Batch load all visibility records in ONE query
+    // ✅ QUERY 2: Batch load subscription packages
+    const uniquePackageIds = Array.from(new Set(detList
+      .map((d) => d.subscriptionPackageId)
+      .filter((id): id is string => !!id)
+    ));
+    
+    const packagesMap = new Map<string, any>();
+    if (uniquePackageIds.length > 0) {
+      const packages = await db
+        .select()
+        .from(subscriptionPlans)
+        .where(inArray(subscriptionPlans.id, uniquePackageIds));
+      
+      for (const pkg of packages) {
+        packagesMap.set(pkg.id, pkg);
+      }
+    }
+
+    // ✅ QUERY 3: Batch load all visibility records in ONE query
     const allVisibility = await db
       .select()
       .from(detectiveVisibility)
@@ -284,7 +304,7 @@ export async function getRankedDetectives(options?: {
 
     const visibilityMap = new Map(allVisibility.map((v) => [v.detectiveId, v]));
 
-    // ✅ QUERY 3: Batch load all services for these detectives in ONE query
+    // ✅ QUERY 4: Batch load all services for these detectives in ONE query
     const allServices = await db
       .select({ id: services.id, detectiveId: services.detectiveId })
       .from(services)
@@ -297,7 +317,7 @@ export async function getRankedDetectives(options?: {
       servicesByDetective.set(svc.detectiveId, existing);
     }
 
-    // ✅ QUERY 4: Batch aggregate reviews for ALL services in ONE query
+    // ✅ QUERY 5: Batch aggregate reviews for ALL services in ONE query
     const allServiceIds = Array.from(new Set(allServices.map((s) => s.id)));
     let reviewAggregates = new Map<string, { totalReviews: number; avgRating: number }>();
 
@@ -400,6 +420,9 @@ export async function getRankedDetectives(options?: {
 
       return {
         ...detective,
+        subscriptionPackage: detective.subscriptionPackageId 
+          ? packagesMap.get(detective.subscriptionPackageId) 
+          : undefined,
         visibilityScore: score,
         isVisible: visibility.isVisible ?? true,
         isFeatured: visibility.isFeatured ?? false,

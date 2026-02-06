@@ -54,13 +54,10 @@ export const detectives = pgTable("detectives", {
   identityDocuments: text("identity_documents").array().default(sql`ARRAY[]::text[]`),
   recognitions: jsonb("recognitions").default(sql`'[]'::jsonb`),
   memberSince: timestamp("member_since").notNull().defaultNow(),
-  // TODO: REMOVE in v3.0 - Legacy field, kept only for backward compatibility with old data
-  // DEPRECATED: subscriptionPlan is READ-ONLY and unused by business logic
-  // ALL NEW CODE MUST USE subscriptionPackageId (via payment verification flow)
-  // Never: Compare to strings ("free", "pro", "agency"), use for access control, or update via API
-  subscriptionPlan: text("subscription_plan").notNull().default("free"),
-  // ACTIVE: Use these fields for all subscription logic
-  subscriptionPackageId: text("subscription_package_id"),
+  // ACTIVE: Use these fields for all subscription logic (single source of truth)
+  subscriptionPackageId: varchar("subscription_package_id")
+    .notNull()
+    .references(() => subscriptionPlans.id, { onDelete: "restrict", onUpdate: "cascade" }),
   billingCycle: text("billing_cycle"),
   subscriptionActivatedAt: timestamp("subscription_activated_at"),
   subscriptionExpiresAt: timestamp("subscription_expires_at"),
@@ -93,7 +90,6 @@ export const detectives = pgTable("detectives", {
   stateIdx: index("detectives_state_idx").on(table.state),
   cityIdx: index("detectives_city_idx").on(table.city),
   statusIdx: index("detectives_status_idx").on(table.status),
-  planIdx: index("detectives_plan_idx").on(table.subscriptionPlan),
   claimCompletedAtIdx: index("detectives_claim_completed_at_idx").on(table.claimCompletedAt),
   phoneUniqueIdx: uniqueIndex("detectives_phone_unique").on(table.phone),
 }));

@@ -53,7 +53,7 @@ import { requireAuth, requireRole } from "./authMiddleware.ts";
 import { getPaymentGateway, isPaymentGatewayEnabled } from "./services/paymentGateway.ts";
 import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
 import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
-import { getFreePlanId } from "./services/freePlan.ts";
+import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.ts";
 import adminCmsRouter from "./routes/admin-cms.ts";
 import adminFinanceRouter from "./routes/admin-finance.ts";
 import publicPagesRouter from "./routes/public-pages.ts";
@@ -1965,8 +1965,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/categories", publicCategoriesRouter);
   app.use("/api/public/tags", publicTagsRouter);
 
-  // Admin CMS Routes
-  app.use("/api/admin", adminCmsRouter);
+  // Admin CMS Routes - SECURED: requireRole("admin") middleware enforces authentication
+  app.use("/api/admin", requireRole("admin"), adminCmsRouter);
 
   // Admin Finance Routes
   app.use("/api/admin/finance", requireRole("admin"), adminFinanceRouter);
@@ -2371,6 +2371,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         monthlyPrice: parsed.monthlyPrice !== undefined ? String(parsed.monthlyPrice) : undefined,
         yearlyPrice: parsed.yearlyPrice !== undefined ? String(parsed.yearlyPrice) : undefined,
       } as any);
+      clearFreePlanCache();
+      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => cache.del(k));
+      console.debug("[cache INVALIDATE]", "services:");
       res.json({ plan });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -5493,15 +5496,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const q = `
         SELECT s.id AS service_id, s.title AS service_title, s.images AS service_images,
-               s.base_price, s.offer_price, s.category AS service_category,
+               s.base_price, s.offer_price, s.is_on_enquiry, s.category AS service_category,
                d.id AS detective_id, d.business_name, d.level, d.logo, d.is_verified, d.location, d.country,
+               d.phone, d.whatsapp, d.contact_email,
                d.has_blue_tick, d.blue_tick_addon, d.subscription_package_id, d.subscription_expires_at,
-               sp.badges AS subscription_badges,
+               sp.badges AS subscription_badges, sp.features AS subscription_features, sp.is_active AS subscription_is_active,
+               u.email AS user_email,
                (SELECT COALESCE(AVG(r.rating), 0) FROM reviews r WHERE r.service_id = s.id) AS avg_rating,
                (SELECT COUNT(*)::int FROM reviews r WHERE r.service_id = s.id) AS review_count
         FROM services s
         INNER JOIN detectives d ON d.id = s.detective_id AND d.status = 'active'
         LEFT JOIN subscription_plans sp ON sp.id = d.subscription_package_id
+        LEFT JOIN users u ON u.id = d.user_id
         WHERE s.is_active = true AND d.country = $1 AND s.category = $2${stateClause}${cityClause}
         ORDER BY avg_rating DESC NULLS LAST
         LIMIT $${paramIdx}
@@ -5513,6 +5519,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         service_images: string[] | null;
         base_price: string;
         offer_price: string | null;
+        is_on_enquiry: boolean | null;
         service_category: string | null;
         detective_id: string;
         business_name: string | null;
@@ -5521,46 +5528,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
         is_verified: boolean;
         location: string;
         country: string | null;
+        phone: string | null;
+        whatsapp: string | null;
+        contact_email: string | null;
         has_blue_tick: boolean;
         blue_tick_addon: boolean;
         subscription_package_id: string | null;
         subscription_expires_at: string | null;
         subscription_badges: unknown;
+        subscription_features: string[] | null;
+        subscription_is_active: boolean | null;
+        user_email: string | null;
         avg_rating: string;
         review_count: string;
       }>(q, params);
 
-      res.json({
-        detectives: result.rows.map((r) => {
-          const effectiveBadges = computeEffectiveBadges(
-            {
-              subscriptionPackageId: r.subscription_package_id,
-              subscriptionExpiresAt: r.subscription_expires_at,
-              hasBlueTick: r.has_blue_tick,
-              blueTickAddon: r.blue_tick_addon,
-            },
-            r.subscription_badges ? { badges: r.subscription_badges } : null
-          );
-          return {
-            id: r.detective_id,
-            serviceId: r.service_id,
-            fullName: r.business_name ?? "Unknown",
-            level: r.level,
-            profilePhoto: r.logo ?? "",
-            isVerified: r.is_verified,
-            location: r.location ?? "",
-            country: r.country ?? "",
-            avgRating: parseFloat(r.avg_rating) || 0,
-            reviewCount: parseInt(r.review_count, 10) || 0,
-            startingPrice: parseFloat(r.base_price) || 0,
-            offerPrice: r.offer_price != null ? parseFloat(r.offer_price) : null,
-            serviceTitle: r.service_title ?? r.service_category ?? "Service",
-            serviceImages: Array.isArray(r.service_images) ? r.service_images : (r.service_images ? [r.service_images] : []),
-            serviceCategory: r.service_category ?? "",
-            effectiveBadges,
-          };
-        }),
-      });
+      const detectives = await Promise.all(result.rows.map(async (r) => {
+        const effectiveBadges = computeEffectiveBadges(
+          {
+            subscriptionPackageId: r.subscription_package_id,
+            subscriptionExpiresAt: r.subscription_expires_at,
+            hasBlueTick: r.has_blue_tick,
+            blueTickAddon: r.blue_tick_addon,
+          },
+          r.subscription_badges ? { badges: r.subscription_badges } : null
+        );
+
+        const detectiveRaw: any = {
+          id: r.detective_id,
+          subscriptionPackageId: r.subscription_package_id,
+          subscriptionPackage: r.subscription_package_id
+            ? {
+                features: Array.isArray(r.subscription_features) ? r.subscription_features : [],
+                isActive: r.subscription_is_active !== false,
+              }
+            : null,
+          contactEmail: r.contact_email ?? null,
+          email: r.user_email ?? null,
+          phone: r.phone ?? null,
+          whatsapp: r.whatsapp ?? null,
+        };
+
+        const masked = await maskDetectiveContactsPublic(detectiveRaw);
+
+        return {
+          id: r.detective_id,
+          serviceId: r.service_id,
+          fullName: r.business_name ?? "Unknown",
+          level: r.level,
+          profilePhoto: r.logo ?? "",
+          isVerified: r.is_verified,
+          location: r.location ?? "",
+          country: r.country ?? "",
+          avgRating: parseFloat(r.avg_rating) || 0,
+          reviewCount: parseInt(r.review_count, 10) || 0,
+          startingPrice: parseFloat(r.base_price) || 0,
+          offerPrice: r.offer_price != null ? parseFloat(r.offer_price) : null,
+          isOnEnquiry: r.is_on_enquiry === true,
+          serviceTitle: r.service_title ?? r.service_category ?? "Service",
+          serviceImages: Array.isArray(r.service_images) ? r.service_images : (r.service_images ? [r.service_images] : []),
+          serviceCategory: r.service_category ?? "",
+          effectiveBadges,
+          phone: masked.phone ?? undefined,
+          whatsapp: masked.whatsapp ?? undefined,
+          contactEmail: (masked.contactEmail ?? masked.email) ?? undefined,
+        };
+      }));
+
+      res.json({ detectives });
     } catch (error) {
       console.error("Error fetching snippet detectives:", error);
       res.status(500).json({ error: "Failed to fetch detectives" });

@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { format } from "date-fns";
 import type { Review, User } from "@shared/schema";
+import { computeServiceBadges } from "@/lib/service-badges";
 
 export default function DetectiveProfile() {
   const [, params] = useRoute("/service/:id");
@@ -178,6 +179,10 @@ export default function DetectiveProfile() {
     ? (detective as any).subscriptionPackage.features.includes("contact_whatsapp")
     : false;
   const detectiveName = detective.businessName || "Unknown Detective";
+  const badgeState = computeServiceBadges({
+    isVerified: detective.isVerified,
+    effectiveBadges: (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
+  });
   
   const memberSince = format(new Date(detective.memberSince), "MMMM yyyy");
   const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -336,22 +341,22 @@ export default function DetectiveProfile() {
                   </Link>
                   
                   {/* Badge order: Blue Tick → Pro → Recommended (icon-only, no duplicates) */}
-                  {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick) && (
+                  {badgeState.showBlueTick && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <img 
                           src="/blue-tick.png" 
-                          alt="Verified" 
+                          alt={badgeState.blueTickLabel} 
                           className="h-5 w-5 flex-shrink-0 cursor-help"
-                          title="Verified"
+                          title={badgeState.blueTickLabel}
                         />
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>Verified</p>
+                        <p>{badgeState.blueTickLabel}</p>
                       </TooltipContent>
                     </Tooltip>
                   )}
-                  {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
+                  {badgeState.showPro && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <img 
@@ -366,7 +371,7 @@ export default function DetectiveProfile() {
                       </TooltipContent>
                     </Tooltip>
                   )}
-                  {(detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended && (
+                  {badgeState.showRecommended && (
                     <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-1 whitespace-nowrap" data-testid="badge-recommended">
                       Recommended
                     </Badge>

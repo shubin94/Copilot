@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ServiceCard } from "@/components/home/service-card";
 import { useRoute } from "wouter";
 import { useDetective, useServicesByDetective } from "@/lib/hooks";
-import { buildBadgesFromEffective } from "@/lib/badges";
+import { computeServiceBadges } from "@/lib/service-badges";
 import { MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -50,20 +50,25 @@ export default function DetectivePublicPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-lg" data-testid="text-detective-name">{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</span>
-                    {/* Show Blue Tick ONLY if entitled via subscription package or addon */}
-                    {(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
-                      <img src="/blue-tick.png" alt="Blue Tick" className="h-5 w-5 flex-shrink-0" title="Blue Tick Verified" data-testid="badge-blue-tick" />
-                    )}
-                    {/* Show Verified Badge separately (different icon or badge if needed) */}
-                    {detective.isVerified && !(detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick && (
-                      <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0 opacity-60" title="Verified Detective" data-testid="badge-verified" />
-                    )}
-                    {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
-                      <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" />
-                    )}
-                    {(detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended && (
-                      <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-0.5">Recommended</Badge>
-                    )}
+                    {(() => {
+                      const badgeState = computeServiceBadges({
+                        isVerified: detective.isVerified,
+                        effectiveBadges: (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
+                      });
+                      return (
+                        <>
+                          {badgeState.showBlueTick && (
+                            <img src="/blue-tick.png" alt={badgeState.blueTickLabel} className="h-5 w-5 flex-shrink-0" title={badgeState.blueTickLabel} data-testid="badge-blue-tick" />
+                          )}
+                          {badgeState.showPro && (
+                            <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" />
+                          )}
+                          {badgeState.showRecommended && (
+                            <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-0.5">Recommended</Badge>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-700 mt-1">
                     {detective.location && (
@@ -180,10 +185,10 @@ export default function DetectivePublicPage() {
           ) : services.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {services.map((service: any) => {
-                const badges = buildBadgesFromEffective(
-                  (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
-                  !!detective?.isVerified
-                );
+                const badgeState = computeServiceBadges({
+                  isVerified: !!detective?.isVerified,
+                  effectiveBadges: (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
+                });
                 
                 return (
                   <ServiceCard
@@ -195,7 +200,7 @@ export default function DetectivePublicPage() {
                     name={detective?.businessName || `${(detective as any)?.firstName || ''} ${(detective as any)?.lastName || ''}`}
                     level={service.detective?.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1"}
                     category={service.category}
-                    badges={badges}
+                    badgeState={badgeState}
                     title={service.title}
                     rating={service.avgRating}
                     reviews={service.reviewCount}

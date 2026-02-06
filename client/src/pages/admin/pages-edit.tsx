@@ -5,6 +5,7 @@ import { Plus, Edit2, Trash2, AlertCircle, ChevronDown, Eye } from "lucide-react
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { imageFileToDataUrl } from "@/utils/image-upload";
 import { api } from "@/lib/api";
+import { useUser } from "@/lib/user-context";
 
 interface Page {
   id: string;
@@ -22,6 +23,7 @@ interface Page {
 interface Category {
   id: string;
   name: string;
+  slug: string;
 }
 
 interface Tag {
@@ -31,6 +33,7 @@ interface Tag {
 
 export default function PagesAdminEdit() {
   const [, navigate] = useLocation();
+  const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -45,6 +48,30 @@ export default function PagesAdminEdit() {
   });
   const [tagsOpen, setTagsOpen] = useState(false);
   const [error, setError] = useState<string>("");
+
+  // Redirect if not authenticated or not admin
+  useEffect(() => {
+    if (!isLoadingUser && (!isAuthenticated || user?.role !== "admin")) {
+      navigate("/admin/login");
+    }
+  }, [isAuthenticated, user, isLoadingUser, navigate]);
+
+  // Show loading state while checking authentication
+  if (isLoadingUser) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render anything if not authenticated or not admin (will redirect)
+  if (!isAuthenticated || user?.role !== "admin") {
+    return null;
+  }
 
   // Fetch pages
   const { data: pagesData, isLoading } = useQuery({
@@ -87,7 +114,10 @@ export default function PagesAdminEdit() {
       }
     },
     onSuccess: (data) => {
+      // Invalidate all page queries regardless of status filter
       queryClient.invalidateQueries({ queryKey: ["/api/admin/pages"] });
+      // Refetch the current query with its status filter
+      queryClient.refetchQueries({ queryKey: ["/api/admin/pages", statusFilter] });
       setShowModal(false);
       setTagsOpen(false);
       setFormData({
@@ -121,8 +151,10 @@ export default function PagesAdminEdit() {
       }
     },
     onSuccess: () => {
+      // Invalidate all page queries regardless of status filter
       queryClient.invalidateQueries({ queryKey: ["/api/admin/pages"] });
-      queryClient.refetchQueries({ queryKey: ["/api/admin/pages"] });
+      // Refetch the current query with its status filter
+      queryClient.refetchQueries({ queryKey: ["/api/admin/pages", statusFilter] });
     },
   });
 
@@ -165,11 +197,19 @@ export default function PagesAdminEdit() {
     saveMutation.mutate(formData);
   };
 
-  const generateSlug = (title: string) => {
-    return title
+  const generateSlug = (title: string, categoryId?: string) => {
+    const pageSlug = title
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replace(/[^\w-]/g, "");
+    
+    if (categoryId) {
+      const category = categories.find((c) => c.id === categoryId);
+      if (category) {
+        return `${category.slug}/${pageSlug}`;
+      }
+    }
+    return pageSlug;
   };
 
   const handleBannerFile = async (file?: File | null) => {
@@ -330,7 +370,7 @@ export default function PagesAdminEdit() {
                     setFormData({
                       ...formData,
                       title: e.target.value,
-                      slug: generateSlug(e.target.value),
+                      slug: generateSlug(e.target.value, formData.categoryId),
                     });
                   }}
                   className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -343,11 +383,9 @@ export default function PagesAdminEdit() {
                 <input
                   type="text"
                   value={formData.slug}
-                  onChange={(e) =>
-                    setFormData({ ...formData, slug: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="e.g., getting-started-react"
+                  readOnly
+                  className="w-full px-4 py-2 border rounded bg-gray-100 text-gray-700 cursor-not-allowed"
+                  placeholder="Auto-generated from title and category"
                 />
               </div>
 
@@ -384,9 +422,14 @@ export default function PagesAdminEdit() {
                   <label className="block text-sm font-medium mb-1">Category</label>
                   <select
                     value={formData.categoryId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, categoryId: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const newCategoryId = e.target.value;
+                      setFormData({
+                        ...formData,
+                        categoryId: newCategoryId,
+                        slug: generateSlug(formData.title, newCategoryId),
+                      });
+                    }}
                     className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select a category</option>

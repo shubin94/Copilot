@@ -118,7 +118,9 @@ function Router() {
           <Route path="/search" component={SearchPage} />
           <Route path="/category/:name" component={SearchPage} />
           <Route path="/categories" component={CategoriesPage} />
+          <Route path="/blog/category/:parent/:slug" component={PageCategory} />
           <Route path="/blog/category/:slug" component={PageCategory} />
+          <Route path="/blog/tag/:parent/:slug" component={PageTag} />
           <Route path="/blog/tag/:slug" component={PageTag} />
           
           {/* Static Pages */}
@@ -174,7 +176,9 @@ function Router() {
           <Route path="/user/favorites" component={FavoritesPage} />
 
           {/* CMS Public Routes - These are catch-all, must be LAST */}
+          <Route path="/:parent/:category/:slug" component={PageView} />
           <Route path="/:category/:slug" component={PageView} />
+          <Route path="/pages/:parent/:category/:slug" component={PageView} />
           <Route path="/pages/:category/:slug" component={PageView} />
           <Route path="/pages/:slug" component={PageView} />
           

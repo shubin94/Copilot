@@ -18,14 +18,49 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
  */
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.session.userId) {
+    // Check if user is authenticated
+    if (!req.session || !req.session.userId) {
+      console.warn("[auth] Access attempt without session");
       res.status(401).json({ error: "Unauthorized - Please log in" });
       return;
     }
-    if (!roles.includes(req.session.userRole || "")) {
+
+    // Check if user role is in allowed roles
+    const userRole = req.session.userRole || "";
+    if (!roles.includes(userRole)) {
+      console.warn("[auth] Access denied - insufficient permissions", {
+        userId: req.session.userId,
+        userRole: userRole,
+        requiredRoles: roles,
+      });
       res.status(403).json({ error: "Forbidden - Insufficient permissions" });
       return;
     }
+
     next();
   };
 }
+
+/**
+ * Middleware: require admin role specifically
+ * More explicit than requireRole("admin")
+ */
+export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+  if (!req.session || !req.session.userId) {
+    console.warn("[auth] Admin access attempt without session");
+    res.status(401).json({ error: "Unauthorized - Please log in" });
+    return;
+  }
+
+  if (req.session.userRole !== "admin") {
+    console.warn("[auth] Admin access denied - user not admin", {
+      userId: req.session.userId,
+      userRole: req.session.userRole,
+    });
+    res.status(403).json({ error: "Forbidden - Admin access required" });
+    return;
+  }
+
+  next();
+}
+

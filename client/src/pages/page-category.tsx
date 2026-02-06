@@ -33,9 +33,12 @@ function getExcerpt(content: string): string {
 }
 
 export default function PageCategory() {
+  const [matchNested, paramsNested] = useRoute("/blog/category/:parent/:slug");
   const [match, params] = useRoute("/blog/category/:slug");
-  if (!match) return null;
-  const slug = params?.slug as string;
+  if (!matchNested && !match) return null;
+  const slug = matchNested
+    ? `${paramsNested?.parent}/${paramsNested?.slug}`
+    : (params?.slug as string);
 
   const { data, isLoading, isError } = useQuery<CategoryResponse>({
     queryKey: ["page-category", slug],

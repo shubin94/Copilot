@@ -6,6 +6,7 @@ import { Link, useLocation } from "wouter";
 import { useState } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ServiceActionButton } from "@/components/home/service-action-button";
+import type { ServiceBadgeState } from "@/lib/service-badges";
 
 interface ServiceCardProps {
   id: string;
@@ -16,7 +17,7 @@ interface ServiceCardProps {
   name: string;
   level: string;
   category?: string;
-  badges?: string[];
+  badgeState?: ServiceBadgeState;
   title: string;
   rating: number;
   reviews: number;
@@ -37,7 +38,7 @@ import { Button } from "@/components/ui/button";
 
 import { useToast } from "@/hooks/use-toast";
 
-export function ServiceCard({ id, detectiveId, images, image, avatar, name, level, category, badges = [], title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) {
+export function ServiceCard({ id, detectiveId, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) {
   const [, setLocation] = useLocation();
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -45,6 +46,10 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
   const { selectedCountry, formatPriceFromTo } = useCurrency();
   const { user, isFavorite, toggleFavorite } = useUserSafe();
   const { toast } = useToast();
+  const showBlueTick = !!badgeState?.showBlueTick;
+  const blueTickLabel = badgeState?.blueTickLabel || "Verified";
+  const showPro = !!badgeState?.showPro;
+  const showRecommended = !!badgeState?.showRecommended;
 
   // Always route to the public service profile page
   // The unclaimed query param will trigger the "Claim this profile" banner
@@ -187,24 +192,24 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
                       <>
                         {/* Order: Verified → Blue Tick → Pro → Recommended (labels from BADGE_LABELS) */}
                         {/* Render blue tick for either verified or blueTick badge (only ONE icon) */}
-                        {(badges.includes('verified') || badges.includes('blueTick')) && (
+                        {showBlueTick && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <img 
                                   src="/blue-tick.png" 
-                                  alt={badges.includes('verified') ? "Verified" : "Blue Tick"} 
+                                  alt={blueTickLabel} 
                                   className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title={badges.includes('verified') ? "Verified" : "Blue Tick"}
+                                  title={blueTickLabel}
                                 />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>{badges.includes('verified') ? "Verified" : "Blue Tick"}</p>
+                                <p>{blueTickLabel}</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         )}
-                        {badges.includes('pro') && (
+                        {showPro && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -221,7 +226,7 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
                             </Tooltip>
                           </TooltipProvider>
                         )}
-                        {badges.includes('recommended') && (
+                        {showRecommended && (
                           <span className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap">
                             Recommended
                           </span>
