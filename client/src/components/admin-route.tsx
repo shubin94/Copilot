@@ -22,7 +22,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
 
     // Not authenticated - redirect to login
     if (!isAuthenticated || !user) {
-      setLocation("/admin/login");
+      setLocation("/login");
       return;
     }
 
