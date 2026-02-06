@@ -51,12 +51,12 @@ export default function RankingVisibilityPage() {
       detectiveId: string;
       updates: Partial<VisibilityRecord>;
     }) => {
-      const response = await fetch(`/api/admin/visibility/${variables.detectiveId}`, {
-        method: "PATCH",
       return api.patch<VisibilityRecord>(
         `/api/admin/visibility/${variables.detectiveId}`,
         variables.updates
-      
+      );
+    },
+    onSuccess: () => {
       refetch();
       setEditingId(null);
       setEdits({});
