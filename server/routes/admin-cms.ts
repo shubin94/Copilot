@@ -28,6 +28,14 @@ import * as cache from "../lib/cache.ts";
 
 const router = Router();
 
+// Prevent caching on admin endpoints - admin data must always be fresh
+router.use((req: Request, res: Response, next) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  next();
+});
+
 // Helper functions
 async function getCategoryBySlug(slug: string) {
   const res = await pool.query("SELECT * FROM categories WHERE slug = $1", [slug]);
@@ -72,8 +80,12 @@ async function uploadContentImages(content?: string) {
 router.get("/categories", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
-    const categories = await getCategories(status);
-    res.json({ categories });
+    // By default, exclude archived items. Only show archived if explicitly requested.
+    const categories = await getCategories(status === "archived" ? "archived" : undefined);
+    const filtered = status === "archived" 
+      ? categories.filter(c => c.status === "archived")
+      : categories.filter(c => c.status !== "archived");
+    res.json({ categories: filtered });
   } catch (error) {
     console.error("[cms] Get categories error:", error);
     res.status(500).json({ error: "Failed to fetch categories" });
@@ -83,11 +95,12 @@ router.get("/categories", requireRole("admin"), async (req: Request, res: Respon
 // POST /api/admin/categories
 router.post("/categories", requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { name, slug, status } = z
+    const { name, slug, status, parentId } = z
       .object({
         name: z.string().min(1),
         slug: z.string().min(1),
         status: z.enum(["published", "draft", "archived"]).optional(),
+        parentId: z.string().uuid().nullable().optional(),
       })
       .parse(req.body);
 
@@ -97,9 +110,9 @@ router.post("/categories", requireRole("admin"), async (req: Request, res: Respo
       return res.status(409).json({ error: "Slug already exists" });
     }
 
-    const category = await createCategory(name, slug, status);
+    const category = await createCategory(name, slug, status, parentId);
     if (!category) {
-      console.error("[cms] Create category error - null result after INSERT", { name, slug, status });
+      console.error("[cms] Create category error - null result after INSERT", { name, slug, status, parentId });
       return res.status(500).json({ error: "Failed to create category" });
     }
     res.json({ category });
@@ -121,14 +134,16 @@ router.post("/categories", requireRole("admin"), async (req: Request, res: Respo
 // PATCH /api/admin/categories/:id
 router.patch("/categories/:id", requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { name, status } = z
+    const { name, slug, status, parentId } = z
       .object({
         name: z.string().optional(),
+        slug: z.string().optional(),
         status: z.enum(["published", "draft", "archived"]).optional(),
+        parentId: z.string().uuid().nullable().optional(),
       })
       .parse(req.body);
 
-    const category = await updateCategory(req.params.id, name, status);
+    const category = await updateCategory(req.params.id, name, slug, status, parentId);
     if (!category) {
       return res.status(404).json({ error: "Category not found" });
     }
@@ -147,10 +162,34 @@ router.patch("/categories/:id", requireRole("admin"), async (req: Request, res: 
 // DELETE /api/admin/categories/:id
 router.delete("/categories/:id", requireRole("admin"), async (req: Request, res: Response) => {
   try {
+    const categoryId = req.params.id;
+
+    // Check if category has any associated pages
+    const pagesResult = await pool.query(
+      "SELECT COUNT(*) as count FROM pages WHERE category_id = $1",
+      [categoryId]
+    );
+
+    const pageCount = parseInt(pagesResult.rows[0].count, 10);
+    if (pageCount > 0) {
+      return res.status(409).json({
+        error: `Cannot delete category: ${pageCount} page(s) still associated with it. Please delete or move the pages first.`,
+      });
+    }
+
     // Soft delete via status
-    const category = await updateCategory(req.params.id, undefined, "archived");
+    const category = await updateCategory(categoryId, undefined, "archived");
     if (!category) {
       return res.status(404).json({ error: "Category not found" });
+    }
+
+    // Invalidate admin cache
+    try {
+      cache.del("cms:admin:categories");
+      cache.del("cms:admin:tags");
+      cache.del("cms:admin:pages");
+    } catch (_) {
+      // Cache invalidation failure should not break the response
     }
 
     res.json({ message: "Category archived" });
@@ -166,8 +205,12 @@ router.delete("/categories/:id", requireRole("admin"), async (req: Request, res:
 router.get("/tags", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
-    const tags = await getTags(status);
-    res.json({ tags });
+    // By default, exclude archived items. Only show archived if explicitly requested.
+    const tags = await getTags(status === "archived" ? "archived" : undefined);
+    const filtered = status === "archived" 
+      ? tags.filter(t => t.status === "archived")
+      : tags.filter(t => t.status !== "archived");
+    res.json({ tags: filtered });
   } catch (error) {
     console.error("[cms] Get tags error:", error);
     res.status(500).json({ error: "Failed to fetch tags" });
@@ -177,11 +220,12 @@ router.get("/tags", requireRole("admin"), async (req: Request, res: Response) =>
 // POST /api/admin/tags
 router.post("/tags", requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { name, slug, status } = z
+    const { name, slug, status, parentId } = z
       .object({
         name: z.string().min(1),
         slug: z.string().min(1),
         status: z.enum(["published", "draft", "archived"]).optional(),
+        parentId: z.string().uuid().nullable().optional(),
       })
       .parse(req.body);
 
@@ -191,7 +235,7 @@ router.post("/tags", requireRole("admin"), async (req: Request, res: Response) =
       return res.status(409).json({ error: "Slug already exists" });
     }
 
-    const tag = await createTag(name, slug, status);
+    const tag = await createTag(name, slug, status, parentId);
     if (!tag) {
       console.error("[cms] Create tag error - null result after INSERT");
       return res.status(500).json({ error: "Failed to create tag" });
@@ -210,14 +254,16 @@ router.post("/tags", requireRole("admin"), async (req: Request, res: Response) =
 // PATCH /api/admin/tags/:id
 router.patch("/tags/:id", requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { name, status } = z
+    const { name, slug, status, parentId } = z
       .object({
         name: z.string().optional(),
+        slug: z.string().optional(),
         status: z.enum(["published", "draft", "archived"]).optional(),
+        parentId: z.string().uuid().nullable().optional(),
       })
       .parse(req.body);
 
-    const tag = await updateTag(req.params.id, name, status);
+    const tag = await updateTag(req.params.id, name, slug, status, parentId);
     if (!tag) {
       return res.status(404).json({ error: "Tag not found" });
     }
@@ -242,10 +288,34 @@ router.patch("/tags/:id", requireRole("admin"), async (req: Request, res: Respon
 // DELETE /api/admin/tags/:id
 router.delete("/tags/:id", requireRole("admin"), async (req: Request, res: Response) => {
   try {
+    const tagId = req.params.id;
+
+    // Check if tag has any associated pages via page_tags junction table
+    const pagesResult = await pool.query(
+      "SELECT COUNT(*) as count FROM page_tags WHERE tag_id = $1",
+      [tagId]
+    );
+
+    const pageCount = parseInt(pagesResult.rows[0].count, 10);
+    if (pageCount > 0) {
+      return res.status(409).json({
+        error: `Cannot delete tag: ${pageCount} page(s) still associated with it. Please remove the tag from those pages first.`,
+      });
+    }
+
     // Soft delete via status
-    const tag = await updateTag(req.params.id, undefined, "archived");
+    const tag = await updateTag(tagId, undefined, "archived");
     if (!tag) {
       return res.status(404).json({ error: "Tag not found" });
+    }
+
+    // Invalidate admin cache
+    try {
+      cache.del("cms:admin:categories");
+      cache.del("cms:admin:tags");
+      cache.del("cms:admin:pages");
+    } catch (_) {
+      // Cache invalidation failure should not break the response
     }
 
     res.json({ message: "Tag archived" });
@@ -261,8 +331,12 @@ router.delete("/tags/:id", requireRole("admin"), async (req: Request, res: Respo
 router.get("/pages", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
-    const pages = await getPages(status);
-    res.json({ pages });
+    // By default, exclude archived items. Only show archived if explicitly requested.
+    const pages = await getPages(status === "archived" ? "archived" : undefined);
+    const filtered = status === "archived" 
+      ? pages.filter(p => p.status === "archived")
+      : pages.filter(p => p.status !== "archived");
+    res.json({ pages: filtered });
   } catch (error) {
     console.error("[cms] Get pages error:", error);
     res.status(500).json({ error: "Failed to fetch pages" });

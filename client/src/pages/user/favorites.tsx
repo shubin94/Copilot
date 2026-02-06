@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
 import { useService } from "@/lib/hooks";
-import { buildBadgesFromEffective } from "@/lib/badges";
+import { computeServiceBadges } from "@/lib/service-badges";
 import type { Service, Detective } from "@shared/schema";
 
 export default function FavoritesPage() {
@@ -111,10 +111,10 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
   const level = svc.detective.level ? (svc.detective.level === "pro" ? "Pro Level" : (svc.detective.level as string).replace("level", "Level ")) : "Level 1";
   
   // Badges from effectiveBadges only (order: Verified → Blue Tick → Pro → Recommended)
-  const badges = buildBadgesFromEffective(
-    (svc.detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
-    !!svc.detective.isVerified
-  );
+  const badgeState = computeServiceBadges({
+    isVerified: !!svc.detective.isVerified,
+    effectiveBadges: (svc.detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
+  });
   
   return (
     <ServiceCard
@@ -131,7 +131,7 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
       offerPrice={svc.offerPrice ? Number(svc.offerPrice) : null}
       isOnEnquiry={svc.isOnEnquiry}
       category={svc.category}
-      badges={badges}
+      badgeState={badgeState}
       phone={svc.detective.phone || undefined}
       whatsapp={svc.detective.whatsapp || undefined}
       contactEmail={svc.detective.contactEmail || (svc.detective as any).email || undefined}

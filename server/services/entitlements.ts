@@ -23,13 +23,14 @@ export function computeEffectiveBadges(
     hasBlueTick?: boolean;
     blueTickAddon?: boolean;
   },
-  subscriptionPackage?: { badges?: unknown } | null
+  subscriptionPackage?: { badges?: unknown; name?: string | null } | null
 ): EffectiveBadges {
   const now = new Date();
   const expiresAt = detective.subscriptionExpiresAt ? new Date(detective.subscriptionExpiresAt) : null;
+  const isFreePlan = subscriptionPackage?.name === "free";
   const activeSubscription = !!(
     detective.subscriptionPackageId &&
-    (!expiresAt || expiresAt > now)
+    (isFreePlan || !expiresAt || expiresAt > now)
   );
 
   let packageBadges: Record<string, boolean> = {};
