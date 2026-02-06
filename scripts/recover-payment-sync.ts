@@ -1,3 +1,4 @@
+import "../server/lib/loadEnv";
 import { db } from "../db/index.ts";
 import { detectives, paymentOrders } from "../shared/schema.ts";
 import { eq, desc } from "drizzle-orm";

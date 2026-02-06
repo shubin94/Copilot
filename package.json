@@ -4,13 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx server/index-dev.ts",
+    "dev": "cross-env NODE_ENV=development tsx server/index-dev.ts",
     "build": "vite build",
-    "start": "tsx server/index-prod.ts",
-    "reset-auth": "tsx scripts/reset-auth-and-bootstrap-admin.ts",
-    "create-admin": "tsx scripts/create-admin.ts",
-    "db:audit": "tsx scripts/db-audit.ts",
-    "seed-app-secrets": "tsx scripts/seed-app-secrets.ts"
+    "start": "cross-env NODE_ENV=production tsx server/index-prod.ts",
+    "reset-auth": "cross-env NODE_ENV=development tsx scripts/reset-auth-and-bootstrap-admin.ts",
+    "create-admin": "cross-env NODE_ENV=development tsx scripts/create-admin.ts",
+    "db:audit": "cross-env NODE_ENV=development tsx scripts/db-audit.ts",
+    "seed-app-secrets": "cross-env NODE_ENV=development tsx scripts/seed-app-secrets.ts"
   },
   "dependencies": {
     "@paypal/checkout-server-sdk": "^1.0.3",
@@ -87,6 +87,7 @@
     "@replit/vite-plugin-runtime-error-modal": "^0.0.4",
     "@tailwindcss/vite": "^4.0.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "cross-env": "^7.0.3",
     "tsx": "^4.7.2",
     "typescript": "^5.4.5",
     "vite": "^5.2.10"

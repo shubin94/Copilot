@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../server/lib/loadEnv";
 import { storage } from "../server/storage.ts";
 import type { InsertUser, InsertDetective, InsertService } from "../shared/schema.ts";
 

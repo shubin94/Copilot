@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./lib/loadEnv";
 
 type NodeEnv = "production" | "development" | "test" | undefined;
 
@@ -140,12 +140,12 @@ export function validateConfig(secretsLoaded: boolean = true) {
   const hasSmtp = !!config.email.smtpHost && !!config.email.smtpFromEmail;
   const hasSendpulse = !!config.sendpulse.apiId && !!config.sendpulse.apiSecret && !!config.sendpulse.senderEmail;
   if (!hasSendgrid && !hasSmtp && !hasSendpulse) {
-    throw new Error("Email not configured: set SENDGRID_API_KEY + SENDGRID_FROM_EMAIL or SMTP_HOST + SMTP_FROM_EMAIL or SENDPULSE_API_ID + SENDPULSE_API_SECRET + SENDPULSE_SENDER_EMAIL (env or app_secrets)");
+    throw new Error("Email not configured: set SENDGRID_API_KEY + SENDGRID_FROM_EMAIL or SMTP_HOST + SMTP_FROM_EMAIL or SENDPULSE_API_ID + SENDPULSE_API_SECRET + SENDPULSE_SENDER_EMAIL (environment variables or app_secrets)");
   }
 
-  // Supabase required for asset storage (env or app_secrets)
+  // Supabase required for asset storage (environment variables only, never from database)
   if (!config.supabase.url || !config.supabase.serviceRoleKey) {
-    throw new Error("Supabase not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (env or app_secrets)");
+    throw new Error("Supabase not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables");
   }
 
   // Payment gateways: validated separately in validatePaymentGateways() after DB is available.

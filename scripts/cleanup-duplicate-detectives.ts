@@ -1,3 +1,4 @@
+import "../server/lib/loadEnv";
 import { db } from "../db/index.ts";
 import { users, detectives, detectiveApplications } from "../shared/schema.ts";
 import { eq, and, ilike } from "drizzle-orm";

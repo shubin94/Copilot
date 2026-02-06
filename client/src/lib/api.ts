@@ -67,11 +67,20 @@ export function clearCsrfToken() {
 async function getOrFetchCsrfToken(): Promise<string> {
   if (csrfToken) return csrfToken;
   const url = API_BASE_URL ? `${API_BASE_URL}/api/csrf-token` : "/api/csrf-token";
-  const r = await fetch(url, { method: "GET", credentials: "include" });
-  if (!r.ok) throw new ApiError(r.status, "Failed to get CSRF token");
-  const d = (await r.json()) as { csrfToken: string };
-  csrfToken = d.csrfToken;
-  return csrfToken;
+  try {
+    const r = await fetch(url, { method: "GET", credentials: "include" });
+    if (!r.ok) throw new ApiError(r.status, "Failed to get CSRF token");
+    const d = (await r.json()) as { csrfToken: string };
+    csrfToken = d.csrfToken;
+    return csrfToken;
+  } catch (error: any) {
+    // Improve error message for network failures
+    const errorMsg = error?.message || String(error);
+    if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+      throw new Error(`Cannot reach API server at ${url}. Is the backend running? Check: npm run dev`);
+    }
+    throw error;
+  }
 }
 
 // Central fetch wrapper that adds CSRF headers for mutation methods
@@ -90,7 +99,16 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
   }
   options.headers = headers;
 
-  return fetch(fullUrl, options);
+  try {
+    return await fetch(fullUrl, options);
+  } catch (error: any) {
+    // Improve error message for network failures (e.g., server not running)
+    const errorMsg = error?.message || String(error);
+    if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+      throw new Error(`Cannot reach API server at ${fullUrl}. Is the server running on port ${process.env.PORT || 5000}? Check: npm run dev`);
+    }
+    throw error;
+  }
 }
 
 export const api = {

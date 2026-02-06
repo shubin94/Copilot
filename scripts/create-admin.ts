@@ -11,7 +11,7 @@
  * ADMIN_EMAIL and ADMIN_PASSWORD MUST be set explicitly - no defaults are provided.
  */
 
-import "dotenv/config";
+import "../server/lib/loadEnv";
 import { db } from "../db/index.ts";
 import { users } from "../shared/schema.ts";
 import { eq } from "drizzle-orm";
