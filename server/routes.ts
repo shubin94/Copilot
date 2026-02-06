@@ -5120,30 +5120,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET all detective visibility configs (admin)
   app.get("/api/admin/visibility", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
-      const { ranking } = await import("./ranking.ts");
       const visibilityRecords = await db.select().from(detectiveVisibility);
       
       // Enrich with detective info
       const enriched = await Promise.all(
         visibilityRecords.map(async (v) => {
-          const detective = await db
-            .select()
-            .from(detectives)
-            .where(eq(detectives.id, v.detectiveId))
-            .limit(1)
-            .then(r => r[0]);
-          
-          return {
-            ...v,
-            detective: detective ? {
-              id: detective.id,
-              businessName: detective.businessName,
-              email: detective.contactEmail,
-              subscriptionPackageId: detective.subscriptionPackageId,
-              hasBlueTick: detective.hasBlueTick,
-              status: detective.status,
-            } : null
-          };
+          try {
+            const detective = await db
+              .select()
+              .from(detectives)
+              .where(eq(detectives.id, v.detectiveId))
+              .limit(1)
+              .then(r => r[0]);
+            
+            return {
+              ...v,
+              detective: detective ? {
+                id: detective.id,
+                businessName: detective.businessName,
+                email: detective.contactEmail,
+                subscriptionPackageId: detective.subscriptionPackageId,
+                hasBlueTick: detective.hasBlueTick,
+                status: detective.status,
+              } : null
+            };
+          } catch (detError) {
+            console.warn(`Failed to load detective ${v.detectiveId}:`, detError);
+            return {
+              ...v,
+              detective: null
+            };
+          }
         })
       );
 

@@ -526,10 +526,6 @@ INSERT INTO "public"."subscription_plans" ("id", "name", "display_name", "monthl
 -- Data for Name: buckets; Type: TABLE DATA; Schema: storage; Owner: supabase_storage_admin
 --
 
-INSERT INTO "storage"."buckets" ("id", "name", "owner", "created_at", "updated_at", "public", "avif_autodetection", "file_size_limit", "allowed_mime_types", "owner_id", "type") VALUES
-	('detective-assets', 'detective-assets', NULL, '2026-01-20 06:07:06.640256+00', '2026-01-20 06:07:06.640256+00', true, false, NULL, NULL, NULL, 'STANDARD'),
-	('service-images', 'service-images', NULL, '2026-01-20 06:07:06.845538+00', '2026-01-20 06:07:06.845538+00', true, false, NULL, NULL, NULL, 'STANDARD'),
-	('site-assets', 'site-assets', NULL, '2026-01-20 06:07:07.008378+00', '2026-01-20 06:07:07.008378+00', true, false, NULL, NULL, NULL, 'STANDARD');
 
 
 --
@@ -548,20 +544,12 @@ INSERT INTO "storage"."buckets" ("id", "name", "owner", "created_at", "updated_a
 -- Data for Name: objects; Type: TABLE DATA; Schema: storage; Owner: supabase_storage_admin
 --
 
-INSERT INTO "storage"."objects" ("id", "bucket_id", "name", "owner", "created_at", "updated_at", "last_accessed_at", "metadata", "version", "owner_id", "user_metadata") VALUES
-	('fe2dad36-04de-470e-9be8-9069b62d2896', 'site-assets', 'logos/sticky-1769508826211-0.5271866590727781.png', NULL, '2026-01-27 10:13:45.58059+00', '2026-01-27 10:13:45.58059+00', '2026-01-27 10:13:45.58059+00', '{"eTag": "\"6eea4dbf7b28a72a4fdd04ad81742cf5\"", "size": 12404, "mimetype": "image/png", "cacheControl": "max-age=3600", "lastModified": "2026-01-27T10:13:46.000Z", "contentLength": 12404, "httpStatusCode": 200}', 'f8b3d2bd-4e5b-415a-92b6-3ced9607960e', NULL, '{}'),
-	('893dba5d-d56e-48b3-8b74-da1e1e001623', 'site-assets', 'logos/footer-1769508826492-0.710853219833741.png', NULL, '2026-01-27 10:13:45.858714+00', '2026-01-27 10:13:45.858714+00', '2026-01-27 10:13:45.858714+00', '{"eTag": "\"6eea4dbf7b28a72a4fdd04ad81742cf5\"", "size": 12404, "mimetype": "image/png", "cacheControl": "max-age=3600", "lastModified": "2026-01-27T10:13:46.000Z", "contentLength": 12404, "httpStatusCode": 200}', '0a779b43-4836-4840-839e-4b95d6713198', NULL, '{}'),
-	('eaad5e86-c628-4ade-bf3f-6204cbf59624', 'service-images', 'banners/1769530354200-0.jpg', NULL, '2026-01-27 16:12:35.305893+00', '2026-01-27 16:12:35.305893+00', '2026-01-27 16:12:35.305893+00', '{"eTag": "\"8f923c4ae9a0d5bc609e4289af03f24d\"", "size": 9756, "mimetype": "image/png", "cacheControl": "max-age=3600", "lastModified": "2026-01-27T16:12:36.000Z", "contentLength": 9756, "httpStatusCode": 200}', 'c9af3473-8c1e-4e35-9e52-d851f97c00e8', NULL, '{}'),
-	('545aeb37-f13d-4d41-ab36-0a0ed32a4bda', 'site-assets', 'logos/header-1769578790993-0.565622362573484.png', NULL, '2026-01-28 05:39:51.614922+00', '2026-01-28 05:39:51.614922+00', '2026-01-28 05:39:51.614922+00', '{"eTag": "\"f3d802517e3afcae93c0740765c34ae5\"", "size": 21745, "mimetype": "image/png", "cacheControl": "max-age=3600", "lastModified": "2026-01-28T05:39:52.000Z", "contentLength": 21745, "httpStatusCode": 200}', '0bada8a3-49c2-47ea-bcd8-b4aab9f708db', NULL, '{}');
 
 
 --
 -- Data for Name: prefixes; Type: TABLE DATA; Schema: storage; Owner: supabase_storage_admin
 --
 
-INSERT INTO "storage"."prefixes" ("bucket_id", "name", "created_at", "updated_at") VALUES
-	('site-assets', 'logos', '2026-01-27 10:04:45.662491+00', '2026-01-27 10:04:45.662491+00'),
-	('service-images', 'banners', '2026-01-27 16:12:35.305893+00', '2026-01-27 16:12:35.305893+00');
 
 
 --
