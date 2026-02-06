@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,9 +41,7 @@ export default function RankingVisibilityPage() {
   const { data, isLoading, error, refetch } = useQuery<{ visibility: VisibilityRecord[] }>({
     queryKey: ["visibility-records"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/visibility", { credentials: "include" });
-      if (!response.ok) throw new Error("Failed to fetch visibility records");
-      return response.json();
+      return api.get<{ visibility: VisibilityRecord[] }>("/api/admin/visibility");
     },
   });
 
@@ -54,14 +53,10 @@ export default function RankingVisibilityPage() {
     }) => {
       const response = await fetch(`/api/admin/visibility/${variables.detectiveId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(variables.updates),
-      });
-      if (!response.ok) throw new Error("Failed to update visibility");
-      return response.json();
-    },
-    onSuccess: () => {
+      return api.patch<VisibilityRecord>(
+        `/api/admin/visibility/${variables.detectiveId}`,
+        variables.updates
+      
       refetch();
       setEditingId(null);
       setEdits({});
