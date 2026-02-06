@@ -40,7 +40,7 @@ export default function RankingVisibilityPage() {
   const { data, isLoading, error, refetch } = useQuery<{ visibility: VisibilityRecord[] }>({
     queryKey: ["visibility-records"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/visibility");
+      const response = await fetch("/api/admin/visibility", { credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch visibility records");
       return response.json();
     },
@@ -55,6 +55,7 @@ export default function RankingVisibilityPage() {
       const response = await fetch(`/api/admin/visibility/${variables.detectiveId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(variables.updates),
       });
       if (!response.ok) throw new Error("Failed to update visibility");
