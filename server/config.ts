@@ -80,6 +80,8 @@ export const config = {
         ? [
             "https://askdetectives.com",
             "https://www.askdetectives.com",
+            "https://askdetectives1.vercel.app",
+            "https://copilot-06s5.onrender.com",
             // Note: Vercel preview deployments are matched by server-side regex,
             // do NOT store ephemeral preview URLs here.
           ]
