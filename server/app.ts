@@ -70,10 +70,12 @@ export const bodyParsers = {
   }
 };
 
-// CORS configuration for cross-origin requests
+// CORS configuration - define origins first BEFORE corsConfig object
 const configuredOrigins = config.csrf.allowedOrigins;
-app.use(cors({
-  origin: (origin, callback) => {
+
+// CORS configuration object - used for all CORS middleware
+const corsConfig = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
     // Allow requests with no origin (mobile apps, Postman, curl, etc.)
     if (!origin) return callback(null, true);
     
@@ -98,7 +100,7 @@ app.use(cors({
       callback(null, true);
     } else {
       console.warn(`❌ CORS blocked origin: ${origin}`);
-      callback(null, false); // Better to silently reject than throw
+      callback(null, false);
     }
   },
   credentials: true,
@@ -106,13 +108,13 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Requested-With", "Accept"],
   exposedHeaders: ["Set-Cookie", "X-CSRF-Token"],
   maxAge: 86400,
-}));
+};
+
+// Apply CORS middleware
+app.use(cors(corsConfig));
 
 // Explicit preflight handler to ensure OPTIONS requests get proper CORS headers
-app.options('*', cors());
-
-// Additional middleware to ensure CSRF endpoint always responds to CORS
-app.options('/api/csrf-token', cors());
+app.options('*', cors(corsConfig));
 
 // Security headers - CSP disabled for dev flexibility, enable in production
 app.use(helmet({ 
