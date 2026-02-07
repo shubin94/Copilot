@@ -77,7 +77,10 @@ const configuredOrigins = config.csrf.allowedOrigins;
 const corsConfig = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
     // Allow requests with no origin (mobile apps, Postman, curl, etc.)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log("[CORS] No origin header - allowing (likely mobile/postman)");
+      return callback(null, true);
+    }
     
     // Normalize origin by removing trailing slashes
     const normalizedOrigin = origin.replace(/\/$/, '');
@@ -90,16 +93,28 @@ const corsConfig = {
       "http://127.0.0.1:5000",
     ];
     
+    console.log(`[CORS] Incoming origin: ${normalizedOrigin}`);
+    console.log(`[CORS] Allowed origins: ${allowedOrigins.join(", ")}`);
+    
     // Check for exact match or startsWith match (for subdomains)
     const isAllowed = allowedOrigins.some(allowed => {
       const normalizedAllowed = allowed.replace(/\/$/, '');
-      return normalizedOrigin === normalizedAllowed || normalizedOrigin.startsWith(normalizedAllowed);
+      const exactMatch = normalizedOrigin === normalizedAllowed;
+      const startsWithMatch = normalizedOrigin.startsWith(normalizedAllowed);
+      if (exactMatch || startsWithMatch) {
+        console.log(`[CORS] ✅ Origin allowed: ${normalizedOrigin} matches ${normalizedAllowed}`);
+        return true;
+      }
+      return false;
     });
     
     if (isAllowed) {
       callback(null, true);
     } else {
-      console.warn(`❌ CORS blocked origin: ${origin}`);
+      console.warn(`[CORS] ❌ CORS BLOCKED origin: ${normalizedOrigin}`);
+      console.warn(`[CORS] Available origins: ${allowedOrigins.join(" | ")}`);
+      // Even on rejection, allow the request but without CORS headers
+      // This prevents confusing Status 0 errors
       callback(null, false);
     }
   },
@@ -110,10 +125,10 @@ const corsConfig = {
   maxAge: 86400,
 };
 
-// Apply CORS middleware
+// Apply CORS middleware FIRST - before any other middleware
 app.use(cors(corsConfig));
 
-// Explicit preflight handler to ensure OPTIONS requests get proper CORS headers
+// Explicit preflight handler for OPTIONS
 app.options('*', cors(corsConfig));
 
 // Security headers - CSP disabled for dev flexibility, enable in production
