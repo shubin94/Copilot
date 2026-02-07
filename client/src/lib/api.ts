@@ -3,7 +3,7 @@ import type { User, Detective, Service, Review, Order, DetectiveApplication, Pro
 // API Base URL configuration for different environments
 const API_BASE_URL = import.meta.env.VITE_API_URL || 
   (import.meta.env.PROD 
-    ? "https://askdetectives-backend.onrender.com" 
+    ? "https://copilot-06s5.onrender.com" 
     : "");
 
 class ApiError extends Error {
