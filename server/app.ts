@@ -97,16 +97,25 @@ const corsConfig = {
     console.log(`[CORS] Allowed origins: ${allowedOrigins.join(", ")}`);
     
     // Check for exact match or startsWith match (for subdomains)
-    const isAllowed = allowedOrigins.some(allowed => {
+    const isAllowedExact = allowedOrigins.some(allowed => {
       const normalizedAllowed = allowed.replace(/\/$/, '');
-      const exactMatch = normalizedOrigin === normalizedAllowed;
-      const startsWithMatch = normalizedOrigin.startsWith(normalizedAllowed);
-      if (exactMatch || startsWithMatch) {
-        console.log(`[CORS] ✅ Origin allowed: ${normalizedOrigin} matches ${normalizedAllowed}`);
-        return true;
-      }
-      return false;
+      return normalizedOrigin === normalizedAllowed;
     });
+
+    const isAllowedStartsWith = allowedOrigins.some(allowed => {
+      const normalizedAllowed = allowed.replace(/\/$/, '');
+      return normalizedOrigin.startsWith(normalizedAllowed + ".");
+    });
+
+    // Allow all Vercel preview deployments for askdetectives1-*.vercel.app
+    const vercelPreviewRegex = /^https:\/\/askdetectives1-[a-z0-9-]+\.vercel\.app$/i;
+    const isVercelPreview = vercelPreviewRegex.test(normalizedOrigin);
+
+    const isAllowed = isAllowedExact || isAllowedStartsWith || isVercelPreview;
+
+    if (isAllowed) {
+      console.log(`[CORS] ✅ Origin allowed: ${normalizedOrigin}` + (isVercelPreview ? ' (Vercel preview)' : ''));
+    }
     
     if (isAllowed) {
       callback(null, true);

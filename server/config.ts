@@ -80,10 +80,8 @@ export const config = {
         ? [
             "https://askdetectives.com",
             "https://www.askdetectives.com",
-            "https://askdetectives1-6gzpq6g7s-askdetectives-projects-acf61647.vercel.app",
-            "https://askdetectives1.vercel.app",
-            // Allow all Vercel preview deployments
-            "https://askdetectives-git-",
+            // Note: Vercel preview deployments are matched by server-side regex,
+            // do NOT store ephemeral preview URLs here.
           ]
         : [
             "http://localhost:5000",
