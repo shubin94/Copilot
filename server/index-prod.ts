@@ -104,6 +104,17 @@ async function main() {
 
     console.log('🔐 Loading auth/secrets from database...');
     await loadSecretsFromDatabase();  const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
+    
+    // Run database migrations
+    console.log('📊 Running database migrations...');
+    try {
+      const { runMigrations } = await import('../db/run-migrations.ts');
+      await runMigrations();
+    } catch (migrationError) {
+      console.error('⚠️  Migration error:', migrationError);
+      console.error('Continuing with startup, but database may be in inconsistent state...');
+    }
+    
     if (config.env.isProd && config.sentryDsn) {
       Sentry.init({
         dsn: config.sentryDsn,
