@@ -7,6 +7,7 @@
     "dev": "cross-env NODE_ENV=development tsx server/index-dev.ts",
     "build": "vite build",
     "start": "cross-env NODE_ENV=production tsx server/index-prod.ts",
+    "migrate": "tsx db/run-migrations.ts",
     "reset-auth": "cross-env NODE_ENV=development tsx scripts/reset-auth-and-bootstrap-admin.ts",
     "create-admin": "cross-env NODE_ENV=development tsx scripts/create-admin.ts",
     "db:audit": "cross-env NODE_ENV=development tsx scripts/db-audit.ts",
