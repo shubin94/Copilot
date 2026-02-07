@@ -68,6 +68,7 @@ export default function Login() {
       if (user) {
         toast({ title: "Welcome back!", description: `Logged in as ${user.name}` });
         if (user.role === "admin") setLocation("/admin/dashboard");
+        else if (user.role === "employee") setLocation("/admin");
         else if (user.role === "detective") setLocation("/detective/dashboard");
         else setLocation("/");
       }

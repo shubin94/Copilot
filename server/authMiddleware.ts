@@ -27,7 +27,9 @@ export function requireRole(...roles: string[]) {
 
     // Check if user role is in allowed roles
     const userRole = req.session.userRole || "";
-    if (!roles.includes(userRole)) {
+    const employeeAdminAllowed = (req as any).employeeAdminAllowed === true;
+
+    if (!roles.includes(userRole) && !(employeeAdminAllowed && roles.includes("admin"))) {
       console.warn("[auth] Access denied - insufficient permissions", {
         userId: req.session.userId,
         userRole: userRole,

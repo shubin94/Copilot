@@ -68,7 +68,12 @@ async function getOrFetchCsrfToken(): Promise<string> {
   if (csrfToken) return csrfToken;
   const url = API_BASE_URL ? `${API_BASE_URL}/api/csrf-token` : "/api/csrf-token";
   try {
-    const r = await fetch(url, { method: "GET", credentials: "include" });
+    const r = await fetch(url, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Cache-Control": "no-store" },
+    });
     if (!r.ok) throw new ApiError(r.status, "Failed to get CSRF token");
     const d = (await r.json()) as { csrfToken: string };
     csrfToken = d.csrfToken;

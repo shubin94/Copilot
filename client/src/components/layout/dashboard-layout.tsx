@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useUser } from "@/lib/user-context";
+import { api } from "@/lib/api";
 import { useCurrentDetective } from "@/lib/hooks";
 
 interface DashboardLayoutProps {
@@ -39,10 +40,12 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [location, setLocation] = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
+  const [expandedMenu, setExpandedMenu] = useState<string | null>("CMS");
   const { user, isLoading, isAuthenticated, logout } = useUser();
   const { data: detectiveData } = useCurrentDetective();
   const detective = role === "detective" ? detectiveData?.detective : null;
+  const [employeePages, setEmployeePages] = useState<string[] | null>(null);
+  const [isEmployeePagesLoading, setIsEmployeePagesLoading] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -52,7 +55,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       return;
     }
 
-    if (role === "admin" && user.role !== "admin") {
+    if (role === "admin" && user.role !== "admin" && user.role !== "employee") {
       setLocation("/");
       return;
     }
@@ -83,7 +86,25 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     return null;
   }
 
-  if (role === "admin" && user.role !== "admin") return null;
+  if (role === "admin" && user.role !== "admin" && user.role !== "employee") return null;
+    useEffect(() => {
+      if (role !== "admin" || user?.role !== "employee") return;
+      if (employeePages !== null || isEmployeePagesLoading) return;
+
+      setIsEmployeePagesLoading(true);
+      api
+        .get<{ pages: Array<{ key: string }> }>("/api/employee/pages")
+        .then((data) => {
+          setEmployeePages(data.pages.map((page) => page.key));
+        })
+        .catch((error) => {
+          console.error("[DashboardLayout] Failed to load employee pages:", error);
+          setEmployeePages([]);
+        })
+        .finally(() => {
+          setIsEmployeePagesLoading(false);
+        });
+    }, [role, user?.role, employeePages, isEmployeePagesLoading]);
   if (role === "detective" && user.role !== "detective") return null;
   if (role === "user" && user.role !== "user") return null;
 
@@ -122,6 +143,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/admin/signups", label: "New Signups", icon: UserCheck },
     { href: "/admin/claims", label: "Claims", icon: Shield },
     { href: "/admin/detectives", label: "Detectives", icon: Users },
+    { href: "/admin/employees", label: "Employees", icon: Users },
     { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
     { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
     { href: "/admin/snippets", label: "Snippets", icon: Zap },
@@ -158,8 +180,38 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/", label: "Search Detectives", icon: Search }, // Need to import Search
   ];
 
+  const employeeLinksMap: Record<string, { href: string; label: string; icon: any; submenu?: any[] }> = {
+    dashboard: { href: "/admin/dashboard", label: "Overview", icon: LayoutDashboard },
+    employees: { href: "/admin/employees", label: "Employees", icon: Users },
+    detectives: { href: "/admin/detectives", label: "Detectives", icon: Users },
+    services: { href: "/admin/services", label: "Services", icon: Layers },
+    users: { href: "/admin/signups", label: "Users", icon: UserCheck },
+    settings: { href: "/admin/settings", label: "Settings", icon: Settings },
+    reports: { href: "/admin/finance", label: "Reports", icon: TrendingUp },
+    payments: { href: "/admin/finance", label: "Finance", icon: DollarSign },
+    cms: { 
+      href: "#cms", 
+      label: "CMS", 
+      icon: FileText,
+      submenu: [
+        { href: "/admin/cms/categories", label: "Categories", icon: FolderOpen },
+        { href: "/admin/cms/tags", label: "Tags", icon: Tag },
+        { href: "/admin/cms/pages", label: "Pages", icon: FileText },
+      ]
+    },
+  };
+
   let links = detectiveLinks;
-  if (role === "admin") links = adminLinks;
+  if (role === "admin") {
+    if (user?.role === "employee") {
+      const keys = employeePages || [];
+      links = keys
+        .map((key) => employeeLinksMap[key])
+        .filter(Boolean);
+    } else {
+      links = adminLinks;
+    }
+  }
   if (role === "user") links = userLinks;
 
   const SidebarContent = () => (
@@ -167,7 +219,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       <div className="p-6 flex items-center gap-2">
         <Shield className="h-8 w-8 text-green-600" />
         <span className="font-bold text-xl tracking-tight font-heading">
-          {role === "admin" ? "Admin" : role === "detective" ? "Detective" : "User"}
+          {role === "admin"
+            ? (user?.role === "employee" ? "Employee" : "Admin")
+            : role === "detective"
+              ? "Detective"
+              : "User"}
           <span className="text-green-600">Portal</span>
         </span>
       </div>

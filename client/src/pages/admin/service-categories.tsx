@@ -41,9 +41,11 @@ import {
 } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ServiceCategory } from "@shared/schema";
 
 export default function AdminServiceCategories() {
+  const queryClient = useQueryClient();
   const { data: categoriesData, isLoading } = useServiceCategories(false);
   const categories = categoriesData?.categories || [];
   const { toast } = useToast();
@@ -166,6 +168,10 @@ export default function AdminServiceCategories() {
         onSuccess: () => {
           setShowDeleteDialog(false);
           setDeletingCategoryId(null);
+          
+          // Ensure data is refetched immediately
+          queryClient.refetchQueries({ queryKey: ["serviceCategories", false] });
+          
           toast({
             title: "Category Deleted",
             description: "Service category has been deleted successfully.",
