@@ -64,7 +64,7 @@ export function clearCsrfToken() {
   csrfToken = null;
 }
 
-async function getOrFetchCsrfToken(): Promise<string> {
+export async function getOrFetchCsrfToken(): Promise<string> {
   if (csrfToken) return csrfToken;
   const url = API_BASE_URL ? `${API_BASE_URL}/api/csrf-token` : "/api/csrf-token";
   try {
