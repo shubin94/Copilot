@@ -56,6 +56,7 @@ import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
 import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.ts";
 import adminCmsRouter from "./routes/admin-cms.ts";
 import adminFinanceRouter from "./routes/admin-finance.ts";
+import adminEmployeesRouter from "./routes/admin/employees.ts";
 import publicPagesRouter from "./routes/public-pages.ts";
 import publicCategoriesRouter from "./routes/public-categories.ts";
 import publicTagsRouter from "./routes/public-tags.ts";
@@ -92,6 +93,23 @@ declare module "express-session" {
     userRole: string;
     csrfToken?: string;
   }
+}
+
+function getEmployeeAccessKeyFromAdminPath(path: string): string | null {
+  const normalized = (path || "").toLowerCase();
+
+  if (normalized === "/" || normalized.startsWith("/dashboard")) return "dashboard";
+  if (normalized.startsWith("/employees")) return "employees";
+  if (normalized.startsWith("/detectives") || normalized.startsWith("/detective")) return "detectives";
+  if (normalized.startsWith("/services") || normalized.startsWith("/service-categories")) return "services";
+  if (normalized.startsWith("/finance") || normalized.startsWith("/payment-gateways") || normalized.startsWith("/subscriptions")) return "payments";
+  if (normalized.startsWith("/settings")) return "settings";
+  if (normalized.startsWith("/cms") || normalized.startsWith("/categories") || normalized.startsWith("/tags") || normalized.startsWith("/pages")) return "cms";
+  if (normalized.startsWith("/users")) return "users";
+  if (normalized.startsWith("/reports")) return "reports";
+
+  // Unmapped admin paths are admin-only by default
+  return null;
 }
 
 // Helper to calculate subscription expiry date
@@ -422,6 +440,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.session.csrfToken) {
       req.session.csrfToken = randomBytes(32).toString("hex");
     }
+    // Prevent caching/ETag revalidation which can return 304 without a body
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+    res.set("Surrogate-Control", "no-store");
     res.json({ csrfToken: req.session.csrfToken });
   });
 
@@ -799,6 +822,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Get user error:", error);
       res.status(500).json({ error: "Failed to get user" });
+    }
+  });
+
+  // Employee allowed pages (admin sees all active pages)
+  app.get("/api/employee/pages", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const role = req.session.userRole;
+
+      if (role === "admin") {
+        const allPages = await pool.query(
+          "SELECT id, key, name, is_active FROM access_pages WHERE is_active = true ORDER BY name ASC"
+        );
+        return res.status(200).json({
+          pages: allPages.rows.map((row) => ({
+            id: row.id,
+            key: row.key,
+            name: row.name,
+            is_active: row.is_active,
+          })),
+        });
+      }
+
+      if (role !== "employee") {
+        return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
+      }
+
+      const result = await pool.query(
+        `SELECT p.id, p.key, p.name, p.is_active
+         FROM user_pages up
+         JOIN access_pages p ON p.id = up.page_id
+         WHERE up.user_id = $1 AND p.is_active = true
+         ORDER BY p.name ASC`,
+        [req.session.userId]
+      );
+
+      return res.status(200).json({
+        pages: result.rows.map((row) => ({
+          id: row.id,
+          key: row.key,
+          name: row.name,
+          is_active: row.is_active,
+        })),
+      });
+    } catch (error) {
+      console.error("[employee-pages] Error:", error);
+      res.status(500).json({ error: "Failed to fetch employee pages" });
+    }
+  });
+
+  // Employee access guard for admin APIs
+  app.use("/api/admin", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (req.session.userRole === "admin") return next();
+
+      if (req.session.userRole !== "employee") {
+        return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
+      }
+
+      const accessKey = getEmployeeAccessKeyFromAdminPath(req.path);
+      if (!accessKey) {
+        return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
+      }
+
+      const allowed = await pool.query(
+        `SELECT 1
+         FROM user_pages up
+         JOIN access_pages p ON p.id = up.page_id
+         WHERE up.user_id = $1 AND p.key = $2 AND p.is_active = true
+         LIMIT 1`,
+        [req.session.userId, accessKey]
+      );
+
+      if (allowed.rows.length === 0) {
+        return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
+      }
+
+      // Flag this request so requireRole("admin") can allow employee access
+      (req as any).employeeAdminAllowed = true;
+      return next();
+    } catch (error) {
+      console.error("[admin-employee-guard] Error:", error);
+      return res.status(500).json({ error: "Access check failed" });
     }
   });
 
@@ -1965,11 +2070,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/categories", publicCategoriesRouter);
   app.use("/api/public/tags", publicTagsRouter);
 
-  // Admin CMS Routes - SECURED: requireRole("admin") middleware enforces authentication
-  app.use("/api/admin", requireRole("admin"), adminCmsRouter);
+  // Admin Employee Routes
+  app.use("/api/admin/employees", adminEmployeesRouter);
+
+  // Admin CMS Routes - allow employees, access is enforced by admin guard
+  app.use("/api/admin", requireRole("admin", "employee"), adminCmsRouter);
 
   // Admin Finance Routes
-  app.use("/api/admin/finance", requireRole("admin"), adminFinanceRouter);
+  app.use("/api/admin/finance", requireRole("admin", "employee"), adminFinanceRouter);
 
   // Get payment history for current detective
   app.get("/api/payments/history", requireRole("detective"), async (req: Request, res: Response) => {
@@ -3841,7 +3949,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               subscriptionPackageId: null, // Explicitly NULL - user starts with FREE tier
               status: (await requirePolicy<{ value: string }>("post_approval_status"))?.value || "active",
               isVerified: true,
-              isClaimed: isAdminCreated ? false : true,
+              isClaimed: false,
               isClaimable: isAdminCreated ? true : false,
               createdBy: isAdminCreated ? "admin" : "self",
               country: application.country || "US",
@@ -3865,7 +3973,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               defaultServiceBanner: (application as any).banner || detective.defaultServiceBanner || undefined,
               status: (await requirePolicy<{ value: string }>("post_approval_status"))?.value || "active",
               isVerified: true,
-              isClaimed: isAdminCreated ? false : true,
+              isClaimed: detective.isClaimed ?? false,
               isClaimable: isAdminCreated ? true : false,
             });
           }

@@ -631,6 +631,8 @@ export function useDeleteServiceCategory() {
         ["serviceCategories", false],
         ["serviceCategories", undefined],
       ] as const;
+      
+      // Update local cache first
       for (const key of keys) {
         const current = queryClient.getQueryData<{ categories: ServiceCategory[] }>(key as any);
         if (current?.categories) {
@@ -639,7 +641,13 @@ export function useDeleteServiceCategory() {
           });
         }
       }
+      
+      // Then invalidate and refetch to ensure fresh data
       queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
+      
+      // Force refetch specifically for the keys that might be in use
+      queryClient.refetchQueries({ queryKey: ["serviceCategories", false], type: "active" });
+      queryClient.refetchQueries({ queryKey: ["serviceCategories", undefined], type: "active" });
     },
   });
 }

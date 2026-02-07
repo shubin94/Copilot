@@ -52,6 +52,8 @@ const AdminCategories = lazy(() => import("@/pages/admin/categories"));
 const AdminTags = lazy(() => import("@/pages/admin/tags"));
 const AdminPagesEdit = lazy(() => import("@/pages/admin/pages-edit"));
 const PageEdit = lazy(() => import("@/pages/admin/page-edit"));
+// Employee Management
+const AdminEmployees = lazy(() => import("@/pages/admin/employees"));
 
 // CMS Public Routes
 const PageView = lazy(() => import("@/pages/page-view"));
@@ -132,6 +134,7 @@ function Router() {
   const AdminTagsRoute = withAdminRoute(AdminTags);
   const AdminPagesEditRoute = withAdminRoute(AdminPagesEdit);
   const PageEditRoute = withAdminRoute(PageEdit);
+  const AdminEmployeesRoute = withAdminRoute(AdminEmployees);
   return (
     <>
       <ScrollToTop />
@@ -192,6 +195,9 @@ function Router() {
           <Route path="/admin/cms/tags" component={AdminTagsRoute} />
           <Route path="/admin/cms/pages" component={AdminPagesEditRoute} />
           <Route path="/admin/cms/pages/:id/edit" component={PageEditRoute} />
+          
+          {/* Employee Management Routes */}
+          <Route path="/admin/employees" component={AdminEmployeesRoute} />
           
           {/* Detective Routes - MUST come before catch-all CMS routes */}
           <Route path="/detective/dashboard" component={DetectiveDashboard} />

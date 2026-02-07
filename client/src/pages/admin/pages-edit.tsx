@@ -35,6 +35,7 @@ export default function PagesAdminEdit() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
   const queryClient = useQueryClient();
+  const isAdminOrEmployee = user?.role === "admin" || user?.role === "employee";
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -51,10 +52,10 @@ export default function PagesAdminEdit() {
 
   // Redirect if not authenticated or not admin
   useEffect(() => {
-    if (!isLoadingUser && (!isAuthenticated || user?.role !== "admin")) {
-      navigate("/admin/login");
+    if (!isLoadingUser && (!isAuthenticated || !isAdminOrEmployee)) {
+      navigate("/login");
     }
-  }, [isAuthenticated, user, isLoadingUser, navigate]);
+  }, [isAuthenticated, isAdminOrEmployee, isLoadingUser, navigate]);
 
   // Show loading state while checking authentication
   if (isLoadingUser) {
@@ -69,7 +70,7 @@ export default function PagesAdminEdit() {
   }
 
   // Don't render anything if not authenticated or not admin (will redirect)
-  if (!isAuthenticated || user?.role !== "admin") {
+  if (!isAuthenticated || !isAdminOrEmployee) {
     return null;
   }
 

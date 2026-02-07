@@ -24,13 +24,14 @@ const pages = [
 export default function AdminPages() {
   const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
   const [, setLocation] = useLocation();
+  const isAdminOrEmployee = user?.role === "admin" || user?.role === "employee";
 
   // Redirect if not authenticated or not admin
   useEffect(() => {
-    if (!isLoadingUser && (!isAuthenticated || user?.role !== "admin")) {
+    if (!isLoadingUser && (!isAuthenticated || !isAdminOrEmployee)) {
       setLocation("/login");
     }
-  }, [isAuthenticated, user, isLoadingUser, setLocation]);
+  }, [isAuthenticated, isAdminOrEmployee, isLoadingUser, setLocation]);
 
   // Show loading state while checking authentication
   if (isLoadingUser) {
@@ -38,7 +39,7 @@ export default function AdminPages() {
   }
 
   // Don't render anything if not authenticated or not admin (will redirect)
-  if (!isAuthenticated || user?.role !== "admin") {
+  if (!isAuthenticated || !isAdminOrEmployee) {
     return null;
   }
 

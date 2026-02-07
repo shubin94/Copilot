@@ -20,6 +20,7 @@ export default function TagsAdmin() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
   const queryClient = useQueryClient();
+  const isAdminOrEmployee = user?.role === "admin" || user?.role === "employee";
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -28,10 +29,10 @@ export default function TagsAdmin() {
 
   // Redirect if not authenticated or not admin
   useEffect(() => {
-    if (!isLoadingUser && (!isAuthenticated || user?.role !== "admin")) {
-      navigate("/admin/login");
+    if (!isLoadingUser && (!isAuthenticated || !isAdminOrEmployee)) {
+      navigate("/login");
     }
-  }, [isAuthenticated, user, isLoadingUser, navigate]);
+  }, [isAuthenticated, isAdminOrEmployee, isLoadingUser, navigate]);
 
   // Show loading state while checking authentication
   if (isLoadingUser) {
@@ -46,7 +47,7 @@ export default function TagsAdmin() {
   }
 
   // Don't render anything if not authenticated or not admin (will redirect)
-  if (!isAuthenticated || user?.role !== "admin") {
+  if (!isAuthenticated || !isAdminOrEmployee) {
     return null;
   }
 
@@ -102,6 +103,10 @@ export default function TagsAdmin() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/tags"] });
       // Refetch the current query with its status filter
       queryClient.refetchQueries({ queryKey: ["/api/admin/tags", statusFilter] });
+      setError("");
+    },
+    onError: (error: any) => {
+      setError(error.message);
     },
   });
 
@@ -161,6 +166,23 @@ export default function TagsAdmin() {
           Add Tag
         </button>
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex gap-3 items-start">
+          <AlertCircle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-red-800 font-medium">Cannot Delete</p>
+            <p className="text-red-700 text-sm">{error}</p>
+          </div>
+          <button
+            onClick={() => setError("")}
+            className="ml-auto text-red-600 hover:text-red-800 font-medium text-sm"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Filter */}
       <div className="mb-6">

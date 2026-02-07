@@ -77,15 +77,11 @@ async function uploadContentImages(content?: string) {
 // ============== CATEGORIES ==============
 
 // GET /api/admin/categories
-router.get("/categories", requireRole("admin"), async (req: Request, res: Response) => {
+router.get("/categories", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
-    // By default, exclude archived items. Only show archived if explicitly requested.
-    const categories = await getCategories(status === "archived" ? "archived" : undefined);
-    const filtered = status === "archived" 
-      ? categories.filter(c => c.status === "archived")
-      : categories.filter(c => c.status !== "archived");
-    res.json({ categories: filtered });
+    const categories = await getCategories(status);
+    res.json({ categories });
   } catch (error) {
     console.error("[cms] Get categories error:", error);
     res.status(500).json({ error: "Failed to fetch categories" });
@@ -93,7 +89,7 @@ router.get("/categories", requireRole("admin"), async (req: Request, res: Respon
 });
 
 // POST /api/admin/categories
-router.post("/categories", requireRole("admin"), async (req: Request, res: Response) => {
+router.post("/categories", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const { name, slug, status, parentId } = z
       .object({
@@ -132,7 +128,7 @@ router.post("/categories", requireRole("admin"), async (req: Request, res: Respo
 });
 
 // PATCH /api/admin/categories/:id
-router.patch("/categories/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.patch("/categories/:id", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const { name, slug, status, parentId } = z
       .object({
@@ -160,7 +156,7 @@ router.patch("/categories/:id", requireRole("admin"), async (req: Request, res: 
 });
 
 // DELETE /api/admin/categories/:id
-router.delete("/categories/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.delete("/categories/:id", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const categoryId = req.params.id;
 
@@ -177,9 +173,21 @@ router.delete("/categories/:id", requireRole("admin"), async (req: Request, res:
       });
     }
 
-    // Soft delete via status
-    const category = await updateCategory(categoryId, undefined, "archived");
-    if (!category) {
+    // First, remove parent relationship from any child categories to avoid FK constraint issues
+    // This is necessary because ON DELETE SET NULL can trigger unique constraint violations
+    // if there are duplicate slugs in the database
+    await pool.query(
+      "UPDATE categories SET parent_id = NULL WHERE parent_id = $1",
+      [categoryId]
+    );
+
+    // Hard delete from database
+    const deleteResult = await pool.query(
+      "DELETE FROM categories WHERE id = $1 RETURNING id",
+      [categoryId]
+    );
+
+    if (deleteResult.rows.length === 0) {
       return res.status(404).json({ error: "Category not found" });
     }
 
@@ -192,7 +200,7 @@ router.delete("/categories/:id", requireRole("admin"), async (req: Request, res:
       // Cache invalidation failure should not break the response
     }
 
-    res.json({ message: "Category archived" });
+    res.json({ message: "Category deleted successfully" });
   } catch (error) {
     console.error("[cms] Delete category error - system error:", error instanceof Error ? error.message : String(error));
     res.status(500).json({ error: "Failed to delete category" });
@@ -202,23 +210,45 @@ router.delete("/categories/:id", requireRole("admin"), async (req: Request, res:
 // ============== TAGS ==============
 
 // GET /api/admin/tags
-router.get("/tags", requireRole("admin"), async (req: Request, res: Response) => {
+router.get("/tags", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
-    // By default, exclude archived items. Only show archived if explicitly requested.
-    const tags = await getTags(status === "archived" ? "archived" : undefined);
-    const filtered = status === "archived" 
-      ? tags.filter(t => t.status === "archived")
-      : tags.filter(t => t.status !== "archived");
-    res.json({ tags: filtered });
+    const tags = await getTags(status);
+    res.json({ tags });
   } catch (error) {
     console.error("[cms] Get tags error:", error);
     res.status(500).json({ error: "Failed to fetch tags" });
   }
 });
 
+// DEBUG: GET /api/admin/tags/debug/all - Show all tags including duplicates
+router.get("/tags/debug/all", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, name, slug, parent_id, status, created_at
+      FROM tags
+      ORDER BY slug, created_at;
+    `);
+    
+    const duplicatesResult = await pool.query(`
+      SELECT slug, COUNT(*) as count, array_agg(id) as ids
+      FROM tags
+      GROUP BY slug
+      HAVING COUNT(*) > 1;
+    `);
+    
+    res.json({ 
+      tags: result.rows,
+      duplicates: duplicatesResult.rows
+    });
+  } catch (error) {
+    console.error("[cms] Debug tags error:", error);
+    res.status(500).json({ error: "Failed to fetch debug tags" });
+  }
+});
+
 // POST /api/admin/tags
-router.post("/tags", requireRole("admin"), async (req: Request, res: Response) => {
+router.post("/tags", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const { name, slug, status, parentId } = z
       .object({
@@ -252,7 +282,7 @@ router.post("/tags", requireRole("admin"), async (req: Request, res: Response) =
 });
 
 // PATCH /api/admin/tags/:id
-router.patch("/tags/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.patch("/tags/:id", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const { name, slug, status, parentId } = z
       .object({
@@ -286,7 +316,7 @@ router.patch("/tags/:id", requireRole("admin"), async (req: Request, res: Respon
 });
 
 // DELETE /api/admin/tags/:id
-router.delete("/tags/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.delete("/tags/:id", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const tagId = req.params.id;
 
@@ -303,9 +333,21 @@ router.delete("/tags/:id", requireRole("admin"), async (req: Request, res: Respo
       });
     }
 
-    // Soft delete via status
-    const tag = await updateTag(tagId, undefined, "archived");
-    if (!tag) {
+    // First, remove parent relationship from any child tags to avoid FK constraint issues
+    // This is necessary because ON DELETE SET NULL can trigger unique constraint violations
+    // if there are duplicate slugs in the database
+    await pool.query(
+      "UPDATE tags SET parent_id = NULL WHERE parent_id = $1",
+      [tagId]
+    );
+
+    // Hard delete from database
+    const deleteResult = await pool.query(
+      "DELETE FROM tags WHERE id = $1 RETURNING id",
+      [tagId]
+    );
+
+    if (deleteResult.rows.length === 0) {
       return res.status(404).json({ error: "Tag not found" });
     }
 
@@ -318,7 +360,7 @@ router.delete("/tags/:id", requireRole("admin"), async (req: Request, res: Respo
       // Cache invalidation failure should not break the response
     }
 
-    res.json({ message: "Tag archived" });
+    res.json({ message: "Tag deleted successfully" });
   } catch (error) {
     console.error("[cms] Delete tag error - system error:", error instanceof Error ? error.message : String(error));
     res.status(500).json({ error: "Failed to delete tag" });
@@ -328,7 +370,7 @@ router.delete("/tags/:id", requireRole("admin"), async (req: Request, res: Respo
 // ============== PAGES ==============
 
 // GET /api/admin/pages
-router.get("/pages", requireRole("admin"), async (req: Request, res: Response) => {
+router.get("/pages", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
     // By default, exclude archived items. Only show archived if explicitly requested.
@@ -344,7 +386,7 @@ router.get("/pages", requireRole("admin"), async (req: Request, res: Response) =
 });
 
 // POST /api/admin/pages
-router.post("/pages", requireRole("admin"), async (req: Request, res: Response) => {
+router.post("/pages", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const { title, slug, categoryId, content, bannerImage, tagIds, status } = z
       .object({
@@ -420,7 +462,7 @@ router.post("/pages", requireRole("admin"), async (req: Request, res: Response) 
 });
 
 // GET /api/admin/pages/:id
-router.get("/pages/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.get("/pages/:id", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const page = await getPageById(req.params.id);
     if (!page) {
@@ -434,7 +476,7 @@ router.get("/pages/:id", requireRole("admin"), async (req: Request, res: Respons
 });
 
 // PATCH /api/admin/pages/:id
-router.patch("/pages/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.patch("/pages/:id", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const { title, slug, categoryId, status, content, bannerImage, tagIds, metaTitle, metaDescription } = z
       .object({
@@ -522,7 +564,7 @@ router.patch("/pages/:id", requireRole("admin"), async (req: Request, res: Respo
 });
 
 // DELETE /api/admin/pages/:id
-router.delete("/pages/:id", requireRole("admin"), async (req: Request, res: Response) => {
+router.delete("/pages/:id", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
     const pageBeforeDelete = await getPageById(req.params.id);
     const success = await deletePage(req.params.id);
