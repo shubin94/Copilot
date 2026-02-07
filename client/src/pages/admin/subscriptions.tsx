@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, Check, X, Shield, Crown, Star, Mail, Phone, MessageCircle } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, getOrFetchCsrfToken } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 interface SubscriptionPlan {
@@ -200,9 +200,13 @@ export default function AdminSubscriptions() {
     const agencyPlan = plans.find(p => p.id === "agency")?.serviceLimit || "1000";
     const agency = agencyPlan === "unlimited" ? 1000 : Number(agencyPlan);
     try {
+      const csrfToken = await getOrFetchCsrfToken();
       const response = await fetch("/api/admin/subscription-limits", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
         credentials: "include",
         body: JSON.stringify({ free, pro, agency })
       });
