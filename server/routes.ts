@@ -450,6 +450,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
   // Using crypto.randomBytes(32) provides 256 bits of entropy.
   // NOTE: CORS headers are handled by middleware in app.ts
+  
+  // Handle preflight requests explicitly for this critical endpoint
+  app.options("/api/csrf-token", (req: Request, res: Response) => {
+    console.log(`[CSRF-TOKEN] OPTIONS preflight request`);
+    res.status(204).end();
+  });
+  
   app.get("/api/csrf-token", (req: Request, res: Response) => {
     console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}`);
     
