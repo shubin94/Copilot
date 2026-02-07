@@ -82,6 +82,8 @@ export const config = {
             "https://www.askdetectives.com",
             "https://askdetectives1-6gzpq6g7s-askdetectives-projects-acf61647.vercel.app",
             "https://askdetectives1.vercel.app",
+            // Allow all Vercel preview deployments
+            "https://askdetectives-git-",
           ]
         : [
             "http://localhost:5000",
