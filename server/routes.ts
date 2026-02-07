@@ -449,12 +449,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
   // Using crypto.randomBytes(32) provides 256 bits of entropy.
+  // NOTE: CORS headers are handled by middleware in app.ts
+  
+  // Handle preflight requests explicitly for this critical endpoint
+  app.options("/api/csrf-token", (req: Request, res: Response) => {
+    console.log(`[CSRF-TOKEN] OPTIONS preflight request`);
+    res.status(204).end();
+  });
+  
   app.get("/api/csrf-token", (req: Request, res: Response) => {
+    console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}`);
+    
     if (!req.session.csrfToken) {
       req.session.csrfToken = randomBytes(32).toString("hex");
+      console.log(`[CSRF-TOKEN] Generated new token: ${req.session.csrfToken.substring(0, 16)}...`);
     }
+    
     // Prevent caching/ETag revalidation which can return 304 without a body
     setNoStore(res);
+    
+    console.log(`[CSRF-TOKEN] Response headers: ${JSON.stringify({
+      'access-control-allow-origin': res.getHeader('access-control-allow-origin'),
+      'access-control-allow-credentials': res.getHeader('access-control-allow-credentials'),
+    })}`);
+    
     res.json({ csrfToken: req.session.csrfToken });
   });
 
