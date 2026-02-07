@@ -200,6 +200,13 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  const setNoStore = (res: Response) => {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+    res.set("Surrogate-Control", "no-store");
+  };
+
   // Session middleware is now applied globally in app.ts
   
   // OPTIMIZED: Apply body parsers with per-route size limits
@@ -432,6 +439,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Apply body parsers globally to all /api routes with 10MB limit
   // This ensures ALL routes can accept JSON/form data without configuration issues
   app.use('/api/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+
+  // Disable caching for all auth endpoints (admin/employee/detective login)
+  app.use("/api/auth", (_req, res, next) => {
+    setNoStore(res);
+    next();
+  });
   
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
@@ -441,10 +454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.session.csrfToken = randomBytes(32).toString("hex");
     }
     // Prevent caching/ETag revalidation which can return 304 without a body
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-    res.set("Pragma", "no-cache");
-    res.set("Expires", "0");
-    res.set("Surrogate-Control", "no-store");
+    setNoStore(res);
     res.json({ csrfToken: req.session.csrfToken });
   });
 
@@ -481,6 +491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register new user
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const validatedData = insertUserSchema.parse(req.body);
       
       // Check if user already exists
@@ -531,6 +542,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin status is determined solely by user.role === "admin" from the database.
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       let { email, password } = req.body as { email: string; password: string };
       email = (email || "").toLowerCase().trim();
 
@@ -711,6 +723,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Change password (authenticated users)
   app.post("/api/auth/change-password", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string };
       if (!currentPassword || !newPassword) {
         return res.status(400).json({ error: "Current and new password are required" });
@@ -757,6 +770,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Set password without current (requires mustChangePassword flag)
   app.post("/api/auth/set-password", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const { newPassword } = req.body as { newPassword: string };
       if (!newPassword) {
         return res.status(400).json({ error: "New password is required" });
@@ -784,6 +798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Logout
   app.post("/api/auth/logout", (req: Request, res: Response) => {
+      setNoStore(res);
       req.session.destroy((err) => {
       if (err) {
         return res.status(500).json({ error: "Failed to log out" });
@@ -796,6 +811,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current user
   app.get("/api/auth/me", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       // Only database-backed credentials are allowed
       const user = await storage.getUser(req.session.userId!);
       if (!user) {
@@ -813,6 +829,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Alias for admin pages: same response shape as /api/auth/me (single source of truth)
   app.get("/api/user", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const user = await storage.getUser(req.session.userId!);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -828,6 +845,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Employee allowed pages (admin sees all active pages)
   app.get("/api/employee/pages", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const role = req.session.userRole;
 
       if (role === "admin") {
@@ -872,6 +890,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Employee access guard for admin APIs
+  app.use("/api/admin", (_req, res, next) => {
+    setNoStore(res);
+    next();
+  });
+
   app.use("/api/admin", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (req.session.userRole === "admin") return next();
@@ -2504,6 +2527,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current logged-in detective's profile (requires detective role)
   app.get("/api/detectives/me", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       let detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
         return res.status(404).json({ error: "Detective profile not found" });
