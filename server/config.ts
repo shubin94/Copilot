@@ -77,7 +77,10 @@ export const config = {
     allowedOrigins: getStringList(
       "CSRF_ALLOWED_ORIGINS",
       isProd
-        ? []
+        ? [
+            "https://askdetectives.com",
+            "https://askdetectives1-6gzpq6g7s-askdetectives-projects-acf61647.vercel.app",
+          ]
         : [
             "http://localhost:5000",
             "http://127.0.0.1:5000",
@@ -104,7 +107,7 @@ export const config = {
   },
   sentryDsn: "",
   // Base URL for OAuth redirect_uri (e.g. https://yoursite.com or http://localhost:5000)
-  baseUrl: process.env.BASE_URL || (isProd ? "" : "http://localhost:5000"),
+  baseUrl: process.env.BASE_URL || (isProd ? "https://askdetectives.com" : "http://localhost:5000"),
 };
 
 export function validateConfig(secretsLoaded: boolean = true) {
