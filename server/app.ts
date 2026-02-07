@@ -74,8 +74,11 @@ export const bodyParsers = {
 const configuredOrigins = config.csrf.allowedOrigins;
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
+    // Allow requests with no origin (mobile apps, Postman, curl, etc.)
     if (!origin) return callback(null, true);
+    
+    // Normalize origin by removing trailing slashes
+    const normalizedOrigin = origin.replace(/\/$/, '');
     
     const allowedOrigins = [
       ...configuredOrigins,
@@ -85,17 +88,31 @@ app.use(cors({
       "http://127.0.0.1:5000",
     ];
     
-    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+    // Check for exact match or startsWith match (for subdomains)
+    const isAllowed = allowedOrigins.some(allowed => {
+      const normalizedAllowed = allowed.replace(/\/$/, '');
+      return normalizedOrigin === normalizedAllowed || normalizedOrigin.startsWith(normalizedAllowed);
+    });
+    
+    if (isAllowed) {
       callback(null, true);
     } else {
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
+      console.warn(`❌ CORS blocked origin: ${origin}`);
+      callback(null, false); // Better to silently reject than throw
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Requested-With"],
-  exposedHeaders: ["Set-Cookie"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Requested-With", "Accept"],
+  exposedHeaders: ["Set-Cookie", "X-CSRF-Token"],
+  maxAge: 86400,
 }));
+
+// Explicit preflight handler to ensure OPTIONS requests get proper CORS headers
+app.options('*', cors());
+
+// Additional middleware to ensure CSRF endpoint always responds to CORS
+app.options('/api/csrf-token', cors());
 
 // Security headers - CSP disabled for dev flexibility, enable in production
 app.use(helmet({ 
