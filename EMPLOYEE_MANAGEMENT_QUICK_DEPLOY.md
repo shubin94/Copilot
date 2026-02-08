@@ -84,7 +84,7 @@ pm2 restart app
 ```bash
 # Verify enum updated
 psql $DATABASE_URL -c "SELECT enum_range(NULL::user_role)"
-# Should show: {user,detective,admin,employee}
+# Should show: {employee,user,detective,admin}
 
 # Verify users table has is_active
 psql $DATABASE_URL -c "\d users" | grep is_active
@@ -109,7 +109,7 @@ psql $DATABASE_URL -c "SELECT key, name FROM access_pages"
 
 ✅ **Transaction Safe** - Multi-step operations atomic (all-or-nothing)
 
-⚡ **Zero Downtime** - Can deploy while application is running
+⚡ **Minimal Downtime** - ALTER TABLE ADD COLUMN acquires brief ACCESS EXCLUSIVE lock; validate on production-like data volumes before deploying
 
 ---
 

@@ -6,11 +6,14 @@ async function runMigration() {
   console.log("🔄 Starting migration: Remove legacy subscription_plan column...\n");
 
   try {
+    // Wrap entire migration in transaction for atomicity
+    await db.execute(sql`BEGIN`);
+
     // Step 1: Get the free plan ID
     const freePlanList = await db
       .select({ id: subscriptionPlans.id })
       .from(subscriptionPlans)
-      .where(eq(subscriptionPlans.monthlyPrice, 0));
+      .where(eq(subscriptionPlans.monthlyPrice, "0"));
 
     if (!freePlanList || freePlanList.length === 0) {
       throw new Error("❌ Free plan not found in subscription_plans table!");
@@ -24,7 +27,8 @@ async function runMigration() {
       sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_package_id IS NULL`
     );
 
-    const nullCount = nullCountResult[0]?.count ?? 0;
+    const nullCountRows = (nullCountResult as any).rows ?? (nullCountResult as any) ?? [];
+    const nullCount = Number(nullCountRows[0]?.count ?? 0);
 
     if (nullCount > 0) {
       console.log(`⚠️  Found ${nullCount} detectives with NULL subscription_package_id`);
@@ -73,7 +77,8 @@ async function runMigration() {
       sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_package_id IS NULL`
     );
 
-    const remainingCount = remaining[0]?.count ?? 0;
+    const remainingRows = (remaining as any).rows ?? (remaining as any) ?? [];
+    const remainingCount = Number(remainingRows[0]?.count ?? 0);
     if (remainingCount > 0) {
       throw new Error(`❌ ERROR: ${remainingCount} detectives still have NULL subscription_package_id!`);
     }
@@ -81,12 +86,13 @@ async function runMigration() {
     console.log("✅ Verification passed: All detectives have valid subscription_package_id\n");
 
     // Check schema
-    const columns = await db.execute(
+    const columnsResult = await db.execute(
       sql.raw(
         "SELECT column_name FROM information_schema.columns WHERE table_name = 'detectives' AND column_name = 'subscription_plan'"
       )
     );
 
+    const columns = (columnsResult as any).rows ?? (columnsResult as any) ?? [];
     if (columns && columns.length > 0) {
       throw new Error("❌ ERROR: subscription_plan column still exists!");
     }
@@ -103,8 +109,17 @@ async function runMigration() {
     console.log("   4. Added foreign key constraint");
     console.log("\n✨ Database now has single source of truth: subscription_package_id\n");
 
+    // Commit transaction
+    await db.execute(sql`COMMIT`);
+
     process.exit(0);
   } catch (error) {
+    // Rollback on error
+    try {
+      await db.execute(sql`ROLLBACK`);
+    } catch (rollbackError) {
+      console.error("❌ Error rolling back transaction:", rollbackError);
+    }
     console.error("\n❌ MIGRATION FAILED:");
     console.error(error);
     process.exit(1);

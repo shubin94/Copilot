@@ -77,8 +77,8 @@ async function seedAccessPages() {
 
 export default seedAccessPages;
 
-// Run if executed directly
-if (import.meta.main) {
+// Run if executed directly (Node.js compatible)
+if (import.meta.url === `file://${process.argv[1]}`) {
   seedAccessPages()
     .then(() => {
       console.log("\n✅ Seed completed");

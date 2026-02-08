@@ -3,5 +3,12 @@ Allow: /
 Disallow: /admin/
 Disallow: /user/
 Disallow: /detective/dashboard
+Disallow: /login
+Disallow: /signup
+Disallow: /claim-account
+Disallow: /claim-profile
+Disallow: /application-under-review
 
-Sitemap: https://finddetectives.com/sitemap.xml
+Crawl-delay: 1
+
+Sitemap: https://www.askdetectives.com/sitemap.xml

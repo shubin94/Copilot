@@ -1,6 +1,17 @@
 import type { Request, Response, NextFunction } from "express";
 
 /**
+ * Extend Express Request type to include employeeAdminAllowed property
+ */
+declare global {
+  namespace Express {
+    interface Request {
+      employeeAdminAllowed?: boolean;
+    }
+  }
+}
+
+/**
  * Middleware: require authenticated session.
  * 401 if no session userId.
  */
@@ -27,7 +38,7 @@ export function requireRole(...roles: string[]) {
 
     // Check if user role is in allowed roles
     const userRole = req.session.userRole || "";
-    const employeeAdminAllowed = (req as any).employeeAdminAllowed === true;
+    const employeeAdminAllowed = req.employeeAdminAllowed === true;
 
     if (!roles.includes(userRole) && !(employeeAdminAllowed && roles.includes("admin"))) {
       console.warn("[auth] Access denied - insufficient permissions", {

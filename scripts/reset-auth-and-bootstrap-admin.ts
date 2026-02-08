@@ -34,7 +34,7 @@ async function run() {
     }
 
     console.log("\n🔐 ADMIN RESET - Security Check")
-    console.log("=" .repeat(50))
+    console.log("=".repeat(50))
 
     // Check database before proceeding
     const dbValidation = await validateDatabaseForOperation(
@@ -81,14 +81,15 @@ async function run() {
       googleId: null,
     }).returning()
 
-    console.log("\n" + "=" .repeat(50))
+    console.log("\n" + "=".repeat(50))
     console.log("✅ SUPER ADMIN CREATED SUCCESSFULLY")
-    console.log("=" .repeat(50))
+    console.log("=".repeat(50))
     console.log(`Email:    ${adminEmail}`)
-    console.log(`Password: ${securePassword}`)
-    console.log("\nℹ️  Store these credentials securely.")
-    console.log("ℹ️  Password is hashed in database.")
-    console.log("=" .repeat(50) + "\n")
+    console.log(`⚠️  Password has been generated and hashed (not shown for security)`)
+    console.log("\n✅ Store the generated password securely (shown below only once):")
+    console.log(securePassword)
+    console.log("\nℹ️  Password is hashed in database.")
+    console.log("=".repeat(50) + "\n")
 
     process.exit(0)
   } catch (e) {

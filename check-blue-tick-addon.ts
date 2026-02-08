@@ -51,9 +51,18 @@ async function checkBlueTickAddon() {
 
   } catch (error) {
     console.error("Error:", error);
+    process.exitCode = 1;
+  } finally {
+    // Close database connection if available
+    try {
+      if ((db as any).end) {
+        await (db as any).end();
+      }
+    } catch (closeError) {
+      console.error("Error closing database:", closeError);
+    }
+    process.exit(process.exitCode);
   }
-  
-  process.exit(0);
 }
 
 checkBlueTickAddon();

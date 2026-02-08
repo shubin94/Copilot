@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Lock, Unlock, Plus, Edit2, Loader, Trash2 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/hooks";
 
 type AdminPage = {
   id: string;
@@ -22,6 +24,8 @@ type Employee = {
 };
 
 export default function EmployeesManagement() {
+  const [, setLocation] = useLocation();
+  const { data: user } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [pages, setPages] = useState<AdminPage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,10 +44,18 @@ export default function EmployeesManagement() {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [editPages, setEditPages] = useState(new Set<string>());
 
+  // ============ AUTH GUARD ============
+  useEffect(() => {
+    if (!user) {
+      setLocation('/admin/login');
+    }
+  }, [user, setLocation]);
+
   // ============ LOAD DATA ============
   useEffect(() => {
+    if (!user) return;
     loadData();
-  }, []);
+  }, [user]);
 
   async function loadData() {
     try {
@@ -79,8 +91,9 @@ export default function EmployeesManagement() {
     }
 
     try {
+      const email = formData.email.trim().toLowerCase();
       const newEmployee = await api.post<Employee>("/api/admin/employees", {
-        email: formData.email,
+        email,
         name: formData.name,
         password: formData.password,
         allowedPages: Array.from(formData.selectedPages),
@@ -121,7 +134,7 @@ export default function EmployeesManagement() {
       setEditPages(new Set());
       showToast("Pages updated successfully", "success");
     } catch (error: any) {
-      showToast(error.message || "Error updating pages", "error");
+      showToast(error?.message || "Error updating pages", "error");
     }
   }
 
@@ -139,7 +152,7 @@ export default function EmployeesManagement() {
 
       showToast(data.message, "success");
     } catch (error: any) {
-      showToast(error.message || "Error updating status", "error");
+      showToast(error?.message || "Error updating status", "error");
     }
   }
 
@@ -158,7 +171,7 @@ export default function EmployeesManagement() {
       setEmployees(employees.filter((emp) => emp.id !== employee.id));
       showToast(data.message, "success");
     } catch (error: any) {
-      showToast(error.message || "Error deleting employee", "error");
+      showToast(error?.message || "Error deleting employee", "error");
     }
   }
 

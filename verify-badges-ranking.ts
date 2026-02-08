@@ -8,7 +8,7 @@
 
 import { db } from "./server/db.ts";
 import { detectives, services, subscriptionPlans } from "./shared/schema.ts";
-import { eq, and, isNotNull, desc } from "drizzle-orm";
+import { eq, and, isNotNull, desc, count } from "drizzle-orm";
 import { computeEffectiveBadges } from "./server/services/entitlements.ts";
 import { getRankedDetectives } from "./server/ranking.ts";
 
@@ -59,10 +59,10 @@ async function runVerification() {
 
       // Check if detective has services
       const serviceCount = await db
-        .select({ count: { value: services.id } })
+        .select({ count: count(services.id) })
         .from(services)
         .where(eq(services.detectiveId, detective.id));
-      console.log(`   Services: ${serviceCount[0]?.count?.value || 0}`);
+      console.log(`   Services: ${serviceCount[0]?.count || 0}`);
     }
 
     // 2. Test service card mapping flow

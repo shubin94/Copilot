@@ -1,11 +1,8 @@
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import pkg from 'pg';
+import { loadEnv } from './server/lib/loadEnv.ts';
 const { Pool } = pkg;
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, '.env.local') });
+loadEnv();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
 
@@ -21,10 +18,14 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
       console.log(`  Active: ${user.is_active}`);
       console.log(`  ID: ${user.id}`);
     } else {
-      console.log('❌ User not found. Please provide the password you used when creating this employee.');
+      console.log('❌ User not found. Verify the email identifier (sam@s.com) or confirm the employee was created.');
     }
   } catch (error) {
-    console.error('Error:', error.message);
+    if (error instanceof Error) {
+      console.error('Error:', error.message);
+    } else {
+      console.error('Error:', String(error));
+    }
   } finally {
     await pool.end();
   }

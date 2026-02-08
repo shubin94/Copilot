@@ -561,13 +561,15 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
         onSuccess(applicationData);
       }
     } catch (error: any) {
-      console.error("Submission error:", error);
-      console.error("Error details:", {
-        name: error?.name,
-        message: error?.message,
-        status: error?.status,
-        response: error?.response,
-      });
+      console.error("Submission error:", error?.message);
+      // Don't log full response as it may contain sensitive data
+      if (error?.name === 'AbortError' || error?.status) {
+        console.debug("Error details:", {
+          name: error?.name,
+          message: error?.message,
+          status: error?.status,
+        });
+      }
       
       let displayMessage = "Please try again later.";
       

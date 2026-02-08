@@ -10,8 +10,12 @@ async function testAPI() {
     console.log("Body:", text);
     
     if (res.ok) {
-      const data = JSON.parse(text);
-      console.log("\n✅ SUCCESS - Parsed data:", JSON.stringify(data, null, 2));
+      try {
+        const data = JSON.parse(text);
+        console.log("\n✅ SUCCESS - Parsed data:", JSON.stringify(data, null, 2));
+      } catch (parseError) {
+        console.error("❌ Failed to parse JSON:", text);
+      }
     } else {
       console.log("\n❌ FAILED:", text);
     }

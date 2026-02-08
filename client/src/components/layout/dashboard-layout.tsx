@@ -71,6 +71,25 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     }
   }, [isAuthenticated, isLoading, role, setLocation, user]);
 
+  useEffect(() => {
+    if (role !== "admin" || user?.role !== "employee") return;
+    if (employeePages !== null || isEmployeePagesLoading) return;
+
+    setIsEmployeePagesLoading(true);
+    api
+      .get<{ pages: Array<{ key: string }> }>("/api/employee/pages")
+      .then((data) => {
+        setEmployeePages(data.pages.map((page) => page.key));
+      })
+      .catch((error) => {
+        console.error("[DashboardLayout] Failed to load employee pages:", error);
+        setEmployeePages([]);
+      })
+      .finally(() => {
+        setIsEmployeePagesLoading(false);
+      });
+  }, [role, user?.role, employeePages, isEmployeePagesLoading]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -87,26 +106,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   }
 
   if (role === "admin" && user.role !== "admin" && user.role !== "employee") return null;
-    useEffect(() => {
-      if (role !== "admin" || user?.role !== "employee") return;
-      if (employeePages !== null || isEmployeePagesLoading) return;
-
-      setIsEmployeePagesLoading(true);
-      api
-        .get<{ pages: Array<{ key: string }> }>("/api/employee/pages")
-        .then((data) => {
-          setEmployeePages(data.pages.map((page) => page.key));
-        })
-        .catch((error) => {
-          console.error("[DashboardLayout] Failed to load employee pages:", error);
-          setEmployeePages([]);
-        })
-        .finally(() => {
-          setIsEmployeePagesLoading(false);
-        });
-    }, [role, user?.role, employeePages, isEmployeePagesLoading]);
-  if (role === "detective" && user.role !== "detective") return null;
   if (role === "user" && user.role !== "user") return null;
+  if (role === "detective" && user.role !== "detective") return null;
 
   const getNextRenewalDate = () => {
     if (!detective) return null;

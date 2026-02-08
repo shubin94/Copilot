@@ -5,12 +5,14 @@ DO $$
 DECLARE
   free_plan_id TEXT;
   affected_count INTEGER;
+  detective_rec RECORD;
 BEGIN
   -- Find the FREE plan (price = 0, active)
   SELECT id INTO free_plan_id
   FROM subscription_plans
   WHERE monthly_price = '0' 
   AND is_active = true
+  ORDER BY name ASC
   LIMIT 1;
 
   IF free_plan_id IS NULL THEN
@@ -19,14 +21,12 @@ BEGIN
 
   RAISE NOTICE 'Found FREE plan ID: %', free_plan_id;
 
-  -- Log detectives that will be fixed
+  -- Log and update detectives that need the free plan
   RAISE NOTICE 'Detectives with NULL subscriptionPackageId:';
-  FOR affected_count IN 
-    SELECT 1 FROM detectives WHERE subscription_package_id IS NULL
+  FOR detective_rec IN 
+    SELECT id, business_name FROM detectives WHERE subscription_package_id IS NULL
   LOOP
-    RAISE NOTICE '  - Detective: % (Business: %)', 
-      (SELECT id FROM detectives WHERE subscription_package_id IS NULL LIMIT 1),
-      (SELECT business_name FROM detectives WHERE subscription_package_id IS NULL LIMIT 1);
+    RAISE NOTICE '  - Detective: % assigned to FREE plan', detective_rec.business_name;
   END LOOP;
 
   -- Update all detectives with NULL subscriptionPackageId

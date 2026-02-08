@@ -4,10 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Clock, CheckCircle, Mail } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { SEO } from "@/components/seo";
 
 export default function ApplicationUnderReview() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
+      <SEO 
+        title="Application Status | FindDetectives"
+        description="Your detective application is being reviewed. You will be notified once approved."
+        robots="noindex, follow"
+      />
       <Navbar />
       
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-16 mt-16">

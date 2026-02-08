@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import "./server/lib/loadEnv.ts";
 import { pool } from "./db/index.ts";
 
 async function fixPageSlug() {
@@ -24,9 +25,9 @@ async function fixPageSlug() {
       const categorySlug = row.cat_slug;
       
       // Check if page slug already includes category prefix
-      if (categorySlug && !pageSlug.startsWith(categorySlug + "/")) {
+      if (categorySlug && pageSlug && !pageSlug.startsWith(categorySlug + "/")) {
         // Extract the page slug part (just the last segment)
-        const pageSlugPart = pageSlug.split("/").pop();
+        const pageSlugPart = pageSlug.split("/").pop() || pageSlug;
         const newSlug = `${categorySlug}/${pageSlugPart}`;
         
         console.log(`\nUpdating page: ${row.title}`);
@@ -49,10 +50,11 @@ async function fixPageSlug() {
     }
 
     console.log("\n\nAll pages updated successfully!");
-    process.exit(0);
   } catch (error) {
     console.error("Error:", error);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await pool.end();
   }
 }
 

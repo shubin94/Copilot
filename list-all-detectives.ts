@@ -1,3 +1,4 @@
+import "./server/lib/loadEnv.ts"
 import { db } from "./db/index.ts"
 import { detectives } from "./shared/schema.ts"
 
@@ -13,17 +14,13 @@ async function listAllDetectives() {
         console.log(`Detective ${index + 1}:`)
         console.log(`  ID: ${detective.id}`)
         console.log(`  User ID: ${detective.userId}`)
-        console.log(`  Name: ${detective.name}`)
-        console.log(`  Email: ${detective.email}`)
-        console.log(`  Specialties: ${detective.specialties || 'N/A'}`)
-        console.log(`  Experience: ${detective.experience || 'N/A'}`)
-        console.log(`  Location: ${detective.location || 'N/A'}`)
-        console.log(`  Bio: ${detective.bio ? detective.bio.substring(0, 80) + '...' : 'N/A'}`)
-        console.log(`  Avatar URL: ${detective.avatarUrl || 'N/A'}`)
-        console.log(`  Verified: ${detective.isVerified}`)
-        console.log(`  Active: ${detective.isActive}`)
-        console.log(`  Rating: ${detective.rating || 0}`)
-        console.log(`  Reviews Count: ${detective.reviewCount || 0}`)
+        console.log(`  Business Name: ${detective.businessName}`)
+        console.log(`  Contact Email: ${detective.contactEmail}`)
+        console.log(`  Years Experience: ${detective.yearsExperience || 'N/A'}`)
+        console.log(`  Country: ${detective.country || 'N/A'}`)
+        console.log(`  Bio: ${detective.bio ? (detective.bio.length > 80 ? detective.bio.substring(0, 80) + '...' : detective.bio) : 'N/A'}`)
+        console.log(`  Logo: ${detective.logo || 'N/A'}`)
+        console.log(`  Status: ${detective.status}`)
         console.log(`  Created at: ${detective.createdAt}`)
         console.log()
       })

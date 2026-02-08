@@ -27,7 +27,7 @@ export function computeEffectiveBadges(
 ): EffectiveBadges {
   const now = new Date();
   const expiresAt = detective.subscriptionExpiresAt ? new Date(detective.subscriptionExpiresAt) : null;
-  const isFreePlan = subscriptionPackage?.name === "free";
+  const isFreePlan = subscriptionPackage?.name?.toLowerCase() === "free";
   const activeSubscription = !!(
     detective.subscriptionPackageId &&
     (isFreePlan || !expiresAt || expiresAt > now)

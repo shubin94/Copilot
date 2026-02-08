@@ -110,33 +110,34 @@ const withAdminRoute = (Component: ComponentType<any>) => (props: any) => (
   </AdminRoute>
 );
 
-function Router() {
-  const AdminDashboardRoute = withAdminRoute(AdminDashboard);
-  const AdminFinanceRoute = withAdminRoute(AdminFinance);
-  const AdminSignupsRoute = withAdminRoute(AdminSignups);
-  const AdminDetectivesRoute = withAdminRoute(AdminDetectives);
-  const AdminServicesRoute = withAdminRoute(AdminServices);
-  const AdminServiceCategoriesRoute = withAdminRoute(AdminServiceCategories);
-  const AdminSignupDetailsRoute = withAdminRoute(AdminSignupDetails);
-  const AdminSubscriptionsRoute = withAdminRoute(AdminSubscriptions);
-  const AdminAddDetectiveRoute = withAdminRoute(AdminAddDetective);
-  const AdminClaimsRoute = withAdminRoute(AdminClaims);
-  const AdminViewDetectiveRoute = withAdminRoute(AdminViewDetective);
-  const AdminSettingsRoute = withAdminRoute(AdminSettings);
-  const AdminPaymentGatewaysRoute = withAdminRoute(AdminPaymentGateways);
-  const AdminBrandingRoute = withAdminRoute(AdminBranding);
-  const AdminPagesRoute = withAdminRoute(AdminPages);
-  const AdminRankingVisibilityRoute = withAdminRoute(AdminRankingVisibility);
-  const AdminEmailTemplatesRoute = withAdminRoute(AdminEmailTemplates);
-  const AdminSnippetsRoute = withAdminRoute(AdminSnippets);
-  const AdminAppSecretsRoute = withAdminRoute(AdminAppSecrets);
+// Create admin route components at module scope to avoid recreation on each render
+const AdminDashboardRoute = withAdminRoute(AdminDashboard);
+const AdminFinanceRoute = withAdminRoute(AdminFinance);
+const AdminSignupsRoute = withAdminRoute(AdminSignups);
+const AdminDetectivesRoute = withAdminRoute(AdminDetectives);
+const AdminServicesRoute = withAdminRoute(AdminServices);
+const AdminServiceCategoriesRoute = withAdminRoute(AdminServiceCategories);
+const AdminSignupDetailsRoute = withAdminRoute(AdminSignupDetails);
+const AdminSubscriptionsRoute = withAdminRoute(AdminSubscriptions);
+const AdminAddDetectiveRoute = withAdminRoute(AdminAddDetective);
+const AdminClaimsRoute = withAdminRoute(AdminClaims);
+const AdminViewDetectiveRoute = withAdminRoute(AdminViewDetective);
+const AdminSettingsRoute = withAdminRoute(AdminSettings);
+const AdminPaymentGatewaysRoute = withAdminRoute(AdminPaymentGateways);
+const AdminBrandingRoute = withAdminRoute(AdminBranding);
+const AdminPagesRoute = withAdminRoute(AdminPages);
+const AdminRankingVisibilityRoute = withAdminRoute(AdminRankingVisibility);
+const AdminEmailTemplatesRoute = withAdminRoute(AdminEmailTemplates);
+const AdminSnippetsRoute = withAdminRoute(AdminSnippets);
+const AdminAppSecretsRoute = withAdminRoute(AdminAppSecrets);
+const AdminDashboardCMSRoute = withAdminRoute(AdminDashboardCMS);
+const AdminCategoriesRoute = withAdminRoute(AdminCategories);
+const AdminTagsRoute = withAdminRoute(AdminTags);
+const AdminPagesEditRoute = withAdminRoute(AdminPagesEdit);
+const PageEditRoute = withAdminRoute(PageEdit);
+const AdminEmployeesRoute = withAdminRoute(AdminEmployees);
 
-  const AdminDashboardCMSRoute = withAdminRoute(AdminDashboardCMS);
-  const AdminCategoriesRoute = withAdminRoute(AdminCategories);
-  const AdminTagsRoute = withAdminRoute(AdminTags);
-  const AdminPagesEditRoute = withAdminRoute(AdminPagesEdit);
-  const PageEditRoute = withAdminRoute(PageEdit);
-  const AdminEmployeesRoute = withAdminRoute(AdminEmployees);
+function Router() {
   return (
     <>
       <ScrollToTop />

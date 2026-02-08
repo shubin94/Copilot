@@ -25,8 +25,9 @@ interface DatabaseInfo {
  */
 export function parseDatabaseUrl(url: string): DatabaseInfo {
   try {
-    // Parse PostgreSQL connection string
-    const dbUrl = new URL(url.replace("postgresql://", "http://"));
+    // Parse PostgreSQL connection string - handle both "postgresql://" and "postgres://" schemes
+    const normalizedUrl = url.replace(/^postgres(ql)?:\/\//, "http://");
+    const dbUrl = new URL(normalizedUrl);
     const host = dbUrl.hostname || null;
     const port = dbUrl.port ? parseInt(dbUrl.port, 10) : 5432;
     const database = dbUrl.pathname?.replace("/", "") || null;
@@ -39,8 +40,31 @@ export function parseDatabaseUrl(url: string): DatabaseInfo {
       host === "::1" ||
       host?.endsWith(".local");
 
-    // Mask password for display
-    const displayUrl = url.replace(/:\w+@/, ":***@");
+    // Mask password for display - handle both postgresql:// and postgres:// schemes
+    let displayUrl = url;
+    try {
+      // Detect both postgresql:// and postgres:// schemes
+      const schemeMatch = url.match(/^(postgres(?:ql)?):\/\//);
+      if (!schemeMatch) {
+        displayUrl = url;
+      } else {
+        const schemeLength = schemeMatch[0].length;
+        const afterScheme = url.substring(schemeLength);
+        const atIndex = afterScheme.indexOf('@');
+        if (atIndex > 0) {
+          const credPart = afterScheme.substring(0, atIndex);
+          const colonInCred = credPart.indexOf(':');
+          if (colonInCred > 0) {
+            // Found user:password format - mask the password part
+            const user = credPart.substring(0, colonInCred);
+            displayUrl = url.replace(credPart, user + ":***");
+          }
+        }
+      }
+    } catch {
+      // Fallback: simple regex that handles most cases
+      displayUrl = url.replace(/:(?:[^@]+)@/, ":***@");
+    }
 
     return {
       url,
@@ -59,7 +83,26 @@ export function parseDatabaseUrl(url: string): DatabaseInfo {
       database: null,
       isLocal: false,
       isProduction: true,
-      displayUrl: url.replace(/:\w+@/, ":***@"),
+      displayUrl: (() => {
+        try {
+          // Same masking logic as above
+          const colonIndex = url.indexOf('postgresql://');
+          if (colonIndex === -1) {
+            return url;
+          }
+          const afterScheme = url.substring(colonIndex + 13);
+          const atIndex = afterScheme.indexOf('@');
+          if (atIndex > 0) {
+            const credPart = afterScheme.substring(0, atIndex);
+            const colonInCred = credPart.indexOf(':');
+            if (colonInCred > 0) {
+              const user = credPart.substring(0, colonInCred);
+              return url.replace(credPart, user + ":***");
+            }
+          }
+        } catch {}
+        return url.replace(/:(?:[^@]+)@/, ":***@");
+      })(),
     };
   }
 }

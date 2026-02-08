@@ -15,6 +15,9 @@ SUPABASE_URL=http://127.0.0.1:54321
 SUPABASE_SERVICE_ROLE_KEY=<from supabase status>
 ```
 
+**Templates:** Use `.env.example` or `.env.production.test.example` as templates only.
+If any service role keys were ever committed, rotate them immediately in Supabase.
+
 ### ☁️ RENDER.COM (Production Backend)
 **Location:** Render Dashboard → Environment tab
 **How:**

@@ -51,14 +51,19 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       console.log("🔍 Fetching autocomplete for:", query);
       setLoading(true);
       try {
-        const data = await api.get<{ suggestions: AutocompleteSuggestion[] }>(`/api/search/autocomplete?q=${encodeURIComponent(query)}`);
+        const data = await api.get<{ suggestions: AutocompleteSuggestion[] }>(`/api/search/autocomplete?q=${encodeURIComponent(query)}`, { signal: controller.signal });
         console.log("🔍 Autocomplete results:", data);
         setSuggestions(data.suggestions || []);
       } catch (error) {
+        if ((error as any)?.name === 'AbortError') {
+          console.log("🔍 Autocomplete request cancelled");
+          return;
+        }
         console.error("❌ Autocomplete error:", error);
         setSuggestions([]);
       } finally {
@@ -66,7 +71,10 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [searchQuery]);
 
   const handleSearch = (e: React.KeyboardEvent) => {

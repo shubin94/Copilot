@@ -74,19 +74,33 @@ async function main() {
 
     function saveCookies(headers: Record<string, string>) {
       const setCookie = headers["set-cookie"];
+      const cookieMap = new Map<string, string>();
+      
+      // Parse existing cookies into map
+      for (const existing of cookies) {
+        const [name] = existing.split("=");
+        if (name) cookieMap.set(name, existing);
+      }
+      
+      // Process new cookies
       if (Array.isArray(setCookie)) {
         for (const cookie of setCookie) {
           const sessionPart = cookie.split(";")[0];
-          if (sessionPart && !cookies.includes(sessionPart)) {
-            cookies.push(sessionPart);
+          if (sessionPart) {
+            const [name] = sessionPart.split("=");
+            if (name) cookieMap.set(name, sessionPart);
           }
         }
       } else if (setCookie) {
         const sessionPart = setCookie.split(";")[0];
-        if (sessionPart && !cookies.includes(sessionPart)) {
-          cookies.push(sessionPart);
+        if (sessionPart) {
+          const [name] = sessionPart.split("=");
+          if (name) cookieMap.set(name, sessionPart);
         }
       }
+      
+      cookies.length = 0;
+      cookies.push(...Array.from(cookieMap.values()));
     }
 
     // Step 1: Get CSRF Token
@@ -102,8 +116,16 @@ async function main() {
     }
 
     saveCookies(res.headers);
-    const csrfData = JSON.parse(res.body) as any;
+    let csrfData: any;
+    try {
+      csrfData = JSON.parse(res.body);
+    } catch (e) {
+      throw new Error(`Invalid CSRF response: ${res.body.substring(0, 100)}`);
+    }
     const csrfToken = csrfData.csrfToken;
+    if (!csrfToken) {
+      throw new Error(`CSRF token not found in response: ${res.body.substring(0, 100)}`);
+    }
     console.log(`✅ CSRF token received: ${csrfToken.substring(0, 16)}...\n`);
 
     // Step 2: Admin Login
@@ -127,7 +149,12 @@ async function main() {
     }
 
     saveCookies(res.headers);
-    const loginData = JSON.parse(res.body) as any;
+    let loginData: any;
+    try {
+      loginData = JSON.parse(res.body);
+    } catch (e) {
+      throw new Error(`Invalid login response: ${res.body.substring(0, 100)}`);
+    }
     console.log(`✅ Login successful\n`);
 
     // Step 3: Get available pages
@@ -142,7 +169,12 @@ async function main() {
       throw new Error(`Failed to fetch pages: ${res.status} - ${res.body}`);
     }
 
-    const pagesData = JSON.parse(res.body) as any;
+    let pagesData: any;
+    try {
+      pagesData = JSON.parse(res.body);
+    } catch (e) {
+      throw new Error(`Invalid pages response: ${res.body.substring(0, 100)}`);
+    }
     const availablePages = pagesData.pages || [];
     console.log(`✅ Found ${availablePages.length} available pages:`);
     availablePages.slice(0, 5).forEach((p: any) => {
@@ -184,7 +216,12 @@ async function main() {
       );
     }
 
-    const empData = JSON.parse(res.body) as any;
+    let empData: any;
+    try {
+      empData = JSON.parse(res.body);
+    } catch (e) {
+      throw new Error(`Invalid employee response: ${res.body.substring(0, 100)}`);
+    }
     console.log(`✅ Employee created: ${testEmail}`);
     console.log(`   ID: ${empData.id}`);
     console.log(`   Pages assigned: ${pageKeys.join(", ")}\n`);
@@ -197,14 +234,22 @@ async function main() {
       cookies: cookies.join("; "),
     });
 
-    if (res.status === 200) {
-      const verifyData = JSON.parse(res.body) as any;
-      console.log(`✅ Employee exists in database`);
-      if (verifyData.allowedPages) {
-        console.log(
-          `   Pages: ${verifyData.allowedPages.map((p: any) => p.key || p.name).join(", ")}`
-        );
-      }
+    if (res.status !== 200) {
+      throw new Error(`Failed to verify employee: ${res.status} - ${res.body}`);
+    }
+
+    let verifyData: any;
+    try {
+      verifyData = JSON.parse(res.body);
+    } catch (e) {
+      console.warn(`⚠️  Could not parse verify response`);
+      verifyData = {};
+    }
+    console.log(`✅ Employee exists in database`);
+    if (verifyData.allowedPages) {
+      console.log(
+        `   Pages: ${verifyData.allowedPages.map((p: any) => p.key || p.name).join(", ")}`
+      );
     }
     console.log();
 

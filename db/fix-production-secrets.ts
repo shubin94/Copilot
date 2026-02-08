@@ -14,9 +14,7 @@ if (!DATABASE_URL) {
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: !DATABASE_URL.includes("localhost") && !DATABASE_URL.includes("127.0.0.1")
-    ? { rejectUnauthorized: false }
-    : undefined,
+  ssl: true,
 });
 
 const db = drizzle(pool, { schema });
@@ -25,10 +23,10 @@ async function fixProductionSecrets() {
   try {
     console.log("🔧 FIXING PRODUCTION SECRETS FOR DEPLOYMENT\n");
     
-    // Your production URLs
-    const FRONTEND_URL = "https://www.askdetectives.com";
-    const FRONTEND_VERCEL = "https://askdetectives1.vercel.app";
-    const BACKEND_URL = "https://copilot-06s5.onrender.com";
+    // Your production URLs - read from environment variables with defaults for dev
+    const FRONTEND_URL = process.env.FRONTEND_URL || "https://www.askdetectives.com";
+    const FRONTEND_VERCEL = process.env.FRONTEND_VERCEL || "https://askdetectives1.vercel.app";
+    const BACKEND_URL = process.env.BACKEND_URL || "https://copilot-06s5.onrender.com";
     const CSRF_ORIGINS = `${FRONTEND_URL},${FRONTEND_VERCEL},${BACKEND_URL}`;
     
     // Generate a secure session secret
@@ -37,7 +35,7 @@ async function fixProductionSecrets() {
     console.log("📋 Configuration to be applied:");
     console.log(`   csrf_allowed_origins: ${CSRF_ORIGINS}`);
     console.log(`   base_url: ${FRONTEND_URL}`);
-    console.log(`   session_secret: ${SESSION_SECRET.substring(0, 16)}...`);
+    console.log(`   session_secret: set`);
     console.log();
 
     // 1. Update or insert csrf_allowed_origins
@@ -86,10 +84,8 @@ async function fixProductionSecrets() {
     });
 
     if (existingSession) {
-      await db.update(schema.appSecrets)
-        .set({ value: SESSION_SECRET })
-        .where(eq(schema.appSecrets.key, "session_secret"));
-      console.log("✅ Updated session_secret");
+      // Preserve existing session secret - do not update
+      console.log("✅ Session secret already exists (preserved)");
     } else {
       await db.insert(schema.appSecrets).values({
         key: "session_secret",
@@ -103,11 +99,12 @@ async function fixProductionSecrets() {
     console.log("\n✅ ALL PRODUCTION SECRETS CONFIGURED!");
     console.log("\n📋 NEXT STEPS:");
     console.log("1. Add these environment variables to Render.com:");
-    console.log(`   SESSION_SECRET=${SESSION_SECRET}`);
+    console.log("   DATABASE_URL=(your PostgreSQL connection string)");
     console.log(`   CSRF_ALLOWED_ORIGINS=${CSRF_ORIGINS}`);
-    console.log("   DATABASE_URL=(already added)");
     console.log("   SUPABASE_URL=(from Supabase dashboard)");
     console.log("   SUPABASE_SERVICE_ROLE_KEY=(from Supabase dashboard)");
+    console.log("\nNote: SESSION_SECRET is generated and stored in app_secrets database table.");
+    console.log("      It is NOT required as an environment variable.");
     console.log("\n2. Go to: Render Dashboard → Your Service → Environment");
     console.log("3. Click 'Add Environment Variable' and paste each one");
     console.log("4. Click 'Save Changes' - Render will auto-redeploy");

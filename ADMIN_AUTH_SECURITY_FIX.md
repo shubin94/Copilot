@@ -74,7 +74,7 @@ This prevents browser/CDN caching of sensitive admin data.
 
 **Behavior**:
 1. Checks `useUser()` context on page load
-2. If NOT authenticated → **Redirects to /admin/login immediately**
+2. If NOT authenticated → **Redirects to /login immediately**
 3. If authenticated but NOT admin → **Redirects to / (home)**
 4. If loading → **Shows spinner while checking**
 5. If authenticated AND admin → **Renders the page**
@@ -163,7 +163,7 @@ return <AdminContent />;
 ```
 1. Open incognito/private window
 2. Try to visit: http://localhost:5173/admin/cms/categories
-3. Expected: Redirects to /admin/login immediately
+3. Expected: Redirects to /login immediately
 4. Actual: ✅ PASS
 ```
 

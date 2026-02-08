@@ -10,6 +10,10 @@ const baseUrl = 'http://127.0.0.1:5000';
 const cookies: string[] = [];
 let sessionId = '';
 
+// Test credentials from environment variables
+const TEST_ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL || 'testadmin@test.com';
+const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || 'TestAdmin123!';
+
 function makeFetch(url: string, options: any = {}) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -40,9 +44,17 @@ function makeFetch(url: string, options: any = {}) {
               }
             });
           }
+          let parsedData: any = { message: 'No response' };
+          if (data) {
+            try {
+              parsedData = JSON.parse(data);
+            } catch (e) {
+              parsedData = { message: 'Invalid JSON response', raw: data.substring(0, 200) };
+            }
+          }
           resolve({
             status: res.statusCode,
-            data: data ? JSON.parse(data) : { message: 'No response' },
+            data: parsedData,
             headers: res.headers,
           });
         });
@@ -67,7 +79,7 @@ async function test() {
     res = await makeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'X-CSRF-Token': csrfToken },
-      body: JSON.stringify({ email: 'testadmin@test.com', password: 'TestAdmin123!' }),
+      body: JSON.stringify({ email: TEST_ADMIN_EMAIL, password: TEST_ADMIN_PASSWORD }),
     });
     console.log('Status:', res.status);
     console.log('Has user:', !!res.data.user);

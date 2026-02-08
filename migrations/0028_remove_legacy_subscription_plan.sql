@@ -2,21 +2,25 @@
 -- Date: 2026-02-06
 -- Purpose: Eliminate dual subscription fields, establish single source of truth
 
+BEGIN;
+
 -- Step 1: Get the free plan ID
 DO $$ DECLARE
   free_plan_id uuid;
 BEGIN
   SELECT id INTO free_plan_id FROM subscription_plans 
-  WHERE monthly_price = 0 AND is_active = true LIMIT 1;
+  WHERE name = 'free' AND monthly_price = 0 AND is_active = true 
+  ORDER BY name ASC
+  LIMIT 1;
   
   IF free_plan_id IS NULL THEN
     RAISE EXCEPTION 'Free plan not found in subscription_plans table!';
   END IF;
 
-  -- Step 2: Assign free plan to any active detectives with NULL subscription_package_id
+  -- Step 2: Assign free plan to detectives with NULL subscription_package_id (both active and inactive)
   UPDATE detectives 
   SET subscription_package_id = free_plan_id
-  WHERE status = 'active' AND subscription_package_id IS NULL;
+  WHERE subscription_package_id IS NULL;
   
   -- Log the change
   RAISE NOTICE 'Assigned free plan to detectives with NULL subscription_package_id';
@@ -52,3 +56,5 @@ BEGIN
   END IF;
   RAISE NOTICE 'Verification passed: All detectives have valid subscription_package_id';
 END $$;
+
+COMMIT;

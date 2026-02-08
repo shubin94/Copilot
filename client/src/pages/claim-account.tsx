@@ -10,6 +10,7 @@ import { CheckCircle2, AlertCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
 import { getOrFetchCsrfToken } from "@/lib/api";
 import { Footer } from "@/components/layout/footer";
+import { SEO } from "@/components/seo";
 
 interface VerificationResponse {
   valid: boolean;
@@ -118,6 +119,11 @@ export default function ClaimAccount() {
   if (verificationStatus === "loading") {
     return (
       <>
+        <SEO 
+          title="Claim Your Detective Account | FindDetectives"
+          description="Claim ownership of your detective profile to manage your business and access premium features."
+          robots="noindex, follow"
+        />
         <Navbar />
         <div className="min-h-screen bg-gray-50 py-16">
           <div className="container max-w-md mx-auto px-4">
@@ -143,6 +149,11 @@ export default function ClaimAccount() {
   if (verificationStatus === "invalid") {
     return (
       <>
+        <SEO 
+          title="Claim Your Detective Account | FindDetectives"
+          description="Claim ownership of your detective profile to manage your business and access premium features."
+          robots="noindex, follow"
+        />
         <Navbar />
         <div className="min-h-screen bg-gray-50 py-16">
           <div className="container max-w-md mx-auto px-4">
@@ -177,6 +188,11 @@ export default function ClaimAccount() {
   if (claimAccount.isSuccess) {
     return (
       <>
+        <SEO 
+          title="Claim Your Detective Account | FindDetectives"
+          description="Claim ownership of your detective profile to manage your business and access premium features."
+          robots="noindex, follow"
+        />
         <Navbar />
         <div className="min-h-screen bg-gray-50 py-16">
           <div className="container max-w-md mx-auto px-4">
@@ -208,6 +224,11 @@ export default function ClaimAccount() {
   // Valid token - show claim form
   return (
     <>
+      <SEO 
+        title="Claim Your Detective Account | FindDetectives"
+        description="Claim ownership of your detective profile to manage your business and access premium features."
+        robots="noindex, follow"
+      />
       <Navbar />
       <div className="min-h-screen bg-gray-50 py-16">
         <div className="container max-w-md mx-auto px-4">

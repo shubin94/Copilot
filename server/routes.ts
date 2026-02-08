@@ -471,31 +471,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/contact", async (req: Request, res: Response) => {
-    const contactSchema = z.object({
-      firstName: z.string().trim().min(1).max(100),
-      lastName: z.string().trim().min(1).max(100),
-      email: z.string().trim().email().max(254),
-      message: z.string().trim().min(1).max(2000),
-    });
+    try {
+      const contactSchema = z.object({
+        firstName: z.string().trim().min(1).max(100),
+        lastName: z.string().trim().min(1).max(100),
+        email: z.string().trim().email().max(254),
+        message: z.string().trim().min(1).max(2000),
+      });
 
-    const parsed = contactSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid contact form data" });
+      const parsed = contactSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid contact form data" });
+      }
+
+      const { firstName, lastName, email, message } = parsed.data;
+      const result = await sendpulseEmail.sendTransactionalEmail(
+        "contact@askdetectives.com",
+        EMAIL_TEMPLATES.CONTACT_FORM,
+        { firstName, lastName, email, message },
+        "Contact Form Submission"
+      );
+
+      if (!result.success) {
+        return res.status(500).json({ error: "Failed to send message" });
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[Contact Form Error]", error instanceof Error ? error.message : String(error));
+      return res.status(500).json({ error: "Internal server error" });
     }
-
-    const { firstName, lastName, email, message } = parsed.data;
-    const result = await sendpulseEmail.sendTransactionalEmail(
-      "contact@askdetectives.com",
-      EMAIL_TEMPLATES.CONTACT_FORM,
-      { firstName, lastName, email, message },
-      "Contact Form Submission"
-    );
-
-    if (!result.success) {
-      return res.status(500).json({ error: "Failed to send message" });
-    }
-
-    return res.json({ success: true });
   });
 
   // ============== AUTHENTICATION ROUTES ==============
@@ -1296,7 +1301,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/subscription-plans/:id", async (req: Request, res: Response) => {
     console.log("🔍 [GET subscription-plans/:id] Request received");
     console.log("🔍 [GET subscription-plans/:id] ID:", req.params.id);
-    console.log("🔍 [GET subscription-plans/:id] Headers:", req.headers);
     try {
       const plan = await storage.getSubscriptionPlanById(req.params.id);
       console.log("🔍 [GET subscription-plans/:id] Plan found:", !!plan);
@@ -2515,7 +2519,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         yearlyPrice: parsed.yearlyPrice !== undefined ? String(parsed.yearlyPrice) : undefined,
       } as any);
       clearFreePlanCache();
-      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => cache.del(k));
+      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => { cache.del(k); });
       console.debug("[cache INVALIDATE]", "services:");
       res.json({ plan });
     } catch (error) {

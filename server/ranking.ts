@@ -74,8 +74,8 @@ export async function calculateVisibilityScore(
         where: eq(detectiveVisibility.detectiveId, detective),
       });
       
-      const reviews = await calculateReviewScore(detective);
-      return calculateVisibilityScore(detRecord, vis, { totalReviews: 0, avgRating: 0 });
+      const reviewStats = await calculateReviewStats(detective);
+      return calculateVisibilityScore(detRecord, vis, reviewStats);
     }
 
     // 1️⃣ CHECK MANUAL OVERRIDE FIRST (Highest Priority)
@@ -189,10 +189,12 @@ function calculateReviewScoreFromData(totalReviews: number, avgRating: number): 
  * - Review count score (0-250)
  * - Average rating score (0-250)
  *
- * Deterministic: Same detective always gets same score for same data
- * No randomization
+/**
+ * Calculate review stats (totalReviews and avgRating) for a detective
+ * Returns stats object instead of calculated score
+ * Used by calculateVisibilityScore to apply review scoring
  */
-async function calculateReviewScore(detectiveId: string): Promise<number> {
+async function calculateReviewStats(detectiveId: string): Promise<{ totalReviews: number; avgRating: number }> {
   try {
     // Get all services for this detective
     const detectiveServices = await db
@@ -201,7 +203,7 @@ async function calculateReviewScore(detectiveId: string): Promise<number> {
       .where(eq(services.detectiveId, detectiveId));
 
     if (detectiveServices.length === 0) {
-      return 0; // No services = 0 review score
+      return { totalReviews: 0, avgRating: 0 }; // No services = 0 reviews
     }
 
     const serviceIds = detectiveServices.map((s) => s.id);
@@ -222,17 +224,26 @@ async function calculateReviewScore(detectiveId: string): Promise<number> {
 
     const stat = reviewStats[0];
     if (!stat || !stat.totalReviews) {
-      return 0; // No reviews = 0 score
+      return { totalReviews: 0, avgRating: 0 }; // No reviews = 0 stats
     }
 
-    const totalReviews = Number(stat.totalReviews) || 0;
-    const avgRating = stat.avgRating ? Number(stat.avgRating) : 0;
-
-    return calculateReviewScoreFromData(totalReviews, avgRating);
+    return {
+      totalReviews: Number(stat.totalReviews) || 0,
+      avgRating: stat.avgRating ? Number(stat.avgRating) : 0,
+    };
   } catch (error) {
-    console.error(`[Visibility] Error calculating review score for ${detectiveId}:`, error);
-    return 0; // Safe default on error
+    console.error(`[Visibility] Error calculating review stats for ${detectiveId}:`, error);
+    return { totalReviews: 0, avgRating: 0 }; // Safe default on error
   }
+}
+
+/**
+ * Calculate review score (0-500) from totalReviews and avgRating
+ * Used by ranking functions to convert stats into visibility score
+ */
+async function calculateReviewScore(detectiveId: string): Promise<number> {
+  const stats = await calculateReviewStats(detectiveId);
+  return calculateReviewScoreFromData(stats.totalReviews, stats.avgRating);
 }
 
 /**
@@ -383,6 +394,11 @@ export async function getRankedDetectives(options?: {
         avgRating: 0,
       };
 
+      // Attach subscription package BEFORE score calculation
+      detective.subscriptionPackage = detective.subscriptionPackageId 
+        ? packagesMap.get(detective.subscriptionPackageId) 
+        : undefined;
+
       // Calculate visibility score with pre-loaded data (no queries!)
       let score = 0;
 
@@ -400,7 +416,8 @@ export async function getRankedDetectives(options?: {
         score += levelScores[detective.level] || 100;
 
         // Badge scores
-        if (detective.subscriptionPlan === "pro" || detective.subscriptionPlan === "agency") {
+        const packageName = detective.subscriptionPackage?.name;
+        if (packageName === "pro" || packageName === "agency") {
           score += 100;
         }
         if (
@@ -420,9 +437,6 @@ export async function getRankedDetectives(options?: {
 
       return {
         ...detective,
-        subscriptionPackage: detective.subscriptionPackageId 
-          ? packagesMap.get(detective.subscriptionPackageId) 
-          : undefined,
         visibilityScore: score,
         isVisible: visibility.isVisible ?? true,
         isFeatured: visibility.isFeatured ?? false,

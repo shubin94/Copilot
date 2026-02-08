@@ -18,21 +18,31 @@ async function checkSchema() {
     } else {
       console.log("❌ is_active column MISSING in users table");
       console.log("   You need to run migration: npx ts-node db/migrate-access-control.ts");
-      process.exit(1);
+      process.exitCode = 1;
     }
     
     // Try to query a user
-    const userResult = await client.query("SELECT id, email, is_active FROM users LIMIT 1");
+    const userResult = await client.query("SELECT id, is_active FROM users LIMIT 1");
     if (userResult.rows.length > 0) {
       console.log("✅ Can query users with is_active field");
-      console.log("   Sample user:", userResult.rows[0]);
+      console.log("   Sample user (ID, is_active):", { id: userResult.rows[0].id, is_active: userResult.rows[0].is_active });
     }
   } catch (error) {
     console.error("❌ Error checking schema:", error);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     client.release();
   }
 }
 
-checkSchema();
+(async () => {
+  try {
+    await checkSchema();
+  } catch (error) {
+    console.error("Fatal error:", error);
+    process.exitCode = 1;
+  } finally {
+    await pool.end();
+    process.exit(process.exitCode);
+  }
+})();

@@ -8,15 +8,36 @@
 (async function runDiagnostic() {
   console.log('%c=== AskDetectives Frontend Diagnostic ===', 'color: blue; font-weight: bold; font-size: 14px;');
   
-  // Step 1: Check import.meta.env values
+  // Step 1: Check import.meta.env values (with guard for DevTools)
   console.log('\n%c1. Environment Variables:', 'font-weight: bold; color: darkblue;');
-  console.log('VITE_API_URL:', import.meta.env.VITE_API_URL);
-  console.log('PROD:', import.meta.env.PROD);
-  console.log('MODE:', import.meta.env.MODE);
   
-  // Deduce the actual API_BASE_URL
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 
-    (import.meta.env.PROD ? "https://copilot-06s5.onrender.com" : "");
+  // Guard - check if import.meta.env exists using try/catch
+  let hasImportMeta = false;
+  let viteApiUrl = undefined;
+  let isProd = false;
+  let mode = 'unknown';
+  
+  try {
+    viteApiUrl = import.meta.env.VITE_API_URL;
+    isProd = import.meta.env.PROD;
+    mode = import.meta.env.MODE;
+    hasImportMeta = true;
+  } catch (e) {
+    hasImportMeta = false;
+  }
+  
+  if (!hasImportMeta) {
+    console.warn('⚠️  import.meta.env not available (running in DevTools or different context)');
+  } else {
+    console.log('VITE_API_URL:', viteApiUrl);
+    console.log('PROD:', isProd);
+    console.log('MODE:', mode);
+  }
+  
+  // Deduce the actual API_BASE_URL with fallback
+  const API_BASE_URL = viteApiUrl || 
+    (isProd ? "https://copilot-06s5.onrender.com" : "") ||
+    (typeof window !== "undefined" && window.location ? window.location.protocol + "//" + window.location.host : "");
   console.log('Computed API_BASE_URL:', API_BASE_URL || '(empty - will use relative path)');
   
   // Step 2: Check Navigator/Network info

@@ -1,7 +1,8 @@
+import "./server/lib/loadEnv.ts";
 import { db } from './index';
 import { sql } from 'drizzle-orm';
-import { readFileSync, readdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, readdirSync, existsSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -13,6 +14,12 @@ const migrationsDir = join(__dirname, '..', 'migrations');
 export async function runMigrations() {
   try {
     console.log('🚀 Starting migrations...\n');
+
+    // Check if migrations directory exists
+    if (!existsSync(migrationsDir)) {
+      console.log('ℹ️  Migrations directory does not exist, skipping migrations');
+      return;
+    }
 
     // Create migrations tracking table if it doesn't exist
     await db.execute(sql`
@@ -32,9 +39,10 @@ export async function runMigrations() {
     let executedCount = 0;
     for (const file of files) {
       // Check if migration was already executed
-      const [existing] = await db.execute<{ filename: string }>(
+      const results = await db.execute(
         sql`SELECT filename FROM _migrations WHERE filename = ${file}`
       );
+      const existing = (results as any).rows && (results as any).rows.length > 0 ? (results as any).rows[0] : null;
 
       if (existing?.filename) {
         console.log(`⏭️  Skipping ${file} (already executed)`);
@@ -43,19 +51,27 @@ export async function runMigrations() {
 
       console.log(`📝 Running migration: ${file}`);
       
-      // Read and execute migration
+      // Read and execute migration  
       const migrationSQL = readFileSync(join(migrationsDir, file), 'utf-8');
       
       try {
-        await db.execute(sql.raw(migrationSQL));
-        
-        // Mark as executed
-        await db.execute(
-          sql`INSERT INTO _migrations (filename) VALUES (${file})`
-        );
-        
-        console.log(`✅ Completed ${file}\n`);
-        executedCount++;
+        // Wrap migration + tracking in transaction
+        await db.execute(sql`BEGIN`);
+        try {
+          await db.execute(sql.raw(migrationSQL));
+          
+          // Mark as executed
+          await db.execute(
+            sql`INSERT INTO _migrations (filename) VALUES (${file})`
+          );
+          
+          await db.execute(sql`COMMIT`);
+          console.log(`✅ Completed ${file}\n`);
+          executedCount++;
+        } catch (error) {
+          await db.execute(sql`ROLLBACK`);
+          throw error;
+        }
       } catch (error) {
         console.error(`❌ Failed to execute ${file}:`, error);
         throw error;
@@ -74,7 +90,10 @@ export async function runMigrations() {
 }
 
 // Run migrations if this file is executed directly
-if (import.meta.url === `file://${process.argv[1]}` || import.meta.url.includes(process.argv[1])) {
+const __filename = fileURLToPath(import.meta.url);
+const isMainModule = resolve(process.argv[1]) === resolve(__filename);
+
+if (isMainModule) {
   runMigrations()
     .then(() => {
       console.log('✅ Migration script completed successfully');

@@ -169,9 +169,6 @@ export default function AdminServiceCategories() {
           setShowDeleteDialog(false);
           setDeletingCategoryId(null);
           
-          // Ensure data is refetched immediately
-          queryClient.refetchQueries({ queryKey: ["serviceCategories", false] });
-          
           toast({
             title: "Category Deleted",
             description: "Service category has been deleted successfully.",

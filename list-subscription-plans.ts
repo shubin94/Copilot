@@ -6,6 +6,7 @@ config({ path: resolve(process.cwd(), ".env") });
 import { pool } from "./db/index.js";
 
 async function listPlans() {
+  let exitCode = 0;
   try {
     const result = await pool.query(`
       SELECT id, name, display_name, monthly_price, yearly_price, is_active
@@ -15,9 +16,10 @@ async function listPlans() {
     console.log(JSON.stringify(result.rows, null, 2));
   } catch (error) {
     console.error("Error:", error);
+    exitCode = 1;
   } finally {
     await pool.end();
-    process.exit(0);
+    process.exitCode = exitCode;
   }
 }
 

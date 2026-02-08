@@ -4,6 +4,9 @@ import { users, detectives, services, serviceCategories } from "../shared/schema
 
 async function verifyData() {
   try {
+    const showPii = process.argv.includes("--show-pii");
+    const showPassword = process.argv.includes("--show-password");
+
     console.log("\n═══════════════════════════════════════════════════════");
     console.log("✅ DATABASE DATA SUMMARY");
     console.log("═══════════════════════════════════════════════════════\n");
@@ -20,7 +23,12 @@ async function verifyData() {
 
     console.log(`\n👥 Users: ${userCount.length}`);
     userCount.forEach(user => {
-      console.log(`   • ${user.email} (${user.role})`);
+      if (showPii) {
+        console.log(`   • ${user.email} (${user.role})`);
+      } else {
+        const masked = user.email.replace(/(.{1})(.*)(@.*)/, "$1***$3");
+        console.log(`   • ${masked} (${user.role})`);
+      }
     });
 
     console.log(`\n🔍 Detectives: ${detectiveCount.length}`);
@@ -35,10 +43,21 @@ async function verifyData() {
 
     console.log("\n═══════════════════════════════════════════════════════");
     console.log("🔐 TEST CREDENTIALS:");
-    console.log("   Email: detective1@example.com");
-    console.log("   Password: Detective@123");
-    console.log("\n   Email: admin@example.com");
-    console.log("   Password: Admin@12345678");
+    if (showPii && showPassword) {
+      console.log("   Email: detective1@example.com");
+      console.log("   Password: Detective@123");
+      console.log("\n   Email: admin@example.com");
+      console.log("   Password: Admin@12345678");
+    } else if (showPii) {
+      console.log("   Email: detective1@example.com");
+      console.log("   Password: [use --show-password to display]");
+      console.log("\n   Email: admin@example.com");
+      console.log("   Password: [use --show-password to display]");
+    } else {
+      console.log("   Email: [use --show-pii to display]");
+      console.log("   Password: [use --show-password to display]");
+      console.log("\n   (Credentials hidden for security - use flags to display)");
+    }
     console.log("═══════════════════════════════════════════════════════\n");
 
   } catch (error) {

@@ -8,7 +8,7 @@ router.get("/:parent/:slug/pages", async (req: Request, res: Response) => {
   try {
     const { parent, slug } = req.params;
     if (!slug || !parent) {
-      return res.status(400).json({ error: "Tag slug is required" });
+      return res.status(400).json({ error: "Parent and slug parameters are required" });
     }
 
     const tagSlug = `${parent}/${slug}`;

@@ -96,22 +96,40 @@ const corsConfig = {
     console.log(`[CORS] Incoming origin: ${normalizedOrigin}`);
     console.log(`[CORS] Allowed origins: ${allowedOrigins.join(", ")}`);
     
-    // Check for exact match or startsWith match (for subdomains)
-    const isAllowedExact = allowedOrigins.some(allowed => {
+    // Check for exact match or hostname suffix match (for subdomains)
+    let isAllowed = false;
+    
+    for (const allowed of allowedOrigins) {
       const normalizedAllowed = allowed.replace(/\/$/, '');
-      return normalizedOrigin === normalizedAllowed;
-    });
-
-    const isAllowedStartsWith = allowedOrigins.some(allowed => {
-      const normalizedAllowed = allowed.replace(/\/$/, '');
-      return normalizedOrigin.startsWith(normalizedAllowed + ".");
-    });
+      
+      if (normalizedOrigin === normalizedAllowed) {
+        isAllowed = true;
+        break;
+      }
+      
+      // Parse both URLs to compare hostnames
+      try {
+        const originUrl = new URL(normalizedOrigin);
+        const allowedUrl = new URL(normalizedAllowed);
+        const originHostname = originUrl.hostname;
+        const allowedHostname = allowedUrl.hostname;
+        
+        // Allow if hostname matches exactly or if origin hostname ends with ".{allowedHostname}"
+        if (originHostname === allowedHostname || 
+            originHostname.endsWith('.' + allowedHostname)) {
+          isAllowed = true;
+          break;
+        }
+      } catch (e) {
+        // Invalid URL, skip this allowed origin
+      }
+    }
 
     // Allow all Vercel preview deployments for askdetectives1-*.vercel.app
     const vercelPreviewRegex = /^https:\/\/askdetectives1-[a-z0-9-]+\.vercel\.app$/i;
     const isVercelPreview = vercelPreviewRegex.test(normalizedOrigin);
 
-    const isAllowed = isAllowedExact || isAllowedStartsWith || isVercelPreview;
+    isAllowed = isAllowed || isVercelPreview;
 
     if (isAllowed) {
       console.log(`[CORS] ✅ Origin allowed: ${normalizedOrigin}` + (isVercelPreview ? ' (Vercel preview)' : ''));
@@ -211,6 +229,18 @@ export function getSessionMiddleware() {
   } else {
     // Use Postgres session store in production
     const PgSession = connectPgSimple(session);
+    
+    // Determine if this is a production database by parsing the connection URL
+    let isProductionDb = true;
+    try {
+      const dbUrl = new URL(config.db.url || "");
+      const hostname = dbUrl.hostname;
+      isProductionDb = hostname !== "localhost" && hostname !== "127.0.0.1";
+    } catch {
+      // If URL parsing fails, assume production
+      isProductionDb = true;
+    }
+    
     sessionStore = new PgSession({
       pool: new Pool({
         connectionString: config.db.url,
@@ -219,8 +249,8 @@ export function getSessionMiddleware() {
         min: 1,                      // Keep 1 warm connection for session checks
         idleTimeoutMillis: 30000,    // Close idle connections after 30s
         connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
-        ssl: !config.db.url?.includes("localhost") && !config.db.url?.includes("127.0.0.1")
-          ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases
+        ssl: isProductionDb
+          ? { rejectUnauthorized: process.env.DB_ALLOW_INSECURE_DEV !== "true" } // Production: strict validation; dev: allow self-signed
           : undefined,
       }),
       tableName: "session",
@@ -238,8 +268,7 @@ export function getSessionMiddleware() {
       secure: config.session.secureCookies,
       sameSite: config.env.isProd ? "none" : "lax", // 'none' required for cross-domain in production
       maxAge: config.session.ttlMs,
-      // In production, allow cookies across Vercel frontend and Render backend
-      domain: config.env.isProd ? undefined : undefined,
+      // Cookie domain is undefined by default (applies to exact domain only)
     },
   });
 }

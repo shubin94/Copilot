@@ -351,7 +351,7 @@ curl -X POST https://api.example.com/api/applications \
 
 Successfully implemented per-route body size limits with minimal changes:
 - ✅ Removed global 50MB limit
-- ✅ Added tiered limits (1KB, 10KB, 10MB)
+- ✅ Added tiered limits (1MB, 10KB, 10MB)
 - ✅ Protected public endpoints from DoS
 - ✅ Preserved CSRF functionality
 - ✅ Maintained backward compatibility

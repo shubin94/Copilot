@@ -7,6 +7,12 @@ const { Pool } = pkg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env.local') });
 
+// Production safety guard
+if (process.env.NODE_ENV === 'production' && process.env.CONFIRM_DELETE !== 'true') {
+  console.error('❌ DELETE test cannot run in production. Set CONFIRM_DELETE=true if absolutely necessary.');
+  process.exit(1);
+}
+
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
 
 (async () => {
@@ -30,7 +36,11 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
     });
     
   } catch (error) {
-    console.error('Error:', error.message);
+    if (error instanceof Error) {
+      console.error('❌ Error:', error.message);
+    } else {
+      console.error('❌ Error:', String(error));
+    }
   } finally {
     await pool.end();
   }

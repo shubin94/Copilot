@@ -6,10 +6,11 @@ async function check() {
     const result = await pool.query("SELECT id, key, name FROM access_pages ORDER BY name");
     console.log("✅ Access pages in database:");
     result.rows.forEach(row => console.log(`  - ${row.key}: ${row.name}`));
-    process.exit(0);
   } catch (e: any) {
     console.error("❌ Error:", e.message);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await pool.end();
   }
 }
 

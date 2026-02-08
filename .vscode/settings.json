@@ -1,4 +1,12 @@
 {
     "snyk.advanced.autoSelectOrganization": true,
-    "snyk.advanced.organization": "7660398d-824a-47c3-b286-d8e073d49a28"
+    "snyk.advanced.organization": "7660398d-824a-47c3-b286-d8e073d49a28",
+    "deepseek.enableCompletion": true,
+    "deepseek.baseURL": "https://openrouter.ai/api/v1",
+    "deepseek.apikey": "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",
+    "deepseek.model": "deepseek-coder",
+    "deepseek.max_tokens": "8191",
+    "deepseek.lang": "en",
+    "deepseek.temperature": "2",
+    "deepseek.top_p": "0.9"
 }

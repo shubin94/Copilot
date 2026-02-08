@@ -40,5 +40,6 @@ VALUES
   ('cms', 'Content Management System', true)
 ON CONFLICT ("key") DO UPDATE SET
   "name" = EXCLUDED."name",
-  "is_active" = EXCLUDED."is_active";
+  "is_active" = EXCLUDED."is_active",
+  "updated_at" = now();
 

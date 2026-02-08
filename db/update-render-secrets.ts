@@ -24,10 +24,12 @@ async function updateSecrets() {
     
     const CSRF_ORIGINS = "https://www.askdetectives.com,https://askdetectives1.vercel.app,https://copilot-06s5.onrender.com";
     const BASE_URL = "https://www.askdetectives.com";
-    const SESSION_SECRET = randomBytes(32).toString('hex');
-    
-    // Check if secrets exist first
+
+    // Check if session_secret already exists - only generate if new
     const secrets = await db.select().from(schema.appSecrets);
+    const existingSession = secrets.find(s => s.key === "session_secret");
+    const SESSION_SECRET = existingSession ? existingSession.value : randomBytes(32).toString('hex');
+    
     console.log(`Found ${secrets.length} existing secrets in database\n`);
     
     // Update csrf_allowed_origins
@@ -64,14 +66,8 @@ async function updateSecrets() {
       console.log("✅ Created base_url");
     }
 
-    // Update session_secret
-    const existingSession = secrets.find(s => s.key === "session_secret");
-    if (existingSession) {
-      await db.update(schema.appSecrets)
-        .set({ value: SESSION_SECRET, updatedAt: new Date() })
-        .where(eq(schema.appSecrets.key, "session_secret"));
-      console.log("✅ Updated session_secret");
-    } else {
+    // Create session_secret only if it doesn't exist - never regenerate!
+    if (!existingSession) {
       await db.insert(schema.appSecrets).values({
         key: "session_secret",
         value: SESSION_SECRET,
@@ -79,12 +75,14 @@ async function updateSecrets() {
         description: "Secret key for encrypting session cookies"
       });
       console.log("✅ Created session_secret");
+    } else {
+      console.log("⏭️  Skipping session_secret (already exists - never regenerate!)");
     }
 
     console.log("\n✅ DATABASE UPDATED!");
     console.log("\n📋 NOW ADD TO RENDER.COM:");
     console.log("─────────────────────────────────────────────────");
-    console.log(`SESSION_SECRET=${SESSION_SECRET}`);
+    console.log("SESSION_SECRET=[Check database or use OpenSSL: openssl rand -base64 32]");
     console.log(`CSRF_ALLOWED_ORIGINS=${CSRF_ORIGINS}`);
     console.log("─────────────────────────────────────────────────");
     console.log("\n🔗 Go to: https://dashboard.render.com");

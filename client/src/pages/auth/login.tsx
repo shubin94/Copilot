@@ -5,6 +5,7 @@ import { Link, useLocation, useRoute } from "wouter";
 import { useState, useEffect } from "react";
 import { useLogin, useRegister } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
+import { SEO } from "@/components/seo";
 
 // @ts-ignore
 import heroBgPng from "@assets/generated_images/professional_modern_city_skyline_at_dusk_with_subtle_mystery_vibes.png";
@@ -120,7 +121,13 @@ export default function Login() {
   const isPending = isSignup ? registerMutation.isPending : loginMutation.isPending;
 
   return (
-    <div className="min-h-screen flex bg-white">
+    <>
+      <SEO 
+        title={isSignup ? "Sign Up | FindDetectives" : "Sign In | FindDetectives"}
+        description={isSignup ? "Create a free FindDetectives account to find private investigators and manage your cases." : "Sign in to your FindDetectives account to access your dashboard and manage investigations."}
+        robots="noindex, follow"
+      />
+      <div className="min-h-screen flex bg-white">
       {/* Left Side - Image */}
       <div className="hidden lg:flex flex-1 bg-gray-900 relative items-center justify-center overflow-hidden">
         <picture>
@@ -257,6 +264,7 @@ export default function Login() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

@@ -110,7 +110,8 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
     // Improve error message for network failures (e.g., server not running)
     const errorMsg = error?.message || String(error);
     if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-      throw new Error(`Cannot reach API server at ${fullUrl}. Is the server running on port ${process.env.PORT || 5000}? Check: npm run dev`);
+      const port = import.meta.env.VITE_PORT || window.location.port || '5000';
+      throw new Error(`Cannot reach API server at ${fullUrl}. Is the server running on port ${port}? Check: npm run dev`);
     }
     throw error;
   }

@@ -14,20 +14,14 @@ interface PerformanceMetrics {
   startTime: number;
   endTime: number;
   duration: number;
-  queriesExecuted: number;
   detectivesProcessed: number;
 }
-
-// Enable query logging to count database operations
-let queryCount = 0;
-const originalQuery = db.query;
 
 /**
  * Test the optimized getRankedDetectives function
  */
 async function testOptimizedRanking(): Promise<PerformanceMetrics> {
   const startTime = performance.now();
-  queryCount = 0;
 
   try {
     // Load 50 detectives with optimized batching
@@ -42,7 +36,6 @@ async function testOptimizedRanking(): Promise<PerformanceMetrics> {
       startTime,
       endTime,
       duration: endTime - startTime,
-      queriesExecuted: queryCount,
       detectivesProcessed: result.length,
     };
   } catch (error) {
