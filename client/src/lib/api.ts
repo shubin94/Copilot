@@ -182,9 +182,9 @@ export const api = {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12000);
       try {
-        const response = await csrfFetch(buildApiUrl("/api/auth/login"), {
+        const response = await csrfFetch("/api/auth/login", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password }),
           credentials: "include",
           keepalive: true,
