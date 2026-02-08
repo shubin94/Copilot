@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../server/lib/loadEnv";
 import { db } from "../db/index.ts";
 import { users, detectives, services, serviceCategories } from "../shared/schema.ts";
 import bcrypt from "bcrypt";

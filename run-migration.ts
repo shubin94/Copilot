@@ -1,0 +1,114 @@
+import { sql, eq } from "drizzle-orm";
+import { db } from "./db/index.ts";
+import { detectives, subscriptionPlans } from "./shared/schema.ts";
+
+async function runMigration() {
+  console.log("🔄 Starting migration: Remove legacy subscription_plan column...\n");
+
+  try {
+    // Step 1: Get the free plan ID
+    const freePlanList = await db
+      .select({ id: subscriptionPlans.id })
+      .from(subscriptionPlans)
+      .where(eq(subscriptionPlans.monthlyPrice, 0));
+
+    if (!freePlanList || freePlanList.length === 0) {
+      throw new Error("❌ Free plan not found in subscription_plans table!");
+    }
+
+    const freePlanId = freePlanList[0].id;
+    console.log(`✅ Found free plan: ${freePlanId}\n`);
+
+    // Step 2: Check for NULL subscription_package_id before assignment
+    const nullCountResult = await db.execute(
+      sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_package_id IS NULL`
+    );
+
+    const nullCount = nullCountResult[0]?.count ?? 0;
+
+    if (nullCount > 0) {
+      console.log(`⚠️  Found ${nullCount} detectives with NULL subscription_package_id`);
+      console.log(`   Assigning free plan to these detectives...\n`);
+
+      await db.execute(
+        sql`UPDATE detectives SET subscription_package_id = ${freePlanId} WHERE subscription_package_id IS NULL`
+      );
+      console.log(`✅ Assigned free plan to ${nullCount} detectives\n`);
+    } else {
+      console.log("✅ No detectives with NULL subscription_package_id found\n");
+    }
+
+    // Step 3: Drop the legacy subscription_plan column
+    console.log("🔄 Dropping legacy subscription_plan column...");
+    await db.execute(sql.raw("ALTER TABLE detectives DROP COLUMN subscription_plan"));
+    console.log("✅ Column dropped successfully\n");
+
+    // Step 4: Make subscription_package_id NOT NULL
+    console.log("🔄 Making subscription_package_id NOT NULL...");
+    await db.execute(sql.raw("ALTER TABLE detectives ALTER COLUMN subscription_package_id SET NOT NULL"));
+    console.log("✅ Column constraint updated\n");
+
+    // Step 5: Add foreign key constraint
+    console.log("🔄 Adding foreign key constraint...");
+    try {
+      await db.execute(sql.raw(`
+        ALTER TABLE detectives
+        ADD CONSTRAINT fk_detectives_subscription_package
+        FOREIGN KEY (subscription_package_id) REFERENCES subscription_plans(id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+      `));
+      console.log("✅ Foreign key constraint added\n");
+    } catch (e) {
+      if ((e as any).message?.includes("already exists")) {
+        console.log("✅ Foreign key constraint already exists\n");
+      } else {
+        throw e;
+      }
+    }
+
+    // Final verification
+    console.log("🔄 Verifying migration...");
+    const remaining = await db.execute(
+      sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_package_id IS NULL`
+    );
+
+    const remainingCount = remaining[0]?.count ?? 0;
+    if (remainingCount > 0) {
+      throw new Error(`❌ ERROR: ${remainingCount} detectives still have NULL subscription_package_id!`);
+    }
+
+    console.log("✅ Verification passed: All detectives have valid subscription_package_id\n");
+
+    // Check schema
+    const columns = await db.execute(
+      sql.raw(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'detectives' AND column_name = 'subscription_plan'"
+      )
+    );
+
+    if (columns && columns.length > 0) {
+      throw new Error("❌ ERROR: subscription_plan column still exists!");
+    }
+
+    console.log("✅ Confirmed: subscription_plan column no longer exists\n");
+
+    console.log("=".repeat(60));
+    console.log("🎉 MIGRATION COMPLETE!");
+    console.log("=".repeat(60));
+    console.log("\n📋 Changes applied:");
+    console.log("   1. Assigned free plan to detectives with NULL subscription_package_id");
+    console.log("   2. Dropped legacy subscription_plan column");
+    console.log("   3. Made subscription_package_id NOT NULL");
+    console.log("   4. Added foreign key constraint");
+    console.log("\n✨ Database now has single source of truth: subscription_package_id\n");
+
+    process.exit(0);
+  } catch (error) {
+    console.error("\n❌ MIGRATION FAILED:");
+    console.error(error);
+    process.exit(1);
+  }
+}
+
+runMigration();

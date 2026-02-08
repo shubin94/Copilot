@@ -1,3 +1,4 @@
+import "../server/lib/loadEnv";
 import { db } from "../db/index.ts";
 import { appSecrets } from "../shared/schema.ts";
 import { eq } from "drizzle-orm";

@@ -9,8 +9,7 @@ const REQUIRED_SECRET_KEYS = [
 ];
 
 const OPTIONAL_PROVIDER_KEYS = [
-  "supabase_url",
-  "supabase_service_role_key",
+  // Note: supabase_url and supabase_service_role_key removed - Supabase credentials must come from environment variables only
   "sendgrid_api_key",
   "sendgrid_from_email",
   "smtp_host",
@@ -38,6 +37,12 @@ async function main() {
     console.log(`NODE_ENV=production: ${hasNodeEnv ? "OK" : "MISSING/NOT PRODUCTION"}`);
     console.log(`DATABASE_URL: ${hasDatabaseUrl ? "OK" : "MISSING"}`);
     console.log(`PORT: ${hasPort ? "SET" : "not set (optional)"}`);
+
+    // Check Supabase environment variables (must come from env, not database)
+    const hasSupabaseUrl = !!process.env.SUPABASE_URL;
+    const hasSupabaseKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    console.log(`SUPABASE_URL: ${hasSupabaseUrl ? "OK" : "MISSING"}`);
+    console.log(`SUPABASE_SERVICE_ROLE_KEY: ${hasSupabaseKey ? "OK" : "MISSING"}`);
 
     console.log("\n=== app_secrets Check ===");
     const rows = await db.select({ key: appSecrets.key }).from(appSecrets);

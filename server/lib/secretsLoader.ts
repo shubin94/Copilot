@@ -1,7 +1,13 @@
 /**
  * Load auth and API secrets from app_secrets table.
  * Env vars are used as fallback when DB has no value.
- * Only DATABASE_URL is required in env; all other secrets can live in DB.
+ * 
+ * NOTE: Supabase credentials (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) are NEVER
+ * loaded from database - they must come exclusively from environment variables.
+ * This ensures single source of truth and prevents production credential leaks.
+ * 
+ * Only DATABASE_URL and Supabase credentials are required in env;
+ * all other secrets can live in DB.
  */
 import { db } from "../../db/index.ts";
 import { appSecrets } from "../../shared/schema.ts";
@@ -20,8 +26,7 @@ const KEY_MAP: Record<string, (v: string) => void> = {
     const list = v.split(",").map((item) => item.trim()).filter(Boolean);
     (config as any).csrf.allowedOrigins = list;
   },
-  supabase_url: (v) => { (config as any).supabase.url = v; },
-  supabase_service_role_key: (v) => { (config as any).supabase.serviceRoleKey = v; },
+  // Supabase credentials removed - must come from environment variables only
   sendgrid_api_key: (v) => { (config as any).email.sendgridApiKey = v; },
   sendgrid_from_email: (v) => { (config as any).email.sendgridFromEmail = v; },
   smtp_host: (v) => { (config as any).email.smtpHost = v; },

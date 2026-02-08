@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ServiceCard } from "@/components/home/service-card";
 import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
 import { Loader2 } from "lucide-react";
+import { computeServiceBadges } from "@/lib/service-badges";
 
 interface DetectiveSnippetGridProps {
   snippetId?: string;
@@ -21,10 +22,14 @@ interface SnippetService {
   isVerified: boolean;
   location: string;
   country?: string;
+  phone?: string;
+  whatsapp?: string;
+  contactEmail?: string;
   avgRating: number;
   reviewCount: number;
   startingPrice: number;
   offerPrice?: number | null;
+  isOnEnquiry?: boolean;
   serviceTitle?: string;
   serviceImages?: string[];
   serviceCategory?: string;
@@ -154,7 +159,10 @@ export function DetectiveSnippetGrid({
 
   // Each item is one service: badges from effectiveBadges only (order: Verified → Blue Tick → Pro → Recommended)
   const serviceCards = items.map((item) => {
-    const badges = buildBadgesFromEffective(item.effectiveBadges, item.isVerified);
+    const badgeState = computeServiceBadges({
+      isVerified: item.isVerified,
+      effectiveBadges: item.effectiveBadges,
+    });
     return {
       id: item.serviceId,
       detectiveId: item.id,
@@ -163,14 +171,18 @@ export function DetectiveSnippetGrid({
       name: item.fullName,
       level: item.level.replace("level", "Level "),
       category: item.serviceCategory || resolvedCategory || category || "",
-      badges,
+      badgeState,
       title: item.serviceTitle || item.serviceCategory || resolvedCategory || "Service",
       rating: item.avgRating,
       reviews: item.reviewCount,
       price: item.startingPrice,
       offerPrice: item.offerPrice ?? null,
+      isOnEnquiry: item.isOnEnquiry,
       location: item.location,
       countryCode: item.country || displayCountry,
+      phone: item.phone,
+      whatsapp: item.whatsapp,
+      contactEmail: item.contactEmail,
     };
   });
 

@@ -1,14 +1,16 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Edit2, Trash2, AlertCircle } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { api } from "@/lib/api";
+import { useUser } from "@/lib/user-context";
 
 interface Tag {
   id: string;
   name: string;
   slug: string;
+  parentId?: string | null;
   status: "published" | "draft" | "archived";
   createdAt: string;
   updatedAt: string;
@@ -16,12 +18,38 @@ interface Tag {
 
 export default function TagsAdmin() {
   const [, navigate] = useLocation();
+  const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
   const queryClient = useQueryClient();
+  const isAdminOrEmployee = user?.role === "admin" || user?.role === "employee";
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [formData, setFormData] = useState({ name: "", slug: "" });
+  const [formData, setFormData] = useState({ name: "", parentId: null as string | null });
   const [error, setError] = useState<string>("");
+
+  // Redirect if not authenticated or not admin
+  useEffect(() => {
+    if (!isLoadingUser && (!isAuthenticated || !isAdminOrEmployee)) {
+      navigate("/login");
+    }
+  }, [isAuthenticated, isAdminOrEmployee, isLoadingUser, navigate]);
+
+  // Show loading state while checking authentication
+  if (isLoadingUser) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render anything if not authenticated or not admin (will redirect)
+  if (!isAuthenticated || !isAdminOrEmployee) {
+    return null;
+  }
 
   // Fetch tags
   const { data: tagsData, isLoading } = useQuery({
@@ -47,7 +75,10 @@ export default function TagsAdmin() {
       }
     },
     onSuccess: () => {
+      // Invalidate all tag queries regardless of status filter
       queryClient.invalidateQueries({ queryKey: ["/api/admin/tags"] });
+      // Refetch the current query with its status filter
+      queryClient.refetchQueries({ queryKey: ["/api/admin/tags", statusFilter] });
       setShowModal(false);
       setFormData({ name: "", slug: "" });
       setEditingId(null);
@@ -68,14 +99,20 @@ export default function TagsAdmin() {
       }
     },
     onSuccess: () => {
+      // Invalidate all tag queries regardless of status filter
       queryClient.invalidateQueries({ queryKey: ["/api/admin/tags"] });
-      queryClient.refetchQueries({ queryKey: ["/api/admin/tags"] });
+      // Refetch the current query with its status filter
+      queryClient.refetchQueries({ queryKey: ["/api/admin/tags", statusFilter] });
+      setError("");
+    },
+    onError: (error: any) => {
+      setError(error.message);
     },
   });
 
   const handleEdit = (tag: Tag) => {
     setEditingId(tag.id);
-    setFormData({ name: tag.name, slug: tag.slug });
+    setFormData({ name: tag.name, parentId: tag.parentId ?? null });
     setShowModal(true);
     setError("");
   };
@@ -88,19 +125,29 @@ export default function TagsAdmin() {
       setError("Name is required");
       return;
     }
-    if (!formData.slug.trim()) {
+
+    const generatedSlug = generateSlug(formData.name, formData.parentId);
+    if (!generatedSlug.trim()) {
       setError("Slug is required");
       return;
     }
 
-    saveMutation.mutate(formData);
+    saveMutation.mutate({ name: formData.name, slug: generatedSlug, parentId: formData.parentId });
   };
 
-  const generateSlug = (name: string) => {
-    return name
+  const generateSlug = (name: string, parentId?: string | null) => {
+    const nameSlug = name
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replace(/[^\w-]/g, "");
+    
+    if (parentId) {
+      const parent = tags.find((t) => t.id === parentId);
+      if (parent) {
+        return `${parent.slug}/${nameSlug}`;
+      }
+    }
+    return nameSlug;
   };
 
   return (
@@ -110,7 +157,7 @@ export default function TagsAdmin() {
         <button
           onClick={() => {
             setEditingId(null);
-            setFormData({ name: "", slug: "" });
+            setFormData({ name: "", parentId: null });
             setShowModal(true);
           }}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -119,6 +166,23 @@ export default function TagsAdmin() {
           Add Tag
         </button>
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex gap-3 items-start">
+          <AlertCircle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-red-800 font-medium">Cannot Delete</p>
+            <p className="text-red-700 text-sm">{error}</p>
+          </div>
+          <button
+            onClick={() => setError("")}
+            className="ml-auto text-red-600 hover:text-red-800 font-medium text-sm"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Filter */}
       <div className="mb-6">
@@ -226,7 +290,6 @@ export default function TagsAdmin() {
                     setFormData({
                       ...formData,
                       name: e.target.value,
-                      slug: generateSlug(e.target.value),
                     });
                   }}
                   className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -235,16 +298,34 @@ export default function TagsAdmin() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Slug</label>
+                <label className="block text-sm font-medium mb-1">Slug (auto-generated)</label>
                 <input
                   type="text"
-                  value={formData.slug}
-                  onChange={(e) =>
-                    setFormData({ ...formData, slug: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={generateSlug(formData.name, formData.parentId)}
+                  readOnly
+                  className="w-full px-4 py-2 border rounded bg-gray-50 text-gray-600 cursor-not-allowed"
                   placeholder="e.g., javascript"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Parent Tag (optional)</label>
+                <select
+                  value={formData.parentId ?? ""}
+                  onChange={(e) => {
+                    setFormData({ ...formData, parentId: e.target.value || null });
+                  }}
+                  className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">None</option>
+                  {tags
+                    .filter((tag) => tag.id !== editingId && tag.status === "published")
+                    .map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                </select>
               </div>
 
               <div className="flex gap-2 pt-4">

@@ -10,11 +10,14 @@ import { SEO } from "@/components/seo";
 import { Link } from "wouter";
 import { useSearchServices, useServiceCategories, useSearchDetectives, useSiteSettings } from "@/lib/hooks";
 import type { Service, Detective, ServiceCategory } from "@shared/schema";
-import { buildBadgesFromEffective } from "@/lib/badges";
+import { computeServiceBadges } from "@/lib/service-badges";
 import { useEffect, useRef } from "react";
 
 function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number }) {
-  const badges = buildBadgesFromEffective(service.detective.effectiveBadges, !!service.detective.isVerified);
+  const badgeState = computeServiceBadges({
+    isVerified: service.detective.isVerified,
+    effectiveBadges: service.detective.effectiveBadges,
+  });
 
   const detectiveName = service.detective.businessName || "Unknown Detective";
 
@@ -32,9 +35,8 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     name: detectiveName,
     level: service.detective.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1",
     levelValue: (() => { const m = String(service.detective.level || "level1").match(/\d+/); return m ? parseInt(m[0], 10) : 1; })(),
-    plan: service.detective.subscriptionPlan,
     category: service.category,
-    badges,
+    badgeState,
     title: service.title,
     rating: service.avgRating,
     reviews: service.reviewCount,

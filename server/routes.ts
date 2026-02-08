@@ -53,9 +53,10 @@ import { requireAuth, requireRole } from "./authMiddleware.ts";
 import { getPaymentGateway, isPaymentGatewayEnabled } from "./services/paymentGateway.ts";
 import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
 import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
-import { getFreePlanId } from "./services/freePlan.ts";
+import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.ts";
 import adminCmsRouter from "./routes/admin-cms.ts";
 import adminFinanceRouter from "./routes/admin-finance.ts";
+import adminEmployeesRouter from "./routes/admin/employees.ts";
 import publicPagesRouter from "./routes/public-pages.ts";
 import publicCategoriesRouter from "./routes/public-categories.ts";
 import publicTagsRouter from "./routes/public-tags.ts";
@@ -92,6 +93,23 @@ declare module "express-session" {
     userRole: string;
     csrfToken?: string;
   }
+}
+
+function getEmployeeAccessKeyFromAdminPath(path: string): string | null {
+  const normalized = (path || "").toLowerCase();
+
+  if (normalized === "/" || normalized.startsWith("/dashboard")) return "dashboard";
+  if (normalized.startsWith("/employees")) return "employees";
+  if (normalized.startsWith("/detectives") || normalized.startsWith("/detective")) return "detectives";
+  if (normalized.startsWith("/services") || normalized.startsWith("/service-categories")) return "services";
+  if (normalized.startsWith("/finance") || normalized.startsWith("/payment-gateways") || normalized.startsWith("/subscriptions")) return "payments";
+  if (normalized.startsWith("/settings")) return "settings";
+  if (normalized.startsWith("/cms") || normalized.startsWith("/categories") || normalized.startsWith("/tags") || normalized.startsWith("/pages")) return "cms";
+  if (normalized.startsWith("/users")) return "users";
+  if (normalized.startsWith("/reports")) return "reports";
+
+  // Unmapped admin paths are admin-only by default
+  return null;
 }
 
 // Helper to calculate subscription expiry date
@@ -182,6 +200,13 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  const setNoStore = (res: Response) => {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+    res.set("Surrogate-Control", "no-store");
+  };
+
   // Session middleware is now applied globally in app.ts
   
   // OPTIMIZED: Apply body parsers with per-route size limits
@@ -414,14 +439,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Apply body parsers globally to all /api routes with 10MB limit
   // This ensures ALL routes can accept JSON/form data without configuration issues
   app.use('/api/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+
+  // Disable caching for all auth endpoints (admin/employee/detective login)
+  app.use("/api/auth", (_req, res, next) => {
+    setNoStore(res);
+    next();
+  });
   
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
   // Using crypto.randomBytes(32) provides 256 bits of entropy.
+  // NOTE: CORS headers are handled by middleware in app.ts
+  
   app.get("/api/csrf-token", (req: Request, res: Response) => {
+    console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}`);
+    
     if (!req.session.csrfToken) {
       req.session.csrfToken = randomBytes(32).toString("hex");
+      console.log(`[CSRF-TOKEN] Generated new token: ${req.session.csrfToken.substring(0, 16)}...`);
     }
+    
+    // Prevent caching/ETag revalidation which can return 304 without a body
+    setNoStore(res);
+    
+    console.log(`[CSRF-TOKEN] Response headers: ${JSON.stringify({
+      'access-control-allow-origin': res.getHeader('access-control-allow-origin'),
+      'access-control-allow-credentials': res.getHeader('access-control-allow-credentials'),
+    })}`);
+    
     res.json({ csrfToken: req.session.csrfToken });
   });
 
@@ -458,6 +503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register new user
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const validatedData = insertUserSchema.parse(req.body);
       
       // Check if user already exists
@@ -508,6 +554,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin status is determined solely by user.role === "admin" from the database.
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       let { email, password } = req.body as { email: string; password: string };
       email = (email || "").toLowerCase().trim();
 
@@ -688,6 +735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Change password (authenticated users)
   app.post("/api/auth/change-password", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string };
       if (!currentPassword || !newPassword) {
         return res.status(400).json({ error: "Current and new password are required" });
@@ -734,6 +782,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Set password without current (requires mustChangePassword flag)
   app.post("/api/auth/set-password", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const { newPassword } = req.body as { newPassword: string };
       if (!newPassword) {
         return res.status(400).json({ error: "New password is required" });
@@ -761,6 +810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Logout
   app.post("/api/auth/logout", (req: Request, res: Response) => {
+      setNoStore(res);
       req.session.destroy((err) => {
       if (err) {
         return res.status(500).json({ error: "Failed to log out" });
@@ -773,6 +823,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current user
   app.get("/api/auth/me", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       // Only database-backed credentials are allowed
       const user = await storage.getUser(req.session.userId!);
       if (!user) {
@@ -790,6 +841,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Alias for admin pages: same response shape as /api/auth/me (single source of truth)
   app.get("/api/user", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const user = await storage.getUser(req.session.userId!);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -799,6 +851,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Get user error:", error);
       res.status(500).json({ error: "Failed to get user" });
+    }
+  });
+
+  // Employee allowed pages (admin sees all active pages)
+  app.get("/api/employee/pages", requireAuth, async (req: Request, res: Response) => {
+    try {
+      setNoStore(res);
+      const role = req.session.userRole;
+
+      if (role === "admin") {
+        const allPages = await pool.query(
+          "SELECT id, key, name, is_active FROM access_pages WHERE is_active = true ORDER BY name ASC"
+        );
+        return res.status(200).json({
+          pages: allPages.rows.map((row) => ({
+            id: row.id,
+            key: row.key,
+            name: row.name,
+            is_active: row.is_active,
+          })),
+        });
+      }
+
+      if (role !== "employee") {
+        return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
+      }
+
+      const result = await pool.query(
+        `SELECT p.id, p.key, p.name, p.is_active
+         FROM user_pages up
+         JOIN access_pages p ON p.id = up.page_id
+         WHERE up.user_id = $1 AND p.is_active = true
+         ORDER BY p.name ASC`,
+        [req.session.userId]
+      );
+
+      return res.status(200).json({
+        pages: result.rows.map((row) => ({
+          id: row.id,
+          key: row.key,
+          name: row.name,
+          is_active: row.is_active,
+        })),
+      });
+    } catch (error) {
+      console.error("[employee-pages] Error:", error);
+      res.status(500).json({ error: "Failed to fetch employee pages" });
+    }
+  });
+
+  // Employee access guard for admin APIs
+  app.use("/api/admin", (_req, res, next) => {
+    setNoStore(res);
+    next();
+  });
+
+  app.use("/api/admin", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (req.session.userRole === "admin") return next();
+
+      if (req.session.userRole !== "employee") {
+        return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
+      }
+
+      const accessKey = getEmployeeAccessKeyFromAdminPath(req.path);
+      if (!accessKey) {
+        return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
+      }
+
+      const allowed = await pool.query(
+        `SELECT 1
+         FROM user_pages up
+         JOIN access_pages p ON p.id = up.page_id
+         WHERE up.user_id = $1 AND p.key = $2 AND p.is_active = true
+         LIMIT 1`,
+        [req.session.userId, accessKey]
+      );
+
+      if (allowed.rows.length === 0) {
+        return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
+      }
+
+      // Flag this request so requireRole("admin") can allow employee access
+      (req as any).employeeAdminAllowed = true;
+      return next();
+    } catch (error) {
+      console.error("[admin-employee-guard] Error:", error);
+      return res.status(500).json({ error: "Access check failed" });
     }
   });
 
@@ -1072,9 +1212,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // App secrets (auth, Google OAuth, etc.) - stored in DB, never in git
+  // Infrastructure secrets that must NEVER be exposed or editable via UI
+  const INFRASTRUCTURE_SECRETS = [
+    "DATABASE_URL",
+    "supabase_url",
+    "supabase_service_role_key",
+  ];
+
   const SECRET_KEYS = [
     "host", "google_client_id", "google_client_secret", "session_secret", "base_url",
-    "supabase_url", "supabase_service_role_key", "sendgrid_api_key", "sendgrid_from_email",
+    // Supabase credentials removed - must be set via environment variables only
+    "sendgrid_api_key", "sendgrid_from_email",
     "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass", "smtp_from_email",
     "sendpulse_api_id", "sendpulse_api_secret", "sendpulse_sender_email", "sendpulse_sender_name", "sendpulse_enabled",
     "razorpay_key_id", "razorpay_key_secret", "paypal_client_id", "paypal_client_secret", "paypal_mode",
@@ -1085,7 +1233,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/app-secrets", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       const rows = await db.select().from(appSecrets);
-      const byKey = Object.fromEntries(rows.map(r => [r.key, r]));
+      // Filter out infrastructure secrets - they must never be exposed via API
+      const byKey = Object.fromEntries(
+        rows
+          .filter(r => !INFRASTRUCTURE_SECRETS.includes(r.key))
+          .map(r => [r.key, r])
+      );
       const secrets = SECRET_KEYS.map(key => ({
         key,
         value: byKey[key]?.value ? maskValue(byKey[key].value) : "",
@@ -1101,6 +1254,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/admin/app-secrets/:key", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       const key = req.params.key;
+      // Explicitly reject infrastructure secrets
+      if (INFRASTRUCTURE_SECRETS.includes(key)) {
+        return res.status(403).json({ error: "Infrastructure secrets cannot be modified via API. Use environment variables." });
+      }
       if (!SECRET_KEYS.includes(key)) {
         return res.status(400).json({ error: `Invalid key. Allowed: ${SECRET_KEYS.join(", ")}` });
       }
@@ -1948,11 +2105,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/categories", publicCategoriesRouter);
   app.use("/api/public/tags", publicTagsRouter);
 
-  // Admin CMS Routes
-  app.use("/api/admin", adminCmsRouter);
+  // Admin Employee Routes
+  app.use("/api/admin/employees", adminEmployeesRouter);
+
+  // Admin CMS Routes - allow employees, access is enforced by admin guard
+  app.use("/api/admin", requireRole("admin", "employee"), adminCmsRouter);
 
   // Admin Finance Routes
-  app.use("/api/admin/finance", requireRole("admin"), adminFinanceRouter);
+  app.use("/api/admin/finance", requireRole("admin", "employee"), adminFinanceRouter);
 
   // Get payment history for current detective
   app.get("/api/payments/history", requireRole("detective"), async (req: Request, res: Response) => {
@@ -2354,6 +2514,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         monthlyPrice: parsed.monthlyPrice !== undefined ? String(parsed.monthlyPrice) : undefined,
         yearlyPrice: parsed.yearlyPrice !== undefined ? String(parsed.yearlyPrice) : undefined,
       } as any);
+      clearFreePlanCache();
+      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => cache.del(k));
+      console.debug("[cache INVALIDATE]", "services:");
       res.json({ plan });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -2376,6 +2539,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current logged-in detective's profile (requires detective role)
   app.get("/api/detectives/me", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       let detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) {
         return res.status(404).json({ error: "Detective profile not found" });
@@ -3821,7 +3985,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               subscriptionPackageId: null, // Explicitly NULL - user starts with FREE tier
               status: (await requirePolicy<{ value: string }>("post_approval_status"))?.value || "active",
               isVerified: true,
-              isClaimed: isAdminCreated ? false : true,
+              isClaimed: false,
               isClaimable: isAdminCreated ? true : false,
               createdBy: isAdminCreated ? "admin" : "self",
               country: application.country || "US",
@@ -3845,7 +4009,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               defaultServiceBanner: (application as any).banner || detective.defaultServiceBanner || undefined,
               status: (await requirePolicy<{ value: string }>("post_approval_status"))?.value || "active",
               isVerified: true,
-              isClaimed: isAdminCreated ? false : true,
+              isClaimed: detective.isClaimed ?? false,
               isClaimable: isAdminCreated ? true : false,
             });
           }
@@ -5103,30 +5267,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET all detective visibility configs (admin)
   app.get("/api/admin/visibility", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
-      const { ranking } = await import("./ranking.ts");
       const visibilityRecords = await db.select().from(detectiveVisibility);
       
       // Enrich with detective info
       const enriched = await Promise.all(
         visibilityRecords.map(async (v) => {
-          const detective = await db
-            .select()
-            .from(detectives)
-            .where(eq(detectives.id, v.detectiveId))
-            .limit(1)
-            .then(r => r[0]);
-          
-          return {
-            ...v,
-            detective: detective ? {
-              id: detective.id,
-              businessName: detective.businessName,
-              email: detective.contactEmail,
-              subscriptionPackageId: detective.subscriptionPackageId,
-              hasBlueTick: detective.hasBlueTick,
-              status: detective.status,
-            } : null
-          };
+          try {
+            const detective = await db
+              .select()
+              .from(detectives)
+              .where(eq(detectives.id, v.detectiveId))
+              .limit(1)
+              .then(r => r[0]);
+            
+            return {
+              ...v,
+              detective: detective ? {
+                id: detective.id,
+                businessName: detective.businessName,
+                email: detective.contactEmail,
+                subscriptionPackageId: detective.subscriptionPackageId,
+                hasBlueTick: detective.hasBlueTick,
+                status: detective.status,
+              } : null
+            };
+          } catch (detError) {
+            console.warn(`Failed to load detective ${v.detectiveId}:`, detError);
+            return {
+              ...v,
+              detective: null
+            };
+          }
         })
       );
 
@@ -5469,15 +5640,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const q = `
         SELECT s.id AS service_id, s.title AS service_title, s.images AS service_images,
-               s.base_price, s.offer_price, s.category AS service_category,
+               s.base_price, s.offer_price, s.is_on_enquiry, s.category AS service_category,
                d.id AS detective_id, d.business_name, d.level, d.logo, d.is_verified, d.location, d.country,
+               d.phone, d.whatsapp, d.contact_email,
                d.has_blue_tick, d.blue_tick_addon, d.subscription_package_id, d.subscription_expires_at,
-               sp.badges AS subscription_badges,
+               sp.badges AS subscription_badges, sp.features AS subscription_features, sp.is_active AS subscription_is_active,
+               u.email AS user_email,
                (SELECT COALESCE(AVG(r.rating), 0) FROM reviews r WHERE r.service_id = s.id) AS avg_rating,
                (SELECT COUNT(*)::int FROM reviews r WHERE r.service_id = s.id) AS review_count
         FROM services s
         INNER JOIN detectives d ON d.id = s.detective_id AND d.status = 'active'
         LEFT JOIN subscription_plans sp ON sp.id = d.subscription_package_id
+        LEFT JOIN users u ON u.id = d.user_id
         WHERE s.is_active = true AND d.country = $1 AND s.category = $2${stateClause}${cityClause}
         ORDER BY avg_rating DESC NULLS LAST
         LIMIT $${paramIdx}
@@ -5489,6 +5663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         service_images: string[] | null;
         base_price: string;
         offer_price: string | null;
+        is_on_enquiry: boolean | null;
         service_category: string | null;
         detective_id: string;
         business_name: string | null;
@@ -5497,46 +5672,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
         is_verified: boolean;
         location: string;
         country: string | null;
+        phone: string | null;
+        whatsapp: string | null;
+        contact_email: string | null;
         has_blue_tick: boolean;
         blue_tick_addon: boolean;
         subscription_package_id: string | null;
         subscription_expires_at: string | null;
         subscription_badges: unknown;
+        subscription_features: string[] | null;
+        subscription_is_active: boolean | null;
+        user_email: string | null;
         avg_rating: string;
         review_count: string;
       }>(q, params);
 
-      res.json({
-        detectives: result.rows.map((r) => {
-          const effectiveBadges = computeEffectiveBadges(
-            {
-              subscriptionPackageId: r.subscription_package_id,
-              subscriptionExpiresAt: r.subscription_expires_at,
-              hasBlueTick: r.has_blue_tick,
-              blueTickAddon: r.blue_tick_addon,
-            },
-            r.subscription_badges ? { badges: r.subscription_badges } : null
-          );
-          return {
-            id: r.detective_id,
-            serviceId: r.service_id,
-            fullName: r.business_name ?? "Unknown",
-            level: r.level,
-            profilePhoto: r.logo ?? "",
-            isVerified: r.is_verified,
-            location: r.location ?? "",
-            country: r.country ?? "",
-            avgRating: parseFloat(r.avg_rating) || 0,
-            reviewCount: parseInt(r.review_count, 10) || 0,
-            startingPrice: parseFloat(r.base_price) || 0,
-            offerPrice: r.offer_price != null ? parseFloat(r.offer_price) : null,
-            serviceTitle: r.service_title ?? r.service_category ?? "Service",
-            serviceImages: Array.isArray(r.service_images) ? r.service_images : (r.service_images ? [r.service_images] : []),
-            serviceCategory: r.service_category ?? "",
-            effectiveBadges,
-          };
-        }),
-      });
+      const detectives = await Promise.all(result.rows.map(async (r) => {
+        const effectiveBadges = computeEffectiveBadges(
+          {
+            subscriptionPackageId: r.subscription_package_id,
+            subscriptionExpiresAt: r.subscription_expires_at,
+            hasBlueTick: r.has_blue_tick,
+            blueTickAddon: r.blue_tick_addon,
+          },
+          r.subscription_badges ? { badges: r.subscription_badges } : null
+        );
+
+        const detectiveRaw: any = {
+          id: r.detective_id,
+          subscriptionPackageId: r.subscription_package_id,
+          subscriptionPackage: r.subscription_package_id
+            ? {
+                features: Array.isArray(r.subscription_features) ? r.subscription_features : [],
+                isActive: r.subscription_is_active !== false,
+              }
+            : null,
+          contactEmail: r.contact_email ?? null,
+          email: r.user_email ?? null,
+          phone: r.phone ?? null,
+          whatsapp: r.whatsapp ?? null,
+        };
+
+        const masked = await maskDetectiveContactsPublic(detectiveRaw);
+
+        return {
+          id: r.detective_id,
+          serviceId: r.service_id,
+          fullName: r.business_name ?? "Unknown",
+          level: r.level,
+          profilePhoto: r.logo ?? "",
+          isVerified: r.is_verified,
+          location: r.location ?? "",
+          country: r.country ?? "",
+          avgRating: parseFloat(r.avg_rating) || 0,
+          reviewCount: parseInt(r.review_count, 10) || 0,
+          startingPrice: parseFloat(r.base_price) || 0,
+          offerPrice: r.offer_price != null ? parseFloat(r.offer_price) : null,
+          isOnEnquiry: r.is_on_enquiry === true,
+          serviceTitle: r.service_title ?? r.service_category ?? "Service",
+          serviceImages: Array.isArray(r.service_images) ? r.service_images : (r.service_images ? [r.service_images] : []),
+          serviceCategory: r.service_category ?? "",
+          effectiveBadges,
+          phone: masked.phone ?? undefined,
+          whatsapp: masked.whatsapp ?? undefined,
+          contactEmail: (masked.contactEmail ?? masked.email) ?? undefined,
+        };
+      }));
+
+      res.json({ detectives });
     } catch (error) {
       console.error("Error fetching snippet detectives:", error);
       res.status(500).json({ error: "Failed to fetch detectives" });

@@ -1,8 +1,75 @@
 import { createClient } from "@supabase/supabase-js";
 import { config } from "./config.ts";
 
-const url = config.supabase.url;
-const key = config.supabase.serviceRoleKey;
+/**
+ * Supabase Configuration - Environment Variables ONLY
+ * 
+ * IMPORTANT: Supabase credentials MUST come from environment variables exclusively.
+ * They are NEVER loaded from the database to ensure single source of truth.
+ * 
+ * Safety Guards:
+ * - In development (NODE_ENV=development), using a non-local Supabase URL throws an error
+ * - This prevents accidentally connecting to production/cloud Supabase from local dev
+ * 
+ * Required Environment Variables:
+ * - SUPABASE_URL: Your Supabase project URL
+ * - SUPABASE_SERVICE_ROLE_KEY: Service role key for admin operations
+ * 
+ * Local Development:
+ * - Use .env.local (gitignored)
+ * - Set SUPABASE_URL=http://127.0.0.1:54321 (or your local Supabase URL)
+ * 
+ * Production:
+ * - Set via hosting provider environment variables
+ * - Never commit production credentials to git
+ */
+
+// Read directly from process.env - these are set before secretsLoader runs
+const url = process.env.SUPABASE_URL;
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Validate Supabase configuration on startup
+if (!url || !key) {
+  const missing = [];
+  if (!url) missing.push("SUPABASE_URL");
+  if (!key) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  
+  if (config.env.isProd) {
+    throw new Error(
+      `❌ Missing required Supabase environment variables in production: ${missing.join(", ")}\n` +
+      "Set these via your hosting provider's environment variable settings."
+    );
+  } else {
+    console.warn(
+      `⚠️  Warning: Missing Supabase environment variables: ${missing.join(", ")}\n` +
+      "Supabase storage features will be disabled.\n" +
+      "Add them to .env.local if you need storage functionality."
+    );
+  }
+}
+
+// Development safety guard: prevent accidental cloud Supabase usage in dev
+if (config.env.isDev && url) {
+  const isLocalSupabase = 
+    url.includes("localhost") || 
+    url.includes("127.0.0.1") || 
+    url.includes("0.0.0.0");
+  
+  if (!isLocalSupabase) {
+    throw new Error(
+      `❌ SAFETY CHECK FAILED\n\n` +
+      `You are in DEVELOPMENT mode (NODE_ENV=development) but trying to connect to:\n` +
+      `  ${url}\n\n` +
+      `This appears to be a CLOUD/PRODUCTION Supabase instance!\n\n` +
+      `To fix this:\n` +
+      `  1. Update SUPABASE_URL in .env.local to your LOCAL Supabase URL\n` +
+      `     (e.g., http://127.0.0.1:54321)\n` +
+      `  2. Or set NODE_ENV=production if you intentionally want to use cloud Supabase\n\n` +
+      `This safety check prevents accidentally modifying production data during development.`
+    );
+  }
+}
+
 export const supabase = (url && key) ? createClient(url, key) : null as any;
 const isLocalDev = !config.env.isProd || (config.baseUrl || "").includes("localhost") || (config.baseUrl || "").includes("127.0.0.1");
 

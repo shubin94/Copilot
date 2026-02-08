@@ -11,7 +11,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pkg from "pg";
 const { Pool } = pkg;
-import { registerRoutes } from "./routes.ts";
+// NOTE: registerRoutes is imported INSIDE runApp() to ensure environment is loaded first
 import { config } from "./config.ts";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.ts";
 
@@ -70,12 +70,20 @@ export const bodyParsers = {
   }
 };
 
-// CORS configuration for cross-origin requests
+// CORS configuration - define origins first BEFORE corsConfig object
 const configuredOrigins = config.csrf.allowedOrigins;
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
+
+// CORS configuration object - used for all CORS middleware
+const corsConfig = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (mobile apps, Postman, curl, etc.)
+    if (!origin) {
+      console.log("[CORS] No origin header - allowing (likely mobile/postman)");
+      return callback(null, true);
+    }
+    
+    // Normalize origin by removing trailing slashes
+    const normalizedOrigin = origin.replace(/\/$/, '');
     
     const allowedOrigins = [
       ...configuredOrigins,
@@ -85,17 +93,52 @@ app.use(cors({
       "http://127.0.0.1:5000",
     ];
     
-    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+    console.log(`[CORS] Incoming origin: ${normalizedOrigin}`);
+    console.log(`[CORS] Allowed origins: ${allowedOrigins.join(", ")}`);
+    
+    // Check for exact match or startsWith match (for subdomains)
+    const isAllowedExact = allowedOrigins.some(allowed => {
+      const normalizedAllowed = allowed.replace(/\/$/, '');
+      return normalizedOrigin === normalizedAllowed;
+    });
+
+    const isAllowedStartsWith = allowedOrigins.some(allowed => {
+      const normalizedAllowed = allowed.replace(/\/$/, '');
+      return normalizedOrigin.startsWith(normalizedAllowed + ".");
+    });
+
+    // Allow all Vercel preview deployments for askdetectives1-*.vercel.app
+    const vercelPreviewRegex = /^https:\/\/askdetectives1-[a-z0-9-]+\.vercel\.app$/i;
+    const isVercelPreview = vercelPreviewRegex.test(normalizedOrigin);
+
+    const isAllowed = isAllowedExact || isAllowedStartsWith || isVercelPreview;
+
+    if (isAllowed) {
+      console.log(`[CORS] ✅ Origin allowed: ${normalizedOrigin}` + (isVercelPreview ? ' (Vercel preview)' : ''));
+    }
+    
+    if (isAllowed) {
       callback(null, true);
     } else {
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
+      console.warn(`[CORS] ❌ CORS BLOCKED origin: ${normalizedOrigin}`);
+      console.warn(`[CORS] Available origins: ${allowedOrigins.join(" | ")}`);
+      // Even on rejection, allow the request but without CORS headers
+      // This prevents confusing Status 0 errors
+      callback(null, false);
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Requested-With"],
-  exposedHeaders: ["Set-Cookie"],
-}));
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Requested-With", "Accept", "cache-control"],
+  exposedHeaders: ["Set-Cookie", "X-CSRF-Token"],
+  maxAge: 86400,
+};
+
+// Apply CORS middleware FIRST - before any other middleware
+app.use(cors(corsConfig));
+
+// Explicit preflight handler for OPTIONS
+app.options('*', cors(corsConfig));
 
 // Security headers - CSP disabled for dev flexibility, enable in production
 app.use(helmet({ 
@@ -309,6 +352,8 @@ app.use((req, res, next) => {
 export default async function runApp(
   setup: (app: Express, server: Server) => Promise<void>,
 ): Promise<Server> {
+  // Dynamic import of routes to ensure environment is loaded BEFORE routes are imported
+  const { registerRoutes } = await import("./routes.ts");
   const server = await registerRoutes(app);
 
   // Global error handler - SECURITY: Never leak stack traces or sensitive data in production

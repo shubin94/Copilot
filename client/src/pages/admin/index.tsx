@@ -8,6 +8,7 @@ import {
   LogOut,
   Menu,
   X,
+  Users,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 
@@ -67,6 +68,12 @@ export default function AdminDashboard() {
               label="Settings"
               collapsed={!sidebarOpen}
               onClick={() => window.location.href = "/admin/settings"}
+            />
+            <NavItem
+              icon={<Users size={20} />}
+              label="Employees"
+              collapsed={!sidebarOpen}
+              onClick={() => window.location.href = "/admin/employees"}
             />
           </nav>
 

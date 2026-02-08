@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./lib/loadEnv";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import fs from "node:fs";
@@ -12,6 +12,8 @@ import runApp from "./app.ts";
 import { config, validateConfig } from "./config.ts";
 import { loadSecretsFromDatabase } from "./lib/secretsLoader.ts";
 import { validateDatabase } from "./startup.ts";
+import { initializeEnv } from "./lib/loadEnv.ts";
+import { getEnvironmentBadge } from "../db/validateDatabase.ts";
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 
@@ -75,6 +77,25 @@ process.on('SIGINT', () => {
 // Main startup function
 async function main() {
   try {
+    // Initialize environment with logging
+    console.log(`\n${getEnvironmentBadge()} Environment`);
+    await initializeEnv();
+
+    // Log Supabase configuration (environment-only)
+    const supabaseUrl = process.env.SUPABASE_URL;
+    if (supabaseUrl) {
+      const supabaseHost = new URL(supabaseUrl).hostname;
+      const isLocal = supabaseHost.includes('localhost') || supabaseHost.includes('127.0.0.1');
+      console.log(`📦 Supabase: ${isLocal ? '🟢 Local' : '☁️  Cloud'} (${supabaseHost})`);
+      console.log(`   Source: Hosting Provider Environment Variables`);
+      if (isLocal) {
+        console.warn(`   ⚠️  WARNING: Production mode using LOCAL Supabase!`);
+        console.warn(`   This should only be for testing. Production should use cloud Supabase.`);
+      }
+    } else {
+      console.log(`⚠️  Supabase: Not configured (storage disabled)`);
+    }
+
     console.log('🚀 Starting server initialization...');
 
     if (process.env.NODE_ENV !== "production") {
@@ -83,6 +104,17 @@ async function main() {
 
     console.log('🔐 Loading auth/secrets from database...');
     await loadSecretsFromDatabase();  const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
+    
+    // Run database migrations
+    console.log('📊 Running database migrations...');
+    try {
+      const { runMigrations } = await import('../db/run-migrations.ts');
+      await runMigrations();
+    } catch (migrationError) {
+      console.error('⚠️  Migration error:', migrationError);
+      console.error('Continuing with startup, but database may be in inconsistent state...');
+    }
+    
     if (config.env.isProd && config.sentryDsn) {
       Sentry.init({
         dsn: config.sentryDsn,

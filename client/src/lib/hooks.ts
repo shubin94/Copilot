@@ -7,8 +7,11 @@ export function useAuth() {
     queryKey: ["auth", "me"],
     queryFn: () => api.auth.me(),
     retry: false,
-    staleTime: 60 * 1000, // 1 minute instead of 5 to prevent stale session data
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes but refresh more frequently
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -631,6 +634,8 @@ export function useDeleteServiceCategory() {
         ["serviceCategories", false],
         ["serviceCategories", undefined],
       ] as const;
+      
+      // Update local cache first
       for (const key of keys) {
         const current = queryClient.getQueryData<{ categories: ServiceCategory[] }>(key as any);
         if (current?.categories) {
@@ -639,7 +644,13 @@ export function useDeleteServiceCategory() {
           });
         }
       }
+      
+      // Then invalidate and refetch to ensure fresh data
       queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
+      
+      // Force refetch specifically for the keys that might be in use
+      queryClient.refetchQueries({ queryKey: ["serviceCategories", false], type: "active" });
+      queryClient.refetchQueries({ queryKey: ["serviceCategories", undefined], type: "active" });
     },
   });
 }

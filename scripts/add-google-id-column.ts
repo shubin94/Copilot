@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../server/lib/loadEnv";
 import { Pool } from "pg";
 
 async function addGoogleIdColumn() {

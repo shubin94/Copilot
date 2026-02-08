@@ -34,17 +34,39 @@ interface PageData {
 
 export default function PageView() {
   const [, setLocation] = useLocation();
+  const [matchNested, paramsNested] = useRoute("/:parent/:category/:slug");
   const [matchNew, paramsNew] = useRoute("/:category/:slug");
+  const [matchLegacyNested, paramsLegacyNested] = useRoute("/pages/:parent/:category/:slug");
   const [matchLegacyCategory, paramsLegacyCategory] = useRoute("/pages/:category/:slug");
   const [matchLegacy, paramsLegacy] = useRoute("/pages/:slug");
 
-  if (!matchNew && !matchLegacyCategory && !matchLegacy) return null;
+  if (!matchNested && !matchNew && !matchLegacyNested && !matchLegacyCategory && !matchLegacy) return null;
 
-  const slug = (matchNew ? paramsNew?.slug : matchLegacyCategory ? paramsLegacyCategory?.slug : paramsLegacy?.slug) as string;
-  const categorySlug = (matchNew ? paramsNew?.category : matchLegacyCategory ? paramsLegacyCategory?.category : undefined) as string | undefined;
+  const slug = (
+    matchNested
+      ? paramsNested?.slug
+      : matchNew
+      ? paramsNew?.slug
+      : matchLegacyNested
+      ? paramsLegacyNested?.slug
+      : matchLegacyCategory
+      ? paramsLegacyCategory?.slug
+      : paramsLegacy?.slug
+  ) as string;
+  const categorySlug = (
+    matchNested
+      ? `${paramsNested?.parent}/${paramsNested?.category}`
+      : matchNew
+      ? paramsNew?.category
+      : matchLegacyNested
+      ? `${paramsLegacyNested?.parent}/${paramsLegacyNested?.category}`
+      : matchLegacyCategory
+      ? paramsLegacyCategory?.category
+      : undefined
+  ) as string | undefined;
 
   const { data, isLoading, isError } = useQuery<{ page: PageData }>({
-    queryKey: ["public-page", slug],
+    queryKey: ["public-page", categorySlug || "", slug],
     queryFn: async () => {
       const endpoint = categorySlug
         ? `/api/public/pages/${categorySlug}/${slug}`

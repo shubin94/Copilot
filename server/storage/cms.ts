@@ -8,13 +8,14 @@ export interface Category {
   id: string;
   name: string;
   slug: string;
+  parentId?: string | null;
   status: "published" | "draft" | "archived";
   createdAt: string;
   updatedAt: string;
 }
 
 export async function getCategories(status?: string): Promise<Category[]> {
-  let query = "SELECT id, name, slug, status, created_at, updated_at FROM categories";
+  let query = "SELECT id, name, slug, parent_id, status, created_at, updated_at FROM categories";
   const params: any[] = [];
 
   if (status) {
@@ -29,6 +30,7 @@ export async function getCategories(status?: string): Promise<Category[]> {
     id: row.id,
     name: row.name,
     slug: row.slug,
+    parentId: row.parent_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -36,7 +38,7 @@ export async function getCategories(status?: string): Promise<Category[]> {
 }
 
 export async function getCategoryById(id: string): Promise<Category | null> {
-  const result = await pool.query("SELECT id, name, slug, status, created_at, updated_at FROM categories WHERE id = $1", [id]);
+  const result = await pool.query("SELECT id, name, slug, parent_id, status, created_at, updated_at FROM categories WHERE id = $1", [id]);
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
@@ -44,6 +46,7 @@ export async function getCategoryById(id: string): Promise<Category | null> {
     id: row.id,
     name: row.name,
     slug: row.slug,
+    parentId: row.parent_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -51,7 +54,7 @@ export async function getCategoryById(id: string): Promise<Category | null> {
 }
 
 export async function getCategoryBySlug(slug: string): Promise<Category | null> {
-  const result = await pool.query("SELECT id, name, slug, status, created_at, updated_at FROM categories WHERE slug = $1", [slug]);
+  const result = await pool.query("SELECT id, name, slug, parent_id, status, created_at, updated_at FROM categories WHERE slug = $1", [slug]);
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
@@ -59,25 +62,34 @@ export async function getCategoryBySlug(slug: string): Promise<Category | null> 
     id: row.id,
     name: row.name,
     slug: row.slug,
+    parentId: row.parent_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export async function createCategory(name: string, slug: string, status?: string): Promise<Category> {
+export async function createCategory(name: string, slug: string, status?: string, parentId?: string | null): Promise<Category> {
   const id = uuidv4();
   let query = "INSERT INTO categories (id, name, slug";
   const params: any[] = [id, name, slug];
+  let paramCount = 3;
 
   if (status) {
     query += ", status";
     params.push(status);
+    paramCount++;
+  }
+
+  if (parentId) {
+    query += ", parent_id";
+    params.push(parentId);
+    paramCount++;
   }
 
   query += ") VALUES ($1, $2, $3";
-  if (status) {
-    query += ", $4";
+  for (let i = 4; i <= paramCount; i++) {
+    query += `, $${i}`;
   }
   query += ") RETURNING *";
 
@@ -87,13 +99,14 @@ export async function createCategory(name: string, slug: string, status?: string
     id: row.id,
     name: row.name,
     slug: row.slug,
+    parentId: row.parent_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export async function updateCategory(id: string, name?: string, status?: string): Promise<Category | null> {
+export async function updateCategory(id: string, name?: string, slug?: string, status?: string, parentId?: string | null): Promise<Category | null> {
   const updates: string[] = [];
   const params: any[] = [];
   let paramIndex = 1;
@@ -102,9 +115,17 @@ export async function updateCategory(id: string, name?: string, status?: string)
     updates.push(`name = $${paramIndex++}`);
     params.push(name);
   }
+  if (slug !== undefined) {
+    updates.push(`slug = $${paramIndex++}`);
+    params.push(slug);
+  }
   if (status !== undefined) {
     updates.push(`status = $${paramIndex++}`);
     params.push(status);
+  }
+  if (parentId !== undefined) {
+    updates.push(`parent_id = $${paramIndex++}`);
+    params.push(parentId);
   }
 
   if (updates.length === 0) return getCategoryById(id);
@@ -120,6 +141,7 @@ export async function updateCategory(id: string, name?: string, status?: string)
     id: row.id,
     name: row.name,
     slug: row.slug,
+    parentId: row.parent_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -132,13 +154,14 @@ export interface Tag {
   id: string;
   name: string;
   slug: string;
+  parentId?: string | null;
   status: "published" | "draft" | "archived";
   createdAt: string;
   updatedAt: string;
 }
 
 export async function getTags(status?: string): Promise<Tag[]> {
-  let query = "SELECT * FROM tags";
+  let query = "SELECT id, name, slug, parent_id, status, created_at, updated_at FROM tags";
   const params: any[] = [];
 
   if (status) {
@@ -153,6 +176,7 @@ export async function getTags(status?: string): Promise<Tag[]> {
     id: row.id,
     name: row.name,
     slug: row.slug,
+    parentId: row.parent_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -160,7 +184,7 @@ export async function getTags(status?: string): Promise<Tag[]> {
 }
 
 export async function getTagById(id: string): Promise<Tag | null> {
-  const result = await pool.query("SELECT * FROM tags WHERE id = $1", [id]);
+  const result = await pool.query("SELECT id, name, slug, parent_id, status, created_at, updated_at FROM tags WHERE id = $1", [id]);
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
@@ -168,25 +192,34 @@ export async function getTagById(id: string): Promise<Tag | null> {
     id: row.id,
     name: row.name,
     slug: row.slug,
+    parentId: row.parent_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export async function createTag(name: string, slug: string, status?: string): Promise<Tag> {
+export async function createTag(name: string, slug: string, status?: string, parentId?: string | null): Promise<Tag> {
   const id = uuidv4();
   let query = "INSERT INTO tags (id, name, slug";
   const params: any[] = [id, name, slug];
+  let paramCount = 3;
 
   if (status) {
     query += ", status";
     params.push(status);
+    paramCount++;
+  }
+
+  if (parentId) {
+    query += ", parent_id";
+    params.push(parentId);
+    paramCount++;
   }
 
   query += ") VALUES ($1, $2, $3";
-  if (status) {
-    query += ", $4";
+  for (let i = 4; i <= paramCount; i++) {
+    query += `, $${i}`;
   }
   query += ") RETURNING *";
 
@@ -196,13 +229,14 @@ export async function createTag(name: string, slug: string, status?: string): Pr
     id: row.id,
     name: row.name,
     slug: row.slug,
+    parentId: row.parent_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export async function updateTag(id: string, name?: string, status?: string): Promise<Tag | null> {
+export async function updateTag(id: string, name?: string, slug?: string, status?: string, parentId?: string | null): Promise<Tag | null> {
   const updates: string[] = [];
   const params: any[] = [];
   let paramIndex = 1;
@@ -211,9 +245,17 @@ export async function updateTag(id: string, name?: string, status?: string): Pro
     updates.push(`name = $${paramIndex++}`);
     params.push(name);
   }
+  if (slug !== undefined) {
+    updates.push(`slug = $${paramIndex++}`);
+    params.push(slug);
+  }
   if (status !== undefined) {
     updates.push(`status = $${paramIndex++}`);
     params.push(status);
+  }
+  if (parentId !== undefined) {
+    updates.push(`parent_id = $${paramIndex++}`);
+    params.push(parentId);
   }
 
   if (updates.length === 0) return getTagById(id);
@@ -229,6 +271,7 @@ export async function updateTag(id: string, name?: string, status?: string): Pro
     id: row.id,
     name: row.name,
     slug: row.slug,
+    parentId: row.parent_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

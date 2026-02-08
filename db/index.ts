@@ -1,4 +1,10 @@
-import "dotenv/config";
+/**
+ * Database connection pool and Drizzle ORM instance
+ * 
+ * Environment variables should be loaded BEFORE importing this module.
+ * - Server startup: calls loadEnv() or initializeEnv()
+ * - Scripts: should call loadEnv() before importing db
+ */
 import { drizzle } from "drizzle-orm/node-postgres";
 import pkg from "pg";
 const { Pool } = pkg;

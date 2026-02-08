@@ -33,9 +33,12 @@ function getExcerpt(content: string): string {
 }
 
 export default function PageTag() {
+  const [matchNested, paramsNested] = useRoute("/blog/tag/:parent/:slug");
   const [match, params] = useRoute("/blog/tag/:slug");
-  if (!match) return null;
-  const slug = params?.slug as string;
+  if (!matchNested && !match) return null;
+  const slug = matchNested
+    ? `${paramsNested?.parent}/${paramsNested?.slug}`
+    : (params?.slug as string);
 
   const { data, isLoading, isError } = useQuery<TagResponse>({
     queryKey: ["page-tag", slug],

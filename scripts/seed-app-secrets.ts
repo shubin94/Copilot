@@ -2,8 +2,11 @@
  * One-time seed: copy auth/API secrets from env into app_secrets table.
  * Run after deploying: npx tsx scripts/seed-app-secrets.ts
  * Only copies non-empty env values. Does not overwrite existing DB values.
+ * 
+ * NOTE: Supabase credentials are NOT seeded into the database.
+ * They must be set via environment variables only (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY).
  */
-import "dotenv/config";
+import "../server/lib/loadEnv";
 import { db } from "../db/index.ts";
 import { appSecrets } from "../shared/schema.ts";
 
@@ -13,8 +16,7 @@ const ENV_TO_KEY: Record<string, string> = {
   GOOGLE_CLIENT_SECRET: "google_client_secret",
   SESSION_SECRET: "session_secret",
   BASE_URL: "base_url",
-  SUPABASE_URL: "supabase_url",
-  SUPABASE_SERVICE_ROLE_KEY: "supabase_service_role_key",
+  // Supabase credentials removed - must be set via environment variables only
   SENDGRID_API_KEY: "sendgrid_api_key",
   SENDGRID_FROM_EMAIL: "sendgrid_from_email",
   SMTP_HOST: "smtp_host",

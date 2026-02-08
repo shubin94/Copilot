@@ -3,7 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, type ComponentType } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyProvider } from "./lib/currency-context";
 import { UserProvider } from "./lib/user-context";
@@ -11,6 +11,7 @@ import ScrollToTop from "@/components/scroll-to-top";
 import { SmokeTester } from "@/components/dev/smoke-tester";
 import CountrySelectorPopup from "@/components/modals/country-selector-popup";
 import { initializeAuthSession } from "./lib/authSessionManager";
+import { AdminRoute } from "@/components/admin-route";
 
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -51,6 +52,8 @@ const AdminCategories = lazy(() => import("@/pages/admin/categories"));
 const AdminTags = lazy(() => import("@/pages/admin/tags"));
 const AdminPagesEdit = lazy(() => import("@/pages/admin/pages-edit"));
 const PageEdit = lazy(() => import("@/pages/admin/page-edit"));
+// Employee Management
+const AdminEmployees = lazy(() => import("@/pages/admin/employees"));
 
 // CMS Public Routes
 const PageView = lazy(() => import("@/pages/page-view"));
@@ -99,7 +102,39 @@ function PageSkeleton() {
   );
 }
 
+const withAdminRoute = (Component: ComponentType<any>) => (props: any) => (
+  <AdminRoute>
+    <Component {...props} />
+  </AdminRoute>
+);
+
 function Router() {
+  const AdminDashboardRoute = withAdminRoute(AdminDashboard);
+  const AdminFinanceRoute = withAdminRoute(AdminFinance);
+  const AdminSignupsRoute = withAdminRoute(AdminSignups);
+  const AdminDetectivesRoute = withAdminRoute(AdminDetectives);
+  const AdminServicesRoute = withAdminRoute(AdminServices);
+  const AdminServiceCategoriesRoute = withAdminRoute(AdminServiceCategories);
+  const AdminSignupDetailsRoute = withAdminRoute(AdminSignupDetails);
+  const AdminSubscriptionsRoute = withAdminRoute(AdminSubscriptions);
+  const AdminAddDetectiveRoute = withAdminRoute(AdminAddDetective);
+  const AdminClaimsRoute = withAdminRoute(AdminClaims);
+  const AdminViewDetectiveRoute = withAdminRoute(AdminViewDetective);
+  const AdminSettingsRoute = withAdminRoute(AdminSettings);
+  const AdminPaymentGatewaysRoute = withAdminRoute(AdminPaymentGateways);
+  const AdminBrandingRoute = withAdminRoute(AdminBranding);
+  const AdminPagesRoute = withAdminRoute(AdminPages);
+  const AdminRankingVisibilityRoute = withAdminRoute(AdminRankingVisibility);
+  const AdminEmailTemplatesRoute = withAdminRoute(AdminEmailTemplates);
+  const AdminSnippetsRoute = withAdminRoute(AdminSnippets);
+  const AdminAppSecretsRoute = withAdminRoute(AdminAppSecrets);
+
+  const AdminDashboardCMSRoute = withAdminRoute(AdminDashboardCMS);
+  const AdminCategoriesRoute = withAdminRoute(AdminCategories);
+  const AdminTagsRoute = withAdminRoute(AdminTags);
+  const AdminPagesEditRoute = withAdminRoute(AdminPagesEdit);
+  const PageEditRoute = withAdminRoute(PageEdit);
+  const AdminEmployeesRoute = withAdminRoute(AdminEmployees);
   return (
     <>
       <ScrollToTop />
@@ -118,7 +153,9 @@ function Router() {
           <Route path="/search" component={SearchPage} />
           <Route path="/category/:name" component={SearchPage} />
           <Route path="/categories" component={CategoriesPage} />
+          <Route path="/blog/category/:parent/:slug" component={PageCategory} />
           <Route path="/blog/category/:slug" component={PageCategory} />
+          <Route path="/blog/tag/:parent/:slug" component={PageTag} />
           <Route path="/blog/tag/:slug" component={PageTag} />
           
           {/* Static Pages */}
@@ -130,34 +167,37 @@ function Router() {
           <Route path="/support" component={SupportPage} />
           <Route path="/contact" component={ContactPage} />
           
-          {/* Admin Routes - /admin loads main admin dashboard (auth enforced in component) */}
-          <Route path="/admin" component={AdminDashboard} />
-          <Route path="/admin/dashboard" component={AdminDashboard} />
-          <Route path="/admin/finance" component={AdminFinance} />
-          <Route path="/admin/signups" component={AdminSignups} />
-          <Route path="/admin/signups/:id" component={AdminSignupDetails} />
-          <Route path="/admin/detectives/add" component={AdminAddDetective} />
-          <Route path="/admin/detective/:id/view" component={AdminViewDetective} />
-          <Route path="/admin/detectives" component={AdminDetectives} />
-          <Route path="/admin/claims" component={AdminClaims} />
-          <Route path="/admin/services" component={AdminServices} />
-          <Route path="/admin/service-categories" component={AdminServiceCategories} />
-          <Route path="/admin/subscriptions" component={AdminSubscriptions} />
-          <Route path="/admin/pages" component={AdminPages} />
-          <Route path="/admin/settings" component={AdminSettings} />
-          <Route path="/admin/payment-gateways" component={AdminPaymentGateways} />
-          <Route path="/admin/app-secrets" component={AdminAppSecrets} />
-          <Route path="/admin/branding" component={AdminBranding} />
-          <Route path="/admin/ranking-visibility" component={AdminRankingVisibility} />
-          <Route path="/admin/email-templates" component={AdminEmailTemplates} />
-          <Route path="/admin/snippets" component={AdminSnippets} />
+          {/* Admin Routes */}
+          <Route path="/admin" component={AdminDashboardRoute} />
+          <Route path="/admin/dashboard" component={AdminDashboardRoute} />
+          <Route path="/admin/finance" component={AdminFinanceRoute} />
+          <Route path="/admin/signups" component={AdminSignupsRoute} />
+          <Route path="/admin/signups/:id" component={AdminSignupDetailsRoute} />
+          <Route path="/admin/detectives/add" component={AdminAddDetectiveRoute} />
+          <Route path="/admin/detective/:id/view" component={AdminViewDetectiveRoute} />
+          <Route path="/admin/detectives" component={AdminDetectivesRoute} />
+          <Route path="/admin/claims" component={AdminClaimsRoute} />
+          <Route path="/admin/services" component={AdminServicesRoute} />
+          <Route path="/admin/service-categories" component={AdminServiceCategoriesRoute} />
+          <Route path="/admin/subscriptions" component={AdminSubscriptionsRoute} />
+          <Route path="/admin/pages" component={AdminPagesRoute} />
+          <Route path="/admin/settings" component={AdminSettingsRoute} />
+          <Route path="/admin/payment-gateways" component={AdminPaymentGatewaysRoute} />
+          <Route path="/admin/app-secrets" component={AdminAppSecretsRoute} />
+          <Route path="/admin/branding" component={AdminBrandingRoute} />
+          <Route path="/admin/ranking-visibility" component={AdminRankingVisibilityRoute} />
+          <Route path="/admin/email-templates" component={AdminEmailTemplatesRoute} />
+          <Route path="/admin/snippets" component={AdminSnippetsRoute} />
 
           {/* CMS Admin Routes */}
-          <Route path="/admin/cms" component={AdminDashboardCMS} />
-          <Route path="/admin/cms/categories" component={AdminCategories} />
-          <Route path="/admin/cms/tags" component={AdminTags} />
-          <Route path="/admin/cms/pages" component={AdminPagesEdit} />
-          <Route path="/admin/cms/pages/:id/edit" component={PageEdit} />
+          <Route path="/admin/cms" component={AdminDashboardCMSRoute} />
+          <Route path="/admin/cms/categories" component={AdminCategoriesRoute} />
+          <Route path="/admin/cms/tags" component={AdminTagsRoute} />
+          <Route path="/admin/cms/pages" component={AdminPagesEditRoute} />
+          <Route path="/admin/cms/pages/:id/edit" component={PageEditRoute} />
+          
+          {/* Employee Management Routes */}
+          <Route path="/admin/employees" component={AdminEmployeesRoute} />
           
           {/* Detective Routes - MUST come before catch-all CMS routes */}
           <Route path="/detective/dashboard" component={DetectiveDashboard} />
@@ -174,7 +214,9 @@ function Router() {
           <Route path="/user/favorites" component={FavoritesPage} />
 
           {/* CMS Public Routes - These are catch-all, must be LAST */}
+          <Route path="/:parent/:category/:slug" component={PageView} />
           <Route path="/:category/:slug" component={PageView} />
+          <Route path="/pages/:parent/:category/:slug" component={PageView} />
           <Route path="/pages/:category/:slug" component={PageView} />
           <Route path="/pages/:slug" component={PageView} />
           

@@ -3,7 +3,7 @@ import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pg
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const userRoleEnum = pgEnum("user_role", ["user", "detective", "admin"]);
+export const userRoleEnum = pgEnum("user_role", ["user", "detective", "admin", "employee"]);
 export const orderStatusEnum = pgEnum("order_status", ["pending", "in_progress", "completed", "cancelled", "refunded"]);
 export const claimStatusEnum = pgEnum("claim_status", ["pending", "under_review", "approved", "rejected"]);
 export const detectiveStatusEnum = pgEnum("detective_status", ["pending", "active", "suspended", "inactive"]);
@@ -21,12 +21,14 @@ export const users = pgTable("users", {
   preferredCountry: text("preferred_country"),
   preferredCurrency: text("preferred_currency"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
   emailIdx: index("users_email_idx").on(table.email),
   roleIdx: index("users_role_idx").on(table.role),
   googleIdIdx: uniqueIndex("users_google_id_unique").on(table.googleId),
+  isActiveIdx: index("users_is_active_idx").on(table.isActive),
 }));
 
 export const detectives = pgTable("detectives", {
@@ -54,13 +56,10 @@ export const detectives = pgTable("detectives", {
   identityDocuments: text("identity_documents").array().default(sql`ARRAY[]::text[]`),
   recognitions: jsonb("recognitions").default(sql`'[]'::jsonb`),
   memberSince: timestamp("member_since").notNull().defaultNow(),
-  // TODO: REMOVE in v3.0 - Legacy field, kept only for backward compatibility with old data
-  // DEPRECATED: subscriptionPlan is READ-ONLY and unused by business logic
-  // ALL NEW CODE MUST USE subscriptionPackageId (via payment verification flow)
-  // Never: Compare to strings ("free", "pro", "agency"), use for access control, or update via API
-  subscriptionPlan: text("subscription_plan").notNull().default("free"),
-  // ACTIVE: Use these fields for all subscription logic
-  subscriptionPackageId: text("subscription_package_id"),
+  // ACTIVE: Use these fields for all subscription logic (single source of truth)
+  subscriptionPackageId: varchar("subscription_package_id")
+    .notNull()
+    .references(() => subscriptionPlans.id, { onDelete: "restrict", onUpdate: "cascade" }),
   billingCycle: text("billing_cycle"),
   subscriptionActivatedAt: timestamp("subscription_activated_at"),
   subscriptionExpiresAt: timestamp("subscription_expires_at"),
@@ -93,7 +92,6 @@ export const detectives = pgTable("detectives", {
   stateIdx: index("detectives_state_idx").on(table.state),
   cityIdx: index("detectives_city_idx").on(table.city),
   statusIdx: index("detectives_status_idx").on(table.status),
-  planIdx: index("detectives_plan_idx").on(table.subscriptionPlan),
   claimCompletedAtIdx: index("detectives_claim_completed_at_idx").on(table.claimCompletedAt),
   phoneUniqueIdx: uniqueIndex("detectives_phone_unique").on(table.phone),
 }));
@@ -676,6 +674,50 @@ export const detectiveSnippets = pgTable("detective_snippets", {
 
 export type DetectiveSnippet = typeof detectiveSnippets.$inferSelect;
 export type InsertDetectiveSnippet = typeof detectiveSnippets.$inferInsert;
+
+// Page-Based Access Control
+// access_pages: Master list of all pages that can be restricted
+// user_pages: Tracks which users have access to which pages (many-to-many)
+export const accessPages = pgTable("access_pages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(),       // "dashboard", "employees", "settings", etc.
+  name: text("name").notNull(),               // "Dashboard", "Employees", "Settings"
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  keyIdx: uniqueIndex("access_pages_key_idx").on(table.key),
+  isActiveIdx: index("access_pages_is_active_idx").on(table.isActive),
+}));
+
+export type AccessPage = typeof accessPages.$inferSelect;
+export type InsertAccessPage = typeof accessPages.$inferInsert;
+
+// Maps users to the pages they have access to
+// Many-to-many relationship: users ↔ accessPages
+// Admins automatically have access to all pages (checked in middleware, not stored here)
+export const userPages = pgTable("user_pages", {
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  pageId: varchar("page_id")
+    .notNull()
+    .references(() => accessPages.id, { onDelete: "cascade" }),
+  grantedBy: varchar("granted_by")
+    .references(() => users.id, { onDelete: "set null" }),  // Who assigned this access (admin id)
+  grantedAt: timestamp("granted_at").notNull().defaultNow(),
+}, (table) => ({
+  pk: {
+    columns: [table.userId, table.pageId],
+    name: "user_pages_pk",
+  },
+  userIdIdx: index("user_pages_user_id_idx").on(table.userId),
+  pageIdIdx: index("user_pages_page_id_idx").on(table.pageId),
+  grantedByIdx: index("user_pages_granted_by_idx").on(table.grantedBy),
+}));
+
+export type UserPage = typeof userPages.$inferSelect;
+export type InsertUserPage = typeof userPages.$inferInsert;
 
 export const insertDetectiveSnippetSchema = createInsertSchema(detectiveSnippets);
 export const selectDetectiveSnippetSchema = createSelectSchema(detectiveSnippets);

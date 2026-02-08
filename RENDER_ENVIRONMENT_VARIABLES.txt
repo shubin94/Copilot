@@ -1,0 +1,124 @@
+=================================================================
+🚀 RENDER.COM ENVIRONMENT VARIABLES - PERMANENT FIX
+=================================================================
+
+Copy these EXACT values into Render Dashboard → Your Service → Environment
+
+=================================================================
+📋 REQUIRED FOR LOGIN/CSRF (Add These Now!)
+=================================================================
+
+1. SESSION_SECRET
+   Copy the value generated below ⬇️
+
+2. CSRF_ALLOWED_ORIGINS
+   https://www.askdetectives.com,https://askdetectives1.vercel.app,https://copilot-06s5.onrender.com
+
+=================================================================
+📋 REQUIRED FOR FILE UPLOADS
+=================================================================
+
+3. SUPABASE_URL
+   Go to: Supabase Dashboard → Project Settings → API
+   Copy "Project URL" (example: https://xxxxx.supabase.co)
+
+4. SUPABASE_SERVICE_ROLE_KEY
+   Go to: Supabase Dashboard → Project Settings → API
+   Copy "service_role" secret key under "Project API keys"
+   (Long JWT token starting with eyJ...)
+
+=================================================================
+📋 ALREADY CONFIGURED (Verify these exist)
+=================================================================
+
+5. DATABASE_URL
+   (You already added this - should be from Render Postgres or Supabase)
+
+6. NODE_ENV
+   production
+
+=================================================================
+📋 HOW TO ADD IN RENDER
+=================================================================
+
+1. Go to: https://dashboard.render.com
+2. Click on your service: "copilot-06s5" or similar
+3. Click "Environment" tab on the left
+4. Click "Add Environment Variable"
+5. For each variable above:
+   - Paste Key (e.g., SESSION_SECRET)
+   - Paste Value
+   - Click "Add"
+6. After adding all variables, click "Save Changes"
+7. Render will automatically redeploy (wait 2-3 minutes)
+
+=================================================================
+🧪 VERIFY DEPLOYMENT
+=================================================================
+
+After Render redeploys:
+
+1. Check health:
+   https://copilot-06s5.onrender.com/api/health
+   Should return: {"status":"ok"}
+
+2. Check CSRF:
+   https://copilot-06s5.onrender.com/api/csrf-token
+   Should return: {"csrfToken":"..."}
+
+3. Test login:
+   https://www.askdetectives.com/login
+   Should work without "Failed to get CSRF token" error
+
+=================================================================
+❓ IF STILL GETTING ERRORS
+=================================================================
+
+Common issues:
+
+1. "Failed to get CSRF token"
+   → SESSION_SECRET not added or typo in CSRF_ALLOWED_ORIGINS
+
+2. "Supabase not configured"
+   → SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing
+
+3. "Cannot reach API server"
+   → Wrong API URL in Vercel frontend
+   → Check Vercel env: VITE_API_URL=https://copilot-06s5.onrender.com
+
+4. Cookies not persisting
+   → Verify CSRF_ALLOWED_ORIGINS has NO SPACES between URLs
+   → Must be: url1,url2,url3 (comma only, no spaces)
+
+=================================================================
+✅ SUCCESS CHECKLIST
+=================================================================
+
+[ ] SESSION_SECRET added to Render
+[ ] CSRF_ALLOWED_ORIGINS added to Render
+[ ] SUPABASE_URL added to Render
+[ ] SUPABASE_SERVICE_ROLE_KEY added to Render
+[ ] DATABASE_URL already exists in Render
+[ ] Clicked "Save Changes" in Render
+[ ] Waited for redeploy to complete (2-3 min)
+[ ] Tested /api/health endpoint
+[ ] Tested /api/csrf-token endpoint
+[ ] Tested login on frontend
+[ ] Login works without errors ✅
+
+=================================================================
+📞 QUICK REFERENCE
+=================================================================
+
+Your URLs:
+- Frontend: https://www.askdetectives.com
+- Frontend (Vercel): https://askdetectives1.vercel.app
+- Backend (Render): https://copilot-06s5.onrender.com
+
+Render Dashboard:
+https://dashboard.render.com
+
+Supabase Dashboard:
+https://app.supabase.com/project/_/settings/api
+
+=================================================================

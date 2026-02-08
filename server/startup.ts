@@ -90,7 +90,7 @@ async function validateRequiredSecretsProd(): Promise<void> {
     "base_url",
     "csrf_allowed_origins",
     "host",
-    "supabase_service_role_key",
+    // Note: supabase_service_role_key removed - Supabase credentials must come from environment variables only
   ] as const;
 
   const emailKeys = [
