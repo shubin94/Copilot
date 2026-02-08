@@ -47,10 +47,11 @@ export const config = {
     max: getNumber("RATE_LIMIT_MAX", isProd ? 100 : 1000)!,
   },
   session: {
-    useMemory: !isProd || (process.env.SESSION_USE_MEMORY === "true"),
+    useMemory: !isProd ? (process.env.SESSION_USE_MEMORY === "true") : false,
     secret: isProd ? (process.env.SESSION_SECRET || "") : (process.env.SESSION_SECRET || "dev-session-secret"),
     ttlMs: getNumber("SESSION_TTL_MS", 1000 * 60 * 60 * 24 * 7)!,
     secureCookies: isProd,
+    cookieDomain: process.env.COOKIE_DOMAIN || undefined,
   },
   email: {
     sendgridApiKey: process.env.SENDGRID_API_KEY || "",
@@ -140,6 +141,10 @@ export function validateConfig(secretsLoaded: boolean = true) {
   // Session secret required (env SESSION_SECRET or app_secrets session_secret)
   if (!config.session.secret || String(config.session.secret).trim() === "") {
     throw new Error("Missing required: SESSION_SECRET (set in env or app_secrets)");
+  }
+
+  if (process.env.SESSION_USE_MEMORY === "true") {
+    throw new Error("SESSION_USE_MEMORY cannot be true in production");
   }
 
   // Email: require at least one provider configured fully

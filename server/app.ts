@@ -70,8 +70,15 @@ export const bodyParsers = {
   }
 };
 
-// CORS configuration - define origins first BEFORE corsConfig object
+// CORS/CSRF configuration - define origins once to prevent drift
 const configuredOrigins = config.csrf.allowedOrigins;
+const allowedOrigins = [
+  ...configuredOrigins,
+  "http://localhost:5173",
+  "http://localhost:5000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5000",
+];
 
 // CORS configuration object - used for all CORS middleware
 const corsConfig = {
@@ -84,14 +91,6 @@ const corsConfig = {
     
     // Normalize origin by removing trailing slashes
     const normalizedOrigin = origin.replace(/\/$/, '');
-    
-    const allowedOrigins = [
-      ...configuredOrigins,
-      "http://localhost:5173",
-      "http://localhost:5000",
-      "http://127.0.0.1:5173",
-      "http://127.0.0.1:5000",
-    ];
     
     console.log(`[CORS] Incoming origin: ${normalizedOrigin}`);
     console.log(`[CORS] Allowed origins: ${allowedOrigins.join(", ")}`);
@@ -268,7 +267,7 @@ export function getSessionMiddleware() {
       secure: config.session.secureCookies,
       sameSite: config.env.isProd ? "none" : "lax", // 'none' required for cross-domain in production
       maxAge: config.session.ttlMs,
-      // Cookie domain is undefined by default (applies to exact domain only)
+      domain: config.session.cookieDomain,
     },
   });
 }
@@ -278,14 +277,6 @@ const globalSessionMiddleware = getSessionMiddleware();
 app.use(globalSessionMiddleware);
 
 const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-const CSRF_ALLOWED_ORIGINS = [
-  ...config.csrf.allowedOrigins,
-  "http://localhost:5173",
-  "http://localhost:5000",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:5000",
-];
-
 app.use((req, res, next) => {
   if (!CSRF_METHODS.has(req.method)) return next();
   if (req.method === "OPTIONS") return next();
@@ -296,11 +287,16 @@ app.use((req, res, next) => {
   const token = req.get("x-csrf-token");
   const sessionToken = (req.session as any)?.csrfToken;
 
+  if (!req.session) {
+    log(`CSRF blocked: session unavailable ${req.method} ${req.path}`, "csrf");
+    return res.status(503).json({ message: "Session unavailable" });
+  }
+
   const isAllowedOrigin = (urlValue: string | undefined): boolean => {
     if (!urlValue) return false;
     try {
       const incoming = new URL(urlValue);
-      return CSRF_ALLOWED_ORIGINS.some((allowed) => {
+      return allowedOrigins.some((allowed) => {
         try {
           const allowUrl = new URL(allowed);
           return allowUrl.protocol === incoming.protocol && allowUrl.host === incoming.host;
@@ -315,17 +311,17 @@ app.use((req, res, next) => {
 
   if (origin && !isAllowedOrigin(origin)) {
     log(`CSRF blocked: origin not allowed (${origin})`, "csrf");
-    return res.status(403).json({ message: "Forbidden" });
+    return res.status(403).json({ error: "CSRF origin not allowed" });
   }
 
   if (!origin && referer && !isAllowedOrigin(referer)) {
     log(`CSRF blocked: referer not allowed (${referer}) ${req.method} ${req.path}`, "csrf");
-    return res.status(403).json({ message: "Forbidden" });
+    return res.status(403).json({ error: "CSRF referer not allowed" });
   }
 
   if (!sessionToken || token !== sessionToken) {
     log(`CSRF blocked: missing or invalid CSRF token ${req.method} ${req.path}`, "csrf");
-    return res.status(403).json({ message: "Forbidden" });
+    return res.status(403).json({ error: "Invalid CSRF token" });
   }
 
   if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { CreditCard, Calendar, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { useCurrentDetective } from "@/lib/hooks";
 import { useEffect, useState } from "react";
+import { buildApiUrl } from "@/lib/api";
 
 interface PaymentHistoryItem {
   id: string;
@@ -27,7 +28,7 @@ export default function DetectiveBilling() {
   useEffect(() => {
     const fetchPaymentHistory = async () => {
       try {
-        const response = await fetch("/api/payments/history", {
+        const response = await fetch(buildApiUrl("/api/payments/history"), {
           credentials: "include",
         });
         if (response.ok) {
