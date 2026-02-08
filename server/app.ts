@@ -289,7 +289,7 @@ app.use((req, res, next) => {
 
   if (!req.session) {
     log(`CSRF blocked: session unavailable ${req.method} ${req.path}`, "csrf");
-    return res.status(503).json({ message: "Session unavailable" });
+    return res.status(403).json({ error: "Session unavailable" });
   }
 
   const isAllowedOrigin = (urlValue: string | undefined): boolean => {

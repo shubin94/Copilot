@@ -462,29 +462,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
   // Using crypto.randomBytes(32) provides 256 bits of entropy.
   // NOTE: CORS headers are handled by middleware in app.ts
+  // CRITICAL: This endpoint MUST NEVER throw - wraps all logic in try-catch
   
   app.get("/api/csrf-token", (req: Request, res: Response) => {
-    console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}`);
+    try {
+      console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}`);
 
-    if (!req.session) {
-      console.error("[CSRF-TOKEN] Session unavailable; cannot issue CSRF token");
-      return res.status(503).json({ error: "Session unavailable" });
+      // Express-session creates req.session automatically; if missing, middleware failed
+      if (!req.session) {
+        console.error("[CSRF-TOKEN] Session object missing; session middleware may have failed");
+        return res.status(403).json({ error: "Session unavailable" });
+      }
+      
+      // Generate or reuse CSRF token
+      if (!req.session.csrfToken) {
+        req.session.csrfToken = randomBytes(32).toString("hex");
+        console.log(`[CSRF-TOKEN] Generated new token: ${req.session.csrfToken.substring(0, 16)}...`);
+      } else {
+        console.log(`[CSRF-TOKEN] Reusing existing token: ${req.session.csrfToken.substring(0, 16)}...`);
+      }
+      
+      // Explicitly save session (required when saveUninitialized: false)
+      // This ensures the session cookie is sent even on first request
+      req.session.save((err) => {
+        if (err) {
+          console.error("[CSRF-TOKEN] Failed to save session:", err);
+          return res.status(403).json({ error: "Session persistence failed" });
+        }
+        
+        // Prevent caching/ETag revalidation which can return 304 without a body
+        setNoStore(res);
+        
+        console.log(`[CSRF-TOKEN] Response headers: ${JSON.stringify({
+          'access-control-allow-origin': res.getHeader('access-control-allow-origin'),
+          'access-control-allow-credentials': res.getHeader('access-control-allow-credentials'),
+        })}`);
+        
+        res.json({ csrfToken: req.session.csrfToken });
+      });
+    } catch (error) {
+      console.error("[CSRF-TOKEN] Unexpected error:", error);
+      return res.status(403).json({ error: "CSRF token generation failed" });
     }
-    
-    if (!req.session.csrfToken) {
-      req.session.csrfToken = randomBytes(32).toString("hex");
-      console.log(`[CSRF-TOKEN] Generated new token: ${req.session.csrfToken.substring(0, 16)}...`);
-    }
-    
-    // Prevent caching/ETag revalidation which can return 304 without a body
-    setNoStore(res);
-    
-    console.log(`[CSRF-TOKEN] Response headers: ${JSON.stringify({
-      'access-control-allow-origin': res.getHeader('access-control-allow-origin'),
-      'access-control-allow-credentials': res.getHeader('access-control-allow-credentials'),
-    })}`);
-    
-    res.json({ csrfToken: req.session.csrfToken });
   });
 
   app.post("/api/contact", async (req: Request, res: Response) => {
