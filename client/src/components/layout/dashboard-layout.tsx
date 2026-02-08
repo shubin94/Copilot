@@ -144,15 +144,6 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/admin/claims", label: "Claims", icon: Shield },
     { href: "/admin/detectives", label: "Detectives", icon: Users },
     { href: "/admin/employees", label: "Employees", icon: Users },
-    { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
-    { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
-    { href: "/admin/snippets", label: "Snippets", icon: Zap },
-    { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
-    { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
-    { href: "/admin/app-secrets", label: "App Secrets (Auth)", icon: Lock },
-    { href: "/admin/pages", label: "Pages", icon: Globe },
-    { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
-    { href: "/admin/settings", label: "Site Settings", icon: Settings },
     { 
       href: "#cms", 
       label: "CMS", 
@@ -163,6 +154,15 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         { href: "/admin/cms/pages", label: "Pages", icon: FileText },
       ]
     },
+    { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
+    { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
+    { href: "/admin/snippets", label: "Snippets", icon: Zap },
+    { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
+    { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
+    { href: "/admin/app-secrets", label: "App Secrets (Auth)", icon: Lock },
+    { href: "/admin/pages", label: "Pages", icon: Globe },
+    { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
+    { href: "/admin/settings", label: "Site Settings", icon: Settings },
   ];
 
   const detectiveLinks = [
