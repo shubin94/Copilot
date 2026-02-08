@@ -59,6 +59,7 @@ async function main() {
       console.log(`✅ PASS: All 3 CHECK constraints are present`);
     } else {
       console.log(`❌ FAIL: Only ${count}/3 constraints found`);
+      allPassed = false;
     }
 
     console.log("\n" + "=".repeat(60));

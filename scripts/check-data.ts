@@ -2,6 +2,8 @@ import "../server/lib/loadEnv";
 import { db } from "../db/index.ts";
 import { serviceCategories, services, detectives, users } from "../shared/schema.ts";
 
+const showPii = process.argv.includes('--show-pii');
+
 async function checkData() {
   try {
     console.log("\n═══════════════════════════════════════════════════════");
@@ -27,9 +29,10 @@ async function checkData() {
     }
 
     // Check users
-    console.log(`\n👥 USERS (${allUsers.length}):`);
+    console.log(`\n👥 USERS (${allUsers.length})`);
     allUsers.forEach((u: any) => {
-      console.log(`   • ${u.name} (${u.email}) - Role: ${u.role}`);
+      const emailDisplay = showPii ? u.email : "[redacted]";  
+      console.log(`   • ${u.name} (${emailDisplay}) - Role: ${u.role}`);
     });
 
     // Check detectives

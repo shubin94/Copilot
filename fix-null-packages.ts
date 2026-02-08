@@ -56,10 +56,12 @@ async function fixNullPackages() {
         throw txError;
       }
     } else {
-      // If no NULL rows, just alter the column
-      console.log("🔄 Making subscription_package_id NOT NULL...");
-      await db.execute(sql.raw("ALTER TABLE detectives ALTER COLUMN subscription_package_id SET NOT NULL"));
-      console.log("✅ Column constraint applied\n");
+      // If no NULL rows, just alter the column in a transaction
+      await db.transaction(async (tx) => {
+        console.log("🔄 Making subscription_package_id NOT NULL...");
+        await tx.execute(sql.raw("ALTER TABLE detectives ALTER COLUMN subscription_package_id SET NOT NULL"));
+        console.log("✅ Column constraint applied\n");
+      });
     }
 
     // Verify

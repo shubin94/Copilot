@@ -51,27 +51,21 @@ export async function runMigrations() {
 
       console.log(`📝 Running migration: ${file}`);
       
-      // Read and execute migration  
+      // Read migration SQL
       const migrationSQL = readFileSync(join(migrationsDir, file), 'utf-8');
       
       try {
-        // Wrap migration + tracking in transaction
-        await db.execute(sql`BEGIN`);
-        try {
-          await db.execute(sql.raw(migrationSQL));
+        // Use Drizzle transaction for migration + tracking
+        await db.transaction(async (tx) => {
+          // Execute migration SQL
+          await tx.execute(sql.raw(migrationSQL));
           
-          // Mark as executed
-          await db.execute(
-            sql`INSERT INTO _migrations (filename) VALUES (${file})`
-          );
-          
-          await db.execute(sql`COMMIT`);
-          console.log(`✅ Completed ${file}\n`);
-          executedCount++;
-        } catch (error) {
-          await db.execute(sql`ROLLBACK`);
-          throw error;
-        }
+          // Mark as executed in same transaction
+          await tx.execute(sql`INSERT INTO _migrations (filename) VALUES (${file})`);
+        });
+        
+        console.log(`✅ Completed ${file}\n`);
+        executedCount++;
       } catch (error) {
         console.error(`❌ Failed to execute ${file}:`, error);
         throw error;

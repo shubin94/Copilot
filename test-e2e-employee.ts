@@ -12,8 +12,8 @@
 import * as http from "http";
 
 const BASE_URL = "http://127.0.0.1:5000";
-const TEST_ADMIN_EMAIL = "testadmin@test.com";
-const TEST_ADMIN_PASSWORD = "TestAdmin123!";
+const TEST_ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL || (() => { throw new Error('TEST_ADMIN_EMAIL env var required'); })();
+const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || (() => { throw new Error('TEST_ADMIN_PASSWORD env var required'); })();
 
 interface RequestOptions {
   method: string;

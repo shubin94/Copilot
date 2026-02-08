@@ -23,10 +23,21 @@ async function fixProductionSecrets() {
   try {
     console.log("🔧 FIXING PRODUCTION SECRETS FOR DEPLOYMENT\n");
     
-    // Your production URLs - read from environment variables with defaults for dev
-    const FRONTEND_URL = process.env.FRONTEND_URL || "https://www.askdetectives.com";
-    const FRONTEND_VERCEL = process.env.FRONTEND_VERCEL || "https://askdetectives1.vercel.app";
-    const BACKEND_URL = process.env.BACKEND_URL || "https://copilot-06s5.onrender.com";
+    // Your production URLs - must be provided via environment variables
+    const FRONTEND_URL = process.env.FRONTEND_URL;
+    const FRONTEND_VERCEL = process.env.FRONTEND_VERCEL;
+    const BACKEND_URL = process.env.BACKEND_URL;
+    
+    if (!FRONTEND_URL) {
+      throw new Error("FRONTEND_URL environment variable is required (e.g., https://www.askdetectives.com)");
+    }
+    if (!FRONTEND_VERCEL) {
+      throw new Error("FRONTEND_VERCEL environment variable is required (e.g., https://askdetectives1.vercel.app)");
+    }
+    if (!BACKEND_URL) {
+      throw new Error("BACKEND_URL environment variable is required (e.g., https://copilot-06s5.onrender.com)");
+    }
+    
     const CSRF_ORIGINS = `${FRONTEND_URL},${FRONTEND_VERCEL},${BACKEND_URL}`;
     
     // Generate a secure session secret

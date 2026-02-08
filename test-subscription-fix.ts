@@ -44,12 +44,12 @@ async function testFix() {
     console.log(`   subscription_plan column in schema: ${hasSubscriptionPlan ? "❌ SHOULD BE REMOVED" : "✅ REMOVED"}`);
     console.log(`   subscription_package_id column in schema: ${hasSubscriptionPackageId ? "✅ EXISTS" : "❌ MISSING"}`);
 
-    // Check that all detectives have non-null subscriptionPackageId
     const nullCheckResult = await db.execute(
       sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_package_id IS NULL`
     );
 
-    const nullCount = ((nullCheckResult as any).rows?.[0] ?? (nullCheckResult as any)[0])?.count ?? 0;
+    const nullRows = ((nullCheckResult as any).rows ?? (nullCheckResult as any));
+    const nullCount = Number(nullRows[0]?.count ?? 0);
     console.log(`   Detectives with NULL subscription_package_id: ${nullCount === 0 ? "✅ NONE" : `❌ ${nullCount} FOUND`}`);
 
     console.log("\n" + "=".repeat(60));

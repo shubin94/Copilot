@@ -435,16 +435,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error("[seed] Failed to seed subscription plan:", e);
   }
   
-  // ============== BODY PARSER APPLICATION - APPLY TO ALL API ROUTES ==============
-  // Apply body parsers globally to all /api routes with 10MB limit
-  // This ensures ALL routes can accept JSON/form data without configuration issues
-  app.use('/api/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+  // ============== BODY PARSER APPLICATION - APPLIED PER-ROUTE ==============
+  // Body parsers are applied selectively to routes that need them:
+  // - authLimit (10KB) for /api/auth/* endpoints
+  // - publicLimit (1MB) for public/read-only endpoints  
+  // - fileUpload (10MB) attached directly to file upload routes ONLY
+  // This prevents global overrides that would bypass per-route limits
+  // NOTE: Routes using authentication should explicitly apply authLimit middleware
+
+  // ============== BODY PARSER FOR AUTH ENDPOINTS ==============
+  // Apply auth-specific body parser (10KB limit) to all /api/auth routes
+  app.use("/api/auth", bodyParsers.auth.json, bodyParsers.auth.urlencoded);
 
   // Disable caching for all auth endpoints (admin/employee/detective login)
   app.use("/api/auth", (_req, res, next) => {
     setNoStore(res);
     next();
   });
+
+  // ============== BODY PARSER FOR PUBLIC AND GENERAL ROUTES ==============
+  // Apply public body parser (1MB limit) to all /api routes by default
+  // This handles contact forms, searches, and other general endpoints
+  app.use("/api", bodyParsers.public.json, bodyParsers.public.urlencoded);
   
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
@@ -3331,6 +3343,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const currentBase = parseFloat(basePriceValue as any);
         if (!(currentBase > 0)) {
           return res.status(400).json({ error: "Base price must be a positive number" });
+        }
+        // Enforce minimum price (same as in POST /api/services)
+        const detective = await storage.getDetective(service.detectiveId);
+        if (detective) {
+          const minPrice = getMinimumBasePriceForCountry(detective.country || undefined);
+          if (currentBase < minPrice.min) {
+            return res.status(400).json({ error: `Minimum base price is ${minPrice.display}` });
+          }
         }
         if (validatedData.offerPrice !== undefined && validatedData.offerPrice !== null) {
           const offer = parseFloat(validatedData.offerPrice as any);

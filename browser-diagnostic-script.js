@@ -103,7 +103,8 @@
       console.log(`%c❌ FAILED: Response was not OK or missing CSRF token`, 'color: red; font-weight: bold;');
     }
   } catch (error) {
-    console.log(`%c❌ FETCH ERROR: ${error.message}`, 'color: red; font-weight: bold;');
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.log(`%c❌ FETCH ERROR: ${errorMessage}`, 'color: red; font-weight: bold;');
     console.error('Full error:', error);
   }
   

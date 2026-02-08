@@ -18,3 +18,5 @@ vite.config.ts.*
 gh/
 git/
 npm/
+# VS Code settings with API keys
+.vscode/settings.json

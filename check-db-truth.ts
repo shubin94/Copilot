@@ -30,16 +30,13 @@ async function checkDatabaseTruth() {
     }
     
     console.log("✅ This is what MUST be shown in the UI!");
-    process.exit(0);
+    process.exitCode = 0;
   } catch (error) {
     console.error("Error:", error);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     await pool.end();
   }
 }
 
-checkDatabaseTruth().catch(err => {
-  console.error("Unhandled error:", err);
-  process.exit(1);
-});
+checkDatabaseTruth();

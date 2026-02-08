@@ -15,10 +15,9 @@ async function checkPlanFeatures() {
       console.log(`  features: ${JSON.stringify(row.features)}`);
       console.log(`  badges: ${JSON.stringify(row.badges)}`);
     }
-    process.exit(0);
   } catch (error) {
     console.error("Error:", error);
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 

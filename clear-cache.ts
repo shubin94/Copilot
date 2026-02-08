@@ -15,25 +15,33 @@ if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dete
 }
 
 // Clear all relevant cache entries
-const keysToDelete = [
-  `detective:public:${detectiveId}`,
-  'services:search:category=&country=&limit=50&maxPrice=&minPrice=&minRating=&offset=&search=&sortBy=',
-  'services:search:category=&country=&limit=8&maxPrice=&minPrice=&minRating=&offset=&search=&sortBy=recent',
-];
-
 console.log(`Clearing cache entries for detective: ${detectiveId}...`);
-keysToDelete.forEach(key => {
-  try {
-    const deleted = cache.del(key);
-    if (deleted) {
+
+// Clear detective-specific entry
+const detectiveKey = `detective:public:${detectiveId}`;
+const deletedDetective = cache.del(detectiveKey);
+if (deletedDetective) {
+  console.log(`✅ Cleared: ${detectiveKey}`);
+} else {
+  console.log(`⚠️  Not cached: ${detectiveKey}`);
+}
+
+// Clear all services:search:* cache keys
+const allKeys = cache.keys();
+const serviceKeys = allKeys.filter((k) => k.startsWith('services:search:'));
+if (serviceKeys.length > 0) {
+  console.log(`\nClearing ${serviceKeys.length} search cache entries...`);
+  serviceKeys.forEach(key => {
+    try {
+      cache.del(key);
       console.log(`✅ Cleared: ${key}`);
-    } else {
-      console.log(`⚠️  Not found: ${key}`);
+    } catch (error) {
+      console.error(`❌ Failed to delete: ${key}`, error);
     }
-  } catch (error) {
-    console.error(`❌ Failed to delete: ${key}`, error);
-  }
-});
+  });
+} else {
+  console.log('\n📝 No search cache entries to clear');
+}
 
 console.log('\n✨ Cache cleared! Reload the page to see updated data.');
 process.exit(0);

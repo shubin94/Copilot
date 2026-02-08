@@ -394,8 +394,8 @@ export async function getRankedDetectives(options?: {
         avgRating: 0,
       };
 
-      // Attach subscription package BEFORE score calculation
-      detective.subscriptionPackage = detective.subscriptionPackageId 
+      // Get subscription package for this detective (without mutating original)
+      const subscriptionPackage = detective.subscriptionPackageId 
         ? packagesMap.get(detective.subscriptionPackageId) 
         : undefined;
 
@@ -416,7 +416,7 @@ export async function getRankedDetectives(options?: {
         score += levelScores[detective.level] || 100;
 
         // Badge scores
-        const packageName = detective.subscriptionPackage?.name;
+        const packageName = subscriptionPackage?.name;
         if (packageName === "pro" || packageName === "agency") {
           score += 100;
         }
@@ -437,6 +437,7 @@ export async function getRankedDetectives(options?: {
 
       return {
         ...detective,
+        subscriptionPackage,
         visibilityScore: score,
         isVisible: visibility.isVisible ?? true,
         isFeatured: visibility.isFeatured ?? false,

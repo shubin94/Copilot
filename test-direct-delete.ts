@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import pkg from 'pg';
 const { Pool } = pkg;
+import * as readline from 'readline';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env.local') });
@@ -15,9 +16,29 @@ if (process.env.NODE_ENV === 'production' && process.env.CONFIRM_DELETE !== 'tru
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
 
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
+
+function prompt(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => resolve(answer));
+  });
+}
+
 (async () => {
   try {
-    console.log('📋 BEFORE: Categories in database\n');
+    console.log('⚠️  WARNING: This script will DELETE all categories from the database.');
+    const confirm = await prompt('Type the word "DELETE" to proceed (or press Enter to cancel): ');
+    
+    if (confirm.trim() !== 'DELETE') {
+      console.log('✓ Cancelled.');
+      rl.close();
+      return;
+    }
+
+    console.log('\n📋 BEFORE: Categories in database\n');
     let result = await pool.query('SELECT id, name, slug FROM categories ORDER BY name');
     result.rows.forEach((cat, idx) => {
       console.log(`${idx + 1}. ${cat.name} (${cat.slug}) - ${cat.id.substring(0, 12)}...`);
@@ -42,6 +63,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
       console.error('❌ Error:', String(error));
     }
   } finally {
+    rl.close();
     await pool.end();
   }
 })();

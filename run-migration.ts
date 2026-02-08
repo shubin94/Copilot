@@ -42,17 +42,29 @@ async function runMigration() {
       console.log("✅ No detectives with NULL subscription_package_id found\n");
     }
 
-    // Step 3: Drop the legacy subscription_plan column
+    // Step 3: Verify no remaining stale mappings before dropping column
+    console.log("🔄 Verifying no stale subscription_plan mappings...");
+    const staleCheck = await db.execute(
+      sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_plan IS NOT NULL AND subscription_package_id IS NULL`
+    );
+    const staleRows = (staleCheck as any).rows ?? (staleCheck as any) ?? [];
+    const staleCount = Number(staleRows[0]?.count ?? 0);
+    if (staleCount > 0) {
+      throw new Error(`Cannot drop subscription_plan: ${staleCount} detectives have NULL subscription_package_id with non-NULL subscription_plan`);
+    }
+    console.log("✅ No stale mappings found\n");
+
+    // Step 4: Drop the legacy subscription_plan column
     console.log("🔄 Dropping legacy subscription_plan column...");
     await db.execute(sql.raw("ALTER TABLE detectives DROP COLUMN subscription_plan"));
     console.log("✅ Column dropped successfully\n");
 
-    // Step 4: Make subscription_package_id NOT NULL
+    // Step 5: Make subscription_package_id NOT NULL
     console.log("🔄 Making subscription_package_id NOT NULL...");
     await db.execute(sql.raw("ALTER TABLE detectives ALTER COLUMN subscription_package_id SET NOT NULL"));
     console.log("✅ Column constraint updated\n");
 
-    // Step 5: Add foreign key constraint
+    // Step 6: Add foreign key constraint
     console.log("🔄 Adding foreign key constraint...");
     try {
       await db.execute(sql.raw(`

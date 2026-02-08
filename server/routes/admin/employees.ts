@@ -151,8 +151,6 @@ router.post(
       }
     } catch (error: any) {
       console.error("[CreateEmployee] Error:", error.message);
-       console.error("[CreateEmployee] Full error:", error);
-       if (error.detail) console.error("[CreateEmployee] SQL detail:", error.detail);
       return res.status(500).json({ error: "Failed to create employee" });
     }
   }

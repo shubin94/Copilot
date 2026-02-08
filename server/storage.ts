@@ -789,7 +789,9 @@ export class DatabaseStorage implements IStorage {
     return Number((row as any)?.c) || 0;
   }
 
-  // OPTIMIZED: Get all counts in a single database query (was 5 sequential queries)
+  // OPTIMIZED: Get all counts via independent queries (5 sequential queries; previously awaited one-by-one)
+  // Each query counts records in its own table. Independent execution is simpler and avoids
+  // Cartesian product issues with CROSS JOINs across unrelated tables
   async getAllCounts(): Promise<{ usersCount: number; detectivesCount: number; servicesCount: number; applicationsCount: number; claimsCount: number }> {
     // Use independent subqueries instead of CROSS JOIN to avoid Cartesian product
     const [usersResult] = await db.select({ count: count(users.id) }).from(users);

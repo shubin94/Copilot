@@ -10,9 +10,13 @@ const baseUrl = 'http://127.0.0.1:5000';
 const cookies: string[] = [];
 let sessionId = '';
 
-// Test credentials from environment variables
-const TEST_ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL || 'testadmin@test.com';
-const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || 'TestAdmin123!';
+// Test credentials from environment variables (required)
+if (!process.env.TEST_ADMIN_EMAIL || !process.env.TEST_ADMIN_PASSWORD) {
+  console.error('❌ TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD environment variables are required');
+  process.exit(1);
+}
+const TEST_ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL;
+const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD;
 
 function makeFetch(url: string, options: any = {}) {
   return new Promise((resolve, reject) => {

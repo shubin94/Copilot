@@ -198,7 +198,7 @@ PATCH  /api/admin/employees/:id/deactivate        Toggle is_active
 ## 🔒 Security Features Implemented
 
 ✅ **Self-Modification Prevention** - Admins cannot restrict their own access
-✅ **Password Hashing** - All passwords automatically bcrypted
+✅ **Password Hashing** - All passwords are hashed with bcrypt
 ✅ **Transaction Safety** - Multi-step operations are atomic
 ✅ **Soft Delete** - Data preserved, not deleted
 ✅ **Admin-Only Enforcement** - Employee endpoints require admin role

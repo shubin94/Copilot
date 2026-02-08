@@ -85,12 +85,13 @@ export function parseDatabaseUrl(url: string): DatabaseInfo {
       isProduction: true,
       displayUrl: (() => {
         try {
-          // Same masking logic as above
-          const colonIndex = url.indexOf('postgresql://');
-          if (colonIndex === -1) {
+          // Handle both 'postgres://' and 'postgresql://' schemes
+          const schemeMatch = url.match(/^(postgres(?:ql)?):\/\//);
+          if (!schemeMatch) {
             return url;
           }
-          const afterScheme = url.substring(colonIndex + 13);
+          const schemeLength = schemeMatch[0].length;
+          const afterScheme = url.substring(schemeLength);
           const atIndex = afterScheme.indexOf('@');
           if (atIndex > 0) {
             const credPart = afterScheme.substring(0, atIndex);

@@ -24,7 +24,6 @@ async function grantAccess() {
     
     if (userResult.rows.length === 0) {
       console.log('❌ User sam@s.com not found');
-      await pool.end();
       return;
     }
     

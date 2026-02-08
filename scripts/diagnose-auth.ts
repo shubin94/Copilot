@@ -21,13 +21,15 @@ async function checkBackendServer() {
   try {
     // Test 1: Check if server is running
     console.log("1️⃣  Checking if server is running...");
-    const healthRes = await fetch(`${BASE_URL}/api/csrf-token`, {
-      method: "GET",
-      credentials: "include",
-    }).catch(e => ({ ok: false, error: e.message }));
-    
-    if (!healthRes.ok && healthRes.error) {
-      console.error(`   ❌ Server not responding: ${healthRes.error}`);
+    let healthRes: Response | { ok: boolean; error?: string } | undefined;
+    try {
+      healthRes = await fetch(`${BASE_URL}/api/csrf-token`, {
+        method: "GET",
+        credentials: "include",
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`   ❌ Server not responding: ${errMsg}`);
       console.error("   Make sure backend server is running: npm run dev\n");
       return false;
     }
@@ -50,7 +52,7 @@ async function checkBackendServer() {
       return false;
     }
     
-    // Test 3: Check login endpoint exists (304 expected for OPTIONS preflight)
+    // Test 3: Check login endpoint exists (2xx or 405 method not allowed expected for OPTIONS preflight)
     console.log("3️⃣  Testing login endpoint (preflight check)...");
     const optionsRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: "OPTIONS",

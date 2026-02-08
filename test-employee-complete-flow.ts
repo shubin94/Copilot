@@ -59,8 +59,11 @@ function makeFetch(url: string, options: any = {}) {
 
 async function testFullFlow() {
   try {
-    const testAdminEmail = process.env.TEST_ADMIN_EMAIL || 'testadmin@test.com';
-    const testAdminPassword = process.env.TEST_ADMIN_PASSWORD || 'TestAdmin123!';
+    const testAdminEmail = process.env.TEST_ADMIN_EMAIL;
+    const testAdminPassword = process.env.TEST_ADMIN_PASSWORD;
+    if (!testAdminEmail || !testAdminPassword) {
+      throw new Error('TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD environment variables are required');
+    }
 
     console.log('🔐 Step 1: Admin login to create test employee...');
     let csrfRes: any = await makeFetch(`${baseUrl}/api/csrf-token`);

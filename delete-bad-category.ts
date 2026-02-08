@@ -66,7 +66,8 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
     remaining.rows.forEach(c => console.log(`  - ${c.name} (slug: ${c.slug})`));
     
   } catch (error) {
-    console.error('Error:', error.message);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error:', errorMessage);
   } finally {
     await pool.end();
   }

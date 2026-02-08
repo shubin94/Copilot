@@ -1,3 +1,4 @@
+import "./server/lib/loadEnv.ts";
 import { db } from "./db/index";
 import { sql } from "drizzle-orm";
 

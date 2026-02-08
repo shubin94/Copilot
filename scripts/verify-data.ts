@@ -22,12 +22,21 @@ async function verifyData() {
     });
 
     console.log(`\n👥 Users: ${userCount.length}`);
+    if (showPii && process.argv.includes('--show-password')) {
+      // Show real credentials from environment if available
+      const testEmail = process.env.TEST_USER_EMAIL || "[use --show-pii]";
+      const adminEmail = process.env.ADMIN_EMAIL || "[use --show-pii]";
+      console.log(`   Test Detective: ${testEmail}`);
+      console.log(`   Admin: ${adminEmail}`);
+    } else {
+      console.log(`   [Use --show-pii and --show-password flags to show credentials]`);
+    }
     userCount.forEach(user => {
       if (showPii) {
-        console.log(`   • ${user.email} (${user.role})`);
-      } else {
         const masked = user.email.replace(/(.{1})(.*)(@.*)/, "$1***$3");
         console.log(`   • ${masked} (${user.role})`);
+      } else {
+        console.log(`   • [redacted] (${user.role})`);
       }
     });
 
