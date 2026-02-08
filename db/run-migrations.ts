@@ -67,8 +67,25 @@ export async function runMigrations() {
         console.log(`✅ Completed ${file}\n`);
         executedCount++;
       } catch (error) {
-        console.error(`❌ Failed to execute ${file}:`, error);
-        throw error;
+        // Handle idempotent errors (e.g., type already exists)
+        const errorCode = (error as any)?.code;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        // 42710 = type already exists, 42P07 = duplicate table
+        if (errorCode === '42710' || errorCode === '42P07' || errorMessage.includes('already exists')) {
+          console.warn(`⚠️  Skipping ${file}: ${errorMessage}`);
+          
+          // Still mark as executed to prevent re-running
+          try {
+            await db.execute(sql`INSERT INTO _migrations (filename) VALUES (${file})`);
+          } catch (_) {
+            // Ignore if already marked
+          }
+          console.log(`✅ Marked as executed (idempotent error)\n`);
+        } else {
+          console.error(`❌ Failed to execute ${file}:`, error);
+          throw error;
+        }
       }
     }
 
