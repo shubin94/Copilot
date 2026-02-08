@@ -1,4 +1,4 @@
-import "./server/lib/loadEnv.ts";
+import "../server/lib/loadEnv.ts";
 import { db } from './index';
 import { sql } from 'drizzle-orm';
 import { readFileSync, readdirSync, existsSync } from 'fs';
