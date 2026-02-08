@@ -11,12 +11,12 @@
 
 ### Issue 2.1: `getCategories()`
 - **Before:** `SELECT * FROM categories`
-- **After:** `SELECT id, name, slug, status, created_at, updated_at FROM categories`
+- **After:** `SELECT id, name, slug, parent_id, status, created_at, updated_at FROM categories`
 - **Location:** [Line 17](server/storage/cms.ts#L17)
 
 ### Issue 2.2: `getCategoryById()`
 - **Before:** `SELECT * FROM categories WHERE id = $1`
-- **After:** `SELECT id, name, slug, status, created_at, updated_at FROM categories WHERE id = $1`
+- **After:** `SELECT id, name, slug, parent_id, status, created_at, updated_at FROM categories WHERE id = $1`
 - **Location:** [Line 39](server/storage/cms.ts#L39)
 
 ### Issue 2.3: `getCategoryBySlug()`

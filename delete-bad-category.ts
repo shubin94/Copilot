@@ -23,7 +23,6 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
     
     if (findResult.rows.length === 0) {
       console.log('❌ Category not found.');
-      await pool.end();
       return;
     }
     
@@ -43,7 +42,6 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
     const pageCount = parseInt(pagesCheck.rows[0].count);
     if (pageCount > 0) {
       console.log(`❌ Cannot delete: ${pageCount} page(s) still associated with this category.`);
-      await pool.end();
       return;
     }
     
@@ -68,7 +66,8 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
     remaining.rows.forEach(c => console.log(`  - ${c.name} (slug: ${c.slug})`));
     
   } catch (error) {
-    console.error('Error:', error.message);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error:', errorMessage);
   } finally {
     await pool.end();
   }

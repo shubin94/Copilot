@@ -1,5 +1,12 @@
-import { db, pool } from "./db/index.ts";
-import { sql } from "drizzle-orm";
+#!/usr/bin/env npx tsx
+
+// Safety guard - prevent running against production (BEFORE any imports that may open connections)
+if (process.env.NODE_ENV === 'production') {
+  console.error('❌ This is a test script and cannot run in production');
+  process.exit(1);
+}
+
+import { pool } from "./db/index.ts";
 
 async function testAccessPages() {
   try {

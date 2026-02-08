@@ -435,16 +435,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error("[seed] Failed to seed subscription plan:", e);
   }
   
-  // ============== BODY PARSER APPLICATION - APPLY TO ALL API ROUTES ==============
-  // Apply body parsers globally to all /api routes with 10MB limit
-  // This ensures ALL routes can accept JSON/form data without configuration issues
-  app.use('/api/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+  // ============== BODY PARSER APPLICATION - APPLIED PER-ROUTE ==============
+  // Body parsers are applied selectively to routes that need them:
+  // - authLimit (10KB) for /api/auth/* endpoints
+  // - publicLimit (1MB) for public/read-only endpoints  
+  // - fileUpload (10MB) attached directly to file upload routes ONLY
+  // This prevents global overrides that would bypass per-route limits
+  // NOTE: Routes using authentication should explicitly apply authLimit middleware
+
+  // ============== BODY PARSER FOR AUTH ENDPOINTS ==============
+  // Apply auth-specific body parser (10KB limit) to all /api/auth routes
+  app.use("/api/auth", bodyParsers.auth.json, bodyParsers.auth.urlencoded);
 
   // Disable caching for all auth endpoints (admin/employee/detective login)
   app.use("/api/auth", (_req, res, next) => {
     setNoStore(res);
     next();
   });
+
+  // ============== BODY PARSER FOR PUBLIC AND GENERAL ROUTES ==============
+  // Apply public body parser (1MB limit) to all /api routes by default
+  // This handles contact forms, searches, and other general endpoints
+  app.use("/api", bodyParsers.public.json, bodyParsers.public.urlencoded);
   
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
@@ -471,31 +483,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/contact", async (req: Request, res: Response) => {
-    const contactSchema = z.object({
-      firstName: z.string().trim().min(1).max(100),
-      lastName: z.string().trim().min(1).max(100),
-      email: z.string().trim().email().max(254),
-      message: z.string().trim().min(1).max(2000),
-    });
+    try {
+      const contactSchema = z.object({
+        firstName: z.string().trim().min(1).max(100),
+        lastName: z.string().trim().min(1).max(100),
+        email: z.string().trim().email().max(254),
+        message: z.string().trim().min(1).max(2000),
+      });
 
-    const parsed = contactSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid contact form data" });
+      const parsed = contactSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid contact form data" });
+      }
+
+      const { firstName, lastName, email, message } = parsed.data;
+      const result = await sendpulseEmail.sendTransactionalEmail(
+        "contact@askdetectives.com",
+        EMAIL_TEMPLATES.CONTACT_FORM,
+        { firstName, lastName, email, message },
+        "Contact Form Submission"
+      );
+
+      if (!result.success) {
+        return res.status(500).json({ error: "Failed to send message" });
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[Contact Form Error]", error instanceof Error ? error.message : String(error));
+      return res.status(500).json({ error: "Internal server error" });
     }
-
-    const { firstName, lastName, email, message } = parsed.data;
-    const result = await sendpulseEmail.sendTransactionalEmail(
-      "contact@askdetectives.com",
-      EMAIL_TEMPLATES.CONTACT_FORM,
-      { firstName, lastName, email, message },
-      "Contact Form Submission"
-    );
-
-    if (!result.success) {
-      return res.status(500).json({ error: "Failed to send message" });
-    }
-
-    return res.json({ success: true });
   });
 
   // ============== AUTHENTICATION ROUTES ==============
@@ -1296,7 +1313,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/subscription-plans/:id", async (req: Request, res: Response) => {
     console.log("🔍 [GET subscription-plans/:id] Request received");
     console.log("🔍 [GET subscription-plans/:id] ID:", req.params.id);
-    console.log("🔍 [GET subscription-plans/:id] Headers:", req.headers);
     try {
       const plan = await storage.getSubscriptionPlanById(req.params.id);
       console.log("🔍 [GET subscription-plans/:id] Plan found:", !!plan);
@@ -2515,7 +2531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         yearlyPrice: parsed.yearlyPrice !== undefined ? String(parsed.yearlyPrice) : undefined,
       } as any);
       clearFreePlanCache();
-      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => cache.del(k));
+      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => { cache.del(k); });
       console.debug("[cache INVALIDATE]", "services:");
       res.json({ plan });
     } catch (error) {
@@ -3327,6 +3343,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const currentBase = parseFloat(basePriceValue as any);
         if (!(currentBase > 0)) {
           return res.status(400).json({ error: "Base price must be a positive number" });
+        }
+        // Enforce minimum price (same as in POST /api/services)
+        const detective = await storage.getDetective(service.detectiveId);
+        if (detective) {
+          const minPrice = getMinimumBasePriceForCountry(detective.country || undefined);
+          if (currentBase < minPrice.min) {
+            return res.status(400).json({ error: `Minimum base price is ${minPrice.display}` });
+          }
         }
         if (validatedData.offerPrice !== undefined && validatedData.offerPrice !== null) {
           const offer = parseFloat(validatedData.offerPrice as any);

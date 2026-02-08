@@ -1,3 +1,4 @@
+import "./server/lib/loadEnv.ts";
 import { db } from "./db/index";
 import { sql } from "drizzle-orm";
 
@@ -47,9 +48,8 @@ async function fixBlueTickIssue() {
 
     console.log("\nCurrent state:");
     check.rows.forEach((d: any) => {
-      const shouldShowBlueTick = d.is_verified || d.blue_tick_addon || (d.package_has_blue_tick === 'true');
+      const shouldShowBlueTick = d.blue_tick_addon || (d.package_has_blue_tick === 'true');
       console.log(`${d.business_name}:`);
-      console.log(`  is_verified: ${d.is_verified}`);
       console.log(`  blue_tick_addon: ${d.blue_tick_addon}`);
       console.log(`  package: ${d.package_name}`);
       console.log(`  package blueTick: ${d.package_has_blue_tick === 'true'}`);
@@ -57,11 +57,11 @@ async function fixBlueTickIssue() {
       console.log();
     });
 
+    process.exit(0);
   } catch (error) {
     console.error("Error:", error);
+    process.exit(1);
   }
-  
-  process.exit(0);
 }
 
 fixBlueTickIssue();

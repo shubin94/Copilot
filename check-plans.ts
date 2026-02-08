@@ -6,6 +6,7 @@ config({ path: resolve(process.cwd(), ".env") });
 import { pool } from "./db/index.js";
 
 async function checkPlans() {
+  let exitCode = 0;
   try {
     const result = await pool.query(`
       SELECT id, name, display_name, monthly_price, yearly_price 
@@ -18,14 +19,16 @@ async function checkPlans() {
       console.log(`ID: ${plan.id}`);
       console.log(`  Name: ${plan.name}`);
       console.log(`  Display Name: ${plan.display_name}`);
-      console.log(`  Monthly: $${plan.monthly_price}`);
-      console.log(`  Yearly: $${plan.yearly_price}`);
+      console.log(`  Monthly: $${plan.monthly_price ?? 'N/A'}`);
+      console.log(`  Yearly: $${plan.yearly_price ?? 'N/A'}`);
       console.log(`  ---`);
     }
   } catch (error) {
     console.error("Error:", error);
+    exitCode = 1;
   } finally {
-    process.exit(0);
+    await pool.end();
+    process.exitCode = exitCode;
   }
 }
 

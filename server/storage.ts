@@ -89,7 +89,7 @@ export interface IStorage {
   // Payment orders (subscriptions)
   createPaymentOrder(order: InsertPaymentOrder): Promise<PaymentOrder>;
   getPaymentOrderByRazorpayOrderId(razorpayOrderId: string): Promise<PaymentOrder | undefined>;
-  getPaymentOrderByPaypalOrderId(paypalOrderId: string): Promise<PaymentOrder | undefined>;
+  getPaymentOrderByPaypalOrderId(paypalOrderId: string): Promise<Pick<PaymentOrder, 'id' | 'userId' | 'detectiveId' | 'packageId' | 'billingCycle' | 'status' | 'paypalOrderId'> | undefined>;
   markPaymentOrderPaid(id: string, data: { paymentId: string; signature: string }): Promise<PaymentOrder | undefined>;
   getPaymentOrdersByDetectiveId(detectiveId: string): Promise<PaymentOrder[]>;
 
@@ -789,29 +789,23 @@ export class DatabaseStorage implements IStorage {
     return Number((row as any)?.c) || 0;
   }
 
-  // OPTIMIZED: Get all counts in a single database query (was 5 sequential queries)
+  // OPTIMIZED: Get all counts via independent queries (5 sequential queries; previously awaited one-by-one)
+  // Each query counts records in its own table. Independent execution is simpler and avoids
+  // Cartesian product issues with CROSS JOINs across unrelated tables
   async getAllCounts(): Promise<{ usersCount: number; detectivesCount: number; servicesCount: number; applicationsCount: number; claimsCount: number }> {
-    const result = await db.select({
-      usersCount: count(users.id),
-      detectivesCount: count(detectives.id),
-      servicesCount: count(services.id),
-      applicationsCount: count(detectiveApplications.id),
-      claimsCount: count(profileClaims.id),
-    })
-    .from(users)
-    .crossJoin(detectives)
-    .crossJoin(services)
-    .crossJoin(detectiveApplications)
-    .crossJoin(profileClaims)
-    .limit(1);
+    // Use independent subqueries instead of CROSS JOIN to avoid Cartesian product
+    const [usersResult] = await db.select({ count: count(users.id) }).from(users);
+    const [detectivesResult] = await db.select({ count: count(detectives.id) }).from(detectives);
+    const [servicesResult] = await db.select({ count: count(services.id) }).from(services);
+    const [applicationsResult] = await db.select({ count: count(detectiveApplications.id) }).from(detectiveApplications);
+    const [claimsResult] = await db.select({ count: count(profileClaims.id) }).from(profileClaims);
 
-    const row = result[0];
     return {
-      usersCount: Number(row?.usersCount) || 0,
-      detectivesCount: Number(row?.detectivesCount) || 0,
-      servicesCount: Number(row?.servicesCount) || 0,
-      applicationsCount: Number(row?.applicationsCount) || 0,
-      claimsCount: Number(row?.claimsCount) || 0,
+      usersCount: Number(usersResult?.count) || 0,
+      detectivesCount: Number(detectivesResult?.count) || 0,
+      servicesCount: Number(servicesResult?.count) || 0,
+      applicationsCount: Number(applicationsResult?.count) || 0,
+      claimsCount: Number(claimsResult?.count) || 0,
     };
   }
 
@@ -957,7 +951,7 @@ export class DatabaseStorage implements IStorage {
     return row as any;
   }
 
-  async getPaymentOrderByPaypalOrderId(paypalOrderId: string): Promise<PaymentOrder | undefined> {
+  async getPaymentOrderByPaypalOrderId(paypalOrderId: string): Promise<Pick<PaymentOrder, 'id' | 'userId' | 'detectiveId' | 'packageId' | 'billingCycle' | 'status' | 'paypalOrderId'> | undefined> {
     // OPTIMIZED: Select only required columns for payment verification
     const [row] = await db.select({
       id: paymentOrders.id,
@@ -968,7 +962,7 @@ export class DatabaseStorage implements IStorage {
       status: paymentOrders.status,
       paypalOrderId: paymentOrders.paypalOrderId,
     }).from(paymentOrders).where(eq(paymentOrders.paypalOrderId, paypalOrderId)).limit(1);
-    return row as any;
+    return row;
   }
 
   async markPaymentOrderPaid(id: string, data: { paymentId?: string; signature?: string; transactionId?: string }): Promise<PaymentOrder | undefined> {

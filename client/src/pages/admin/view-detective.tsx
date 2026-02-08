@@ -700,7 +700,6 @@ export default function ViewDetective() {
                                   size="sm"
                                   onClick={async () => {
                                     try {
-                                      await api.users.getById; // noop to ensure module is loaded
                                       const csrfToken = await getOrFetchCsrfToken();
                                       await fetch(`/api/admin/services/${service.id}/reassign`, {
                                         method: "POST",

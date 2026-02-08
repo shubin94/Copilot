@@ -6,6 +6,12 @@ import http from 'http';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env.local') });
 
+// Safety guard: prevent accidental production execution
+if (process.env.NODE_ENV === 'production') {
+  console.error('❌ SAFETY: Cannot run test-hard-delete.ts in production!');
+  process.exit(1);
+}
+
 const baseUrl = 'http://127.0.0.1:5000';
 let sessionId = '';
 
@@ -122,12 +128,15 @@ async function test() {
 
     console.log(`✅ ${res.data.categories.length} categories remain\n`);
     
-    if (res.data.categories.length === 0) {
+    const categoryStillExists = res.data.categories.some((cat: any) => cat.id === categoryId);
+    if (!categoryStillExists) {
       console.log('✅ SUCCESS: Category was permanently deleted from database!\n');
     } else {
       console.log('❌ FAIL: Category still exists');
       res.data.categories.forEach((cat: any) => {
-        console.log(`  - ${cat.name} (status: ${cat.status})`);
+        if (cat.id === categoryId) {
+          console.log(`  - ${cat.name} (status: ${cat.status}) - SHOULD BE DELETED`);
+        }
       });
     }
 
@@ -155,8 +164,16 @@ async function test() {
 
     console.log(`✅ ${res.data.tags.length} tags remain\n`);
     
-    if (res.data.tags.length === 0) {
+    const tagStillExists = res.data.tags.some((tag: any) => tag.id === tagId);
+    if (!tagStillExists) {
       console.log('✅ SUCCESS: Tag was permanently deleted from database!\n');
+    } else {
+      console.log('❌ FAIL: Tag still exists');
+      res.data.tags.forEach((tag: any) => {
+        if (tag.id === tagId) {
+          console.log(`  - ${tag.name} (status: ${tag.status}) - SHOULD BE DELETED`);
+        }
+      });
     }
 
   } catch (error) {

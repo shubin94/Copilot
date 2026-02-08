@@ -8,6 +8,7 @@ dist
 .env.*.local
 .env.production
 .env.production.test
+.env*.production.test
 .env.development
 .DS_Store
 server/public
@@ -17,3 +18,5 @@ vite.config.ts.*
 gh/
 git/
 npm/
+# VS Code settings with API keys
+.vscode/settings.json

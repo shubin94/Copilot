@@ -1,3 +1,4 @@
+import "./server/lib/loadEnv.ts";
 import { db } from "./db/index.ts";
 import { detectives, subscriptionPlans } from "./shared/schema.ts";
 import { sql } from "drizzle-orm";
@@ -35,25 +36,41 @@ async function fixNullPackages() {
     }
     console.log("");
 
-    // Assign free plan to all of them
+    // Assign free plan to all of them and update constraint in transaction
     if (nullDetectives.length > 0) {
-      await db.execute(
-        sql`UPDATE detectives SET subscription_package_id = ${freePlanId} WHERE subscription_package_id IS NULL`
-      );
-      console.log(`✅ Assigned free plan to ${nullDetectives.length} detectives\n`);
-    }
+      await db.execute(sql.raw("BEGIN"));
+      try {
+        await db.execute(
+          sql`UPDATE detectives SET subscription_package_id = ${freePlanId} WHERE subscription_package_id IS NULL`
+        );
+        console.log(`✅ Assigned free plan to ${nullDetectives.length} detectives\n`);
 
-    // Now try to make subscription_package_id NOT NULL
-    console.log("🔄 Making subscription_package_id NOT NULL...");
-    await db.execute(sql.raw("ALTER TABLE detectives ALTER COLUMN subscription_package_id SET NOT NULL"));
-    console.log("✅ Column constraint applied\n");
+        // Now try to make subscription_package_id NOT NULL
+        console.log("🔄 Making subscription_package_id NOT NULL...");
+        await db.execute(sql.raw("ALTER TABLE detectives ALTER COLUMN subscription_package_id SET NOT NULL"));
+        console.log("✅ Column constraint applied\n");
+        
+        await db.execute(sql.raw("COMMIT"));
+      } catch (txError) {
+        await db.execute(sql.raw("ROLLBACK"));
+        throw txError;
+      }
+    } else {
+      // If no NULL rows, just alter the column in a transaction
+      await db.transaction(async (tx) => {
+        console.log("🔄 Making subscription_package_id NOT NULL...");
+        await tx.execute(sql.raw("ALTER TABLE detectives ALTER COLUMN subscription_package_id SET NOT NULL"));
+        console.log("✅ Column constraint applied\n");
+      });
+    }
 
     // Verify
     const remainingResult = await db.execute(
       sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_package_id IS NULL`
     );
 
-    const remaining = (remainingResult as any)[0]?.count ?? 0;
+    const remainingRows = (remainingResult as any).rows ?? (remainingResult as any) ?? [];
+    const remaining = Number(remainingRows[0]?.count ?? 0);
     if (remaining > 0) {
       throw new Error(`Still have ${remaining} NULL subscription_package_id rows!`);
     }

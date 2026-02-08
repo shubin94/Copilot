@@ -27,9 +27,9 @@ Successfully added hierarchical organization support to CMS by implementing pare
     - `getTagById()` - includes parent_id in response
   - Updated all CREATE/UPDATE functions to accept parentId parameter:
     - `createCategory(name, slug, status, parentId?)` 
-    - `updateCategory(id, name?, status?, parentId?)`
+    - `updateCategory(id, name?, slug?, status?, parentId?)`
     - `createTag(name, slug, status, parentId?)`
-    - `updateTag(id, name?, status?, parentId?)`
+    - `updateTag(id, name?, slug?, status?, parentId?)`
 
 - **File**: `server/routes/admin-cms.ts`
 - **Changes**:

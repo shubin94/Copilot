@@ -46,35 +46,28 @@ res.json(counts);
 
 ```typescript
 async getAllCounts(): Promise<{ usersCount: number; detectivesCount: number; servicesCount: number; applicationsCount: number; claimsCount: number }> {
-  const result = await db.select({
-    usersCount: count(users.id),
-    detectivesCount: count(detectives.id),
-    servicesCount: count(services.id),
-    applicationsCount: count(detectiveApplications.id),
-    claimsCount: count(profileClaims.id),
-  })
-  .from(users)
-  .crossJoin(detectives)
-  .crossJoin(services)
-  .crossJoin(detectiveApplications)
-  .crossJoin(profileClaims)
-  .limit(1);
+  const [result] = await db.select({
+    usersCount: db.select({ count: count(users.id) }).from(users),
+    detectivesCount: db.select({ count: count(detectives.id) }).from(detectives),
+    servicesCount: db.select({ count: count(services.id) }).from(services),
+    applicationsCount: db.select({ count: count(detectiveApplications.id) }).from(detectiveApplications),
+    claimsCount: db.select({ count: count(profileClaims.id) }).from(profileClaims),
+  });
 
-  const row = result[0];
   return {
-    usersCount: Number(row?.usersCount) || 0,
-    detectivesCount: Number(row?.detectivesCount) || 0,
-    servicesCount: Number(row?.servicesCount) || 0,
-    applicationsCount: Number(row?.applicationsCount) || 0,
-    claimsCount: Number(row?.claimsCount) || 0,
+    usersCount: Number(result?.usersCount?.[0]?.count) || 0,
+    detectivesCount: Number(result?.detectivesCount?.[0]?.count) || 0,
+    servicesCount: Number(result?.servicesCount?.[0]?.count) || 0,
+    applicationsCount: Number(result?.applicationsCount?.[0]?.count) || 0,
+    claimsCount: Number(result?.claimsCount?.[0]?.count) || 0,
   };
 }
 ```
 
 **Key Features:**
-- ✅ Single Drizzle ORM query with aggregate projections
-- ✅ Uses CROSS JOIN (no relationships needed for independent counts)
-- ✅ All 5 COUNT aggregations in one SELECT statement
+- ✅ Independent COUNT subqueries (no Cartesian product)
+- ✅ Each table counted separately for accurate results
+- ✅ All 5 COUNT aggregations computed independently
 - ✅ Returns structured object matching original API
 - ✅ Fallback handling with `|| 0` for null counts
 
@@ -124,26 +117,20 @@ SELECT COUNT(*) as c FROM profile_claims;
 
 ### SQL Generated (After)
 ```sql
--- Single aggregated query
-SELECT 
-  COUNT(u.id) as usersCount,
-  COUNT(d.id) as detectivesCount,
-  COUNT(s.id) as servicesCount,
-  COUNT(da.id) as applicationsCount,
-  COUNT(pc.id) as claimsCount
-FROM users u
-CROSS JOIN detectives d
-CROSS JOIN services s
-CROSS JOIN detective_applications da
-CROSS JOIN profile_claims pc
+-- Single aggregated query (independent scalar subqueries)
+SELECT
+  (SELECT COUNT(*) FROM users) AS usersCount,
+  (SELECT COUNT(*) FROM detectives) AS detectivesCount,
+  (SELECT COUNT(*) FROM services) AS servicesCount,
+  (SELECT COUNT(*) FROM detective_applications) AS applicationsCount,
+  (SELECT COUNT(*) FROM profile_claims) AS claimsCount
 LIMIT 1;
 ```
 
-**Why CROSS JOIN?**
-- Independent count aggregations don't need table relationships
-- CROSS JOIN with LIMIT 1 generates all aggregates in single query
-- Each COUNT aggregates independently from its table
-- More efficient than subqueries or UNION ALL
+**Why scalar subqueries?**
+- Each count is computed independently from its own table
+- Avoids Cartesian products while still returning a single row
+- Matches the actual Drizzle implementation
 
 ---
 

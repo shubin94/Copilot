@@ -10,7 +10,8 @@ const router = Router();
 /**
  * Check if user is trying to modify themselves
  */
-function isSelfModification(currentUserId: string, targetUserId: string): boolean {
+function isSelfModification(currentUserId: string | undefined, targetUserId: string): boolean {
+  if (!currentUserId) return false;
   return currentUserId === targetUserId;
 }
 
@@ -48,7 +49,7 @@ router.get(
  */
 router.post(
   "/",
-  requireRole("admin", "employee"),
+  requireRole("admin"),
   async (req: Request, res: Response) => {
     try {
       const { email, password, name, allowedPages } = req.body as {
@@ -150,8 +151,6 @@ router.post(
       }
     } catch (error: any) {
       console.error("[CreateEmployee] Error:", error.message);
-       console.error("[CreateEmployee] Full error:", error);
-       if (error.detail) console.error("[CreateEmployee] SQL detail:", error.detail);
       return res.status(500).json({ error: "Failed to create employee" });
     }
   }
@@ -262,7 +261,7 @@ router.get(
  */
 router.patch(
   "/:id/pages",
-  requireRole("admin", "employee"),
+  requireRole("admin"),
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
@@ -365,7 +364,7 @@ router.patch(
  */
 router.patch(
   "/:id/deactivate",
-  requireRole("admin", "employee"),
+  requireRole("admin"),
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params;

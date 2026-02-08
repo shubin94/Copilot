@@ -28,8 +28,10 @@ const detectives = await storage.getAllDetectives(500, 0);
 **After:**
 ```typescript
 // OPTIMIZED: Support pagination parameters with safe limits
-const limit = Math.min(Math.max(1, parseInt(String(req.query.limit) || "50")), 100);
-const offset = Math.max(0, parseInt(String(req.query.offset) || "0"));
+const parsedLimit = parseInt(String(req.query.limit || "50"), 10);
+const limit = Number.isNaN(parsedLimit) ? 50 : Math.min(Math.max(1, parsedLimit), 100);
+const parsedOffset = parseInt(String(req.query.offset || "0"), 10);
+const offset = Number.isNaN(parsedOffset) ? 0 : Math.max(0, parsedOffset);
 const detectives = await storage.getAllDetectives(limit, offset);
 ```
 

@@ -6,7 +6,9 @@ async function run() {
   const plans = await db.select().from(subscriptionPlans);
   for (const plan of plans) {
     const features = Array.isArray(plan.features) ? plan.features : [];
-    const isFree = (plan.name || "").toLowerCase() === "free" || String(plan.monthlyPrice) === "0";
+    // Check if plan is free by name or by zero price (handle number, string, Decimal types)
+    const price = Number(plan.monthlyPrice) || 0;
+    const isFree = (plan.name || "").toLowerCase() === "free" || price === 0;
     if (isFree) continue;
     if (!features.includes("contact_website")) {
       const next = [...features, "contact_website"];

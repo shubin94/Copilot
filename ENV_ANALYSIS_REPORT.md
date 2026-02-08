@@ -64,23 +64,23 @@
 
 ### `.env` (ACTIVE - currently in use):
 ```
-DATABASE_URL=postgresql://postgres.gjgrwxxtkyggwfrydpdb:AKshubin123@...supabase.com:6543/postgres
-NODE_ENV=undefined (development)
-SUPABASE_URL=https://gjgrwxxtkyggwfrydpdb.supabase.co (LIVE SUPABASE)
+DATABASE_URL=postgresql://postgres:<password>@<project-id>.supabase.co:6543/postgres
+NODE_ENV=development
+SUPABASE_URL=https://<project-id>.supabase.co (LIVE SUPABASE)
 ```
 **Target**: PRODUCTION LIVE DATABASE (AWS Supabase)
 
 ### `.env.production` (BACKUP):
 ```
-DATABASE_URL=postgresql://postgres.gjgrwxxtkyggwfrydpdb:AKshubin123@...supabase.com:6543/postgres
-NODE_ENV=undefined (development)
-SUPABASE_URL=https://gjgrwxxtkyggwfrydpdb.supabase.co (LIVE SUPABASE)
+DATABASE_URL=postgresql://postgres:<password>@<project-id>.supabase.co:6543/postgres
+NODE_ENV=development
+SUPABASE_URL=https://<project-id>.supabase.co (LIVE SUPABASE)
 ```
 **Target**: PRODUCTION LIVE DATABASE (AWS Supabase)
 
 ### `.env.production.test` (FOR LOCAL TESTING):
 ```
-DATABASE_URL=postgresql://postgres:9618154320@localhost:5432/askdetective_v2
+DATABASE_URL=postgresql://postgres:<password>@localhost:5432/askdetective_v2
 NODE_ENV=production
 SUPABASE_URL=http://127.0.0.1:54321 (LOCAL SUPABASE)
 ```

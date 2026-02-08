@@ -18,8 +18,15 @@ async function runMigration() {
     console.log("Executing migration...");
     console.log(sql.substring(0, 200) + "...");
     
-    await pool.query(sql);
-    console.log("✅ Migration applied successfully!");
+    await pool.query('BEGIN');
+    try {
+      await pool.query(sql);
+      await pool.query('COMMIT');
+      console.log("✅ Migration applied successfully!");
+    } catch (error) {
+      await pool.query('ROLLBACK');
+      throw error;
+    }
     process.exit(0);
   } catch (error) {
     console.error("❌ Migration failed:", error instanceof Error ? error.message : String(error));

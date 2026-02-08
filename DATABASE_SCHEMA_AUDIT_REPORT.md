@@ -10,7 +10,7 @@
 The local database schema has been comprehensively audited and is **production-ready**. All critical issues have been resolved. Minor performance optimizations are recommended but do not block deployment.
 
 ### Key Metrics
-- **Total Tables:** 57 (across 3 schemas: public, auth, storage)
+- **Total Tables:** 56 (across 3 schemas: public, auth, storage)
 - **Errors:** 0
 - **Production Blockers:** 0 ❌ ➜ ✅
 - **Warnings:** 12 (non-blocking performance recommendations)
@@ -21,7 +21,7 @@ The local database schema has been comprehensively audited and is **production-r
 ## Audit Steps Performed
 
 ### ✅ Step 1: Schema Inventory
-- Scanned **56 Supabase tables** (auth + storage) + **26 application tables** (public schema)
+- Scanned **30 Supabase tables** (20 auth + 10 storage) + **26 application tables** (public schema) = **56 total**
 - Documented all columns, data types, primary keys, foreign keys, indexes, and constraints
 - Verified table structure matches expected schema patterns
 

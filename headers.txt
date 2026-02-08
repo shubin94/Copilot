@@ -3,9 +3,9 @@ Date: Sat, 07 Feb 2026 15:10:55 GMT
 Content-Type: application/json; charset=utf-8
 Transfer-Encoding: chunked
 Connection: keep-alive
-CF-RAY: 9ca3d116ab039bc1-MAA
+CF-RAY: [REDACTED]
 access-control-allow-credentials: true
-access-control-allow-origin: https://www.askdetectives.com
+access-control-allow-origin: https://example.com
 access-control-expose-headers: Set-Cookie,X-CSRF-Token
 Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate
 content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline';img-src 'self' data: https:;connect-src 'self';font-src 'self';object-src 'none';media-src 'self';frame-src 'none';base-uri 'self';form-action 'self';frame-ancestors 'self';script-src-attr 'none';upgrade-insecure-requests
@@ -16,8 +16,9 @@ expires: 0
 origin-agent-cluster: ?1
 pragma: no-cache
 referrer-policy: no-referrer
-rndr-id: 8836e04a-7809-47e3
-Set-Cookie: connect.sid=s%3APP0y8HXqjORLaYyIPnIefUo3KxbjneWJ.%2FgM8uAml%2FGoZUm5k62GvIXXaKodeLszRrHnrJvfS%2FFs; Path=/; Expires=Sat, 14 Feb 2026 15:10:55 GMT; HttpOnly; Secure; SameSite=None
+Server: [REDACTED]
+Via: [REDACTED]
+Set-Cookie: connect.sid=[REDACTED]; Path=/; Expires=Sat, 14 Feb 2026 15:10:55 GMT; HttpOnly; Secure; SameSite=None
 strict-transport-security: max-age=31536000; includeSubDomains; preload
 surrogate-control: no-store
 vary: Origin, Accept-Encoding

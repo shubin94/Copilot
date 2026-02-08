@@ -88,7 +88,8 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
     // Now catches network errors and provides helpful message
     const errorMsg = error?.message || String(error);
     if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-      throw new Error(`Cannot reach API server at ${fullUrl}. Is the server running on port ${process.env.PORT || 5000}? Check: npm run dev`);
+      const port = import.meta.env.VITE_PORT || window.location.port || '5000';
+      throw new Error(`Cannot reach API server at ${fullUrl}. Is the server running on port ${port}? Check: npm run dev`);
     }
     throw error;
   }
@@ -115,16 +116,18 @@ npm run dev
 ```
 
 **Expected Output:**
-```
+```text
 ✅ Server fully started and listening on port 5000
 ```
 
 **Browser - Test Login:**
+```text
 1. Go to http://localhost:5000
 2. See login page loads
 3. Enter email/password from reset-auth output
 4. Click Login
 5. ✅ Should redirect to dashboard or show "Welcome back"
+```
 
 ---
 

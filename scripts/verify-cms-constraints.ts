@@ -9,6 +9,8 @@ import { sql } from "drizzle-orm";
 async function main() {
   console.log("\n✅ Verifying CMS table constraints...\n");
 
+  let allPassed = true;
+
   try {
     // Test 1: Try to insert invalid status (should fail)
     console.log("Test 1: Attempting to insert invalid status (should fail)...");
@@ -18,11 +20,14 @@ async function main() {
         VALUES ('Test', 'test-category', 'invalid_status')
       `);
       console.log("❌ ERROR: Invalid status was accepted! Constraint is missing.");
+      allPassed = false;
     } catch (error) {
-      if (error.message?.includes('categories_status_check')) {
+      if (error instanceof Error && error.message?.includes('categories_status_check')) {
         console.log("✅ PASS: Constraint correctly rejected invalid status");
       } else {
-        console.log("⚠️  UNEXPECTED ERROR:", error.message);
+        const message = error instanceof Error ? error.message : String(error);
+        console.log("⚠️  UNEXPECTED ERROR:", message);
+        allPassed = false;
       }
     }
 
@@ -36,7 +41,9 @@ async function main() {
       `);
       console.log("✅ PASS: Valid status accepted");
     } catch (error) {
-      console.log("❌ FAIL: Valid status rejected:", error.message);
+      const message = error instanceof Error ? error.message : String(error);
+      console.log("❌ FAIL: Valid status rejected:", message);
+      allPassed = false;
     }
 
     // Test 3: Verify all three constraints exist
@@ -52,14 +59,18 @@ async function main() {
       console.log(`✅ PASS: All 3 CHECK constraints are present`);
     } else {
       console.log(`❌ FAIL: Only ${count}/3 constraints found`);
+      allPassed = false;
     }
 
     console.log("\n" + "=".repeat(60));
-    console.log("✅ Database constraints are working correctly!");
+    if (allPassed) {
+      console.log("✅ Database constraints are working correctly!");
+    }
     console.log("=".repeat(60));
 
   } catch (error) {
-    console.error("\n❌ Verification failed:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("\n❌ Verification failed:", message);
     process.exit(1);
   }
 }

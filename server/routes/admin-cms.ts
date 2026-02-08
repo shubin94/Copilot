@@ -223,6 +223,11 @@ router.get("/tags", requireRole("admin", "employee"), async (req: Request, res: 
 
 // DEBUG: GET /api/admin/tags/debug/all - Show all tags including duplicates
 router.get("/tags/debug/all", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+  // DEBUG endpoint disabled in production
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "Debug endpoint not available in production" });
+  }
+
   try {
     const result = await pool.query(`
       SELECT id, name, slug, parent_id, status, created_at

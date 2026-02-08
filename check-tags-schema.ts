@@ -2,6 +2,13 @@ import "dotenv/config";
 import pkg from "pg";
 const { Pool } = pkg;
 
+// Validate DATABASE_URL before creating pool
+if (!process.env.DATABASE_URL) {
+  console.error('❌ DATABASE_URL environment variable is not set');
+  console.error('Please provide DATABASE_URL in your .env file');
+  process.exit(1);
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === "production"

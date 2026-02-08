@@ -84,13 +84,18 @@ async function main() {
     // Log Supabase configuration (environment-only)
     const supabaseUrl = process.env.SUPABASE_URL;
     if (supabaseUrl) {
-      const supabaseHost = new URL(supabaseUrl).hostname;
-      const isLocal = supabaseHost.includes('localhost') || supabaseHost.includes('127.0.0.1');
-      console.log(`📦 Supabase: ${isLocal ? '🟢 Local' : '☁️  Cloud'} (${supabaseHost})`);
-      console.log(`   Source: Hosting Provider Environment Variables`);
-      if (isLocal) {
-        console.warn(`   ⚠️  WARNING: Production mode using LOCAL Supabase!`);
-        console.warn(`   This should only be for testing. Production should use cloud Supabase.`);
+      try {
+        const supabaseHost = new URL(supabaseUrl).hostname;
+        const isLocal = supabaseHost.includes('localhost') || supabaseHost.includes('127.0.0.1');
+        console.log(`📦 Supabase: ${isLocal ? '🟢 Local' : '☁️  Cloud'} (${supabaseHost})`);
+        console.log(`   Source: Hosting Provider Environment Variables`);
+        if (isLocal) {
+          console.warn(`   ⚠️  WARNING: Production mode using LOCAL Supabase!`);
+          console.warn(`   This should only be for testing. Production should use cloud Supabase.`);
+        }
+      } catch (parseError) {
+        console.warn(`⚠️  Supabase URL parsing failed:`, parseError);
+        console.log(`📦 Supabase: Unable to parse (${supabaseUrl})`);
       }
     } else {
       console.log(`⚠️  Supabase: Not configured (storage disabled)`);
@@ -103,7 +108,9 @@ async function main() {
     }
 
     console.log('🔐 Loading auth/secrets from database...');
-    await loadSecretsFromDatabase();  const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
+    await loadSecretsFromDatabase();
+    
+    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
     
     // Run database migrations
     console.log('📊 Running database migrations...');
@@ -111,8 +118,9 @@ async function main() {
       const { runMigrations } = await import('../db/run-migrations.ts');
       await runMigrations();
     } catch (migrationError) {
-      console.error('⚠️  Migration error:', migrationError);
-      console.error('Continuing with startup, but database may be in inconsistent state...');
+      console.error('❌ Migration error:', migrationError);
+      console.error('Exiting due to migration failure in production...');
+      process.exit(1);
     }
     
     if (config.env.isProd && config.sentryDsn) {

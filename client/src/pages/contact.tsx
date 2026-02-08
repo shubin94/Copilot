@@ -65,23 +65,23 @@ export default function ContactPage() {
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">First Name</label>
-                  <Input placeholder="Sherlock" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                  <label htmlFor="firstName" className="text-sm font-medium">First Name</label>
+                  <Input id="firstName" placeholder="Sherlock" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Last Name</label>
-                  <Input placeholder="Holmes" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                  <label htmlFor="lastName" className="text-sm font-medium">Last Name</label>
+                  <Input id="lastName" placeholder="Holmes" value={lastName} onChange={(e) => setLastName(e.target.value)} />
                 </div>
               </div>
               
               <div className="space-y-2">
-                <label className="text-sm font-medium">Email</label>
-                <Input type="email" placeholder="sherlock@bakerstreet.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <label htmlFor="email" className="text-sm font-medium">Email</label>
+                <Input id="email" type="email" placeholder="sherlock@bakerstreet.com" value={email} onChange={(e) => setEmail(e.target.value)} />
               </div>
               
               <div className="space-y-2">
-                <label className="text-sm font-medium">Message</label>
-                <Textarea placeholder="How can we help you?" className="min-h-[120px]" value={message} onChange={(e) => setMessage(e.target.value)} />
+                <label htmlFor="message" className="text-sm font-medium">Message</label>
+                <Textarea id="message" placeholder="How can we help you?" className="min-h-[120px]" value={message} onChange={(e) => setMessage(e.target.value)} />
               </div>
               
               <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={isSubmitting}>

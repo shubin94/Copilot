@@ -84,16 +84,27 @@ const optionsReq = https.request(API_URL, {
       const acaoHeader = res.headers['access-control-allow-origin'];
       const credHeader = res.headers['access-control-allow-credentials'];
       
-      if (acaoHeader === ORIGIN || acaoHeader === '*') {
+      // Validate CORS configuration
+      const isOriginValid = acaoHeader === ORIGIN || acaoHeader === '*';
+      const areCredsValid = credHeader === 'true';
+      
+      if (isOriginValid) {
         console.log('✅ Access-Control-Allow-Origin is correct');
       } else {
         console.log(`❌ Access-Control-Allow-Origin is wrong: ${acaoHeader}`);
       }
       
-      if (credHeader === 'true') {
+      if (areCredsValid) {
         console.log('✅ Access-Control-Allow-Credentials is correct');
       } else {
         console.log(`❌ Access-Control-Allow-Credentials is wrong: ${credHeader}`);
+      }
+      
+      // Final validation: Both must be correct
+      if (isOriginValid && areCredsValid) {
+        console.log('\n✅ CORS configuration is VALID');
+      } else {
+        console.log('\n❌ CORS configuration is INVALID');
       }
     });
   });
