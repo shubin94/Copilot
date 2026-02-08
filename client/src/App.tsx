@@ -12,6 +12,7 @@ import { SmokeTester } from "@/components/dev/smoke-tester";
 import CountrySelectorPopup from "@/components/modals/country-selector-popup";
 import { initializeAuthSession } from "./lib/authSessionManager";
 import { AdminRoute } from "@/components/admin-route";
+import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 
 // Lazy load pages to improve initial load performance
@@ -252,6 +253,7 @@ function App() {
             <Toaster />
             <SmokeTester />
             <Router />
+            <Analytics />
             <SpeedInsights />
           </TooltipProvider>
         </CurrencyProvider>
