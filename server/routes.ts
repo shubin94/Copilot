@@ -577,19 +577,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.session.userRole = user.role;
         req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
 
-        // Send welcome email (non-blocking)
-        sendpulseEmail.sendTransactionalEmail(
-          user.email,
-          EMAIL_TEMPLATES.WELCOME_USER,
-          {
-            userName: user.name,
-            email: user.email,
-            supportEmail: "support@askdetectives.com",
+        // Explicitly save session to ensure CSRF token is persisted
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("[auth] Failed to save session during registration", saveErr);
+            return res.status(500).json({ error: "Failed to register user" });
           }
-        ).catch(e => console.error("[Email] Failed to send welcome email:", e));
 
-        const { password: _p, ...userWithoutPassword } = user;
-        res.status(201).json({ user: userWithoutPassword });
+          // Send welcome email (non-blocking)
+          sendpulseEmail.sendTransactionalEmail(
+            user.email,
+            EMAIL_TEMPLATES.WELCOME_USER,
+            {
+              userName: user.name,
+              email: user.email,
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(e => console.error("[Email] Failed to send welcome email:", e));
+
+          const { password: _p, ...userWithoutPassword } = user;
+          res.status(201).json({ user: userWithoutPassword });
+        });
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -688,8 +696,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.session.userRole = user.role;
         req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
 
-        const { password: _p, ...userWithoutPassword } = user;
-        res.json({ user: userWithoutPassword });
+        // Explicitly save session to ensure CSRF token and user data are persisted
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("[auth] Failed to save session during login", { userId: user.id, err: saveErr });
+            return res.status(500).json({ error: "Failed to log in" });
+          }
+
+          const { password: _p, ...userWithoutPassword } = user;
+          res.json({ user: userWithoutPassword });
+        });
       });
     } catch (_error) {
       console.warn("[auth] Login failed");
