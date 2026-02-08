@@ -487,7 +487,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.session.save((err) => {
         if (err) {
           console.error("[CSRF-TOKEN] Failed to save session:", err);
-          return res.status(403).json({ error: "Session persistence failed" });
+          // Prevent double response if headers already sent
+          if (!res.headersSent) {
+            return res.status(403).json({ error: "Session persistence failed" });
+          }
+          return;
         }
         
         // Prevent caching/ETag revalidation which can return 304 without a body
@@ -498,11 +502,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'access-control-allow-credentials': res.getHeader('access-control-allow-credentials'),
         })}`);
         
-        res.json({ csrfToken: req.session.csrfToken });
+        // Final response - only if headers not sent
+        if (!res.headersSent) {
+          return res.json({ csrfToken: req.session.csrfToken });
+        }
       });
     } catch (error) {
       console.error("[CSRF-TOKEN] Unexpected error:", error);
-      return res.status(403).json({ error: "CSRF token generation failed" });
+      // Prevent double response if headers already sent (e.g., if save callback already responded)
+      if (!res.headersSent) {
+        return res.status(403).json({ error: "CSRF token generation failed" });
+      }
     }
   });
 

@@ -249,7 +249,7 @@ export function getSessionMiddleware() {
         idleTimeoutMillis: 30000,    // Close idle connections after 30s
         connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
         ssl: isProductionDb
-          ? { rejectUnauthorized: process.env.DB_ALLOW_INSECURE_DEV !== "true" } // Production: strict validation; dev: allow self-signed
+          ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases (Render, Supabase)
           : undefined,
       }),
       tableName: "session",
