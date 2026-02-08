@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrentDetective, useUpdateDetective } from "@/lib/hooks";
-import { api, getOrFetchCsrfToken } from "@/lib/api";
+import { api, buildApiUrl, getOrFetchCsrfToken } from "@/lib/api";
 import { useCurrency } from "@/lib/currency-context";
 import { PaymentGatewaySelector } from "@/components/payment/payment-gateway-selector";
 import { AlreadyVerifiedModal } from "@/components/payment/already-verified-modal";
@@ -83,7 +83,7 @@ export default function DetectiveSubscription() {
       try {
         const [plansRes, gatewaysRes] = await Promise.all([
           api.subscriptionPlans.getAll(),
-          fetch('/api/payment-gateways/enabled', { credentials: 'include' })
+          fetch(buildApiUrl("/api/payment-gateways/enabled"), { credentials: "include" })
         ]);
         
         setPlans(Array.isArray((plansRes as any).plans) ? (plansRes as any).plans : []);
@@ -155,7 +155,7 @@ export default function DetectiveSubscription() {
 
         // Schedule downgrade
         const csrfToken = await getOrFetchCsrfToken();
-        const downgradeRes = await fetch('/api/payments/schedule-downgrade', {
+        const downgradeRes = await fetch(buildApiUrl("/api/payments/schedule-downgrade"), {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
@@ -197,7 +197,7 @@ export default function DetectiveSubscription() {
           isAnnual
         });
         
-        const upgradeRes = await fetch('/api/payments/upgrade-plan', {
+        const upgradeRes = await fetch(buildApiUrl("/api/payments/upgrade-plan"), {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2, AlertCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
-import { getOrFetchCsrfToken } from "@/lib/api";
+import { buildApiUrl, getOrFetchCsrfToken } from "@/lib/api";
 import { Footer } from "@/components/layout/footer";
 import { SEO } from "@/components/seo";
 
@@ -42,7 +42,7 @@ export default function ClaimAccount() {
     const verifyToken = async () => {
       try {
         const csrfToken = await getOrFetchCsrfToken();
-        const response = await fetch("/api/claim-account/verify", {
+        const response = await fetch(buildApiUrl("/api/claim-account/verify"), {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
@@ -76,7 +76,7 @@ export default function ClaimAccount() {
   const claimAccount = useMutation({
     mutationFn: async (claimData: { token: string; email: string }) => {
       const csrfToken = await getOrFetchCsrfToken();
-      const response = await fetch("/api/claim-account", {
+      const response = await fetch(buildApiUrl("/api/claim-account"), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",

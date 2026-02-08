@@ -1,10 +1,20 @@
 import type { User, Detective, Service, Review, Order, DetectiveApplication, ProfileClaim, ServiceCategory, InsertDetective, InsertService, InsertReview, InsertOrder, InsertServiceCategory, InsertDetectiveApplication } from "@shared/schema";
 
 // API Base URL configuration for different environments
-const API_BASE_URL = import.meta.env.VITE_API_URL || 
-  (import.meta.env.PROD 
-    ? "https://copilot-06s5.onrender.com" 
-    : "");
+const DEFAULT_DEV_API_BASE_URL = typeof window !== "undefined"
+  ? `${window.location.protocol}//${window.location.hostname}:5000`
+  : "http://127.0.0.1:5000";
+
+export const API_BASE_URL = import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD
+    ? "https://copilot-06s5.onrender.com"
+    : DEFAULT_DEV_API_BASE_URL);
+
+export function buildApiUrl(path: string): string {
+  if (path.startsWith("http")) return path;
+  if (!path.startsWith("/")) return `${API_BASE_URL}/${path}`;
+  return `${API_BASE_URL}${path}`;
+}
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -66,7 +76,7 @@ export function clearCsrfToken() {
 
 export async function getOrFetchCsrfToken(): Promise<string> {
   if (csrfToken) return csrfToken;
-  const url = API_BASE_URL ? `${API_BASE_URL}/api/csrf-token` : "/api/csrf-token";
+  const url = buildApiUrl("/api/csrf-token");
   try {
     const r = await fetch(url, {
       method: "GET",
@@ -90,8 +100,7 @@ export async function getOrFetchCsrfToken(): Promise<string> {
 
 // Central fetch wrapper that adds CSRF headers for mutation methods
 async function csrfFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  // Prepend API_BASE_URL if URL doesn't start with http
-  const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+  const fullUrl = buildApiUrl(url);
   
   const method = (options.method || "GET").toUpperCase();
   const requiresCSRF = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
@@ -174,7 +183,7 @@ export const api = {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12000);
       try {
-        const response = await csrfFetch("/api/auth/login", {
+        const response = await csrfFetch(buildApiUrl("/api/auth/login"), {
           method: "POST",
           headers: { "Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" },
           body: JSON.stringify({ email, password }),
@@ -198,7 +207,7 @@ export const api = {
     },
 
     logout: async (): Promise<{ message: string }> => {
-      const response = await csrfFetch("/api/auth/logout", {
+      const response = await csrfFetch(buildApiUrl("/api/auth/logout"), {
         method: "POST",
         headers: { "X-Requested-With": "XMLHttpRequest" },
         credentials: "include",
@@ -210,7 +219,7 @@ export const api = {
 
     me: async (): Promise<{ user?: User | null }> => {
       try {
-        const response = await csrfFetch("/api/auth/me", {
+        const response = await csrfFetch(buildApiUrl("/api/auth/me"), {
           credentials: "include",
         });
         if (response.status === 401 || response.status === 403) {
@@ -226,7 +235,7 @@ export const api = {
     },
 
     changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
-      const response = await csrfFetch("/api/auth/change-password", {
+      const response = await csrfFetch(buildApiUrl("/api/auth/change-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ currentPassword, newPassword }),
@@ -236,7 +245,7 @@ export const api = {
     },
 
     setPassword: async (newPassword: string): Promise<{ message: string }> => {
-      const response = await csrfFetch("/api/auth/set-password", {
+      const response = await csrfFetch(buildApiUrl("/api/auth/set-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ newPassword }),
@@ -254,7 +263,7 @@ export const api = {
     },
 
     register: async (email: string, password: string, name: string): Promise<{ user: User }> => {
-      const response = await csrfFetch("/api/auth/register", {
+      const response = await csrfFetch(buildApiUrl("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ email, password, name }),
@@ -270,7 +279,7 @@ export const api = {
 
   detectives: {
     getCurrent: async (): Promise<{ detective: Detective & { email?: string } }> => {
-      const response = await csrfFetch("/api/detectives/me", {
+      const response = await csrfFetch(buildApiUrl("/api/detectives/me"), {
         credentials: "include",
       });
       return handleResponse(response);
@@ -337,7 +346,7 @@ export const api = {
     },
 
     create: async (data: InsertDetective): Promise<{ detective: Detective }> => {
-      const response = await csrfFetch("/api/detectives", {
+      const response = await csrfFetch(buildApiUrl("/api/detectives"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -509,7 +518,7 @@ export const api = {
     },
 
     create: async (data: InsertService): Promise<{ service: Service }> => {
-      const response = await csrfFetch("/api/services", {
+      const response = await csrfFetch(buildApiUrl("/api/services"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -570,7 +579,7 @@ export const api = {
     },
 
     create: async (data: InsertReview): Promise<{ review: Review }> => {
-      const response = await csrfFetch("/api/reviews", {
+      const response = await csrfFetch(buildApiUrl("/api/reviews"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -628,7 +637,7 @@ export const api = {
     },
 
     create: async (data: InsertOrder): Promise<{ order: Order }> => {
-      const response = await csrfFetch("/api/orders", {
+      const response = await csrfFetch(buildApiUrl("/api/orders"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -676,7 +685,7 @@ export const api = {
     },
 
     add: async (userId: string, detectiveId: string): Promise<{ favorite: any }> => {
-      const response = await csrfFetch("/api/favorites", {
+      const response = await csrfFetch(buildApiUrl("/api/favorites"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, detectiveId }),
@@ -805,7 +814,7 @@ export const api = {
     },
 
     create: async (data: InsertServiceCategory): Promise<{ category: ServiceCategory }> => {
-      const response = await csrfFetch("/api/service-categories", {
+      const response = await csrfFetch(buildApiUrl("/api/service-categories"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

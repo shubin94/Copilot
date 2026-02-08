@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { buildApiUrl } from "@/lib/api";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -109,7 +110,9 @@ export default function AdminFinancePage() {
       if (statusFilter !== "all") params.append("status", statusFilter);
       if (providerFilter !== "all") params.append("provider", providerFilter);
 
-      const res = await fetch(`/api/admin/finance/transactions?${params}`);
+      const res = await fetch(buildApiUrl(`/api/admin/finance/transactions?${params}`), {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Failed to fetch transactions");
       return res.json();
     },
@@ -119,7 +122,9 @@ export default function AdminFinancePage() {
   const { data: packagesData } = useQuery({
     queryKey: ["/api/admin/finance/packages"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/finance/packages");
+      const res = await fetch(buildApiUrl("/api/admin/finance/packages"), {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Failed to fetch packages");
       return res.json();
     },

@@ -465,6 +465,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.get("/api/csrf-token", (req: Request, res: Response) => {
     console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}`);
+
+    if (!req.session) {
+      console.error("[CSRF-TOKEN] Session unavailable; cannot issue CSRF token");
+      return res.status(503).json({ error: "Session unavailable" });
+    }
     
     if (!req.session.csrfToken) {
       req.session.csrfToken = randomBytes(32).toString("hex");

@@ -9,7 +9,7 @@ import { Link, useLocation } from "wouter";
 import { Plus, Edit, Trash2, Eye } from "lucide-react";
 import { DetectiveSnippetGrid } from "@/components/snippets/detective-snippet-grid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/lib/api";
+import { api, buildApiUrl } from "@/lib/api";
 
 interface Snippet {
   id: string;
@@ -81,7 +81,9 @@ export default function SnippetsPage() {
     const fetchCategories = async () => {
       try {
         setCategoriesLoading(true);
-        const res = await fetch("/api/service-categories?activeOnly=true");
+        const res = await fetch(buildApiUrl("/api/service-categories?activeOnly=true"), {
+          credentials: "include",
+        });
         if (res.ok) {
           const data = await res.json();
           const list = Array.isArray(data?.categories) ? data.categories : [];
