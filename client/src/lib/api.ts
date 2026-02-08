@@ -144,9 +144,8 @@ export const api = {
       credentials: "include",
     });
     const result = await handleResponse<T>(response);
-    if (result && typeof result === "object" && "csrfToken" in result) {
-      setCsrfToken((result as { csrfToken: string }).csrfToken);
-    }
+    // Do NOT update CSRF token from response - token is set once by /api/csrf-token
+    // and must be reused for the entire session
     return result;
   },
 
@@ -192,9 +191,8 @@ export const api = {
           signal: controller.signal,
         });
         const data = await handleResponse(response);
-        // After login, the backend regenerates the session and issues a new CSRF token
-        // Always clear cache and let next request fetch fresh token
-        clearCsrfToken();
+        // CSRF token is generated once by /api/csrf-token and reused for entire session
+        // Do NOT clear it after login - preserve the same token
         return data;
       } catch (err: any) {
         if (err?.name === "AbortError") {

@@ -566,6 +566,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.createUser(validatedData);
 
       // Session fixation prevention: regenerate session before setting auth data
+      // Preserve CSRF token across regeneration (do NOT regenerate it)
+      const csrfToken = req.session.csrfToken;
       req.session.regenerate((err) => {
         if (err) {
           console.warn("[auth] Session error during registration");
@@ -573,7 +575,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         req.session.userId = user.id;
         req.session.userRole = user.role;
-        req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
 
         // Send welcome email (non-blocking)
         sendpulseEmail.sendTransactionalEmail(
@@ -587,7 +589,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ).catch(e => console.error("[Email] Failed to send welcome email:", e));
 
         const { password: _p, ...userWithoutPassword } = user;
-        res.status(201).json({ user: userWithoutPassword, csrfToken: req.session.csrfToken });
+        res.status(201).json({ user: userWithoutPassword });
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -675,6 +677,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Session fixation prevention: regenerate session before setting auth data
+      // Preserve CSRF token across regeneration (do NOT regenerate it)
+      const csrfToken = req.session.csrfToken;
       req.session.regenerate((err) => {
         if (err) {
           console.warn("[auth] Session error during login", { userId: user.id, email });
@@ -682,10 +686,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         req.session.userId = user.id;
         req.session.userRole = user.role;
-        req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
 
         const { password: _p, ...userWithoutPassword } = user;
-        res.json({ user: userWithoutPassword, csrfToken: req.session.csrfToken });
+        res.json({ user: userWithoutPassword });
       });
     } catch (_error) {
       console.warn("[auth] Login failed");
