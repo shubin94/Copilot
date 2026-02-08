@@ -38,8 +38,15 @@ DO $$ BEGIN
   -- Step 6: Drop the enum type (only if it exists and not used elsewhere)
   DROP TYPE IF EXISTS subscription_plan;
   
-  -- Step 7: Recreate indexes (idempotent with DROP IF EXISTS)
+  -- Step 7: Recreate indexes only if column exists
   DROP INDEX IF EXISTS detectives_plan_idx;
-  CREATE INDEX detectives_plan_idx ON detectives(subscription_plan);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+    AND table_name = 'detectives'
+    AND column_name = 'subscription_plan'
+  ) THEN
+    CREATE INDEX detectives_plan_idx ON detectives(subscription_plan);
+  END IF;
   
 END $$;

@@ -1,5 +1,5 @@
 -- Create claim_tokens table for admin-created claimable detective accounts
-CREATE TABLE "claim_tokens" (
+CREATE TABLE IF NOT EXISTS "claim_tokens" (
   "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
   "detective_id" varchar NOT NULL REFERENCES "detectives"("id") ON DELETE CASCADE,
   "token_hash" text NOT NULL,

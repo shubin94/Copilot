@@ -2,7 +2,7 @@
 -- Centralized storage for all email templates
 -- Allows Super Admin to manage email content without code changes
 
-CREATE TABLE email_templates (
+CREATE TABLE IF NOT EXISTS email_templates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   key VARCHAR(255) NOT NULL UNIQUE,
   name TEXT NOT NULL,
@@ -16,6 +16,6 @@ CREATE TABLE email_templates (
 );
 
 -- Indexes
-CREATE INDEX email_templates_key_idx ON email_templates(key);
-CREATE INDEX email_templates_is_active_idx ON email_templates(is_active);
-CREATE INDEX email_templates_created_at_idx ON email_templates(created_at);
+CREATE INDEX IF NOT EXISTS email_templates_key_idx ON email_templates(key);
+CREATE INDEX IF NOT EXISTS email_templates_is_active_idx ON email_templates(is_active);
+CREATE INDEX IF NOT EXISTS email_templates_created_at_idx ON email_templates(created_at);
