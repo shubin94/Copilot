@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { Mail, Edit2, Eye, EyeOff, Save, X, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
+import { useUser } from "@/lib/user-context";
+import { useLocation } from "wouter";
 import {
   Table,
   TableBody,
@@ -45,11 +47,31 @@ interface TemplateDetails {
 
 export default function AdminEmailTemplates() {
   const { toast } = useToast();
+  const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
+  const [, setLocation] = useLocation();
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateDetails | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const isAdminOrEmployee = user?.role === "admin" || user?.role === "employee";
+
+  // Redirect if not authenticated or not admin
+  useEffect(() => {
+    if (!isLoadingUser && (!isAuthenticated || !isAdminOrEmployee)) {
+      setLocation("/login");
+    }
+  }, [isAuthenticated, isAdminOrEmployee, isLoadingUser, setLocation]);
+
+  // Show loading state while checking authentication
+  if (isLoadingUser) {
+    return null;
+  }
+
+  // Don't render anything if not authenticated or not admin (will redirect)
+  if (!isAuthenticated || !isAdminOrEmployee) {
+    return null;
+  }
 
   // Edit form state
   const [editForm, setEditForm] = useState({
