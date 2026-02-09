@@ -257,7 +257,7 @@ export function getSessionMiddleware() {
     });
   }
 
-  return session({
+  const sessionMiddleware = session({
     store: sessionStore,
     secret: config.session.secret,
     resave: false,
@@ -267,9 +267,19 @@ export function getSessionMiddleware() {
       secure: config.session.secureCookies,
       sameSite: config.env.isProd ? "none" : "lax", // 'none' required for cross-domain in production
       maxAge: config.session.ttlMs,
-      domain: config.session.cookieDomain,
+      // DO NOT SET DOMAIN - let browser use request origin
+      // Setting domain restricts cookies to that domain only, breaking cross-origin API calls
     },
   });
+  
+  // DEBUG: Log the cookie domain being used
+  if (process.env.NODE_ENV === "production") {
+    console.log("[Session Config] Host:", process.env.HOST);
+    console.log("[Session Config] COOKIE_DOMAIN env:", process.env.COOKIE_DOMAIN);
+    console.log("[Session Config] Deliberately NOT setting domain for cross-origin");
+  }
+  
+  return sessionMiddleware;
 }
 
 // Apply session middleware globally so all routes have access to CSRF tokens

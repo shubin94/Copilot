@@ -51,7 +51,7 @@ export const config = {
     secret: isProd ? (process.env.SESSION_SECRET || "") : (process.env.SESSION_SECRET || "dev-session-secret"),
     ttlMs: getNumber("SESSION_TTL_MS", 1000 * 60 * 60 * 24 * 7)!,
     secureCookies: isProd,
-    cookieDomain: process.env.COOKIE_DOMAIN || (isProd ? ".askdetectives.com" : undefined),
+    cookieDomain: undefined, // CRITICAL: Never restrict domain - breaks cross-origin API calls with SameSite=None
   },
   email: {
     sendgridApiKey: process.env.SENDGRID_API_KEY || "",
