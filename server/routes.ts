@@ -466,7 +466,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.get("/api/csrf-token", (req: Request, res: Response) => {
     try {
-      console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}`);
+      const sessionId = (req.session as any)?.id || "UNKNOWN";
+      console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}, SessionID: ${sessionId.substring(0, 20)}...`);
 
       // Express-session creates req.session automatically; if missing, middleware failed
       if (!req.session) {
@@ -477,9 +478,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate or reuse CSRF token
       if (!req.session.csrfToken) {
         req.session.csrfToken = randomBytes(32).toString("hex");
-        console.log(`[CSRF-TOKEN] Generated new token: ${req.session.csrfToken.substring(0, 16)}...`);
+        console.log(`[CSRF-TOKEN] Generated new token: ${req.session.csrfToken.substring(0, 16)}... for session ${sessionId.substring(0, 20)}...`);
       } else {
-        console.log(`[CSRF-TOKEN] Reusing existing token: ${req.session.csrfToken.substring(0, 16)}...`);
+        console.log(`[CSRF-TOKEN] Reusing existing token: ${req.session.csrfToken.substring(0, 16)}... for session ${sessionId.substring(0, 20)}...`);
       }
       
       // Explicitly save session (required when saveUninitialized: false)
@@ -497,10 +498,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Prevent caching/ETag revalidation which can return 304 without a body
         setNoStore(res);
         
-        console.log(`[CSRF-TOKEN] Response headers: ${JSON.stringify({
-          'access-control-allow-origin': res.getHeader('access-control-allow-origin'),
-          'access-control-allow-credentials': res.getHeader('access-control-allow-credentials'),
-        })}`);
+        console.log(`[CSRF-TOKEN] Saved session ${sessionId.substring(0, 20)}... with token ${req.session.csrfToken?.substring(0, 16)}...`);
         
         // Final response - only if headers not sent
         if (!res.headersSent) {
