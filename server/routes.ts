@@ -4713,6 +4713,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { getAllEmailTemplates } = await import("./services/emailTemplateService");
       const templates = await getAllEmailTemplates();
+      console.log("[Admin] Email templates count:", templates.length);
+      console.log("[Admin] First template:", templates[0] ? { id: templates[0].id, key: templates[0].key, name: templates[0].name } : "none");
       res.json({ templates });
     } catch (error) {
       console.error("[Admin] Error fetching email templates:", error);

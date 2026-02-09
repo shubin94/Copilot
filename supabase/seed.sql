@@ -519,7 +519,7 @@ INSERT INTO "public"."subscription_plans" ("id", "name", "display_name", "monthl
 	('40e983d3-2551-466b-8e70-6e72258b5069', 'pro', 'Pro', 29.00, 290.00, 'Enhanced tools and contact visibility.', '{contact_email,contact_phone,contact_whatsapp}', '{"pro": true}', 4, true, '2026-01-26 15:11:26.454452', '2026-01-26 15:11:26.454452'),
 	('f459ec1a-44fa-4edc-b57d-75dc87f56d4d', 'agent', 'Agent', 10.00, 100.00, '', '{contact_email,contact_whatsapp,contact_phone}', '{"pro": true, "blueTick": true, "recommended": true}', 4, true, '2026-01-27 11:42:09.511395', '2026-01-27 11:42:09.511395'),
 	('317de82a-e5f9-44d7-8af8-3c3941634cb2', 'enterprise', 'Enterprise', 30.00, 300.00, '', '{contact_phone,contact_email,contact_whatsapp}', '{"pro": true, "blueTick": true, "recommended": true}', 1, true, '2026-01-27 13:14:42.064224', '2026-01-27 13:14:42.064224'),
-	('60cc496b-e8a0-4abe-ad40-ca60b7f83bbf', 'free', 'Free', 0.00, 0.00, '', '{contact_email}', '{"pro": false, "blueTick": false, "recommended": true}', 1, true, '2026-01-27 14:21:39.020704', '2026-01-27 14:21:39.020704');
+	('60cc496b-e8a0-4abe-ad40-ca60b7f83bbf', 'free', 'Free', 0.00, 0.00, '', '{contact_email}', '{"pro": false, "blueTick": false, "recommended": true}', 10, true, '2026-01-27 14:21:39.020704', '2026-01-27 14:21:39.020704');
 
 
 --

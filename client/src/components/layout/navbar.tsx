@@ -293,7 +293,7 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                        <DropdownMenuItem className="cursor-pointer">Admin Dashboard</DropdownMenuItem>
                     </Link>
                   ) : user.role === 'employee' ? (
-                     <Link href="/admin">
+                     <Link href="/admin/dashboard">
                        <DropdownMenuItem className="cursor-pointer">Employee Dashboard</DropdownMenuItem>
                      </Link>
                   ) : user.role === 'detective' ? (
