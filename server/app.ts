@@ -257,7 +257,7 @@ export function getSessionMiddleware() {
     });
   }
 
-  return session({
+  const sessionMiddleware = session({
     store: sessionStore,
     secret: config.session.secret,
     resave: false,
@@ -270,6 +270,15 @@ export function getSessionMiddleware() {
       domain: config.session.cookieDomain,
     },
   });
+  
+  // DEBUG: Log the cookie domain being used
+  if (process.env.NODE_ENV === "production") {
+    console.log("[Session Config] Host:", process.env.HOST);
+    console.log("[Session Config] COOKIE_DOMAIN env:", process.env.COOKIE_DOMAIN);
+    console.log("[Session Config] config.session.cookieDomain:", config.session.cookieDomain);
+  }
+  
+  return sessionMiddleware;
 }
 
 // Apply session middleware globally so all routes have access to CSRF tokens
