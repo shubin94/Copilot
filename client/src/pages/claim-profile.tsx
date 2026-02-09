@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle2, AlertCircle, Loader2, Upload, X } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, getOrFetchCsrfToken } from "@/lib/api";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 
@@ -27,6 +27,13 @@ export default function ClaimProfile() {
 
   const [documents, setDocuments] = useState<string[]>([]);
   const [uploadError, setUploadError] = useState("");
+
+  // Fetch CSRF token on page load to establish session
+  useEffect(() => {
+    getOrFetchCsrfToken().catch((err) => {
+      console.error("[ClaimProfile] Failed to fetch CSRF token:", err);
+    });
+  }, []);
 
   const { data: detectiveData, isLoading } = useQuery({
     queryKey: [`/api/detectives/${detectiveId}`],

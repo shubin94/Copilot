@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { useLogin, useRegister } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
+import { getOrFetchCsrfToken } from "@/lib/api";
 
 // @ts-ignore
 import heroBgPng from "@assets/generated_images/professional_modern_city_skyline_at_dusk_with_subtle_mystery_vibes.png";
@@ -33,6 +34,18 @@ export default function Login() {
   const loginMutation = useLogin();
   const registerMutation = useRegister();
   const { toast } = useToast();
+
+  // Fetch CSRF token on page load to establish session
+  useEffect(() => {
+    getOrFetchCsrfToken().catch((err) => {
+      console.error("[Login] Failed to fetch CSRF token:", err);
+      toast({
+        title: "Session error",
+        description: "Could not establish a secure session. Please refresh the page.",
+        variant: "destructive",
+      });
+    });
+  }, [toast]);
 
   // Show error from URL (e.g. after Google callback redirect)
   useEffect(() => {
