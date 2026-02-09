@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useUser } from "@/lib/user-context";
-import { api } from "@/lib/api";
+import { api, getOrFetchCsrfToken } from "@/lib/api";
 import { useCurrentDetective } from "@/lib/hooks";
 
 interface DashboardLayoutProps {
@@ -46,6 +46,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const detective = role === "detective" ? detectiveData?.detective : null;
   const [employeePages, setEmployeePages] = useState<string[] | null>(null);
   const [isEmployeePagesLoading, setIsEmployeePagesLoading] = useState(false);
+
+  // Fetch CSRF token on dashboard load to establish session
+  useEffect(() => {
+    getOrFetchCsrfToken().catch((err) => {
+      console.error("[DashboardLayout] Failed to fetch CSRF token:", err);
+    });
+  }, []);
 
   useEffect(() => {
     if (isLoading) return;

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { api, buildApiUrl } from "@/lib/api";
+import React, { useState, useEffect } from "react";
+import { api, buildApiUrl, getOrFetchCsrfToken } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -21,6 +21,13 @@ interface AdminLayoutProps {
 export default function AdminLayout({ title, children }: AdminLayoutProps) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Fetch CSRF token on admin page load to establish session
+  useEffect(() => {
+    getOrFetchCsrfToken().catch((err) => {
+      console.error("[AdminLayout] Failed to fetch CSRF token:", err);
+    });
+  }, []);
 
   // Check admin role (response shape: { user } same as /api/auth/me)
   const { data } = useQuery({
