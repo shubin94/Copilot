@@ -267,7 +267,8 @@ export function getSessionMiddleware() {
       secure: config.session.secureCookies,
       sameSite: config.env.isProd ? "none" : "lax", // 'none' required for cross-domain in production
       maxAge: config.session.ttlMs,
-      domain: config.session.cookieDomain,
+      // DO NOT SET DOMAIN - let browser use request origin
+      // Setting domain restricts cookies to that domain only, breaking cross-origin API calls
     },
   });
   
@@ -275,7 +276,7 @@ export function getSessionMiddleware() {
   if (process.env.NODE_ENV === "production") {
     console.log("[Session Config] Host:", process.env.HOST);
     console.log("[Session Config] COOKIE_DOMAIN env:", process.env.COOKIE_DOMAIN);
-    console.log("[Session Config] config.session.cookieDomain:", config.session.cookieDomain);
+    console.log("[Session Config] Deliberately NOT setting domain for cross-origin");
   }
   
   return sessionMiddleware;
