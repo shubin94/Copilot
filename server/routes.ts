@@ -4095,15 +4095,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
 
-<<<<<<< Updated upstream
-          if (application.serviceCategories && application.categoryPricing) {
-            const pricingData = application.categoryPricing as Array<{category: string; price: string; currency: string}>;
-            for (const category of application.serviceCategories) {
-              const pricing = pricingData.find(p => p.category === category);
-              if (pricing && pricing.price) {
-                const existing = await storage.getServiceByDetectiveAndCategory(detective.id, category);
-                if (!existing) {
-=======
           // 🔴 AUTO-CREATE SERVICES: Only if application has valid service categories
           if (application.serviceCategories && Array.isArray(application.serviceCategories) && application.serviceCategories.length > 0) {
             const existingServices = await storage.getAllServicesByDetective(detective.id);
@@ -4152,21 +4143,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 
                 // Create the service
                 try {
->>>>>>> Stashed changes
                   await storage.createService({
                     detectiveId: detective.id,
                     category,
                     title: `${category} Services`,
                     description: `Professional ${category.toLowerCase()} services by ${application.fullName}. Contact for detailed consultation.`,
-<<<<<<< Updated upstream
-                    basePrice: pricing.price,
-                    images: (application as any).banner ? [(application as any).banner] : undefined,
-                    isActive: true,
-                  });
-                }
-              }
-            }
-=======
                     basePrice: isOnEnquiry ? null : (pricing.price || null),
                     images: (application as any).banner ? [(application as any).banner] : undefined,
                     isActive: true,
@@ -4183,7 +4164,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           } else {
             console.log(`[AUTO-SERVICE-CREATE] ℹ️  No service categories to auto-create (serviceCategories: ${JSON.stringify(application.serviceCategories)})`);
->>>>>>> Stashed changes
           }
 
           console.log(`Detective account ${user ? "linked/created" : "unknown"} for: ${normalizedEmail} with ${application.serviceCategories?.length || 0} services.`);
