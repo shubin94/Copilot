@@ -115,7 +115,7 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     licenseNumber: "",
     about: "",
     serviceCategories: [] as string[],
-    categoryPricing: [] as Array<{category: string; price: string; currency: string}>,
+    categoryPricing: [] as Array<{category: string; price: string; currency: string; isOnEnquiry: boolean}>,
     documents: [] as string[],
     isClaimable: false,
   });
@@ -1042,13 +1042,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                 <Shield className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-blue-800">
                   <p className="font-bold">Service Categories & Verification</p>
-                  <p>Select up to 2 service categories and set your starting prices.</p>
+                  <p>Select up to {freeServiceLimit} service categories and set your starting prices.</p>
                 </div>
               </div>
 
               <div className="space-y-3">
-                <Label>Service Categories You'll Offer (Max 2) *</Label>
-                <p className="text-xs text-gray-500">Select up to 2 categories and set your starting price for each</p>
+                <Label>Service Categories You'll Offer (Max {freeServiceLimit}) *</Label>
+                <p className="text-xs text-gray-500">Select up to {freeServiceLimit} categories and set your starting price for each. You can enable "Price on Enquiry" for any category.</p>
                 <div className="space-y-3">
                   {serviceCategories.map((category) => {
                     const isSelected = formData.serviceCategories.includes(category.name);
@@ -1077,7 +1077,8 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                                   categoryPricing: [...prev.categoryPricing, {
                                     category: category.name,
                                     price: "",
-                                    currency: selectedCountry?.currencyCode || "USD"
+                                    currency: selectedCountry?.currencyCode || "USD",
+                                    isOnEnquiry: false
                                   }]
                                 }));
                               } else {
@@ -1094,31 +1095,59 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                           <div className="flex-1">
                             <span className="text-sm font-medium">{category.name}</span>
                             {isSelected && (
-                              <div className="mt-2 flex items-center gap-2">
-                                <span className="text-sm text-gray-600">Starting Price:</span>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-sm font-medium">{selectedCountry?.currency || "$"}</span>
-                                  <Input 
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    placeholder="100"
-                                    value={pricing?.price || ""}
-                                    onChange={(e) => {
+                              <div className="mt-3 space-y-3 bg-gray-50 p-3 rounded">
+                                <div className="flex items-center gap-2">
+                                  <Checkbox 
+                                    id={`isOnEnquiry-${category.id}`}
+                                    checked={pricing?.isOnEnquiry || false}
+                                    onCheckedChange={(checked) => {
                                       setFormData(prev => ({
                                         ...prev,
                                         categoryPricing: prev.categoryPricing.map(p => 
                                           p.category === category.name 
-                                            ? { ...p, price: e.target.value }
+                                            ? { ...p, isOnEnquiry: checked as boolean }
                                             : p
                                         )
                                       }));
                                     }}
-                                    className="w-32"
-                                    data-testid={`input-price-${category.id}`}
+                                    data-testid={`checkbox-price-on-enquiry-${category.id}`}
                                   />
-                                  <span className="text-xs text-gray-500">{selectedCountry?.currencyCode || "USD"}</span>
+                                  <Label htmlFor={`isOnEnquiry-${category.id}`} className="cursor-pointer text-sm font-medium">
+                                    Price on Enquiry
+                                  </Label>
+                                  <p className="text-xs text-gray-600 ml-2">
+                                    Enable to hide pricing - clients will contact you for pricing
+                                  </p>
                                 </div>
+
+                                {!pricing?.isOnEnquiry && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm text-gray-600">Starting Price:</span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-sm font-medium">{selectedCountry?.currency || "$"}</span>
+                                      <Input 
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="100"
+                                        value={pricing?.price || ""}
+                                        onChange={(e) => {
+                                          setFormData(prev => ({
+                                            ...prev,
+                                            categoryPricing: prev.categoryPricing.map(p => 
+                                              p.category === category.name 
+                                                ? { ...p, price: e.target.value }
+                                                : p
+                                            )
+                                          }));
+                                        }}
+                                        className="w-32"
+                                        data-testid={`input-price-${category.id}`}
+                                      />
+                                      <span className="text-xs text-gray-500">{selectedCountry?.currencyCode || "USD"}</span>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
