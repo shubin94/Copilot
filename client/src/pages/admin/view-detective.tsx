@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { 
   ArrowLeft, 
   Mail, 
@@ -100,6 +101,7 @@ export default function ViewDetective() {
     category: "",
     basePrice: "",
     offerPrice: "",
+    isOnEnquiry: false,
     images: [] as string[],
   });
   const [showAddServiceDialog, setShowAddServiceDialog] = useState(false);
@@ -806,12 +808,26 @@ export default function ViewDetective() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Base Price</Label>
-                      <Input value={serviceForm.basePrice} onChange={(e) => setServiceForm({ ...serviceForm, basePrice: e.target.value })} placeholder={`${currencySymbol} 0.00`} />
+                      <Input disabled={serviceForm.isOnEnquiry} value={serviceForm.basePrice} onChange={(e) => setServiceForm({ ...serviceForm, basePrice: e.target.value })} placeholder={`${currencySymbol} 0.00`} />
                     </div>
                     <div className="space-y-2">
                       <Label>Offer Price</Label>
-                      <Input value={serviceForm.offerPrice} onChange={(e) => setServiceForm({ ...serviceForm, offerPrice: e.target.value })} placeholder={`${currencySymbol} 0.00`} />
+                      <Input disabled={serviceForm.isOnEnquiry} value={serviceForm.offerPrice} onChange={(e) => setServiceForm({ ...serviceForm, offerPrice: e.target.value })} placeholder={`${currencySymbol} 0.00`} />
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="isOnEnquiry-admin"
+                      checked={serviceForm.isOnEnquiry}
+                      onCheckedChange={(checked) => setServiceForm({ ...serviceForm, isOnEnquiry: checked as boolean })}
+                      data-testid="checkbox-price-on-enquiry-admin"
+                    />
+                    <Label htmlFor="isOnEnquiry-admin" className="cursor-pointer font-medium">
+                      Price on Enquiry
+                    </Label>
+                    <p className="text-xs text-gray-500 ml-2">
+                      Enable to hide pricing and display "On Enquiry" instead
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>Banner Image</Label>
@@ -839,7 +855,11 @@ export default function ViewDetective() {
                         const minTitle = serviceForm.title.trim().length >= 10;
                         const minDesc = serviceForm.description.trim().length >= 50;
                         const hasImage = serviceForm.images.length > 0;
-                        if (!serviceForm.category || !serviceForm.basePrice || !minTitle || !minDesc || !hasImage) {
+                        // Skip price validation if isOnEnquiry is true
+                        const hasPricing = !serviceForm.isOnEnquiry && serviceForm.basePrice;
+                        const needsPricing = !serviceForm.isOnEnquiry;
+                        
+                        if (!serviceForm.category || (needsPricing && !serviceForm.basePrice) || !minTitle || !minDesc || !hasImage) {
                           toast({ title: "Incomplete", description: "Fill all fields and upload a banner image", variant: "destructive" });
                           return;
                         }
@@ -847,7 +867,7 @@ export default function ViewDetective() {
                           toast({ title: "Duplicate category", description: "You have already added this category", variant: "destructive" });
                           return;
                         }
-                        if (serviceForm.offerPrice) {
+                        if (serviceForm.offerPrice && !serviceForm.isOnEnquiry) {
                           const bp = parseFloat(serviceForm.basePrice);
                           const op = parseFloat(serviceForm.offerPrice);
                           if (isNaN(bp) || isNaN(op) || op > bp || op <= 0) {
@@ -855,8 +875,8 @@ export default function ViewDetective() {
                             return;
                           }
                         }
-                        const cleanBase = serviceForm.basePrice.replace(/[^0-9.]/g, "");
-                        const cleanOffer = serviceForm.offerPrice ? serviceForm.offerPrice.replace(/[^0-9.]/g, "") : "";
+                        const cleanBase = serviceForm.isOnEnquiry ? "0" : serviceForm.basePrice.replace(/[^0-9.]/g, "");
+                        const cleanOffer = (serviceForm.offerPrice && !serviceForm.isOnEnquiry) ? serviceForm.offerPrice.replace(/[^0-9.]/g, "") : "";
                         const created = await adminCreateService.mutateAsync({
                           detectiveId: detective.id,
                           data: {
@@ -865,6 +885,7 @@ export default function ViewDetective() {
                             category: serviceForm.category,
                             basePrice: cleanBase,
                             offerPrice: cleanOffer || undefined,
+                            isOnEnquiry: serviceForm.isOnEnquiry,
                             images: serviceForm.images,
                           },
                         });
@@ -876,7 +897,7 @@ export default function ViewDetective() {
                         });
                         await queryClient.refetchQueries({ queryKey: ["services", "detective", detective.id, "admin"] });
                         setShowAddServiceDialog(false);
-                        setServiceForm({ title: "", description: "", category: "", basePrice: "", offerPrice: "", images: [] });
+                        setServiceForm({ title: "", description: "", category: "", basePrice: "", offerPrice: "", isOnEnquiry: false, images: [] });
                       } catch (e: any) {
                         toast({ title: "Failed", description: e?.message || "Failed to add service", variant: "destructive" });
                       }
