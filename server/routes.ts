@@ -60,6 +60,7 @@ import adminEmployeesRouter from "./routes/admin/employees.ts";
 import publicPagesRouter from "./routes/public-pages.ts";
 import publicCategoriesRouter from "./routes/public-categories.ts";
 import publicTagsRouter from "./routes/public-tags.ts";
+import sitemapRouter from "./routes/sitemap.ts";
 
 // Initialize Razorpay with env fallback (will be overridden by DB config)
 let razorpayClient = new Razorpay({
@@ -2177,6 +2178,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/pages", publicPagesRouter);
   app.use("/api/public/categories", publicCategoriesRouter);
   app.use("/api/public/tags", publicTagsRouter);
+
+  // Sitemap.xml - dynamic generation from database
+  app.use("/sitemap.xml", sitemapRouter);
 
   // Admin Employee Routes
   app.use("/api/admin/employees", adminEmployeesRouter);
