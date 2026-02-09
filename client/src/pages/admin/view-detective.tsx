@@ -138,20 +138,24 @@ export default function ViewDetective() {
   });
 
   const [autoSeeded, setAutoSeeded] = useState(false);
+  const seedInFlight = useRef(false);
   useEffect(() => {
-    if (!detective || autoSeeded) return;
+    if (!detective || autoSeeded || seedInFlight.current) return;
     const cats = categoriesData?.categories || [];
     const img = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+z6aQAAAAASUVORK5CYII=";
     (async () => {
+      seedInFlight.current = true;
       try {
         if (services.length === 0 && cats.length > 0) {
           const available = cats.map((c: any) => c.name).filter((name) => !services.some((s: any) => s.category === name));
           const category = available[0] || cats[0].name;
+          const categoryLabel = category?.trim() || "Service";
+          const businessLabel = detective.businessName || "this detective";
           const created = await adminCreateService.mutateAsync({
             detectiveId: detective.id,
             data: {
-              title: "Professional Background Check Service",
-              description: "Comprehensive background investigation including identity verification, employment and education history, and litigation checks. Delivered with a clear, actionable report.",
+              title: `${categoryLabel} Services`,
+              description: `Professional ${categoryLabel.toLowerCase()} services by ${businessLabel}. Contact for detailed consultation.`,
               category,
               basePrice: "100.00",
               images: [img],
@@ -176,7 +180,10 @@ export default function ViewDetective() {
             toast({ title: "Service Updated", description: "Made the existing service visible." });
           }
         }
-      } catch (e: any) {}
+      } catch (e: any) {
+      } finally {
+        seedInFlight.current = false;
+      }
     })();
   }, [detective, services, categoriesData, autoSeeded]);
 
