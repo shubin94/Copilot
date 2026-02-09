@@ -468,6 +468,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sessionId = (req.session as any)?.id || "UNKNOWN";
       console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}, SessionID: ${sessionId.substring(0, 20)}...`);
+      
+      // DEBUG: Show config domain and env variable
+      console.log(`[CSRF-TOKEN] DEBUG - COOKIE_DOMAIN env: ${process.env.COOKIE_DOMAIN}`);
+      console.log(`[CSRF-TOKEN] DEBUG - config.session.cookieDomain: ${config.session.cookieDomain}`);
+      res.setHeader("X-Debug-Cookie-Domain", process.env.COOKIE_DOMAIN || "undefined");
 
       // Express-session creates req.session automatically; if missing, middleware failed
       if (!req.session) {
