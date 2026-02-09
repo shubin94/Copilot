@@ -8,7 +8,7 @@ import { Check, Upload, Shield, ArrowRight, ArrowLeft, Loader2 } from "lucide-re
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useServiceCategories, useCreateApplication } from "@/lib/hooks";
+import { useServiceCategories, useCreateApplication, useSubscriptionLimits } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
 import { COUNTRY_STATES, STATE_CITIES } from "@/lib/geo";
 import type { InsertDetectiveApplication } from "@shared/schema";
@@ -122,7 +122,11 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
 
   const createApplication = useCreateApplication();
   const { data: categoriesData } = useServiceCategories();
+  const { data: limitsData } = useSubscriptionLimits();
   const serviceCategories = categoriesData?.categories?.filter(cat => cat.isActive) || [];
+  
+  // Get the free plan's service limit (new detectives start on free plan)
+  const freeServiceLimit = limitsData?.limits?.free || 10;
 
   const validateStep = (currentStep: number): boolean => {
     const fieldsToValidate: string[] = [];
@@ -1059,10 +1063,10 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                             checked={isSelected}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                if (formData.serviceCategories.length >= 2) {
+                                if (formData.serviceCategories.length >= freeServiceLimit) {
                                   toast({
                                     title: "Maximum Limit Reached",
-                                    description: "You can add more categories after your account is approved.",
+                                    description: `You can select up to ${freeServiceLimit} categories for your free account. Upgrade your subscription for more.`,
                                     variant: "default",
                                   });
                                   return;

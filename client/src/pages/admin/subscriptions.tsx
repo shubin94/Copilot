@@ -195,7 +195,7 @@ export default function AdminSubscriptions() {
   };
 
   const applyServiceLimits = async () => {
-    const free = Number(plans.find(p => p.id === "free")?.serviceLimit || 2);
+    const free = Number(plans.find(p => p.id === "free")?.serviceLimit || 10);
     const pro = Number(plans.find(p => p.id === "pro")?.serviceLimit || 4);
     const agencyPlan = plans.find(p => p.id === "agency")?.serviceLimit || "1000";
     const agency = agencyPlan === "unlimited" ? 1000 : Number(agencyPlan);
