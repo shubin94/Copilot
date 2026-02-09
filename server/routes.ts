@@ -4095,6 +4095,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
 
+<<<<<<< Updated upstream
           if (application.serviceCategories && application.categoryPricing) {
             const pricingData = application.categoryPricing as Array<{category: string; price: string; currency: string}>;
             for (const category of application.serviceCategories) {
@@ -4102,11 +4103,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (pricing && pricing.price) {
                 const existing = await storage.getServiceByDetectiveAndCategory(detective.id, category);
                 if (!existing) {
+=======
+          // 🔴 AUTO-CREATE SERVICES: Only if application has valid service categories
+          if (application.serviceCategories && Array.isArray(application.serviceCategories) && application.serviceCategories.length > 0) {
+            const existingServices = await storage.getAllServicesByDetective(detective.id);
+            if (existingServices.length > 0) {
+              console.log(`[AUTO-SERVICE-CREATE] ℹ️  Detective already has ${existingServices.length} service(s). Skipping auto-create.`);
+            } else {
+              const pricingData = (application.categoryPricing || []) as Array<{category: string; price?: string; currency: string; isOnEnquiry?: boolean}>;
+              
+              // Log for debugging
+              console.log(`[AUTO-SERVICE-CREATE] Detective: ${detective.id} (${application.fullName})`);
+              console.log(`[AUTO-SERVICE-CREATE] serviceCategories: ${JSON.stringify(application.serviceCategories)}`);
+              console.log(`[AUTO-SERVICE-CREATE] categoryPricing: ${JSON.stringify(pricingData)}`);
+              console.log(`[AUTO-SERVICE-CREATE] Total categories to process: ${application.serviceCategories.length}`);
+              
+              // Deduplicate categories (prevent same category from being processed twice)
+              const uniqueCategories = [...new Set(application.serviceCategories)];
+              if (uniqueCategories.length !== application.serviceCategories.length) {
+                console.warn(`[AUTO-SERVICE-CREATE] ⚠️  Duplicates detected in serviceCategories! Original: ${application.serviceCategories.length}, Unique: ${uniqueCategories.length}`);
+              }
+              
+              let servicesCreated = 0;
+              for (const category of uniqueCategories) {
+                if (!category || typeof category !== 'string') {
+                  console.warn(`[AUTO-SERVICE-CREATE] ⚠️  Skipping invalid category: ${JSON.stringify(category)}`);
+                  continue;
+                }
+                
+                const pricing = pricingData.find(p => p?.category === category);
+                if (!pricing) {
+                  console.warn(`[AUTO-SERVICE-CREATE] ⚠️  No pricing data found for category: ${category}`);
+                  continue;
+                }
+                
+                const isOnEnquiry = pricing.isOnEnquiry === true;
+                if (!isOnEnquiry && !pricing.price) {
+                  console.warn(`[AUTO-SERVICE-CREATE] ⚠️  No price found for category (not on-enquiry): ${category}`);
+                  continue;
+                }
+                
+                // Check if service already exists
+                const existing = await storage.getServiceByDetectiveAndCategory(detective.id, category);
+                if (existing) {
+                  console.log(`[AUTO-SERVICE-CREATE] ℹ️  Service already exists for category: ${category}, skipping`);
+                  continue;
+                }
+                
+                // Create the service
+                try {
+>>>>>>> Stashed changes
                   await storage.createService({
                     detectiveId: detective.id,
                     category,
                     title: `${category} Services`,
                     description: `Professional ${category.toLowerCase()} services by ${application.fullName}. Contact for detailed consultation.`,
+<<<<<<< Updated upstream
                     basePrice: pricing.price,
                     images: (application as any).banner ? [(application as any).banner] : undefined,
                     isActive: true,
@@ -4114,6 +4166,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 }
               }
             }
+=======
+                    basePrice: isOnEnquiry ? null : (pricing.price || null),
+                    images: (application as any).banner ? [(application as any).banner] : undefined,
+                    isActive: true,
+                    isOnEnquiry: isOnEnquiry,
+                  });
+                  servicesCreated++;
+                  console.log(`[AUTO-SERVICE-CREATE] ✅ Created service for category: ${category} (isOnEnquiry: ${isOnEnquiry})`);
+                } catch (serviceError: any) {
+                  console.error(`[AUTO-SERVICE-CREATE] ❌ Failed to create service for ${category}:`, serviceError?.message);
+                }
+              }
+              
+              console.log(`[AUTO-SERVICE-CREATE] 📊 SUMMARY: ${servicesCreated} service(s) created out of ${uniqueCategories.length} unique categories`);
+            }
+          } else {
+            console.log(`[AUTO-SERVICE-CREATE] ℹ️  No service categories to auto-create (serviceCategories: ${JSON.stringify(application.serviceCategories)})`);
+>>>>>>> Stashed changes
           }
 
           console.log(`Detective account ${user ? "linked/created" : "unknown"} for: ${normalizedEmail} with ${application.serviceCategories?.length || 0} services.`);
