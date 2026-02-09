@@ -68,8 +68,11 @@ export default function AdminEmailTemplates() {
     try {
       setIsLoading(true);
       const response = await api.get<{ templates: EmailTemplate[] }>("/api/admin/email-templates");
+      console.log("[Email Templates] API Response:", response);
+      console.log("[Email Templates] Templates array:", response.templates);
       setTemplates(response.templates || []);
     } catch (error) {
+      console.error("[Email Templates] Load error:", error);
       toast({
         title: "Error",
         description: "Failed to load email templates",
