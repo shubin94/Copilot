@@ -286,6 +286,7 @@ app.use((req, res, next) => {
   const requestedWith = req.get("x-requested-with");
   const token = req.get("x-csrf-token");
   const sessionToken = (req.session as any)?.csrfToken;
+  const sessionId = (req.session as any)?.id || "NO_SESSION_ID";
 
   if (!req.session) {
     log(`CSRF blocked: session unavailable ${req.method} ${req.path}`, "csrf");
@@ -320,7 +321,7 @@ app.use((req, res, next) => {
   }
 
   if (!sessionToken || token !== sessionToken) {
-    log(`CSRF blocked: missing or invalid CSRF token ${req.method} ${req.path}`, "csrf");
+    log(`CSRF blocked: ${req.method} ${req.path} - Session ${sessionId.substring(0, 20)}... - Token mismatch (header: ${token ? token.substring(0, 20) + "..." : "MISSING"}, session: ${sessionToken ? sessionToken.substring(0, 20) + "..." : "MISSING"})`, "csrf");
     return res.status(403).json({ error: "Invalid CSRF token" });
   }
 
