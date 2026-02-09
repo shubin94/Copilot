@@ -264,10 +264,10 @@ export function getSessionMiddleware() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: config.session.secureCookies,
-      sameSite: config.env.isProd ? "none" : "lax",
+      secure: config.session.secureCookies || !config.env.isProd,  // Allow http + SameSite=none in dev
+      sameSite: "none",  // Use none for both dev and prod - works in incognito
       maxAge: config.session.ttlMs,
-      domain: null as any, // Explicitly null - no domain restriction for cross-origin
+      domain: config.env.isProd ? undefined : ".localhost",  // Domain scope for dev to allow cross-port
     },
   });
   

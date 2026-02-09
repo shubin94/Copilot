@@ -889,7 +889,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (err) {
         return res.status(500).json({ error: "Failed to log out" });
       }
-      res.clearCookie("connect.sid", { path: "/", httpOnly: true, secure: config.session.secureCookies, sameSite: "lax" });
+      res.clearCookie("connect.sid", { path: "/", httpOnly: true, secure: config.session.secureCookies || !config.env.isDev, sameSite: "none", domain: config.env.isDev ? ".localhost" : undefined });
       res.json({ message: "Logged out successfully" });
     });
   });
