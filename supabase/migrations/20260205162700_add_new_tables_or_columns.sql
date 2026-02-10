@@ -1,0 +1,2 @@
+-- No-op: schema already defined in 20260129084218_remote_schema.sql.
+-- This migration is intentionally empty to avoid duplicate object errors.

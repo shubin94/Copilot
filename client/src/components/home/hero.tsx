@@ -224,7 +224,7 @@ export function Hero() {
               .map((tag: string) => (
                 <button
                   key={tag}
-                  onClick={() => setLocation(`/search?q=${encodeURIComponent(tag)}`)}
+                  onClick={() => setLocation(`/search?category=${encodeURIComponent(tag)}`)}
                   className="px-3 py-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white text-sm font-medium border border-white/30 transition-colors"
                 >
                   {tag}
