@@ -264,10 +264,10 @@ export function getSessionMiddleware() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: config.session.secureCookies || !config.env.isProd,  // Allow http + SameSite=none in dev
-      sameSite: "none",  // Use none for both dev and prod - works in incognito
+      secure: config.env.isProd,  // Only secure in production (HTTPS)
+      sameSite: config.env.isProd ? "none" : "lax",  // Dev: lax (works with HTTP), Prod: none (cross-origin)
       maxAge: config.session.ttlMs,
-      domain: config.env.isProd ? undefined : ".localhost",  // Domain scope for dev to allow cross-port
+      domain: undefined,  // NO DOMAIN RESTRICTION
     },
   });
   
@@ -331,8 +331,19 @@ app.use((req, res, next) => {
     return res.status(403).json({ error: "Invalid CSRF token" });
   }
 
+  const tokenGeneratedAt = (req.session as any)?.csrfTokenGeneratedAt as number | undefined;
+  if (tokenGeneratedAt) {
+    const tokenAgeMs = Date.now() - tokenGeneratedAt;
+    if (tokenAgeMs > 60 * 60 * 1000) {
+      const ageMinutes = Math.floor(tokenAgeMs / 60000);
+      log(`CSRF blocked: token expired (${ageMinutes}m) ${req.method} ${req.path}`, "csrf");
+      return res.status(403).json({ error: "CSRF token expired", requiresRefresh: true });
+    }
+  }
+
   if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
-    log(`CSRF warning: missing or invalid X-Requested-With header ${req.method} ${req.path}`, "csrf");
+    log(`CSRF blocked: missing or invalid X-Requested-With header ${req.method} ${req.path}`, "csrf");
+    return res.status(403).json({ error: "Missing or invalid X-Requested-With header" });
   }
 
   return next();

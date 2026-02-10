@@ -563,7 +563,9 @@ export class DatabaseStorage implements IStorage {
     minPrice?: number;
     maxPrice?: number;
     ratingMin?: number;
-  }, limit: number = 50, offset: number = 0, sortBy: string = 'recent'): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number }>> {
+    planName?: string;
+    level?: string;
+  }, limit: number = 50, offset: number = 0, sortBy: string = 'recent'): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number, planName?: string }>> {
     
     // ONLY filter by active services - NO visibility restrictions
     const conditions = [ eq(services.isActive, true) ];
@@ -601,32 +603,82 @@ export class DatabaseStorage implements IStorage {
       conditions.push(ilike(detectives.city, filters.city));
     }
 
-    let query = db.select({
-      service: services,
-      detective: detectives,
-      email: users.email,
-      package: subscriptionPlans,
+    // Filter by subscription plan (pro, agency, etc)
+    if (filters.planName) {
+      conditions.push(eq(subscriptionPlans.name, filters.planName));
+    }
+
+    // Filter by detective level (level1, level2, level3, pro)
+    if (filters.level) {
+      conditions.push(eq(detectives.level, filters.level as any));
+    }
+
+    // Use subquery for reviews aggregation to avoid cartesian product
+    // This prevents the LEFT JOIN reviews from multiplying rows
+    const reviewsAgg = db.select({
+      serviceId: reviews.serviceId,
       avgRating: sql<number>`COALESCE(AVG(${reviews.rating}), 0)`.as('avg_rating'),
       reviewCount: count(reviews.id).as('review_count'),
+    })
+    .from(reviews)
+    .where(eq(reviews.isPublished, true))
+    .groupBy(reviews.serviceId)
+    .as('reviews_agg');
+
+    let query = db.select({
+      // Service fields needed by ServiceCard
+      serviceId: services.id,
+      serviceTitle: services.title,
+      serviceCategory: services.category,
+      serviceBasePrice: services.basePrice,
+      serviceOfferPrice: services.offerPrice,
+      serviceIsOnEnquiry: services.isOnEnquiry,
+      serviceImages: services.images,
+      serviceIsActive: services.isActive,
+      serviceCreatedAt: services.createdAt,
+      serviceOrderCount: services.orderCount,
+      
+      // Detective fields needed by ServiceCard
+      detectiveId: detectives.id,
+      detectiveBusinessName: detectives.businessName,
+      detectiveLevel: detectives.level,
+      detectiveLogo: detectives.logo,
+      detectiveCountry: detectives.country,
+      detectiveLocation: detectives.location,
+      detectivePhone: detectives.phone,
+      detectiveWhatsapp: detectives.whatsapp,
+      detectiveContactEmail: detectives.contactEmail,
+      detectiveIsVerified: detectives.isVerified,
+      
+      // User & Subscription fields
+      email: users.email,
+      planName: subscriptionPlans.name,
+      
+      // Aggregated values
+      avgRating: reviewsAgg.avgRating,
+      reviewCount: reviewsAgg.reviewCount,
     })
     .from(services)
     .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
     .leftJoin(users, eq(detectives.userId, users.id))
     .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
-    .leftJoin(reviews, and(eq(reviews.serviceId, services.id), eq(reviews.isPublished, true)))
-    .where(and(...conditions))
-    .groupBy(services.id, detectives.id, subscriptionPlans.id, users.email);
+    .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
+    .where(and(...conditions));
 
-    // rating filter uses HAVING on aggregate
+    // rating filter uses WHERE on aggregated values
     if (filters.ratingMin !== undefined) {
-      query = query.having(sql`COALESCE(AVG(${reviews.rating}), 0) >= ${filters.ratingMin}`) as any;
+      query = query.having(sql`COALESCE(${reviewsAgg.avgRating}, 0) >= ${filters.ratingMin}`) as any;
     }
 
     // Sort
     if (sortBy === 'popular') {
       query = query.orderBy(desc(services.orderCount)) as any;
     } else if (sortBy === 'rating') {
-      query = query.orderBy(desc(sql`COALESCE(AVG(${reviews.rating}), 0)`)) as any;
+      query = query.orderBy(desc(reviewsAgg.avgRating)) as any;
+    } else if (sortBy === 'price_low') {
+      query = query.orderBy(services.basePrice) as any;
+    } else if (sortBy === 'price_high') {
+      query = query.orderBy(desc(services.basePrice)) as any;
     } else {
       query = query.orderBy(desc(services.createdAt)) as any;
     }
@@ -636,14 +688,32 @@ export class DatabaseStorage implements IStorage {
     console.log('[searchServices] FINAL services count:', results.length, 'sortBy:', sortBy);
     
     return results.map((r: any) => ({
-      ...r.service,
+      id: r.serviceId,
+      title: r.serviceTitle,
+      category: r.serviceCategory,
+      basePrice: r.serviceBasePrice,
+      offerPrice: r.serviceOfferPrice,
+      isOnEnquiry: r.serviceIsOnEnquiry,
+      images: r.serviceImages,
+      isActive: r.serviceIsActive,
+      createdAt: r.serviceCreatedAt,
+      orderCount: r.serviceOrderCount,
       detective: {
-        ...r.detective!,
+        id: r.detectiveId,
+        businessName: r.detectiveBusinessName,
+        level: r.detectiveLevel,
+        logo: r.detectiveLogo,
+        country: r.detectiveCountry,
+        location: r.detectiveLocation,
+        phone: r.detectivePhone,
+        whatsapp: r.detectiveWhatsapp,
+        contactEmail: r.detectiveContactEmail,
+        isVerified: r.detectiveIsVerified,
         email: r.email || undefined,
-        subscriptionPackage: r.package || undefined,
       },
       avgRating: Number(r.avgRating),
-      reviewCount: Number(r.reviewCount)
+      reviewCount: Number(r.reviewCount),
+      planName: r.planName || undefined
     }));
   }
 
