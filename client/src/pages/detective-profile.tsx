@@ -282,28 +282,6 @@ export default function DetectiveProfile() {
             <ChevronLeft className="h-4 w-4" /> Back
           </Button>
         </div>
-        {isClaimable && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm" data-testid="claimable-banner">
-             <div className="flex items-start gap-4">
-               <div className="bg-blue-100 p-2 rounded-full mt-1">
-                 <AlertTriangle className="h-6 w-6 text-blue-600" />
-               </div>
-               <div>
-                 <h2 className="text-lg font-bold text-blue-900">Is this your business?</h2>
-                 <p className="text-blue-700 max-w-xl">
-                   Claim this profile to manage your details, respond to reviews, and access premium features.
-                 </p>
-               </div>
-             </div>
-                <Button 
-               className="bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap px-8 shadow-md" 
-               data-testid="button-claim-profile"
-               onClick={() => window.location.href = `/claim-profile/${detective.id}?serviceId=${service.id}`}
-             >
-               Claim This Profile
-             </Button>
-          </div>
-        )}
 
         <div className="flex flex-col lg:flex-row gap-12">
           
@@ -605,6 +583,29 @@ export default function DetectiveProfile() {
                   )}
                 </div>
               </div>
+
+              {isClaimable && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 my-8 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm" data-testid="claimable-banner">
+                  <div className="flex items-start gap-4">
+                    <div className="bg-blue-100 p-2 rounded-full mt-1">
+                      <AlertTriangle className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-blue-900">Is this your business?</h2>
+                      <p className="text-blue-700 max-w-xl">
+                        Claim this profile to manage your details, respond to reviews, and access premium features.
+                      </p>
+                    </div>
+                  </div>
+                  <Button 
+                    className="bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap px-8 shadow-md" 
+                    data-testid="button-claim-profile"
+                    onClick={() => window.location.href = `/claim-profile/${detective.id}?serviceId=${service.id}`}
+                  >
+                    Claim This Profile
+                  </Button>
+                </div>
+              )}
 
               <Separator className="my-8" />
 
