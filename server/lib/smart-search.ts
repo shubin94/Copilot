@@ -103,11 +103,14 @@ export async function runSmartSearch(query: string, deps: SmartSearchDeps): Prom
   const deepseekKey = config.deepseek?.apiKey?.trim();
   if (!deepseekKey) {
     console.warn("[smart-search] No DeepSeek API key configured - pure semantic matching unavailable");
+    console.warn("[smart-search] Add your DeepSeek API key in Admin → App Secrets to enable AI-powered category matching");
     return {
       kind: "category_not_found",
       message: "We didn't find any relevant category. You can browse all services below.",
     };
   }
+
+  console.log("[smart-search] DeepSeek API key detected, using AI-powered category matching");
 
   // Match semantically via DeepSeek (ONLY method)
   let semanticResult: DeepseekSemanticResult;
@@ -144,13 +147,19 @@ export async function runSmartSearch(query: string, deps: SmartSearchDeps): Prom
   const category = semanticResult.topMatch.category;
   const location = resolveLocation(q);
 
+  console.log("[smart-search] Matched category:", category);
+  console.log("[smart-search] Building URL with category:", category);
+
   const params = new URLSearchParams();
   params.set("category", category);
+  params.set("sortBy", "popular");
   if (location?.country) {
     params.set("country", location.country);
     if (location.state) params.set("state", location.state);
   }
   const searchUrl = `/search?${params.toString()}`;
+  console.log("[smart-search] Final searchUrl:", searchUrl);
+  
   const resolvedScope = location?.city ? "city" : location?.state ? "state" : location?.country ? "country" : "country";
 
   return {

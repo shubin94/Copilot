@@ -166,29 +166,53 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
 }
 
 export default function SearchPage() {
-  const [_, setLocation] = useLocation();
-  const searchParams = new URLSearchParams(window.location.search);
-  const query = searchParams.get("q") || "All Services";
+  const [location, setLocation] = useLocation();
   
   // Initialize filter state from URL params
+  const initialSearchParams = useRef(new URLSearchParams(window.location.search));
+  const query = initialSearchParams.current.get("q") || "All Services";
+  
   const [filters, dispatch] = useReducer(filterReducer, {
-    category: searchParams.get("category") || undefined,
-    minRating: searchParams.get("minRating") ? parseFloat(searchParams.get("minRating")!) : undefined,
-    country: searchParams.get("country") || undefined,
-    state: searchParams.get("state") || "",
-    city: searchParams.get("city") || "",
-    minPrice: searchParams.get("minPrice") ? parseFloat(searchParams.get("minPrice")!) : undefined,
-    maxPrice: searchParams.get("maxPrice") ? parseFloat(searchParams.get("maxPrice")!) : undefined,
-    minPriceInput: searchParams.get("minPrice") || "",
-    maxPriceInput: searchParams.get("maxPrice") || "",
-    proOnly: searchParams.get("proOnly") === "1",
-    agencyOnly: searchParams.get("agencyOnly") === "1",
-    level1Only: searchParams.get("lvl1") === "1",
-    level2Only: searchParams.get("lvl2") === "1",
-    sortBy: searchParams.get("sortBy") || "popular",
+    category: initialSearchParams.current.get("category") || undefined,
+    minRating: initialSearchParams.current.get("minRating") ? parseFloat(initialSearchParams.current.get("minRating")!) : undefined,
+    country: initialSearchParams.current.get("country") || undefined,
+    state: initialSearchParams.current.get("state") || "",
+    city: initialSearchParams.current.get("city") || "",
+    minPrice: initialSearchParams.current.get("minPrice") ? parseFloat(initialSearchParams.current.get("minPrice")!) : undefined,
+    maxPrice: initialSearchParams.current.get("maxPrice") ? parseFloat(initialSearchParams.current.get("maxPrice")!) : undefined,
+    minPriceInput: initialSearchParams.current.get("minPrice") || "",
+    maxPriceInput: initialSearchParams.current.get("maxPrice") || "",
+    proOnly: initialSearchParams.current.get("proOnly") === "1",
+    agencyOnly: initialSearchParams.current.get("agencyOnly") === "1",
+    level1Only: initialSearchParams.current.get("lvl1") === "1",
+    level2Only: initialSearchParams.current.get("lvl2") === "1",
+    sortBy: initialSearchParams.current.get("sortBy") || "popular",
     offset: 0,
     limit: 50,
   });
+
+  // Sync filters when navigating to this page with new URL params
+  useEffect(() => {
+    const currentParams = new URLSearchParams(window.location.search);
+    const urlCategory = currentParams.get("category") || undefined;
+    const urlCountry = currentParams.get("country") || undefined;
+    const urlState = currentParams.get("state") || "";
+    
+    console.log("[search-page] URL changed, params:", { urlCategory, urlCountry, urlState });
+    console.log("[search-page] Current filters:", filters);
+    
+    // Only update if different from current filter state
+    if (urlCategory && urlCategory !== filters.category) {
+      console.log("[search-page] Setting category filter:", urlCategory);
+      dispatch({ type: 'SET_CATEGORY', payload: urlCategory });
+    }
+    if (urlCountry && urlCountry !== filters.country) {
+      dispatch({ type: 'SET_COUNTRY', payload: urlCountry });
+    }
+    if (urlState && urlState !== filters.state) {
+      dispatch({ type: 'SET_STATE', payload: urlState });
+    }
+  }, [location]); // Re-run when location (route) changes
 
   // UI state (not filter-related, kept as useState)
   const [categoryQuery, setCategoryQuery] = useState<string>("");
@@ -223,6 +247,14 @@ export default function SearchPage() {
     sortBy: filters.sortBy,
     limit: filters.limit,
     offset: filters.offset,
+  });
+
+  console.log("[search-page] Querying with filters:", {
+    category: filters.category,
+    country: filters.country,
+    state: filters.state,
+    city: filters.city,
+    query: filters.category ? undefined : (query !== "All Services" ? query : undefined)
   });
 
   const { data: categoriesData } = useServiceCategories(true);
@@ -272,10 +304,13 @@ export default function SearchPage() {
   // Track if we've done initial URL sync to avoid loops
   const hasInitializedFromUrl = useRef(false);
 
-  // Clear all filters when the main search query (q) changes
+  // Clear filters only when user changes the main search query without a category param
   useEffect(() => {
-    dispatch({ type: 'RESET_FILTERS' });
-  }, [query]);
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get("category")) {
+      dispatch({ type: 'RESET_FILTERS' });
+    }
+  }, [query, location]);
 
   // Sync filters FROM URL ONLY on initial mount (state is already initialized from URL in useReducer)
   useEffect(() => {

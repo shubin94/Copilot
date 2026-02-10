@@ -52,11 +52,16 @@ const KEY_MAP: Record<string, (v: string) => void> = {
 export async function loadSecretsFromDatabase(): Promise<void> {
   try {
     const rows = await db.select().from(appSecrets);
+    const loadedKeys: string[] = [];
     for (const row of rows) {
       const setter = KEY_MAP[row.key];
       if (setter && row.value) {
         setter(row.value);
+        loadedKeys.push(row.key);
       }
+    }
+    if (loadedKeys.length > 0) {
+      console.log(`✅ Loaded ${loadedKeys.length} secrets from database:`, loadedKeys.join(", "));
     }
     secretsLoadedSuccessfully = true;
   } catch (e) {
