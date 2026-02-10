@@ -96,6 +96,9 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
       } else if (selected?.type === "location" && selected.value.startsWith("country:")) {
         const countryCode = selected.value.replace("country:", "");
         setLocation(`/search?country=${countryCode}`);
+      } else if (selected?.type === "category") {
+        // Use category parameter for category suggestions
+        setLocation(`/search?category=${encodeURIComponent(selected.value)}`);
       } else {
         const val = selected?.label || searchQuery;
         const params = new URLSearchParams();
@@ -218,6 +221,9 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                   } else if (selected?.type === "location" && selected.value.startsWith("country:")) {
                     const countryCode = selected.value.replace("country:", "");
                     setLocation(`/search?country=${countryCode}`);
+                  } else if (selected?.type === "category") {
+                    // Use category parameter for category suggestions
+                    setLocation(`/search?category=${encodeURIComponent(selected.value)}`);
                   } else {
                     const val = selected?.label || searchQuery;
                     const params = new URLSearchParams();
@@ -244,6 +250,9 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                         } else if (s.type === "location" && s.value.startsWith("country:")) {
                           const countryCode = s.value.replace("country:", "");
                           setLocation(`/search?country=${countryCode}`);
+                        } else if (s.type === "category") {
+                          // Use category parameter for category suggestions
+                          setLocation(`/search?category=${encodeURIComponent(s.value)}`);
                         } else {
                           const params = new URLSearchParams();
                           params.set("q", s.label);
