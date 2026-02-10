@@ -93,7 +93,16 @@ export default function ViewDetective() {
   const freeLimit = limitsData?.limits?.free;
   const canAddService = !!detective && detective.createdBy === "admin" && detective.isClaimable && !detective.subscriptionPackageId && services.length < freeLimit;
 
-  const adminCreateService = useAdminCreateServiceForDetective();
+  // Mutation for updating service pricing
+  const updateServicePricingMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }) => 
+      api.services.adminUpdatePricing(id, data),
+    onSuccess: async () => {
+      if (detective?.id) {
+        await queryClient.refetchQueries({ queryKey: ["services", "detective", detective.id, "admin"] });
+      }
+    },
+  });
   const adminUpdateService = useAdminUpdateService();
   const [serviceForm, setServiceForm] = useState({
     title: "",
@@ -105,6 +114,13 @@ export default function ViewDetective() {
     images: [] as string[],
   });
   const [showAddServiceDialog, setShowAddServiceDialog] = useState(false);
+  const [showEditPricingDialog, setShowEditPricingDialog] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [pricingForm, setPricingForm] = useState({
+    basePrice: "",
+    offerPrice: "",
+    isOnEnquiry: false,
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const currencySymbol = (() => {
     const key = (detective?.country || selectedCountry.code) || '';
@@ -737,7 +753,24 @@ export default function ViewDetective() {
                               Created {format(new Date(service.createdAt), "MMM d, yyyy")}
                             </div>
                             </div>
-                            <div className="mt-3 flex items-center gap-2">
+                            <div className="mt-3 flex items-center gap-2 flex-wrap">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingServiceId(service.id);
+                                  setPricingForm({
+                                    basePrice: service.basePrice || "",
+                                    offerPrice: service.offerPrice || "",
+                                    isOnEnquiry: service.isOnEnquiry || false,
+                                  });
+                                  setShowEditPricingDialog(true);
+                                }}
+                                data-testid={`button-edit-pricing-${service.id}`}
+                              >
+                                <DollarSign className="h-4 w-4 mr-1" />
+                                Edit Pricing
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -912,6 +945,128 @@ export default function ViewDetective() {
                     disabled={adminCreateService.isPending}
                   >
                     {adminCreateService.isPending ? "Saving..." : "Save"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Edit Service Pricing Dialog */}
+            <Dialog open={showEditPricingDialog} onOpenChange={setShowEditPricingDialog}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Service Pricing</DialogTitle>
+                  <DialogDescription>Update the pricing details for this service</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="edit-isOnEnquiry"
+                      checked={pricingForm.isOnEnquiry}
+                      onCheckedChange={(checked) => setPricingForm({ ...pricingForm, isOnEnquiry: checked as boolean })}
+                    />
+                    <Label htmlFor="edit-isOnEnquiry" className="cursor-pointer font-medium">
+                      Price on Enquiry
+                    </Label>
+                    <p className="text-xs text-gray-500">
+                      Enable to hide pricing
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-basePrice">Base Price</Label>
+                      <Input
+                        id="edit-basePrice"
+                        disabled={pricingForm.isOnEnquiry}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={pricingForm.basePrice}
+                        onChange={(e) => setPricingForm({ ...pricingForm, basePrice: e.target.value })}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-offerPrice">Offer Price (Optional)</Label>
+                      <Input
+                        id="edit-offerPrice"
+                        disabled={pricingForm.isOnEnquiry}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={pricingForm.offerPrice}
+                        onChange={(e) => setPricingForm({ ...pricingForm, offerPrice: e.target.value })}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowEditPricingDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      if (!editingServiceId) return;
+                      try {
+                        if (!pricingForm.isOnEnquiry && !pricingForm.basePrice) {
+                          toast({
+                            title: "Validation Error",
+                            description: "Base price is required when not using Price on Enquiry",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        if (!pricingForm.isOnEnquiry) {
+                          const bp = parseFloat(pricingForm.basePrice);
+                          if (isNaN(bp) || !(bp > 0)) {
+                            toast({
+                              title: "Validation Error",
+                              description: "Base price must be a positive number",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          if (pricingForm.offerPrice) {
+                            const op = parseFloat(pricingForm.offerPrice);
+                            if (isNaN(op) || !(op > 0) || !(op < bp)) {
+                              toast({
+                                title: "Validation Error",
+                                description: "Offer price must be positive and lower than base price",
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                          }
+                        }
+                        
+                        await updateServicePricingMutation.mutateAsync({
+                          id: editingServiceId,
+                          data: {
+                            basePrice: pricingForm.isOnEnquiry ? null : pricingForm.basePrice,
+                            offerPrice: pricingForm.offerPrice || null,
+                            isOnEnquiry: pricingForm.isOnEnquiry,
+                          },
+                        });
+                        
+                        toast({
+                          title: "Success",
+                          description: "Service pricing updated successfully",
+                        });
+                        
+                        setShowEditPricingDialog(false);
+                        setEditingServiceId(null);
+                        setPricingForm({ basePrice: "", offerPrice: "", isOnEnquiry: false });
+                      } catch (e: any) {
+                        toast({
+                          title: "Error",
+                          description: e?.message || "Failed to update service pricing",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                    disabled={updateServicePricingMutation.isPending}
+                  >
+                    {updateServicePricingMutation.isPending ? "Saving..." : "Save Changes"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
