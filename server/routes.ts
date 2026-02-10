@@ -3232,8 +3232,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const body = req.body && typeof req.body === "object" ? req.body : {};
       const query = typeof body.query === "string" ? body.query.trim() : "";
-      const categories = await storage.getAllServiceCategories(true);
-      const categoryNames = categories.map((c: { name: string }) => c.name);
+      
+      // Get ALL categories with descriptions (not just names)
+      const fullCategories = await storage.getAllServiceCategories(true);
+      const categoriesWithDesc = fullCategories.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description || "",
+      }));
+      
       const checkAvailability = async (opts: { category: string; country: string; state?: string; city?: string }) => {
         const list = await storage.searchServices({
           category: opts.category,
@@ -3243,11 +3250,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }, 1, 0);
         return list.length;
       };
-      const result = await runSmartSearch(query, { categoryNames, checkAvailability });
+      
+      const result = await runSmartSearch(query, { categories: categoriesWithDesc, checkAvailability });
       
       // Ensure result is valid before sending
       if (!result || typeof result !== 'object') {
-        console.error("[deepseek-error] Invalid result from runSmartSearch:", result);
+        console.error("[smart-search-error] Invalid result from runSmartSearch:", result);
         return res.status(200).json({
           kind: "category_not_found",
           message: "We didn't find any relevant categories. You can browse here to find what you need.",
@@ -3256,7 +3264,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(result);
     } catch (error) {
-      console.error("[deepseek-error] Smart search error:", error);
+      console.error("[smart-search-error] Smart search error:", error);
       res.status(200).json({
         kind: "category_not_found",
         message: "We didn't find any relevant categories. You can browse here to find what you need.",
@@ -3412,20 +3420,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : (hasImages && !!service.title && !!service.description && !!service.category);
         
         const isComplete = service.isActive === true && hasRequiredContent && (service.isOnEnquiry || !!service.basePrice);
-        
-        // DEBUG
-        console.log(`[GET /api/services/:id] Service ${req.params.id}`, {
-          isActive: service.isActive,
-          isOnEnquiry: service.isOnEnquiry,
-          hasImages,
-          hasTitle: !!service.title,
-          hasDescription: !!service.description,
-          hasCategory: !!service.category,
-          basePrice: service.basePrice,
-          hasRequiredContent,
-          isComplete,
-        });
-        
         if (!isComplete) {
           return res.status(404).json({ error: "Service not available" });
         }

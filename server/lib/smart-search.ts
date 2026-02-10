@@ -1,10 +1,19 @@
 /**
- * Smart AI Search: prohibited check, category matching (existing only), location resolution.
- * Uses Deepseek when DEEPSEEK_API_KEY is set to understand user text; otherwise keyword match.
+ * Smart AI Search: Pure semantic, intent-based category matching via DeepSeek.
+ * 
+ * NO keyword matching, fuzzy matching, or regex patterns.
+ * ONLY problem-to-solution reasoning from DeepSeek.
+ * 
+ * Process:
+ * 1. User submits query
+ * 2. Check prohibited keywords only (illegal activities)
+ * 3. Send query + all categories WITH descriptions to DeepSeek
+ * 4. DeepSeek analyzes user's INTENT and maps to categories by problem-solving fit
+ * 5. Return top match with confidence scores
  */
 
 import { resolveLocation } from "./geo.ts";
-import { matchCategoryWithDeepseek } from "./deepseek-category.ts";
+import { matchCategorySemanticDeepseek, type CategoryWithDesc, type DeepseekSemanticResult } from "./deepseek-category.ts";
 import { config } from "../config.ts";
 
 const PROHIBITED_KEYWORDS = [
@@ -29,55 +38,6 @@ function isProhibited(query: string): boolean {
   return false;
 }
 
-// Explicit phrase -> category name (when that category exists in the list)
-const PHRASE_TO_CATEGORY: [RegExp, string][] = [
-  [/missing\s+person|find\s+(a\s+)?(missing\s+)?person|find\s+(a\s+)?missing|locate\s+missing|missing\s+people|trace\s+(a\s+)?person|locate\s+(a\s+)?person/i, "Missing Persons"],
-  [/monitor\w*\s+(my\s+)?(kid|child|children)|watch\s+my\s+kid/i, "Monitoring"],
-  [/monitoring/i, "Monitoring"],
-];
-
-/**
- * Match user query to exactly one existing category name (keyword/substring match).
- * Returns category name or null if no match; optional suggestedCategories for low confidence.
- * Word overlap (e.g. "monitor" in query -> "Monitoring" category) is treated as a match.
- */
-function matchCategory(
-  query: string,
-  categoryNames: string[]
-): { category: string | null; suggestedCategories: string[] } {
-  const q = query.toLowerCase().trim();
-
-  // Explicit phrases (e.g. "missing person" -> Missing Persons)
-  for (const [regex, preferredName] of PHRASE_TO_CATEGORY) {
-    if (!regex.test(q)) continue;
-    const found = categoryNames.find((n) => n.toLowerCase() === preferredName.toLowerCase());
-    if (found) return { category: found, suggestedCategories: [] };
-  }
-
-  const matched: string[] = [];
-  for (const name of categoryNames) {
-    const n = name.toLowerCase();
-    if (q.includes(n) || n.includes(q)) matched.push(name);
-  }
-  if (matched.length === 1) return { category: matched[0], suggestedCategories: [] };
-  if (matched.length > 1) {
-    matched.sort((a, b) => b.length - a.length);
-    return { category: matched[0], suggestedCategories: matched.slice(1, 4) };
-  }
-  // Word overlap: e.g. "monitor" / "monitoring" in query -> "Monitoring" category
-  const words = q.split(/\s+/).filter((w) => w.length > 2);
-  const suggested = categoryNames.filter((name) => {
-    const n = name.toLowerCase();
-    return words.some((w) => n.includes(w) || n.includes(w + "s") || (w.length >= 4 && n.startsWith(w)));
-  });
-  // If we have a clear word match (e.g. "monitor" -> "Monitoring"), treat it as the category
-  if (suggested.length >= 1) {
-    const best = suggested.slice().sort((a, b) => b.length - a.length)[0];
-    return { category: best, suggestedCategories: suggested.filter((c) => c !== best).slice(0, 3) };
-  }
-  return { category: null, suggestedCategories: [] };
-}
-
 export interface SmartSearchProhibitedResult {
   kind: "prohibited";
   message: string;
@@ -88,7 +48,6 @@ export interface SmartSearchResultCategoryNotFound {
   kind: "category_not_found";
   message: string;
   suggestedCategories?: string[];
-  /** If user mentioned location, pass through for "Browse all services" button */
   locationFilters?: { country?: string; state?: string };
 }
 
@@ -106,6 +65,8 @@ export interface SmartSearchResultResolved {
   state?: string;
   city?: string;
   searchUrl: string;
+  intent: string; // User's actual problem/need
+  confidence: number; // DeepSeek's confidence (0-100)
 }
 
 export type SmartSearchResult =
@@ -115,12 +76,14 @@ export type SmartSearchResult =
   | SmartSearchResultResolved;
 
 export interface SmartSearchDeps {
-  categoryNames: string[];
+  categories: CategoryWithDesc[]; // Full categories with descriptions
   checkAvailability: (opts: { category: string; country: string; state?: string; city?: string }) => Promise<number>;
 }
 
 /**
- * Run Smart Search logic: prohibited -> category match -> location -> availability cascade.
+ * Run Smart Search - pure semantic intent matching.
+ * 
+ * NO keyword matching. Only problem-to-solution reasoning via DeepSeek.
  */
 export async function runSmartSearch(query: string, deps: SmartSearchDeps): Promise<SmartSearchResult> {
   const q = (query || "").trim();
@@ -137,49 +100,50 @@ export async function runSmartSearch(query: string, deps: SmartSearchDeps): Prom
     };
   }
 
-  let category: string | null = null;
-  let suggestedCategories: string[] = [];
   const deepseekKey = config.deepseek?.apiKey?.trim();
-
-  if (deepseekKey) {
-    // Use only Deepseek for category matching when configured
-    try {
-      const deepseekResult = await matchCategoryWithDeepseek(deepseekKey, q, deps.categoryNames);
-      category = deepseekResult.category;
-      suggestedCategories = deepseekResult.suggestedCategories ?? [];
-      console.log("[deepseek-debug] final_filter_category:", category);
-    } catch (error) {
-      console.error("[deepseek-error] DeepSeek call failed:", error);
-      return {
-        kind: "category_not_found",
-        message: "We didn't find a relevant category for that. You can browse all services below.",
-        suggestedCategories: [],
-      };
-    }
-    // If Deepseek says no match → fallback to "browse all services" (no keyword fallback)
-    if (!category) {
-      return {
-        kind: "category_not_found",
-        message: "We didn't find a relevant category for that. You can browse all services below.",
-        suggestedCategories: suggestedCategories.length > 0 ? suggestedCategories : undefined,
-      };
-    }
-  } else {
-    // No Gemini: use keyword match; if no match → browse all services
-    const keywordResult = matchCategory(q, deps.categoryNames);
-    category = keywordResult.category;
-    suggestedCategories = keywordResult.suggestedCategories ?? [];
-    if (!category) {
-      return {
-        kind: "category_not_found",
-        message: "We didn't find a relevant category for that. You can browse all services below.",
-        suggestedCategories: suggestedCategories.length > 0 ? suggestedCategories : undefined,
-      };
-    }
+  if (!deepseekKey) {
+    console.warn("[smart-search] No DeepSeek API key configured - pure semantic matching unavailable");
+    return {
+      kind: "category_not_found",
+      message: "We didn't find any relevant category. You can browse all services below.",
+    };
   }
 
-  // Category found. Location is optional: build searchUrl with category, add location only if user mentioned it
+  // Match semantically via DeepSeek (ONLY method)
+  let semanticResult: DeepseekSemanticResult;
+  try {
+    semanticResult = await matchCategorySemanticDeepseek(deepseekKey, q, deps.categories);
+    console.log("[smart-search] semantic_result:", {
+      intent: semanticResult.intent,
+      topMatch: semanticResult.topMatch?.category,
+      confidence: semanticResult.topMatch?.confidence,
+      closeMatches: semanticResult.closeMatches.length,
+    });
+  } catch (error) {
+    console.error("[smart-search] Semantic matching failed:", error);
+    return {
+      kind: "category_not_found",
+      message: "We didn't find a relevant category. You can browse all services below.",
+    };
+  }
+
+  // No match or low confidence
+  if (!semanticResult.topMatch || semanticResult.topMatch.confidence < 50) {
+    console.log("[smart-search] low_confidence:", semanticResult.topMatch?.confidence);
+    return {
+      kind: "category_not_found",
+      message: "We didn't find a strong match for that. You can browse all services below.",
+      suggestedCategories:
+        semanticResult.closeMatches.length > 0
+          ? semanticResult.closeMatches.slice(0, 3).map((m) => m.category)
+          : undefined,
+    };
+  }
+
+  // Category found - resolve location if mentioned in query
+  const category = semanticResult.topMatch.category;
   const location = resolveLocation(q);
+
   const params = new URLSearchParams();
   params.set("category", category);
   if (location?.country) {
@@ -187,15 +151,17 @@ export async function runSmartSearch(query: string, deps: SmartSearchDeps): Prom
     if (location.state) params.set("state", location.state);
   }
   const searchUrl = `/search?${params.toString()}`;
+  const resolvedScope = location?.city ? "city" : location?.state ? "state" : location?.country ? "country" : "country";
 
-  const resolvedScope = location?.city ? "city" : location?.state ? "state" : location?.country ? "country" : undefined;
   return {
     kind: "resolved",
     category,
-    resolvedLocationScope: resolvedScope ?? "country",
+    resolvedLocationScope: resolvedScope,
     country: location?.country ?? "",
     state: location?.state,
     city: location?.city,
     searchUrl,
+    intent: semanticResult.intent,
+    confidence: semanticResult.topMatch.confidence,
   };
 }
