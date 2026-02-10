@@ -331,15 +331,8 @@ app.use((req, res, next) => {
     return res.status(403).json({ error: "Invalid CSRF token" });
   }
 
-  const tokenGeneratedAt = (req.session as any)?.csrfTokenGeneratedAt as number | undefined;
-  if (tokenGeneratedAt) {
-    const tokenAgeMs = Date.now() - tokenGeneratedAt;
-    if (tokenAgeMs > 60 * 60 * 1000) {
-      const ageMinutes = Math.floor(tokenAgeMs / 60000);
-      log(`CSRF blocked: token expired (${ageMinutes}m) ${req.method} ${req.path}`, "csrf");
-      return res.status(403).json({ error: "CSRF token expired", requiresRefresh: true });
-    }
-  }
+  // CSRF token is valid for the entire session duration (no time-based expiration)
+  // The token becomes invalid only when the session expires
 
   if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
     log(`CSRF blocked: missing or invalid X-Requested-With header ${req.method} ${req.path}`, "csrf");

@@ -499,14 +499,14 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
 
     console.log("Missing fields:", missingFields);
 
-    const categoriesWithoutPrice = formData.categoryPricing.filter(p => !p.price || parseFloat(p.price) <= 0);
+    const categoriesWithoutPrice = formData.categoryPricing.filter(p => !p.isOnEnquiry && (!p.price || parseFloat(p.price) <= 0));
     console.log("Categories without price:", categoriesWithoutPrice);
     
     if (categoriesWithoutPrice.length > 0) {
       console.log("VALIDATION FAILED: Missing pricing");
       toast({
         title: "Missing Pricing Information",
-        description: "Please set a starting price for all selected service categories.",
+        description: "Please set a starting price or select 'Price on Enquiry' for all selected service categories.",
         variant: "destructive",
       });
       return;
