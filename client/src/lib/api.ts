@@ -566,6 +566,16 @@ export const api = {
       return handleResponse(response);
     },
 
+    adminUpdatePricing: async (id: string, data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean }): Promise<{ service: Service }> => {
+      const response = await csrfFetch(`/api/admin/services/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      return handleResponse(response);
+    },
+
     delete: async (id: string): Promise<{ message: string }> => {
       const response = await csrfFetch(`/api/services/${id}`, {
         method: "DELETE",

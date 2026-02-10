@@ -576,11 +576,15 @@ export class DatabaseStorage implements IStorage {
     
     console.log('[searchServices] Base conditions (isActive only):', conditions.length);
     
+    // ✅ STRICT CATEGORY MATCHING - When category is selected, it's authoritative
+    // Smart Search determines the category; we enforce EXACT match (not fuzzy)
+    // Ranking applies ONLY within the selected category
     if (filters.category) {
-      const cat = `%${filters.category.trim()}%`;
-      conditions.push(ilike(services.category, cat));
+      conditions.push(eq(services.category, filters.category.trim()));
     }
     
+    // Full-text search uses fuzzy matching across title, description, category
+    // This is different from category filter - used when NO specific category selected
     if (filters.searchQuery) {
       const searchCondition = or(
         ilike(services.title, `%${filters.searchQuery}%`),
