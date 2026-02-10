@@ -144,8 +144,10 @@ export const api = {
       credentials: "include",
     });
     const result = await handleResponse<T>(response);
-    // Do NOT update CSRF token from response - token is set once by /api/csrf-token
-    // and must be reused for the entire session
+    // Update CSRF token if server rotated it (for sensitive operations)
+    if (result && typeof result === "object" && "newToken" in result && (result as any).newToken) {
+      setCsrfToken((result as any).newToken);
+    }
     return result;
   },
 
@@ -156,7 +158,12 @@ export const api = {
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include",
     });
-    return handleResponse(response);
+    const result = await handleResponse<T>(response);
+    // Update CSRF token if server rotated it (for sensitive operations)
+    if (result && typeof result === "object" && "newToken" in result && (result as any).newToken) {
+      setCsrfToken((result as any).newToken);
+    }
+    return result;
   },
 
   patch: async <T = any>(url: string, data?: any): Promise<T> => {
@@ -166,7 +173,12 @@ export const api = {
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include",
     });
-    return handleResponse(response);
+    const result = await handleResponse<T>(response);
+    // Update CSRF token if server rotated it (for sensitive operations)
+    if (result && typeof result === "object" && "newToken" in result && (result as any).newToken) {
+      setCsrfToken((result as any).newToken);
+    }
+    return result;
   },
 
   delete: async <T = any>(url: string): Promise<T> => {
@@ -174,7 +186,12 @@ export const api = {
       method: "DELETE",
       credentials: "include",
     });
-    return handleResponse(response);
+    const result = await handleResponse<T>(response);
+    // Update CSRF token if server rotated it (for sensitive operations)
+    if (result && typeof result === "object" && "newToken" in result && (result as any).newToken) {
+      setCsrfToken((result as any).newToken);
+    }
+    return result;
   },
 
   auth: {
@@ -457,9 +474,11 @@ export const api = {
       maxPrice?: number;
       sortBy?: string;
       minRating?: number;
+      planName?: string;
+      level?: string;
       limit?: number;
       offset?: number;
-    }): Promise<{ services: Array<Service & { detective: Detective; avgRating: number; reviewCount: number }> }> => {
+    }): Promise<{ services: Array<Service & { detective: Detective; avgRating: number; reviewCount: number; planName?: string }> }> => {
       const queryParams = new URLSearchParams();
       if (params?.category) queryParams.append("category", params.category);
       if (params?.country) queryParams.append("country", params.country);
@@ -470,6 +489,8 @@ export const api = {
       if (params?.maxPrice !== undefined) queryParams.append("maxPrice", params.maxPrice.toString());
       if (params?.sortBy) queryParams.append("sortBy", params.sortBy);
       if (params?.minRating !== undefined) queryParams.append("minRating", params.minRating.toString());
+      if (params?.planName) queryParams.append("planName", params.planName);
+      if (params?.level) queryParams.append("level", params.level);
       if (params?.limit !== undefined) queryParams.append("limit", params.limit.toString());
       if (params?.offset !== undefined) queryParams.append("offset", params.offset.toString());
 

@@ -79,6 +79,7 @@ export function useCurrentDetective() {
     staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -184,6 +185,8 @@ export function useSearchServices(params?: {
   maxPrice?: number;
   sortBy?: string;
   minRating?: number;
+  planName?: string;
+  level?: string;
   limit?: number;
   offset?: number;
 }) {
@@ -217,6 +220,7 @@ export function useServicesByDetective(detectiveId: string | null | undefined) {
     staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -225,6 +229,10 @@ export function useAdminServicesByDetective(detectiveId: string | null | undefin
     queryKey: ["services", "detective", detectiveId, "admin"],
     queryFn: () => api.services.adminGetByDetective(detectiveId!),
     enabled: !!detectiveId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -328,6 +336,10 @@ export function useReviewsByDetective() {
     queryKey: ["reviews", "detective", detectiveId],
     queryFn: () => api.reviews.getByDetective(),
     enabled: !!detectiveId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -405,6 +417,10 @@ export function useOrdersByDetective(detectiveId: string | null | undefined) {
     queryKey: ["orders", "detective", detectiveId],
     queryFn: () => api.orders.getByDetective(detectiveId!),
     enabled: !!detectiveId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -435,6 +451,10 @@ export function useFavorites(userId: string | null | undefined) {
     queryKey: ["favorites", "user", userId],
     queryFn: () => api.favorites.getByUser(userId!),
     enabled: !!userId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -484,6 +504,10 @@ export function useApplications(params?: { status?: string; search?: string; lim
   return useQuery({
     queryKey: ["applications", params?.status, params?.search, params?.limit, params?.offset],
     queryFn: () => api.applications.getAll(params),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -492,6 +516,10 @@ export function useApplication(id: string | null | undefined) {
     queryKey: ["applications", id],
     queryFn: () => api.applications.getById(id!),
     enabled: !!id,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -535,6 +563,10 @@ export function useClaims(status: string = "pending", limit: number = 50) {
   return useQuery({
     queryKey: ["claims", status, limit],
     queryFn: () => api.claims.getAll(status, limit),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -570,9 +602,10 @@ export function useSiteSettings() {
   return useQuery({
     queryKey: ["settings", "site"],
     queryFn: () => api.settings.getSite(),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
     staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 

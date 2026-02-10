@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createHash, randomBytes } from "node:crypto";
 import crypto from "crypto";
 import { createServer, type Server } from "http";
+import rateLimit from "express-rate-limit";
 import { storage } from "./storage.ts";
 import { sendClaimApprovedEmail } from "./email.ts";
 import { sendpulseEmail, EMAIL_TEMPLATES } from "./services/sendpulseEmail.ts";
@@ -93,7 +94,16 @@ declare module "express-session" {
     userId: string;
     userRole: string;
     csrfToken?: string;
+    csrfTokenGeneratedAt?: number;
   }
+}
+
+// Helper: Rotate CSRF token after sensitive operations
+function rotateCsrfToken(req: Request): string {
+  const newToken = randomBytes(32).toString("hex");
+  req.session.csrfToken = newToken;
+  req.session.csrfTokenGeneratedAt = Date.now();
+  return newToken;
 }
 
 function getEmployeeAccessKeyFromAdminPath(path: string): string | null {
@@ -202,7 +212,8 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const setNoStore = (res: Response) => {
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    // Private, no-store, no-cache for authenticated/sensitive user data
+    res.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
     res.set("Pragma", "no-cache");
     res.set("Expires", "0");
     res.set("Surrogate-Control", "no-store");
@@ -465,7 +476,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // NOTE: CORS headers are handled by middleware in app.ts
   // CRITICAL: This endpoint MUST NEVER throw - wraps all logic in try-catch
   
-  app.get("/api/csrf-token", (req: Request, res: Response) => {
+  // Rate limiter for CSRF token endpoint: 30 requests per minute per IP
+  const csrfTokenLimiter = rateLimit({
+    windowMs: 60000, // 1 minute
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req: Request, res: Response) => {
+      res.status(429).json({ error: "Too many token requests" });
+    },
+  });
+  
+  app.get("/api/csrf-token", csrfTokenLimiter, (req: Request, res: Response) => {
     try {
       const sessionId = (req.session as any)?.id || "UNKNOWN";
       console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}, SessionID: ${sessionId.substring(0, 20)}...`);
@@ -484,6 +506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate or reuse CSRF token
       if (!req.session.csrfToken) {
         req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfTokenGeneratedAt = Date.now();
         console.log(`[CSRF-TOKEN] Generated new token: ${req.session.csrfToken.substring(0, 16)}... for session ${sessionId.substring(0, 20)}...`);
       } else {
         console.log(`[CSRF-TOKEN] Reusing existing token: ${req.session.csrfToken.substring(0, 16)}... for session ${sessionId.substring(0, 20)}...`);
@@ -572,6 +595,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Session fixation prevention: regenerate session before setting auth data
       // Preserve CSRF token across regeneration (do NOT regenerate it)
       const csrfToken = req.session.csrfToken;
+      const csrfTokenGeneratedAt = (req.session as any).csrfTokenGeneratedAt;
       req.session.regenerate((err) => {
         if (err) {
           console.warn("[auth] Session error during registration");
@@ -580,6 +604,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.session.userId = user.id;
         req.session.userRole = user.role;
         req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
+        if (csrfTokenGeneratedAt) {
+          (req.session as any).csrfTokenGeneratedAt = csrfTokenGeneratedAt;
+        }
 
         // Explicitly save session to ensure CSRF token is persisted
         req.session.save((saveErr) => {
@@ -691,6 +718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Session fixation prevention: regenerate session before setting auth data
       // Preserve CSRF token across regeneration (do NOT regenerate it)
       const csrfToken = req.session.csrfToken;
+      const csrfTokenGeneratedAt = (req.session as any).csrfTokenGeneratedAt;
       req.session.regenerate((err) => {
         if (err) {
           console.warn("[auth] Session error during login", { userId: user.id, email });
@@ -699,6 +727,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.session.userId = user.id;
         req.session.userRole = user.role;
         req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
+        if (csrfTokenGeneratedAt) {
+          (req.session as any).csrfTokenGeneratedAt = csrfTokenGeneratedAt;
+        }
 
         // Explicitly save session to ensure CSRF token and user data are persisted
         req.session.save((saveErr) => {
@@ -798,7 +829,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         req.session.userId = user!.id;
         req.session.userRole = user!.role;
-        req.session.csrfToken = randomBytes(32).toString("hex");
         res.redirect(302, frontOrigin + "/");
       });
     } catch (e) {
@@ -830,7 +860,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.setUserPassword(user.id, newPassword, false);
-      res.json({ message: "Password updated successfully" });
+      
+      // Rotate CSRF token after password change
+      const newToken = rotateCsrfToken(req);
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      
+      res.json({ message: "Password updated successfully", newToken });
     } catch (_error) {
       console.warn("[auth] Change password failed");
       res.status(500).json({ error: "Failed to change password" });
@@ -1020,6 +1060,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update user country/currency preferences
   app.patch("/api/users/preferences", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const { preferredCountry, preferredCurrency } = req.body;
 
       if (!preferredCountry || !preferredCurrency) {
@@ -1806,6 +1847,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[verify] Successfully updated detective: subscriptionPackageId=${updatedDetective.subscriptionPackageId}, billingCycle=${updatedDetective.billingCycle}, activatedAt=${updatedDetective.subscriptionActivatedAt}`);
       console.log("[verify] === PAYMENT VERIFICATION COMPLETE ===");
+      // Rotate CSRF token after payment verification
+      const newToken = rotateCsrfToken(req);
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      
 
       // Send payment success email (non-blocking)
       const user = await storage.getUser(req.session.userId!);
@@ -1844,7 +1894,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true, 
         packageId: packageId,
         billingCycle: billingCycle,
-        detective: updatedDetective
+        detective: updatedDetective,
+        newToken
       });
     } catch (error) {
       console.log("[verify] === PAYMENT VERIFICATION FAILED ===");
@@ -2098,6 +2149,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[paypal-capture] Successfully updated detective: subscriptionPackageId=${updatedDetective.subscriptionPackageId}, billingCycle=${updatedDetective.billingCycle}, activatedAt=${updatedDetective.subscriptionActivatedAt}`);
       console.log("[paypal-capture] === PAYPAL CAPTURE COMPLETE ===");
+      // Rotate CSRF token after PayPal payment capture
+      const newToken = rotateCsrfToken(req);
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      
 
       // Send payment success email (non-blocking)
       const user = await storage.getUser(req.session.userId!);
@@ -2149,7 +2209,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Build response based on package type
       const response: any = { 
         success: true, 
-        detective: updatedDetective
+        detective: updatedDetective,
+        newToken
       };
       
       if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
@@ -2487,11 +2548,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[verify-blue-tick] Successfully activated Blue Tick add-on for detective: blueTickAddon=${(updatedDetective as any).blueTickAddon}`);
       console.log("[verify-blue-tick] === BLUE TICK VERIFICATION COMPLETE ===");
+      // Rotate CSRF token after Blue Tick purchase
+      const newToken = rotateCsrfToken(req);
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
 
       res.json({ 
         success: true, 
         hasBlueTick: true,
-        detective: updatedDetective
+        detective: updatedDetective,
+        newToken
       });
     } catch (error) {
       console.log("[verify-blue-tick] === BLUE TICK VERIFICATION FAILED ===");
@@ -2665,7 +2736,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get detective by ID (public)
+  // Get detective by ID (public with conditional caching)
   app.get("/api/detectives/:id", async (req: Request, res: Response) => {
     try {
       const detective = await storage.getDetective(req.params.id);
@@ -2708,7 +2779,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Cache failure must not break the request
         }
       }
-      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      // Conditional caching: public cache for anonymous, no-store for owner/admin
+      if (!skipCache) {
+        res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      } else {
+        setNoStore(res);
+      }
       sendCachedJson(req, res, payload);
     } catch (error) {
       console.error("Get detective error:", error);
@@ -2716,9 +2792,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Public: get user profile by id (limited fields)
+  // Get user profile by id (authenticated - user-specific data)
   app.get("/api/users/:id", requireAuth, async (req: Request, res: Response) => {
     try {
+      // User-specific authenticated data must NEVER cache
+      setNoStore(res);
+      
       const user = await storage.getUser(req.params.id);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -2730,8 +2809,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Forbidden" });
       }
       const { password, ...userWithoutPassword } = user as any;
-      res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
-      sendCachedJson(req, res, { user: userWithoutPassword });
+      res.json({ user: userWithoutPassword });
     } catch (error) {
       console.error("Get user error:", error);
       res.status(500).json({ error: "Failed to get user" });
@@ -2939,12 +3017,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tempPassword = randomBytes(16).toString('hex');
       
       await storage.resetDetectivePassword(detective.userId, tempPassword);
+            // Rotate CSRF token after admin password reset
+            const newToken = rotateCsrfToken(req);
+            await new Promise<void>((resolve, reject) => {
+              req.session.save((err) => {
+                if (err) reject(err);
+                else resolve();
+              });
+            });
+      
       
       // Return the temporary password to the admin
       res.json({ 
         message: "Password reset successfully",
         temporaryPassword: tempPassword,
-        email: detective.email
+        email: detective.email,
+        newToken
       });
     } catch (error) {
       console.warn("[auth] Reset password failed");
@@ -3125,9 +3213,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Search services (public)
   app.get("/api/services", async (req: Request, res: Response) => {
     try {
-      const { category, country, search, minPrice, maxPrice, minRating, limit = "20", offset = "0", sortBy = "popular" } = req.query;
+      const { category, country, search, minPrice, maxPrice, minRating, planName, level, limit = "20", offset = "0", sortBy = "popular" } = req.query;
       const stableParams = [
-        "category", "country", "search", "minPrice", "maxPrice", "minRating", "limit", "offset", "sortBy"
+        "category", "country", "search", "minPrice", "maxPrice", "minRating", "planName", "level", "limit", "offset", "sortBy"
       ].sort().map(k => `${k}=${String((req.query as Record<string, string>)[k] ?? "").trim()}`).join("&");
       const cacheKey = `services:search:${stableParams}`;
       const skipCache = !!(req.session?.userId);
@@ -3150,7 +3238,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      // Get all active services - ALL services visible
+      // Parse pagination parameters
+      const limitNum = Math.min(parseInt(limit as string) || 20, 100); // Cap at 100 to prevent abuse
+      const offsetNum = parseInt(offset as string) || 0;
+
+      // Get paginated services - only fetch what's needed (not 10,000)
       const allServices = await storage.searchServices({
         category: category as string,
         country: country as string,
@@ -3158,7 +3250,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
         maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
         ratingMin: minRating ? parseFloat(minRating as string) : undefined,
-      }, 10000, 0, sortBy as string);
+        planName: planName as string,
+        level: level as string,
+      }, limitNum, offsetNum, sortBy as string);
 
       // Filter out services without images
       const servicesWithImages = allServices.filter((s: any) => {
@@ -3166,7 +3260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return hasImages;
       });
 
-      // Get detective rankings for sorting (NOT filtering)
+      // Apply ranking for display order (after pagination)
       const rankedLimit = 1000;
       const rankedCacheKey = `ranked:${rankedLimit}`;
       let rankedDetectives = getRankedDetectivesCache(rankedCacheKey);
@@ -3177,8 +3271,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const detectiveRankMap = new Map(rankedDetectives.map((d: any, idx: number) => [d.id, { score: d.visibilityScore, rank: idx }]));
 
-      // Sort services by detective ranking (higher score = higher position)
-      const sortedServices = servicesWithImages.sort((a: any, b: any) => {
+      // Sort results by detective ranking (higher score = higher position)
+      const sortedResults = servicesWithImages.sort((a: any, b: any) => {
         const aRank = detectiveRankMap.get(a.detectiveId);
         const bRank = detectiveRankMap.get(b.detectiveId);
         // Higher score = better ranking = appears first
@@ -3191,12 +3285,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return 0;
       });
 
-      // Apply pagination after ranking
-      const limitNum = parseInt(limit as string);
-      const offsetNum = parseInt(offset as string);
-      const paginatedServices = sortedServices.slice(offsetNum, offsetNum + limitNum);
-
-      const masked = await Promise.all(paginatedServices.map(async (s: any) => {
+      const masked = await Promise.all(sortedResults.map(async (s: any) => {
         const maskedDetective = await maskDetectiveContactsPublic(s.detective);
         const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
         return { ...s, detective: { ...maskedDetective, effectiveBadges } };
@@ -3657,9 +3746,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Detective: get all reviews for my services
+  // Detective: get all reviews for my services (authenticated - dashboard data)
   app.get("/api/reviews/detective", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) return res.status(404).json({ error: "Detective profile not found" });
       const list = await storage.getReviewsByDetective(detective.id);
@@ -3745,9 +3835,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============== ORDER ROUTES ==============
   // Apply session middleware to orders endpoints
 
-  // Get user's orders
+  // Get user's orders (authenticated - user-specific data)
   app.get("/api/orders/user", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const { limit = "50", offset = "0" } = req.query;
       const limitNum = Math.min(Math.max(1, parseInt(limit as string) || 50), 100);
       const offsetNum = Math.max(0, parseInt(offset as string) || 0);
@@ -3837,9 +3928,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== FAVORITE ROUTES ==============
 
-  // Get user's favorites
+  // Get user's favorites (authenticated - user-specific data)
   app.get("/api/favorites", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const favorites = await storage.getFavoritesByUser(req.session.userId!);
       res.json({ favorites });
     } catch (error) {
