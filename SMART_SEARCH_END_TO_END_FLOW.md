@@ -13,7 +13,63 @@ The smart search system is a **multi-layer filtering and ranking architecture** 
 4. **Masks sensitive data** (contact info for anonymous users)
 5. **Caches results** for anonymous users (60 second TTL)
 
-**Key Insight:** Category filtering works by **exact name matching** on the service.category field. When you select "Private Investigation", it finds all services with that exact category name.
+**Key Insight:** Category selection is **authoritative** - when a category is selected (manually or via Smart Search), it uses **strict exact matching** (SQL `eq`, not fuzzy `ILIKE`). Ranking applies **ONLY within the selected category** - the category boundary cannot be crossed by ranking scores.
+
+**Smart Search Responsibility:** Smart Search determines the MOST RELEVANT category based on user intent. Once determined, this category selection is enforced strictly, and ranking only decides which service is best INSIDE that category.
+
+---
+
+## Smart Search Architecture Philosophy
+
+### Core Principles
+
+**1. Category Selection is Authoritative**
+- Smart Search (or user manual selection) determines ONE category
+- This category is enforced with strict exact matching: `services.category = 'Private Investigation'`
+- NO fuzzy matching, NO cross-category results
+
+**2. Ranking Scope is Bounded by Category**
+- Ranking ONLY reorders services WITHIN the selected category
+- A "Background Check" service with score 500 will NOT appear in "Private Investigation" results (score 100)
+- Category boundaries are absolute - ranking cannot cross them
+
+**3. Separation of Concerns**
+```
+Smart Search → "What category does the user need?"
+Database Filter → "Get ALL services in that category"
+Ranking System → "Which service in this category is most relevant?"
+```
+
+**4. Two Search Modes**
+
+| Mode | When Used | Matching | Scope |
+|------|-----------|----------|-------|
+| **Category Filter** | Category selected (Smart Search or manual) | Strict `eq` | Single category only |
+| **Search Query** | No category selected | Fuzzy `ILIKE` | Across title, description, all categories |
+
+### Example: Smart Search Flow
+
+**User Query:** "I need someone to find my missing relative"
+
+```
+Step 1: Smart Search Analysis
+  Input: "find my missing relative"
+  Output: category = "Missing Persons Investigation"
+  
+Step 2: Backend Enforcement
+  SQL: WHERE services.category = 'Missing Persons Investigation'
+  Result: 12 services in this category
+  
+Step 3: Ranking (Within Category)
+  Detective A (category: Missing Persons, score: 280) → Rank 1
+  Detective B (category: Missing Persons, score: 150) → Rank 2
+  Detective C (category: Background Checks, score: 500) → NOT INCLUDED (wrong category)
+  
+Step 4: Display
+  User sees: 12 "Missing Persons Investigation" services, ordered by ranking
+```
+
+**Key Insight:** Detective C has the highest score globally, but doesn't appear because they're in the wrong category. Category selection is the PRIMARY filter; ranking is SECONDARY ordering within that category.
 
 ---
 
@@ -328,16 +384,17 @@ async searchServices(filters: {
   // Start with base condition - only active services
   const conditions = [ eq(services.isActive, true) ];
 
-  // ✅ CATEGORY FILTERING - EXACT MATCH
+  // ✅ STRICT CATEGORY MATCHING - Authoritative selection
+  // Smart Search determines category → Backend enforces EXACT match
+  // Ranking applies ONLY within this category (cannot cross category boundaries)
   if (filters.category) {
-    const cat = `%${filters.category.trim()}%`;
-    // `ilike` = case-insensitive LIKE match
-    // 'Private Investigation' matches:
-    //   - 'Private Investigation' ✅
-    //   - 'private investigation' ✅
-    //   - 'PRIVATE INVESTIGATION' ✅
-    //   - 'Professional Private Investigation Services' ✅ (contains)
-    conditions.push(ilike(services.category, cat));
+    // Use `eq` for exact match (not fuzzy ILIKE)
+    // 'Private Investigation' matches ONLY:
+    //   - 'Private Investigation' ✅ (exact match only)
+    // Does NOT match:
+    //   - 'Professional Private Investigation Services' ❌ (fuzzy match disabled)
+    //   - 'private investigation' ❌ (case-sensitive enforcement)
+    conditions.push(eq(services.category, filters.category.trim()));
   }
 
   // Location filters - exact match on detective location
@@ -463,11 +520,15 @@ LEFT JOIN (
 ) r ON s.id = r.service_id
 WHERE
   s.is_active = true
-  AND s.category ILIKE '%Private Investigation%'
+  AND s.category = 'Private Investigation'    -- EXACT match (eq, not ILIKE)
   AND d.country = 'US'
   AND p.name = 'pro'
 ORDER BY s.order_count DESC
 LIMIT 50 OFFSET 0;
+
+-- Note: Ranking happens AFTER this query returns results
+-- Ranking only reorders services WITHIN 'Private Investigation' category
+-- Services from other categories are excluded by WHERE clause
 ```
 
 ### 4.4 Database Indexes for Performance
@@ -782,15 +843,16 @@ New request triggered
 GET /api/services?category=Private+Investigation&limit=50&offset=0&sortBy=popular
 ```
 
-**7. Backend creates WHERE condition**
+**7. Backend creates WHERE condition (STRICT)**
 ```typescript
-conditions.push(ilike(services.category, '%Private Investigation%'));
+// Exact match enforced - category is authoritative
+conditions.push(eq(services.category, 'Private Investigation'));
 ```
 
-**8. SQL WHERE clause**
+**8. SQL WHERE clause (EXACT MATCH)**
 ```sql
 WHERE s.is_active = true 
-  AND s.category ILIKE '%Private Investigation%'
+  AND s.category = 'Private Investigation'  -- Exact match, not ILIKE
 ```
 
 **9. Database index used**
@@ -799,11 +861,16 @@ Index: services(category, detective_id)
 Result: ~15 services match this category
 ```
 
-**10. Ranking applied**
+**10. Ranking applied (WITHIN CATEGORY ONLY)**
 ```
+// All 3 services are in 'Private Investigation' category
+// Ranking determines order WITHIN this category
 Detective John (score 280) → Service A appears first
 Detective Bob (score 280) → Service C appears second
 Detective Jane (score 150) → Service B appears third
+
+// Services from other categories (e.g., 'Background Checks') are NOT included
+// even if their detectives have higher scores - category boundary is absolute
 ```
 
 **11. Data masked**
@@ -988,20 +1055,36 @@ Response → 15 services (filtered to limit=50)
 
 ## Common Issues & Debugging
 
-### Issue: Category not filtering results
+### Issue: Category not filtering results (No matches found)
 **Check:**
-1. Is service.category exactly "Private Investigation"?
-2. Is spelling exact (case-insensitive ilike)?
-3. Are there extra spaces? (`category.trim()`)
-4. Is the service active? (`WHERE is_active = true`)
-5. Is the detective active? (no active check - investigates fix!)
+1. **Is service.category EXACTLY "Private Investigation"?** (Strict match now - case-sensitive)
+   - Use exact category name from `service_categories` table
+   - No fuzzy matching - "Private Investigation" ≠ "private investigation"
+2. **Are there services with this exact category?** Query the database:
+   ```sql
+   SELECT category, COUNT(*) FROM services WHERE is_active = true GROUP BY category;
+   ```
+3. **Is the service active?** (`WHERE is_active = true`)
+4. **Check category name spelling** - even a space difference breaks the match
 
-### Issue: Wrong sort order
+### Issue: Expected results not appearing (Wrong category selected)
+**This is by design!** Category selection is authoritative:
+- If you select "Private Investigation", you ONLY see services in that category
+- Even if a "Background Check" service has a higher-ranked detective, it won't appear
+- **Solution:** Smart Search should determine the correct category based on user intent
+
+### Issue: Wrong sort order (within category)
 **Check:**
 1. Is detectiveId in rankedDetectives map?
 2. Did ranking calculate correctly?
 3. Is sortBy parameter passed correctly?
-4. Are services being filtered before ranking?
+4. Remember: Ranking ONLY affects order WITHIN the selected category
+
+### Issue: Fuzzy matching not working
+**This is intentional!** The refactored system uses:
+- **Category filter:** Strict exact match (`eq`) - authoritative selection
+- **Search query:** Fuzzy match (`ilike`) - used when NO category selected
+- If you need fuzzy search, don't select a category - use the search query instead
 
 ### Issue: Stale results shown
 **Check:**
@@ -1022,12 +1105,14 @@ Response → 15 services (filtered to limit=50)
 
 ## Key Takeaways
 
-1. **Category Filtering:** `ilike(services.category, '%Category Name%')` - simple LIKE match
-2. **Ranking:** Based on detective visibility score (services, reviews, subscription, verification)
-3. **Performance:** Achieved through indexes, pagination, aggregation, caching
-4. **Data Masking:** Contact info hidden for anonymous users only
-5. **Cache Layers:** Backend (60s) + HTTP (300s SWR) + Client (React Query staleTime:0)
-6. **End-to-End:** URL filters → React Query → Backend WHERE → Ranking → Masking → Response
+1. **Category Selection is Authoritative:** When a category is selected (manually or via Smart Search), it's enforced with strict exact matching: `eq(services.category, 'Category Name')` - NO fuzzy matching
+2. **Ranking Scope:** Ranking applies ONLY within the selected category - category boundaries are absolute and cannot be crossed by ranking scores
+3. **Smart Search Responsibility:** Smart Search determines THE most relevant category based on user intent; backend enforces this decision strictly
+4. **Search Query vs Category Filter:** Full-text search (`searchQuery`) uses fuzzy ILIKE across title/description/category when NO category is selected; category filter uses exact `eq` matching
+5. **Performance:** Achieved through indexes, pagination, aggregation, caching
+6. **Data Masking:** Contact info hidden for anonymous users only
+7. **Cache Layers:** Backend (60s) + HTTP (300s SWR) + Client (React Query staleTime:0)
+8. **End-to-End:** URL filters → React Query → Backend WHERE (strict category) → Ranking (within category) → Masking → Response
 
 ---
 
