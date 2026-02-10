@@ -172,6 +172,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
           if (formData.businessType === "agency" && !formData.businessWebsite) newErrors[field] = "Business website is required";
           else if (formData.businessWebsite && formData.businessType === "agency" && !formData.businessWebsite.startsWith("http")) 
             newErrors[field] = "Website must start with http:// or https://";
+          else if (formData.businessWebsite && formData.businessType === "agency") {
+            try {
+              new URL(formData.businessWebsite);
+            } catch {
+              newErrors[field] = "Must be a valid website URL (e.g., https://yoursite.com)";
+            }
+          }
           break;
         case "city":
           if (!formData.city) newErrors[field] = "City is required";
@@ -339,6 +346,14 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
           errors[fieldName] = "Business website is required";
         } else if (value && formData.businessType === "agency" && !value.startsWith("http")) {
           errors[fieldName] = "Website must start with http:// or https://";
+        } else if (value && formData.businessType === "agency") {
+          // Validate URL format (must have domain extension like .com, .net, etc.)
+          try {
+            new URL(value);
+            delete errors[fieldName];
+          } catch {
+            errors[fieldName] = "Must be a valid website URL (e.g., https://yoursite.com)";
+          }
         } else {
           delete errors[fieldName];
         }
@@ -742,8 +757,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                       placeholder="e.g. Holmes Investigations Ltd."
                       value={formData.companyName}
                       onChange={(e) => handleInputChange("companyName", e.target.value)}
+                      onBlur={() => handleFieldBlur("companyName")}
                       data-testid="input-companyName"
+                      className={fieldErrors.companyName && touched.companyName ? "border-red-500" : ""}
                     />
+                    {fieldErrors.companyName && touched.companyName && (
+                      <p className="text-sm text-red-600">{fieldErrors.companyName}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="businessWebsite">Business Website *</Label>
@@ -753,9 +773,15 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                       placeholder="https://www.yourdetectiveagency.com"
                       value={formData.businessWebsite}
                       onChange={(e) => handleInputChange("businessWebsite", e.target.value)}
+                      onBlur={() => handleFieldBlur("businessWebsite")}
                       data-testid="input-businessWebsite"
+                      className={fieldErrors.businessWebsite && touched.businessWebsite ? "border-red-500" : ""}
                     />
-                    <p className="text-xs text-gray-500">Enter the full URL including https://</p>
+                    {fieldErrors.businessWebsite && touched.businessWebsite ? (
+                      <p className="text-sm text-red-600">{fieldErrors.businessWebsite}</p>
+                    ) : (
+                      <p className="text-xs text-gray-500">Enter the full URL including https://</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Business Supporting Document *</Label>
