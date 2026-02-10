@@ -1342,7 +1342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass", "smtp_from_email",
     "sendpulse_api_id", "sendpulse_api_secret", "sendpulse_sender_email", "sendpulse_sender_name", "sendpulse_enabled",
     "razorpay_key_id", "razorpay_key_secret", "paypal_client_id", "paypal_client_secret", "paypal_mode",
-    "gemini_api_key",
+    "gemini_api_key", "deepseek_api_key",
   ];
   const maskValue = (v: string) => (v && v.length > 4 ? v.slice(0, 2) + "****" + v.slice(-2) : "****");
 
@@ -5476,12 +5476,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const oldName = category.name;
       const newName = validatedData.name;
       
-      if (oldName !== newName) {
+      if (newName && oldName !== newName) {
         console.debug(`[category RENAME] "${oldName}" → "${newName}"`);
         // Update all services that reference the old category name
-        await db.update(services)
+        const result = await db.update(services)
           .set({ category: newName, updatedAt: new Date() })
           .where(eq(services.category, oldName));
+        console.debug(`[category RENAME] Updated services count:`, result);
       }
       
       const updatedCategory = await storage.updateServiceCategory(req.params.id, validatedData);
