@@ -5471,7 +5471,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validatedData = updateServiceCategorySchema.parse(req.body);
+      
+      // If name is changing, cascade update to all services with the old name
+      const oldName = category.name;
+      const newName = validatedData.name;
+      
+      if (oldName !== newName) {
+        console.debug(`[category RENAME] "${oldName}" → "${newName}"`);
+        // Update all services that reference the old category name
+        await db.update(services)
+          .set({ category: newName, updatedAt: new Date() })
+          .where(eq(services.category, oldName));
+      }
+      
       const updatedCategory = await storage.updateServiceCategory(req.params.id, validatedData);
+      
+      // Invalidate all service-related caches
+      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => { cache.del(k); });
+      cache.del(`detective:public:*`);
+      
+      // Invalidate ranked detectives cache since services may have changed
+      rankedDetectivesCache.clear();
+      
+      console.debug("[cache INVALIDATE]", "services:", "detectives", "categories");
+      
       res.json({ category: updatedCategory });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -5491,6 +5514,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.deleteServiceCategory(req.params.id);
+      
+      // Invalidate all service-related caches
+      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => { cache.del(k); });
+      cache.del(`detective:public:*`);
+      rankedDetectivesCache.clear();
+      
+      console.debug("[cache INVALIDATE]", "services:", "detectives", "categories");
+      
       res.json({ message: "Service category deleted successfully" });
     } catch (error) {
       console.error("Delete service category error:", error);

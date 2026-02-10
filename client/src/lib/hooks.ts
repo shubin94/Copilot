@@ -672,11 +672,19 @@ export function useUpdateServiceCategory() {
     mutationFn: ({ id, data }: { id: string; data: Partial<ServiceCategory> }) =>
       api.serviceCategories.update(id, data),
     onSuccess: async (_, variables) => {
+      // Invalidate category caches
       await queryClient.invalidateQueries({ queryKey: ["serviceCategories", variables.id] });
       await queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
       await queryClient.invalidateQueries({ queryKey: ["serviceCategories", true] });
       await queryClient.invalidateQueries({ queryKey: ["serviceCategories", false] });
       await queryClient.invalidateQueries({ queryKey: ["serviceCategories", undefined] });
+      
+      // Invalidate all service caches since category name change affects services that reference it
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
+      
+      // Clear all queries that might be affected by category changes
+      await queryClient.removeQueries({ queryKey: ["services", "search"] });
     },
   });
 }
