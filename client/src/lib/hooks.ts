@@ -303,6 +303,20 @@ export function useAdminUpdateService() {
   });
 }
 
+export function useAdminUpdateServicePricing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }) =>
+      api.services.adminUpdatePricing(id, data),
+    onSuccess: async (_: any, variables: { id: string }) => {
+      // Invalidate all service-related queries to ensure fresh data everywhere
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      // Force refetch to ensure UI updates immediately
+      await queryClient.refetchQueries({ queryKey: ["services"] });
+    },
+  });
+}
+
 export function useDeleteService() {
   const queryClient = useQueryClient();
   return useMutation({

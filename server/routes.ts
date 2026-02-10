@@ -3080,6 +3080,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin-only service update (pricing & enquiry settings)
+  app.patch("/api/admin/services/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const service = await storage.getService(req.params.id);
+      if (!service) {
+        return res.status(404).json({ error: "Service not found" });
+      }
+
+      // Admin can update pricing and isOnEnquiry
+      const allowedData = z.object({
+        basePrice: z.string().nullable().optional(),
+        offerPrice: z.string().nullable().optional(),
+        isOnEnquiry: z.boolean().optional(),
+      }).parse(req.body);
+
+      // Validation: if isOnEnquiry is false, basePrice must be set
+      const isOnEnquiry = allowedData.isOnEnquiry !== undefined 
+        ? allowedData.isOnEnquiry 
+        : service.isOnEnquiry;
+
+      if (!isOnEnquiry) {
+        const basePrice = allowedData.basePrice !== undefined 
+          ? allowedData.basePrice 
+          : service.basePrice;
+        
+        if (!basePrice) {
+          return res.status(400).json({ 
+            error: "Base price is required when not using Price on Enquiry" 
+          });
+        }
+
+        const basePriceNum = parseFloat(basePrice);
+        if (!(basePriceNum > 0)) {
+          return res.status(400).json({ 
+            error: "Base price must be a positive number" 
+          });
+        }
+
+        // If offer price is provided, validate it
+        if (allowedData.offerPrice !== undefined && allowedData.offerPrice !== null) {
+          const offerPriceNum = parseFloat(allowedData.offerPrice);
+          if (!(offerPriceNum > 0) || !(offerPriceNum < basePriceNum)) {
+            return res.status(400).json({ 
+              error: "Offer price must be positive and lower than base price" 
+            });
+          }
+        }
+      }
+
+      const updatedService = await storage.updateService(req.params.id, allowedData);
+
+      // Invalidate all service-related caches
+      try {
+        cache.keys().filter(k => k.startsWith("services:")).forEach(k => cache.del(k));
+        cache.del(`detective:public:${service.detectiveId}`);
+        console.debug("[cache INVALIDATE]", "services:");
+        console.debug("[cache INVALIDATE]", `detective:public:${service.detectiveId}`);
+      } catch (_) {
+        // Cache invalidation must not fail the request
+      }
+
+      res.json({ service: updatedService });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("Admin update service error:", error);
+      res.status(500).json({ error: "Failed to update service" });
+    }
+  });
+
   // ============== AUTOCOMPLETE SEARCH (navbar) ==============
   app.get("/api/search/autocomplete", async (req: Request, res: Response) => {
     try {
