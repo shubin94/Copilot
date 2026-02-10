@@ -3093,6 +3093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         basePrice: z.string().nullable().optional(),
         offerPrice: z.string().nullable().optional(),
         isOnEnquiry: z.boolean().optional(),
+        isActive: z.boolean().optional(),
       }).parse(req.body);
 
       // Validation: if isOnEnquiry is false, basePrice must be set
@@ -3402,7 +3403,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } else {
         // Only allow public access if service is complete and active
-        const isComplete = service.isActive === true && Array.isArray(service.images) && service.images.length > 0 && !!service.title && !!service.description && !!service.category && !!service.basePrice;
+        const hasImages = Array.isArray(service.images) && service.images.length > 0;
+        
+        // For Price on Enquiry services, images are optional
+        // For regular services, images are required
+        const hasRequiredContent = service.isOnEnquiry 
+          ? (!!service.title && !!service.description && !!service.category)
+          : (hasImages && !!service.title && !!service.description && !!service.category);
+        
+        const isComplete = service.isActive === true && hasRequiredContent && (service.isOnEnquiry || !!service.basePrice);
+        
+        // DEBUG
+        console.log(`[GET /api/services/:id] Service ${req.params.id}`, {
+          isActive: service.isActive,
+          isOnEnquiry: service.isOnEnquiry,
+          hasImages,
+          hasTitle: !!service.title,
+          hasDescription: !!service.description,
+          hasCategory: !!service.category,
+          basePrice: service.basePrice,
+          hasRequiredContent,
+          isComplete,
+        });
+        
         if (!isComplete) {
           return res.status(404).json({ error: "Service not available" });
         }

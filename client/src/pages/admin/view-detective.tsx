@@ -97,13 +97,19 @@ export default function ViewDetective() {
   const updateServicePricingMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }) => 
       api.services.adminUpdatePricing(id, data),
-    onSuccess: async () => {
+    onSuccess: async (result, variables) => {
       if (detective?.id) {
+        // Invalidate admin Services list
         await queryClient.refetchQueries({ queryKey: ["services", "detective", detective.id, "admin"] });
+        // Invalidate all service detail page variants (public, preview)
+        await queryClient.invalidateQueries({ queryKey: ["services", variables.id], exact: false });
+        // Invalidate public services list for this detective
+        await queryClient.invalidateQueries({ queryKey: ["services", "detective", detective.id] });
       }
     },
   });
   const adminUpdateService = useAdminUpdateService();
+  const adminCreateService = useAdminCreateServiceForDetective();
   const [serviceForm, setServiceForm] = useState({
     title: "",
     description: "",
@@ -690,9 +696,11 @@ export default function ViewDetective() {
                               })()}
                             </div>
                             <div className="text-right">
-                              <p className="text-sm text-gray-500">Base Price</p>
+                              <p className="text-sm text-gray-500">
+                                {service.isOnEnquiry ? "Price" : "Base Price"}
+                              </p>
                               <p className="text-xl font-bold text-blue-600" data-testid={`service-price-${service.id}`}>
-                                {formatPriceExactForCountry(Number(service.basePrice), detective.country)}
+                                {service.isOnEnquiry ? "On Enquiry" : formatPriceExactForCountry(Number(service.basePrice), detective.country)}
                               </p>
                             </div>
                           </div>
@@ -1045,6 +1053,8 @@ export default function ViewDetective() {
                             basePrice: pricingForm.isOnEnquiry ? null : pricingForm.basePrice,
                             offerPrice: pricingForm.offerPrice || null,
                             isOnEnquiry: pricingForm.isOnEnquiry,
+                            // Ensure service is active and has required fields for public visibility
+                            isActive: true,
                           },
                         });
                         
