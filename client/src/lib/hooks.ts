@@ -69,6 +69,8 @@ export function useDetective(id: string | null | undefined) {
     queryKey: ["detectives", id],
     queryFn: () => api.detectives.getById(id!),
     enabled: !!id,
+    staleTime: 60 * 1000, // 60 seconds - public detective profiles cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -96,6 +98,8 @@ export function useDetectivesByCountry(country: string | null | undefined) {
     queryKey: ["detectives", "country", country],
     queryFn: () => api.detectives.getByCountry(country!),
     enabled: !!country,
+    staleTime: 60 * 1000, // 60 seconds - public detective listings cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -193,6 +197,8 @@ export function useSearchServices(params?: {
   return useQuery({
     queryKey: ["services", "search", params],
     queryFn: () => api.services.search(params),
+    staleTime: 60 * 1000, // 60 seconds - public search results cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -201,6 +207,8 @@ export function useService(id: string | null | undefined, preview?: boolean) {
     queryKey: ["services", id, preview ? "preview" : "public"],
     queryFn: () => api.services.getById(id!, { preview }),
     enabled: !!id,
+    staleTime: 60 * 1000, // 60 seconds - public service pages cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -209,6 +217,8 @@ export function usePublicServiceCount(detectiveId: string | null | undefined) {
     queryKey: ["detectives", detectiveId, "public-service-count"],
     queryFn: () => api.detectives.getPublicServiceCount(detectiveId!),
     enabled: !!detectiveId,
+    staleTime: 60 * 1000, // 60 seconds - public data cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -601,6 +611,8 @@ export function useServiceCategories(activeOnly?: boolean, enabled: boolean = tr
     queryKey: ["serviceCategories", activeOnly],
     queryFn: () => api.serviceCategories.getAll(activeOnly),
     enabled,
+    staleTime: 2 * 60 * 1000, // 2 minutes - categories rarely change, safe to cache longer
+    gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache when navigating away
   });
 }
 
