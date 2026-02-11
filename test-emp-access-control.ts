@@ -1,10 +1,9 @@
-import dotenv from 'dotenv';
+import "./server/lib/loadEnv.ts";
 import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, '.env.local') });
 
 const baseUrl = 'http://127.0.0.1:5000';
 let sessionId = '';

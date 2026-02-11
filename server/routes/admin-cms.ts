@@ -144,6 +144,21 @@ router.patch("/categories/:id", requireRole("admin", "employee"), async (req: Re
       return res.status(404).json({ error: "Category not found" });
     }
 
+    // Invalidate caches when category is updated
+    try {
+      cache.del("cms:admin:categories");
+      cache.del("cms:admin:tags");
+      cache.del("cms:admin:pages");
+      // Clear service caches since services reference categories
+      cache.keys().filter(k => k.startsWith("services:")).forEach(k => cache.del(k));
+      // Clear detective profile caches since they contain service data with categories
+      cache.keys().filter(k => k.startsWith("detective:public:")).forEach(k => cache.del(k));
+      console.debug("[cache INVALIDATE] Category updated - cleared CMS and service caches");
+    } catch (cacheError) {
+      console.warn("[cache] Error invalidating caches:", cacheError instanceof Error ? cacheError.message : String(cacheError));
+      // Don't fail the response if cache invalidation fails
+    }
+
     res.json({ category });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -223,6 +238,11 @@ router.get("/tags", requireRole("admin", "employee"), async (req: Request, res: 
 
 // DEBUG: GET /api/admin/tags/debug/all - Show all tags including duplicates
 router.get("/tags/debug/all", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+  // DEBUG endpoint disabled in production
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "Debug endpoint not available in production" });
+  }
+
   try {
     const result = await pool.query(`
       SELECT id, name, slug, parent_id, status, created_at

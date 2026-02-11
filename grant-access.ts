@@ -24,7 +24,6 @@ async function grantAccess() {
     
     if (userResult.rows.length === 0) {
       console.log('❌ User sam@s.com not found');
-      await pool.end();
       return;
     }
     
@@ -96,7 +95,11 @@ async function grantAccess() {
     finalAccess.rows.forEach(p => console.log(`  ✅ ${p.key}`));
     
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    if (error instanceof Error) {
+      console.error('❌ Error:', error.message);
+    } else {
+      console.error('❌ Error:', String(error));
+    }
   } finally {
     await pool.end();
   }

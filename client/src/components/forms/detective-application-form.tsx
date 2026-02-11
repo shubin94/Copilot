@@ -8,7 +8,7 @@ import { Check, Upload, Shield, ArrowRight, ArrowLeft, Loader2 } from "lucide-re
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useServiceCategories, useCreateApplication } from "@/lib/hooks";
+import { useServiceCategories, useCreateApplication, useSubscriptionLimits } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
 import { COUNTRY_STATES, STATE_CITIES } from "@/lib/geo";
 import type { InsertDetectiveApplication } from "@shared/schema";
@@ -115,14 +115,18 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     licenseNumber: "",
     about: "",
     serviceCategories: [] as string[],
-    categoryPricing: [] as Array<{category: string; price: string; currency: string}>,
+    categoryPricing: [] as Array<{category: string; price: string; currency: string; isOnEnquiry: boolean}>,
     documents: [] as string[],
     isClaimable: false,
   });
 
   const createApplication = useCreateApplication();
   const { data: categoriesData } = useServiceCategories();
+  const { data: limitsData } = useSubscriptionLimits();
   const serviceCategories = categoriesData?.categories?.filter(cat => cat.isActive) || [];
+  
+  // Get the free plan's service limit (new detectives start on free plan)
+  const freeServiceLimit = limitsData?.limits?.free || 10;
 
   const validateStep = (currentStep: number): boolean => {
     const fieldsToValidate: string[] = [];
@@ -168,6 +172,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
           if (formData.businessType === "agency" && !formData.businessWebsite) newErrors[field] = "Business website is required";
           else if (formData.businessWebsite && formData.businessType === "agency" && !formData.businessWebsite.startsWith("http")) 
             newErrors[field] = "Website must start with http:// or https://";
+          else if (formData.businessWebsite && formData.businessType === "agency") {
+            try {
+              new URL(formData.businessWebsite);
+            } catch {
+              newErrors[field] = "Must be a valid website URL (e.g., https://yoursite.com)";
+            }
+          }
           break;
         case "city":
           if (!formData.city) newErrors[field] = "City is required";
@@ -335,6 +346,14 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
           errors[fieldName] = "Business website is required";
         } else if (value && formData.businessType === "agency" && !value.startsWith("http")) {
           errors[fieldName] = "Website must start with http:// or https://";
+        } else if (value && formData.businessType === "agency") {
+          // Validate URL format (must have domain extension like .com, .net, etc.)
+          try {
+            new URL(value);
+            delete errors[fieldName];
+          } catch {
+            errors[fieldName] = "Must be a valid website URL (e.g., https://yoursite.com)";
+          }
         } else {
           delete errors[fieldName];
         }
@@ -480,14 +499,14 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
 
     console.log("Missing fields:", missingFields);
 
-    const categoriesWithoutPrice = formData.categoryPricing.filter(p => !p.price || parseFloat(p.price) <= 0);
+    const categoriesWithoutPrice = formData.categoryPricing.filter(p => !p.isOnEnquiry && (!p.price || parseFloat(p.price) <= 0));
     console.log("Categories without price:", categoriesWithoutPrice);
     
     if (categoriesWithoutPrice.length > 0) {
       console.log("VALIDATION FAILED: Missing pricing");
       toast({
         title: "Missing Pricing Information",
-        description: "Please set a starting price for all selected service categories.",
+        description: "Please set a starting price or select 'Price on Enquiry' for all selected service categories.",
         variant: "destructive",
       });
       return;
@@ -561,13 +580,15 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
         onSuccess(applicationData);
       }
     } catch (error: any) {
-      console.error("Submission error:", error);
-      console.error("Error details:", {
-        name: error?.name,
-        message: error?.message,
-        status: error?.status,
-        response: error?.response,
-      });
+      console.error("Submission error:", error?.message);
+      // Don't log full response as it may contain sensitive data
+      if (error?.name === 'AbortError' || error?.status) {
+        console.debug("Error details:", {
+          name: error?.name,
+          message: error?.message,
+          status: error?.status,
+        });
+      }
       
       let displayMessage = "Please try again later.";
       
@@ -736,8 +757,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                       placeholder="e.g. Holmes Investigations Ltd."
                       value={formData.companyName}
                       onChange={(e) => handleInputChange("companyName", e.target.value)}
+                      onBlur={() => handleFieldBlur("companyName")}
                       data-testid="input-companyName"
+                      className={fieldErrors.companyName && touched.companyName ? "border-red-500" : ""}
                     />
+                    {fieldErrors.companyName && touched.companyName && (
+                      <p className="text-sm text-red-600">{fieldErrors.companyName}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="businessWebsite">Business Website *</Label>
@@ -747,9 +773,15 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                       placeholder="https://www.yourdetectiveagency.com"
                       value={formData.businessWebsite}
                       onChange={(e) => handleInputChange("businessWebsite", e.target.value)}
+                      onBlur={() => handleFieldBlur("businessWebsite")}
                       data-testid="input-businessWebsite"
+                      className={fieldErrors.businessWebsite && touched.businessWebsite ? "border-red-500" : ""}
                     />
-                    <p className="text-xs text-gray-500">Enter the full URL including https://</p>
+                    {fieldErrors.businessWebsite && touched.businessWebsite ? (
+                      <p className="text-sm text-red-600">{fieldErrors.businessWebsite}</p>
+                    ) : (
+                      <p className="text-xs text-gray-500">Enter the full URL including https://</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Business Supporting Document *</Label>
@@ -1036,13 +1068,13 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                 <Shield className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-blue-800">
                   <p className="font-bold">Service Categories & Verification</p>
-                  <p>Select up to 2 service categories and set your starting prices.</p>
+                  <p>Select up to {freeServiceLimit} service categories and set your starting prices.</p>
                 </div>
               </div>
 
               <div className="space-y-3">
-                <Label>Service Categories You'll Offer (Max 2) *</Label>
-                <p className="text-xs text-gray-500">Select up to 2 categories and set your starting price for each</p>
+                <Label>Service Categories You'll Offer (Max {freeServiceLimit}) *</Label>
+                <p className="text-xs text-gray-500">Select up to {freeServiceLimit} categories and set your starting price for each. You can enable "Price on Enquiry" for any category.</p>
                 <div className="space-y-3">
                   {serviceCategories.map((category) => {
                     const isSelected = formData.serviceCategories.includes(category.name);
@@ -1057,10 +1089,10 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                             checked={isSelected}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                if (formData.serviceCategories.length >= 2) {
+                                if (formData.serviceCategories.length >= freeServiceLimit) {
                                   toast({
                                     title: "Maximum Limit Reached",
-                                    description: "You can add more categories after your account is approved.",
+                                    description: `You can select up to ${freeServiceLimit} categories for your free account. Upgrade your subscription for more.`,
                                     variant: "default",
                                   });
                                   return;
@@ -1071,7 +1103,8 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                                   categoryPricing: [...prev.categoryPricing, {
                                     category: category.name,
                                     price: "",
-                                    currency: selectedCountry?.currencyCode || "USD"
+                                    currency: selectedCountry?.currencyCode || "USD",
+                                    isOnEnquiry: false
                                   }]
                                 }));
                               } else {
@@ -1088,31 +1121,59 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                           <div className="flex-1">
                             <span className="text-sm font-medium">{category.name}</span>
                             {isSelected && (
-                              <div className="mt-2 flex items-center gap-2">
-                                <span className="text-sm text-gray-600">Starting Price:</span>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-sm font-medium">{selectedCountry?.currency || "$"}</span>
-                                  <Input 
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    placeholder="100"
-                                    value={pricing?.price || ""}
-                                    onChange={(e) => {
+                              <div className="mt-3 space-y-3 bg-gray-50 p-3 rounded">
+                                <div className="flex items-center gap-2">
+                                  <Checkbox 
+                                    id={`isOnEnquiry-${category.id}`}
+                                    checked={pricing?.isOnEnquiry || false}
+                                    onCheckedChange={(checked) => {
                                       setFormData(prev => ({
                                         ...prev,
                                         categoryPricing: prev.categoryPricing.map(p => 
                                           p.category === category.name 
-                                            ? { ...p, price: e.target.value }
+                                            ? { ...p, isOnEnquiry: checked as boolean }
                                             : p
                                         )
                                       }));
                                     }}
-                                    className="w-32"
-                                    data-testid={`input-price-${category.id}`}
+                                    data-testid={`checkbox-price-on-enquiry-${category.id}`}
                                   />
-                                  <span className="text-xs text-gray-500">{selectedCountry?.currencyCode || "USD"}</span>
+                                  <Label htmlFor={`isOnEnquiry-${category.id}`} className="cursor-pointer text-sm font-medium">
+                                    Price on Enquiry
+                                  </Label>
+                                  <p className="text-xs text-gray-600 ml-2">
+                                    Enable to hide pricing - clients will contact you for pricing
+                                  </p>
                                 </div>
+
+                                {!pricing?.isOnEnquiry && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm text-gray-600">Starting Price:</span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-sm font-medium">{selectedCountry?.currency || "$"}</span>
+                                      <Input 
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="100"
+                                        value={pricing?.price || ""}
+                                        onChange={(e) => {
+                                          setFormData(prev => ({
+                                            ...prev,
+                                            categoryPricing: prev.categoryPricing.map(p => 
+                                              p.category === category.name 
+                                                ? { ...p, price: e.target.value }
+                                                : p
+                                            )
+                                          }));
+                                        }}
+                                        className="w-32"
+                                        data-testid={`input-price-${category.id}`}
+                                      />
+                                      <span className="text-xs text-gray-500">{selectedCountry?.currencyCode || "USD"}</span>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

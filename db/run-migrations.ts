@@ -1,7 +1,8 @@
+import "../server/lib/loadEnv.ts";
 import { db } from './index';
 import { sql } from 'drizzle-orm';
-import { readFileSync, readdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, readdirSync, existsSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -9,10 +10,19 @@ const migrationsDir = join(__dirname, '..', 'migrations');
 
 /**
  * Run all SQL migrations in order
+ * 
+ * IMPORTANT: Some migrations use CREATE INDEX CONCURRENTLY which cannot run inside
+ * a transaction. These are detected and executed outside transaction blocks.
  */
 export async function runMigrations() {
   try {
     console.log('🚀 Starting migrations...\n');
+
+    // Check if migrations directory exists
+    if (!existsSync(migrationsDir)) {
+      console.log('ℹ️  Migrations directory does not exist, skipping migrations');
+      return;
+    }
 
     // Create migrations tracking table if it doesn't exist
     await db.execute(sql`
@@ -32,9 +42,10 @@ export async function runMigrations() {
     let executedCount = 0;
     for (const file of files) {
       // Check if migration was already executed
-      const [existing] = await db.execute<{ filename: string }>(
+      const results = await db.execute(
         sql`SELECT filename FROM _migrations WHERE filename = ${file}`
       );
+      const existing = (results as any).rows && (results as any).rows.length > 0 ? (results as any).rows[0] : null;
 
       if (existing?.filename) {
         console.log(`⏭️  Skipping ${file} (already executed)`);
@@ -43,22 +54,59 @@ export async function runMigrations() {
 
       console.log(`📝 Running migration: ${file}`);
       
-      // Read and execute migration
+      // Read migration SQL
       const migrationSQL = readFileSync(join(migrationsDir, file), 'utf-8');
       
+      // Check if migration contains CREATE INDEX CONCURRENTLY (must run outside transaction)
+      const hasConcurrentIndex = /CREATE\s+INDEX\s+CONCURRENTLY/i.test(migrationSQL);
+      
       try {
-        await db.execute(sql.raw(migrationSQL));
-        
-        // Mark as executed
-        await db.execute(
-          sql`INSERT INTO _migrations (filename) VALUES (${file})`
-        );
+        if (hasConcurrentIndex) {
+          // Execute outside transaction (required for CREATE INDEX CONCURRENTLY)
+          console.log(`  ⚠️  Contains CONCURRENT INDEX - executing outside transaction`);
+          await db.execute(sql.raw(migrationSQL));
+          
+          // Mark as executed separately
+          await db.execute(sql`INSERT INTO _migrations (filename) VALUES (${file})`);
+        } else {
+          // Use transaction for atomicity (normal migrations)
+          await db.transaction(async (tx) => {
+            // Execute migration SQL
+            await tx.execute(sql.raw(migrationSQL));
+            
+            // Mark as executed in same transaction
+            await tx.execute(sql`INSERT INTO _migrations (filename) VALUES (${file})`);
+          });
+        }
         
         console.log(`✅ Completed ${file}\n`);
         executedCount++;
       } catch (error) {
-        console.error(`❌ Failed to execute ${file}:`, error);
-        throw error;
+        // Handle idempotent errors (e.g., type already exists, index already exists)
+        const errorCode = (error as any)?.code;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        // 42710 = type already exists
+        // 42P07 = duplicate table
+        // 42P13 = duplicate index
+        const isIdempotent = errorCode === '42710' || errorCode === '42P07' || errorCode === '42P13' || 
+                            errorMessage.includes('already exists') ||
+                            errorMessage.includes('duplicate key');
+        
+        if (isIdempotent) {
+          console.warn(`⚠️  Skipping ${file}: already applied (${errorMessage.slice(0, 60)}...)`);
+          
+          // Still mark as executed to prevent re-running
+          try {
+            await db.execute(sql`INSERT INTO _migrations (filename) VALUES (${file})`);
+          } catch (_) {
+            // Ignore if already marked
+          }
+          console.log(`✅ Marked as executed\n`);
+        } else {
+          console.error(`❌ Failed to execute ${file}:`, error);
+          throw error;
+        }
       }
     }
 
@@ -74,7 +122,10 @@ export async function runMigrations() {
 }
 
 // Run migrations if this file is executed directly
-if (import.meta.url === `file://${process.argv[1]}` || import.meta.url.includes(process.argv[1])) {
+const __filename = fileURLToPath(import.meta.url);
+const isMainModule = resolve(process.argv[1]) === resolve(__filename);
+
+if (isMainModule) {
   runMigrations()
     .then(() => {
       console.log('✅ Migration script completed successfully');

@@ -12,10 +12,10 @@ CREATE TABLE IF NOT EXISTS detective_visibility (
 );
 
 -- Create index for common queries
-CREATE INDEX idx_detective_visibility_is_visible ON detective_visibility(is_visible);
-CREATE INDEX idx_detective_visibility_manual_rank ON detective_visibility(manual_rank);
-CREATE INDEX idx_detective_visibility_visibility_score ON detective_visibility(visibility_score DESC);
-CREATE INDEX idx_detective_visibility_is_featured ON detective_visibility(is_featured);
+CREATE INDEX IF NOT EXISTS idx_detective_visibility_is_visible ON detective_visibility(is_visible);
+CREATE INDEX IF NOT EXISTS idx_detective_visibility_manual_rank ON detective_visibility(manual_rank);
+CREATE INDEX IF NOT EXISTS idx_detective_visibility_visibility_score ON detective_visibility(visibility_score DESC);
+CREATE INDEX IF NOT EXISTS idx_detective_visibility_is_featured ON detective_visibility(is_featured);
 
 -- Add trigger to update updated_at
 CREATE OR REPLACE FUNCTION update_detective_visibility_timestamp()
@@ -26,7 +26,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trigger_detective_visibility_updated_at
-BEFORE UPDATE ON detective_visibility
-FOR EACH ROW
-EXECUTE FUNCTION update_detective_visibility_timestamp();
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_detective_visibility_updated_at'
+  ) THEN
+    CREATE TRIGGER trigger_detective_visibility_updated_at
+    BEFORE UPDATE ON detective_visibility
+    FOR EACH ROW
+    EXECUTE FUNCTION update_detective_visibility_timestamp();
+  END IF;
+END $$;

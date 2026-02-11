@@ -50,6 +50,8 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       staleTime: Infinity,
       retry: false,
+      // IMPORTANT: Admin and authenticated dashboard routes override this with staleTime:0, gcTime:0
+      // Only public search and public profiles use Infinity staleTime
     },
     mutations: {
       retry: false,

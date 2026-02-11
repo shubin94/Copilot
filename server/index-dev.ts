@@ -76,14 +76,20 @@ export async function setupVite(app: Express, server: Server) {
     // Log Supabase configuration (environment-only)
     const supabaseUrl = process.env.SUPABASE_URL;
     if (supabaseUrl) {
-      const supabaseHost = new URL(supabaseUrl).hostname;
-      const isLocal = supabaseHost.includes('localhost') || supabaseHost.includes('127.0.0.1');
-      const envSource = process.env.NODE_ENV === 'production' ? 'Hosting Provider' : '.env.local or .env';
-      console.log(`💾 Supabase: ${isLocal ? '🟢 Local' : '☁️  Cloud'} (${supabaseHost})`);
-      console.log(`   Source: ${envSource}`);
-      if (!isLocal && process.env.NODE_ENV === 'development') {
-        console.warn(`   ⚠️  WARNING: Development mode using CLOUD Supabase!`);
-        console.warn(`   This should only happen if you explicitly set SUPABASE_URL to a cloud instance.`);
+      try {
+        const supabaseHost = new URL(supabaseUrl).hostname;
+        const isLocal = supabaseHost.includes('localhost') || supabaseHost.includes('127.0.0.1');
+        const envSource = process.env.NODE_ENV === 'production' ? 'Hosting Provider' : '.env.local or .env';
+        console.log(`💾 Supabase: ${isLocal ? '🟢 Local' : '☁️  Cloud'} (${supabaseHost})`);
+        console.log(`   Source: ${envSource}`);
+        if (!isLocal && process.env.NODE_ENV === 'development') {
+          console.warn(`   ⚠️  WARNING: Development mode using CLOUD Supabase!`);
+          console.warn(`   This should only happen if you explicitly set SUPABASE_URL to a cloud instance.`);
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.warn(`⚠️  Supabase URL parsing failed: ${errMsg} (${supabaseUrl})`);
+        console.log(`⚠️  Supabase: Not configured (storage disabled)`);
       }
     } else {
       console.log(`⚠️  Supabase: Not configured (storage disabled)`);

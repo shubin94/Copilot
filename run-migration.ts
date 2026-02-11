@@ -6,11 +6,14 @@ async function runMigration() {
   console.log("🔄 Starting migration: Remove legacy subscription_plan column...\n");
 
   try {
+    // Wrap entire migration in transaction for atomicity
+    await db.execute(sql`BEGIN`);
+
     // Step 1: Get the free plan ID
     const freePlanList = await db
       .select({ id: subscriptionPlans.id })
       .from(subscriptionPlans)
-      .where(eq(subscriptionPlans.monthlyPrice, 0));
+      .where(eq(subscriptionPlans.monthlyPrice, "0"));
 
     if (!freePlanList || freePlanList.length === 0) {
       throw new Error("❌ Free plan not found in subscription_plans table!");
@@ -24,7 +27,8 @@ async function runMigration() {
       sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_package_id IS NULL`
     );
 
-    const nullCount = nullCountResult[0]?.count ?? 0;
+    const nullCountRows = (nullCountResult as any).rows ?? (nullCountResult as any) ?? [];
+    const nullCount = Number(nullCountRows[0]?.count ?? 0);
 
     if (nullCount > 0) {
       console.log(`⚠️  Found ${nullCount} detectives with NULL subscription_package_id`);
@@ -38,17 +42,29 @@ async function runMigration() {
       console.log("✅ No detectives with NULL subscription_package_id found\n");
     }
 
-    // Step 3: Drop the legacy subscription_plan column
+    // Step 3: Verify no remaining stale mappings before dropping column
+    console.log("🔄 Verifying no stale subscription_plan mappings...");
+    const staleCheck = await db.execute(
+      sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_plan IS NOT NULL AND subscription_package_id IS NULL`
+    );
+    const staleRows = (staleCheck as any).rows ?? (staleCheck as any) ?? [];
+    const staleCount = Number(staleRows[0]?.count ?? 0);
+    if (staleCount > 0) {
+      throw new Error(`Cannot drop subscription_plan: ${staleCount} detectives have NULL subscription_package_id with non-NULL subscription_plan`);
+    }
+    console.log("✅ No stale mappings found\n");
+
+    // Step 4: Drop the legacy subscription_plan column
     console.log("🔄 Dropping legacy subscription_plan column...");
     await db.execute(sql.raw("ALTER TABLE detectives DROP COLUMN subscription_plan"));
     console.log("✅ Column dropped successfully\n");
 
-    // Step 4: Make subscription_package_id NOT NULL
+    // Step 5: Make subscription_package_id NOT NULL
     console.log("🔄 Making subscription_package_id NOT NULL...");
     await db.execute(sql.raw("ALTER TABLE detectives ALTER COLUMN subscription_package_id SET NOT NULL"));
     console.log("✅ Column constraint updated\n");
 
-    // Step 5: Add foreign key constraint
+    // Step 6: Add foreign key constraint
     console.log("🔄 Adding foreign key constraint...");
     try {
       await db.execute(sql.raw(`
@@ -73,7 +89,8 @@ async function runMigration() {
       sql`SELECT COUNT(*) as count FROM detectives WHERE subscription_package_id IS NULL`
     );
 
-    const remainingCount = remaining[0]?.count ?? 0;
+    const remainingRows = (remaining as any).rows ?? (remaining as any) ?? [];
+    const remainingCount = Number(remainingRows[0]?.count ?? 0);
     if (remainingCount > 0) {
       throw new Error(`❌ ERROR: ${remainingCount} detectives still have NULL subscription_package_id!`);
     }
@@ -81,12 +98,13 @@ async function runMigration() {
     console.log("✅ Verification passed: All detectives have valid subscription_package_id\n");
 
     // Check schema
-    const columns = await db.execute(
+    const columnsResult = await db.execute(
       sql.raw(
         "SELECT column_name FROM information_schema.columns WHERE table_name = 'detectives' AND column_name = 'subscription_plan'"
       )
     );
 
+    const columns = (columnsResult as any).rows ?? (columnsResult as any) ?? [];
     if (columns && columns.length > 0) {
       throw new Error("❌ ERROR: subscription_plan column still exists!");
     }
@@ -103,8 +121,17 @@ async function runMigration() {
     console.log("   4. Added foreign key constraint");
     console.log("\n✨ Database now has single source of truth: subscription_package_id\n");
 
+    // Commit transaction
+    await db.execute(sql`COMMIT`);
+
     process.exit(0);
   } catch (error) {
+    // Rollback on error
+    try {
+      await db.execute(sql`ROLLBACK`);
+    } catch (rollbackError) {
+      console.error("❌ Error rolling back transaction:", rollbackError);
+    }
     console.error("\n❌ MIGRATION FAILED:");
     console.error(error);
     process.exit(1);

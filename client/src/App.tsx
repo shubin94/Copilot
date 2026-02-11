@@ -12,8 +12,8 @@ import { SmokeTester } from "@/components/dev/smoke-tester";
 import CountrySelectorPopup from "@/components/modals/country-selector-popup";
 import { initializeAuthSession } from "./lib/authSessionManager";
 import { AdminRoute } from "@/components/admin-route";
-import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
+import { Analytics } from "@vercel/analytics/react";
 
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -110,33 +110,34 @@ const withAdminRoute = (Component: ComponentType<any>) => (props: any) => (
   </AdminRoute>
 );
 
-function Router() {
-  const AdminDashboardRoute = withAdminRoute(AdminDashboard);
-  const AdminFinanceRoute = withAdminRoute(AdminFinance);
-  const AdminSignupsRoute = withAdminRoute(AdminSignups);
-  const AdminDetectivesRoute = withAdminRoute(AdminDetectives);
-  const AdminServicesRoute = withAdminRoute(AdminServices);
-  const AdminServiceCategoriesRoute = withAdminRoute(AdminServiceCategories);
-  const AdminSignupDetailsRoute = withAdminRoute(AdminSignupDetails);
-  const AdminSubscriptionsRoute = withAdminRoute(AdminSubscriptions);
-  const AdminAddDetectiveRoute = withAdminRoute(AdminAddDetective);
-  const AdminClaimsRoute = withAdminRoute(AdminClaims);
-  const AdminViewDetectiveRoute = withAdminRoute(AdminViewDetective);
-  const AdminSettingsRoute = withAdminRoute(AdminSettings);
-  const AdminPaymentGatewaysRoute = withAdminRoute(AdminPaymentGateways);
-  const AdminBrandingRoute = withAdminRoute(AdminBranding);
-  const AdminPagesRoute = withAdminRoute(AdminPages);
-  const AdminRankingVisibilityRoute = withAdminRoute(AdminRankingVisibility);
-  const AdminEmailTemplatesRoute = withAdminRoute(AdminEmailTemplates);
-  const AdminSnippetsRoute = withAdminRoute(AdminSnippets);
-  const AdminAppSecretsRoute = withAdminRoute(AdminAppSecrets);
+// Create admin route components at module scope to avoid recreation on each render
+const AdminDashboardRoute = withAdminRoute(AdminDashboard);
+const AdminFinanceRoute = withAdminRoute(AdminFinance);
+const AdminSignupsRoute = withAdminRoute(AdminSignups);
+const AdminDetectivesRoute = withAdminRoute(AdminDetectives);
+const AdminServicesRoute = withAdminRoute(AdminServices);
+const AdminServiceCategoriesRoute = withAdminRoute(AdminServiceCategories);
+const AdminSignupDetailsRoute = withAdminRoute(AdminSignupDetails);
+const AdminSubscriptionsRoute = withAdminRoute(AdminSubscriptions);
+const AdminAddDetectiveRoute = withAdminRoute(AdminAddDetective);
+const AdminClaimsRoute = withAdminRoute(AdminClaims);
+const AdminViewDetectiveRoute = withAdminRoute(AdminViewDetective);
+const AdminSettingsRoute = withAdminRoute(AdminSettings);
+const AdminPaymentGatewaysRoute = withAdminRoute(AdminPaymentGateways);
+const AdminBrandingRoute = withAdminRoute(AdminBranding);
+const AdminPagesRoute = withAdminRoute(AdminPages);
+const AdminRankingVisibilityRoute = withAdminRoute(AdminRankingVisibility);
+const AdminEmailTemplatesRoute = withAdminRoute(AdminEmailTemplates);
+const AdminSnippetsRoute = withAdminRoute(AdminSnippets);
+const AdminAppSecretsRoute = withAdminRoute(AdminAppSecrets);
+const AdminDashboardCMSRoute = withAdminRoute(AdminDashboardCMS);
+const AdminCategoriesRoute = withAdminRoute(AdminCategories);
+const AdminTagsRoute = withAdminRoute(AdminTags);
+const AdminPagesEditRoute = withAdminRoute(AdminPagesEdit);
+const PageEditRoute = withAdminRoute(PageEdit);
+const AdminEmployeesRoute = withAdminRoute(AdminEmployees);
 
-  const AdminDashboardCMSRoute = withAdminRoute(AdminDashboardCMS);
-  const AdminCategoriesRoute = withAdminRoute(AdminCategories);
-  const AdminTagsRoute = withAdminRoute(AdminTags);
-  const AdminPagesEditRoute = withAdminRoute(AdminPagesEdit);
-  const PageEditRoute = withAdminRoute(PageEdit);
-  const AdminEmployeesRoute = withAdminRoute(AdminEmployees);
+function Router() {
   return (
     <>
       <ScrollToTop />
@@ -252,6 +253,8 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <SmokeTester />
+            <SpeedInsights />
+            <Analytics />
             <Router />
             <Analytics />
             <SpeedInsights />

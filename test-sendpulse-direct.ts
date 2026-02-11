@@ -30,7 +30,13 @@ async function testSendPulse() {
       }).toString(),
     });
 
-    const tokenData = await tokenResponse.json();
+    const tokenData = await (async () => {
+      try {
+        return await tokenResponse.json();
+      } catch (e) {
+        throw new Error(`Failed to parse token response: ${e}`);
+      }
+    })();
     if (!tokenData.access_token) {
       console.error("❌ Failed to get access token:", tokenData);
       process.exit(1);
@@ -82,7 +88,13 @@ async function testSendPulse() {
 
     console.log(`Response Status: ${sendResponse.status} ${sendResponse.statusText}`);
 
-    const responseData = await sendResponse.json();
+    const responseData = await (async () => {
+      try {
+        return await sendResponse.json();
+      } catch (e) {
+        throw new Error(`Failed to parse send response: ${e}`);
+      }
+    })();
     console.log("Response Data:");
     console.log(JSON.stringify(responseData, null, 2));
 

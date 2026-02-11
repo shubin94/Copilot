@@ -5,6 +5,13 @@ import { eq } from "drizzle-orm";
 
 async function testDeleteService() {
   try {
+    // Guard: prevent accidental deletion in production
+    const NODE_ENV = process.env.NODE_ENV || "development";
+    if (NODE_ENV === "production" && !process.env.FORCE_DELETE) {
+      console.error("❌ Cannot run delete script in production without FORCE_DELETE=true");
+      process.exit(1);
+    }
+
     console.log("\n═══════════════════════════════════════════════════════");
     console.log("🧪 TEST: Delete Service");
     console.log("═══════════════════════════════════════════════════════\n");
@@ -36,7 +43,7 @@ async function testDeleteService() {
     console.log(`\n🔄 Attempting to delete service...`);
     const result = await db.delete(services).where(eq(services.id, service.id));
 
-    if (result.rowCount! > 0) {
+    if ((result.rowCount ?? 0) > 0) {
       console.log(`✅ Successfully deleted service`);
       
       // Verify deletion

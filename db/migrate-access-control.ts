@@ -1,6 +1,8 @@
 import "../server/lib/loadEnv.ts";
 import { db, pool } from "./index.ts";
 import { sql } from "drizzle-orm";
+import { fileURLToPath } from 'url';
+import path from 'path';
 
 /**
  * Migration script to add page-based access control system
@@ -34,127 +36,142 @@ async function migrateAccessControl() {
 
     // Step 2: Add isActive column to users table
     console.log("📝 Step 2: Adding isActive column to users table...");
+    
+    // Begin transaction for table creation and indexes
+    await client.query("BEGIN");
     try {
-      await client.query(`
-        ALTER TABLE users 
-        ADD COLUMN is_active BOOLEAN DEFAULT true NOT NULL
-      `);
-      console.log("✅ Added is_active column to users table");
-    } catch (userColError: any) {
-      if (userColError.message?.includes("already exists")) {
-        console.log("✅ is_active column already exists on users table");
-      } else {
-        throw userColError;
+      try {
+        await client.query(`
+          ALTER TABLE users 
+          ADD COLUMN is_active BOOLEAN DEFAULT true NOT NULL
+        `);
+        console.log("✅ Added is_active column to users table");
+      } catch (userColError: any) {
+        if (userColError.message?.includes("already exists")) {
+          console.log("✅ is_active column already exists on users table");
+        } else {
+          throw userColError;
+        }
       }
-    }
 
-    // Create index on is_active if it doesn't exist
-    try {
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS users_is_active_idx 
-        ON users(is_active)
-      `);
-      console.log("✅ Created index on users.is_active");
-    } catch (indexError: any) {
-      console.log("✅ Index on users.is_active already exists");
-    }
-
-    // Step 3: Create access_pages table
-    console.log("📝 Step 3: Creating access_pages table...");
-    try {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS access_pages (
-          id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
-          key VARCHAR UNIQUE NOT NULL,
-          name VARCHAR NOT NULL,
-          is_active BOOLEAN DEFAULT true NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
-        )
-      `);
-      console.log("✅ Created access_pages table");
-    } catch (tableError: any) {
-      if (tableError.message?.includes("already exists")) {
-        console.log("✅ access_pages table already exists");
-      } else {
-        throw tableError;
+      // Create index on is_active if it doesn't exist
+      try {
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS users_is_active_idx 
+          ON users(is_active)
+        `);
+        console.log("✅ Created index on users.is_active");
+      } catch (indexError: any) {
+        console.log("✅ Index on users.is_active already exists");
       }
-    }
 
-    // Create indexes on access_pages
-    try {
-      await client.query(`
-        CREATE UNIQUE INDEX IF NOT EXISTS access_pages_key_idx 
-        ON access_pages(key)
-      `);
-      console.log("✅ Created unique index on access_pages.key");
-    } catch (e) {
-      console.log("✅ Index on access_pages.key already exists");
-    }
-
-    try {
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS access_pages_is_active_idx 
-        ON access_pages(is_active)
-      `);
-      console.log("✅ Created index on access_pages.is_active");
-    } catch (e) {
-      console.log("✅ Index on access_pages.is_active already exists");
-    }
-
-    // Step 4: Create user_pages table (many-to-many)
-    console.log("📝 Step 4: Creating user_pages table...");
-    try {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS user_pages (
-          user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          page_id VARCHAR NOT NULL REFERENCES access_pages(id) ON DELETE CASCADE,
-          granted_by VARCHAR REFERENCES users(id) ON DELETE SET NULL,
-          granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-          PRIMARY KEY (user_id, page_id)
-        )
-      `);
-      console.log("✅ Created user_pages table");
-    } catch (tableError: any) {
-      if (tableError.message?.includes("already exists")) {
-        console.log("✅ user_pages table already exists");
-      } else {
-        throw tableError;
+      // Step 3: Create access_pages table
+      console.log("📝 Step 3: Creating access_pages table...");
+      try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS access_pages (
+            id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+            key VARCHAR UNIQUE NOT NULL,
+            name VARCHAR NOT NULL,
+            is_active BOOLEAN DEFAULT true NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+          )
+        `);
+        console.log("✅ Created access_pages table");
+      } catch (tableError: any) {
+        if (tableError.message?.includes("already exists")) {
+          console.log("✅ access_pages table already exists");
+        } else {
+          throw tableError;
+        }
       }
-    }
 
-    // Create indexes on user_pages
-    try {
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS user_pages_user_id_idx 
-        ON user_pages(user_id)
-      `);
-      console.log("✅ Created index on user_pages.user_id");
-    } catch (e) {
-      console.log("✅ Index on user_pages.user_id already exists");
-    }
+      // Create indexes on access_pages
+      try {
+        await client.query(`
+          CREATE UNIQUE INDEX IF NOT EXISTS access_pages_key_idx 
+          ON access_pages(key)
+        `);
+        console.log("✅ Created unique index on access_pages.key");
+      } catch (e) {
+        console.log("✅ Index on access_pages.key already exists");
+      }
 
-    try {
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS user_pages_page_id_idx 
-        ON user_pages(page_id)
-      `);
-      console.log("✅ Created index on user_pages.page_id");
-    } catch (e) {
-      console.log("✅ Index on user_pages.page_id already exists");
-    }
+      try {
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS access_pages_is_active_idx 
+          ON access_pages(is_active)
+        `);
+        console.log("✅ Created index on access_pages.is_active");
+      } catch (e) {
+        console.log("✅ Index on access_pages.is_active already exists");
+      }
 
-    try {
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS user_pages_granted_by_idx 
-        ON user_pages(granted_by)
-      `);
-      console.log("✅ Created index on user_pages.granted_by");
-    } catch (e) {
-      console.log("✅ Index on user_pages.granted_by already exists");
-    }
+      // Step 4: Create user_pages table (many-to-many)
+      console.log("📝 Step 4: Creating user_pages table...");
+      try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS user_pages (
+            user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            page_id VARCHAR NOT NULL REFERENCES access_pages(id) ON DELETE CASCADE,
+            granted_by VARCHAR REFERENCES users(id) ON DELETE SET NULL,
+            granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            PRIMARY KEY (user_id, page_id)
+          )
+        `);
+        console.log("✅ Created user_pages table");
+      } catch (tableError: any) {
+        if (tableError.message?.includes("already exists")) {
+          console.log("✅ user_pages table already exists");
+        } else {
+          throw tableError;
+        }
+      }
 
-    console.log("✨ Migration completed successfully!");
+      // Create indexes on user_pages
+      try {
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS user_pages_user_id_idx 
+          ON user_pages(user_id)
+        `);
+        console.log("✅ Created index on user_pages.user_id");
+      } catch (e) {
+        console.log("✅ Index on user_pages.user_id already exists");
+      }
+
+      try {
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS user_pages_page_id_idx 
+          ON user_pages(page_id)
+        `);
+        console.log("✅ Created index on user_pages.page_id");
+      } catch (e) {
+        console.log("✅ Index on user_pages.page_id already exists");
+      }
+
+      try {
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS user_pages_granted_by_idx 
+          ON user_pages(granted_by)
+        `);
+        console.log("✅ Created index on user_pages.granted_by");
+      } catch (e) {
+        console.log("✅ Index on user_pages.granted_by already exists");
+      }
+
+      // Commit the transaction
+      await client.query("COMMIT");
+      console.log("✨ Migration completed successfully!");
+    } catch (txError) {
+      // Rollback on error
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("❌ Rollback failed:", rollbackError);
+      }
+      throw txError;
+    }
   } catch (error) {
     console.error("❌ Migration failed:", error);
     throw error;
@@ -166,7 +183,10 @@ async function migrateAccessControl() {
 export default migrateAccessControl;
 
 // Run if executed directly
-if (import.meta.main) {
+const __filename = fileURLToPath(import.meta.url);
+const isMainModule = process.argv[1] === __filename || path.resolve(process.argv[1]) === path.resolve(__filename);
+
+if (isMainModule) {
   migrateAccessControl()
     .then(() => {
       console.log("\n✅ Access control migration completed");

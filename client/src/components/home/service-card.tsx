@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Link, useLocation } from "wouter";
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ServiceActionButton } from "@/components/home/service-action-button";
 import type { ServiceBadgeState } from "@/lib/service-badges";
@@ -38,7 +38,7 @@ import { Button } from "@/components/ui/button";
 
 import { useToast } from "@/hooks/use-toast";
 
-export function ServiceCard({ id, detectiveId, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) {
+const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) => {
   const [, setLocation] = useLocation();
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -296,4 +296,19 @@ export function ServiceCard({ id, detectiveId, images, image, avatar, name, leve
         </Card>
     </Link>
   );
-}
+};
+
+// Memoize ServiceCard to prevent re-renders when parent updates unrelated state
+export const ServiceCard = memo(ServiceCardComponent, (prevProps, nextProps) => {
+  // Only re-render if these key props change
+  return (
+    prevProps.id === nextProps.id &&
+    prevProps.title === nextProps.title &&
+    prevProps.price === nextProps.price &&
+    prevProps.offerPrice === nextProps.offerPrice &&
+    prevProps.rating === nextProps.rating &&
+    prevProps.reviews === nextProps.reviews &&
+    prevProps.countryCode === nextProps.countryCode &&
+    prevProps.isUnclaimed === nextProps.isUnclaimed
+  );
+});

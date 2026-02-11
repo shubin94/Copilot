@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { Search, MapPin, Filter, ChevronDown, Star, Check, Globe, Loader2, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useReducer } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,7 +30,103 @@ import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import type { Service, Detective } from "@shared/schema";
 import { computeServiceBadges } from "@/lib/service-badges";
 
-function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number }) {
+// Consolidated filter state using reducer
+type FilterState = {
+  category?: string;
+  minRating?: number;
+  country?: string;
+  state: string;
+  city: string;
+  minPrice?: number;
+  maxPrice?: number;
+  minPriceInput: string;
+  maxPriceInput: string;
+  proOnly: boolean;
+  agencyOnly: boolean;
+  level1Only: boolean;
+  level2Only: boolean;
+  sortBy: string;
+  offset: number;
+  limit: number;
+};
+
+type FilterAction =
+  | { type: 'SET_CATEGORY'; payload?: string }
+  | { type: 'SET_MIN_RATING'; payload?: number }
+  | { type: 'SET_COUNTRY'; payload?: string }
+  | { type: 'SET_STATE'; payload: string }
+  | { type: 'SET_CITY'; payload: string }
+  | { type: 'SET_MIN_PRICE'; payload?: number }
+  | { type: 'SET_MAX_PRICE'; payload?: number }
+  | { type: 'SET_MIN_PRICE_INPUT'; payload: string }
+  | { type: 'SET_MAX_PRICE_INPUT'; payload: string }
+  | { type: 'SET_PRO_ONLY'; payload: boolean }
+  | { type: 'SET_AGENCY_ONLY'; payload: boolean }
+  | { type: 'SET_LEVEL1_ONLY'; payload: boolean }
+  | { type: 'SET_LEVEL2_ONLY'; payload: boolean }
+  | { type: 'SET_SORT_BY'; payload: string }
+  | { type: 'SET_OFFSET'; payload: number }
+  | { type: 'RESET_FILTERS' }
+  | { type: 'LOAD_MORE' };
+
+function filterReducer(state: FilterState, action: FilterAction): FilterState {
+  switch (action.type) {
+    case 'SET_CATEGORY':
+      return { ...state, category: action.payload, offset: 0 };
+    case 'SET_MIN_RATING':
+      return { ...state, minRating: action.payload, offset: 0 };
+    case 'SET_COUNTRY':
+      return { ...state, country: action.payload, state: '', city: '', offset: 0 };
+    case 'SET_STATE':
+      return { ...state, state: action.payload, city: '', offset: 0 };
+    case 'SET_CITY':
+      return { ...state, city: action.payload, offset: 0 };
+    case 'SET_MIN_PRICE':
+      return { ...state, minPrice: action.payload, offset: 0 };
+    case 'SET_MAX_PRICE':
+      return { ...state, maxPrice: action.payload, offset: 0 };
+    case 'SET_MIN_PRICE_INPUT':
+      return { ...state, minPriceInput: action.payload };
+    case 'SET_MAX_PRICE_INPUT':
+      return { ...state, maxPriceInput: action.payload };
+    case 'SET_PRO_ONLY':
+      return { ...state, proOnly: action.payload, agencyOnly: false, offset: 0 };
+    case 'SET_AGENCY_ONLY':
+      return { ...state, agencyOnly: action.payload, proOnly: false, offset: 0 };
+    case 'SET_LEVEL1_ONLY':
+      return { ...state, level1Only: action.payload, level2Only: false, offset: 0 };
+    case 'SET_LEVEL2_ONLY':
+      return { ...state, level2Only: action.payload, level1Only: false, offset: 0 };
+    case 'SET_SORT_BY':
+      return { ...state, sortBy: action.payload, offset: 0 };
+    case 'SET_OFFSET':
+      return { ...state, offset: action.payload };
+    case 'LOAD_MORE':
+      return { ...state, offset: state.offset + state.limit };
+    case 'RESET_FILTERS':
+      return {
+        ...state,
+        category: undefined,
+        minRating: undefined,
+        country: undefined,
+        state: '',
+        city: '',
+        minPrice: undefined,
+        maxPrice: undefined,
+        minPriceInput: '',
+        maxPriceInput: '',
+        proOnly: false,
+        agencyOnly: false,
+        level1Only: false,
+        level2Only: false,
+        offset: 0,
+      };
+    default:
+      return state;
+  }
+}
+
+function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number; planName?: string }) {
   const badgeState = computeServiceBadges({
     isVerified: service.detective.isVerified,
     effectiveBadges: service.detective.effectiveBadges,
@@ -65,66 +161,109 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     phone: service.detective.phone || undefined,
     whatsapp: service.detective.whatsapp || undefined,
     contactEmail: service.detective.contactEmail || service.detective.email || undefined,
+    planName: service.planName,
   };
 }
 
 export default function SearchPage() {
-  const [_, setLocation] = useLocation();
-  const searchParams = new URLSearchParams(window.location.search);
-  const query = searchParams.get("q") || "All Services";
-  const countryFilter = searchParams.get("country");
-  const [countryFilterState, setCountryFilterState] = useState<string | undefined>(countryFilter || undefined);
-  const [appliedState, setAppliedState] = useState<string>(searchParams.get("state") || "");
-  const [appliedCity, setAppliedCity] = useState<string>(searchParams.get("city") || "");
+  const [location, setLocation] = useLocation();
+  
+  // Initialize filter state from URL params
+  const initialSearchParams = useRef(new URLSearchParams(window.location.search));
+  const query = initialSearchParams.current.get("q") || "All Services";
+  
+  const [filters, dispatch] = useReducer(filterReducer, {
+    category: initialSearchParams.current.get("category") || undefined,
+    minRating: initialSearchParams.current.get("minRating") ? parseFloat(initialSearchParams.current.get("minRating")!) : undefined,
+    country: initialSearchParams.current.get("country") || undefined,
+    state: initialSearchParams.current.get("state") || "",
+    city: initialSearchParams.current.get("city") || "",
+    minPrice: initialSearchParams.current.get("minPrice") ? parseFloat(initialSearchParams.current.get("minPrice")!) : undefined,
+    maxPrice: initialSearchParams.current.get("maxPrice") ? parseFloat(initialSearchParams.current.get("maxPrice")!) : undefined,
+    minPriceInput: initialSearchParams.current.get("minPrice") || "",
+    maxPriceInput: initialSearchParams.current.get("maxPrice") || "",
+    proOnly: initialSearchParams.current.get("proOnly") === "1",
+    agencyOnly: initialSearchParams.current.get("agencyOnly") === "1",
+    level1Only: initialSearchParams.current.get("lvl1") === "1",
+    level2Only: initialSearchParams.current.get("lvl2") === "1",
+    sortBy: initialSearchParams.current.get("sortBy") || "popular",
+    offset: 0,
+    limit: 50,
+  });
+
+  // Sync filters when navigating to this page with new URL params
+  useEffect(() => {
+    const currentParams = new URLSearchParams(window.location.search);
+    const urlCategory = currentParams.get("category") || undefined;
+    const urlCountry = currentParams.get("country") || undefined;
+    const urlState = currentParams.get("state") || "";
+    
+    console.log("[search-page] URL changed, params:", { urlCategory, urlCountry, urlState });
+    console.log("[search-page] Current filters:", filters);
+    
+    // Only update if different from current filter state
+    if (urlCategory && urlCategory !== filters.category) {
+      console.log("[search-page] Setting category filter:", urlCategory);
+      dispatch({ type: 'SET_CATEGORY', payload: urlCategory });
+    }
+    if (urlCountry && urlCountry !== filters.country) {
+      dispatch({ type: 'SET_COUNTRY', payload: urlCountry });
+    }
+    if (urlState && urlState !== filters.state) {
+      dispatch({ type: 'SET_STATE', payload: urlState });
+    }
+  }, [location]); // Re-run when location (route) changes
+
+  // UI state (not filter-related, kept as useState)
+  const [categoryQuery, setCategoryQuery] = useState<string>("");
   const [countrySearch, setCountrySearch] = useState<string>("");
   const [stateSearch, setStateSearch] = useState<string>("");
   const [citySearch, setCitySearch] = useState<string>("");
   const countrySearchRef = useRef<HTMLInputElement>(null);
   const stateSearchRef = useRef<HTMLInputElement>(null);
   const citySearchRef = useRef<HTMLInputElement>(null);
-  
-  
-  const [minRating, setMinRating] = useState<number | undefined>(() => {
-    const mr = searchParams.get("minRating");
-    return mr ? parseFloat(mr) : undefined;
-  });
-  const [selectedCategory, setSelectedCategory] = useState<string | undefined>(searchParams.get("category") || undefined);
-  const [categoryQuery, setCategoryQuery] = useState<string>("");
-  const [minPriceInput, setMinPriceInput] = useState<string>(searchParams.get("minPrice") || "");
-  const [maxPriceInput, setMaxPriceInput] = useState<string>(searchParams.get("maxPrice") || "");
-  const [minPrice, setMinPrice] = useState<number | undefined>(() => {
-    const mp = searchParams.get("minPrice");
-    return mp ? parseFloat(mp) : undefined;
-  });
-  const [maxPrice, setMaxPrice] = useState<number | undefined>(() => {
-    const mp = searchParams.get("maxPrice");
-    return mp ? parseFloat(mp) : undefined;
-  });
-  const [proOnly, setProOnly] = useState<boolean>((searchParams.get("proOnly") === "1") || false);
-  const [agencyOnly, setAgencyOnly] = useState<boolean>((searchParams.get("agencyOnly") === "1") || false);
-  const [localOnly, setLocalOnly] = useState<boolean>((searchParams.get("localOnly") === "1") || false);
-  const [level1Only, setLevel1Only] = useState<boolean>((searchParams.get("lvl1") === "1") || false);
-  const [level2Only, setLevel2Only] = useState<boolean>((searchParams.get("lvl2") === "1") || false);
-  const [sortBy, setSortBy] = useState<string>(searchParams.get("sortBy") || "popular");
+  const [openSections, setOpenSections] = useState<string[]>(["category", "location"]);
+
   const { selectedCountry, convertPriceFromTo } = useCurrency();
+
+  // Determine plan filter for backend (pro or agency)
+  const planName = filters.proOnly ? "pro" : filters.agencyOnly ? "agency" : undefined;
+  
+  // Determine level filter for backend (level1 or level2)
+  const level = filters.level1Only ? "level1" : filters.level2Only ? "level2" : undefined;
+
+  // Fetch services from backend with ALL filters applied server-side
   const { data: servicesData, isLoading } = useSearchServices({
-    search: selectedCategory ? undefined : (query !== "All Services" ? query : undefined),
-    country: countryFilterState || undefined,
-    state: appliedState || undefined,
-    city: appliedCity || undefined,
-    category: selectedCategory,
-    minRating,
-    limit: 50,
+    search: filters.category ? undefined : (query !== "All Services" ? query : undefined),
+    country: filters.country || undefined,
+    state: filters.state || undefined,
+    city: filters.city || undefined,
+    category: filters.category,
+    minRating: filters.minRating,
+    minPrice: filters.minPrice,
+    maxPrice: filters.maxPrice,
+    planName,
+    level,
+    sortBy: filters.sortBy,
+    limit: filters.limit,
+    offset: filters.offset,
+  });
+
+  console.log("[search-page] Querying with filters:", {
+    category: filters.category,
+    country: filters.country,
+    state: filters.state,
+    city: filters.city,
+    query: filters.category ? undefined : (query !== "All Services" ? query : undefined)
   });
 
   const { data: categoriesData } = useServiceCategories(true);
   const categories = categoriesData?.categories || [];
-  const [openSections, setOpenSections] = useState<string[]>(["category", "location"]);
 
   // Dynamic location data from database
   const { data: countriesData } = useCountries();
-  const { data: statesData } = useStates(countryFilterState);
-  const { data: citiesData } = useCities(countryFilterState, appliedState);
+  const { data: statesData } = useStates(filters.country);
+  const { data: citiesData } = useCities(filters.country, filters.state);
   
   const availableCountryCodes = countriesData?.countries || [];
   const availableStates = statesData?.states || [];
@@ -136,88 +275,69 @@ export default function SearchPage() {
     return { code, name: country?.name || code };
   });
 
+  // Backend now handles ALL filtering - no client-side filtering needed
   const results = servicesData?.services?.map(mapServiceToCard) || [];
-  // Don't filter out services without images - show all results
-  const resultsWithImages = results;
-  const filteredByBudget = resultsWithImages.filter((s) => {
-    if (minPrice === undefined && maxPrice === undefined) return true;
-    const converted = convertPriceFromTo(s.price, (s as any).countryCode, selectedCountry.code);
-    if (minPrice !== undefined && converted < minPrice) return false;
-    if (maxPrice !== undefined && converted > maxPrice) return false;
+  
+  // Client-side price conversion filtering (since prices are stored in different currencies)
+  const finalResults = results.filter((s) => {
+    // If price filters set, check converted prices
+    if (filters.minPrice === undefined && filters.maxPrice === undefined) return true;
+    const converted = convertPriceFromTo(s.price, s.countryCode, selectedCountry.code);
+    if (filters.minPrice !== undefined && converted < filters.minPrice) return false;
+    if (filters.maxPrice !== undefined && converted > filters.maxPrice) return false;
     return true;
   });
-  // Backend handles state/city filtering, no need to filter again on frontend
-  const filteredByState = filteredByBudget;
-  const filteredByOptions = filteredByState.filter((s: any) => {
-    if (proOnly && (s.plan !== "pro")) return false;
-    if (agencyOnly && (s.plan !== "agency")) return false;
-    if (level1Only && s.levelValue !== 1) return false;
-    if (level2Only && s.levelValue !== 2) return false;
-    return true;
-  });
-  let finalResults = filteredByOptions.slice();
-  if (sortBy === "price_low") {
-    finalResults.sort((a: any, b: any) => a.price - b.price);
-  } else if (sortBy === "price_high") {
-    finalResults.sort((a: any, b: any) => b.price - a.price);
-  } else if (sortBy === "rating") {
-    finalResults.sort((a: any, b: any) => b.rating - a.rating);
-  }
-  const hasActiveFilters = !!(selectedCategory || minRating !== undefined || countryFilterState || minPrice !== undefined || maxPrice !== undefined || appliedState.trim() || proOnly || agencyOnly || localOnly || level1Only || level2Only);
+  
+  const hasActiveFilters = !!(
+    filters.category || 
+    filters.minRating !== undefined || 
+    filters.country || 
+    filters.minPrice !== undefined || 
+    filters.maxPrice !== undefined || 
+    filters.state.trim() || 
+    filters.proOnly || 
+    filters.agencyOnly || 
+    filters.level1Only || 
+    filters.level2Only
+  );
 
   // Track if we've done initial URL sync to avoid loops
   const hasInitializedFromUrl = useRef(false);
 
-  // Clear all filters when the main search query (q) changes
+  // Clear filters only when user changes the main search query without a category param
   useEffect(() => {
-    setSelectedCategory(undefined);
-    setMinRating(undefined);
-    setCountryFilterState(undefined);
-    setMinPrice(undefined);
-    setMaxPrice(undefined);
-    setMinPriceInput("");
-    setMaxPriceInput("");
-    setAppliedState("");
-    setAppliedCity("");
-    setProOnly(false);
-    setAgencyOnly(false);
-    setLocalOnly(false);
-    setLevel1Only(false);
-    setLevel2Only(false);
-    setSortBy("popular");
-  }, [query]);
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get("category")) {
+      dispatch({ type: 'RESET_FILTERS' });
+    }
+  }, [query, location]);
 
-  // Sync filters FROM URL ONLY on initial mount (state is already initialized from URL in useState)
-  // We don't need to keep syncing from URL since we update it ourselves
-  // This prevents infinite loops between URL updates and state updates
+  // Sync filters FROM URL ONLY on initial mount (state is already initialized from URL in useReducer)
   useEffect(() => {
     if (!hasInitializedFromUrl.current) {
       hasInitializedFromUrl.current = true;
-      // State is already initialized from searchParams in useState, so we don't need to do anything here
-      // This effect just ensures we don't re-sync when the URL changes due to our own updates
     }
   }, []);
 
   // Persist filters to URL for shareable links
   useEffect(() => {
     const params = new URLSearchParams();
-    if (!selectedCategory && query !== "All Services") params.set("q", query);
-    if (countryFilterState) params.set("country", countryFilterState);
-    if (selectedCategory) params.set("category", selectedCategory);
-    if (minRating !== undefined) params.set("minRating", String(minRating));
-    if (minPrice !== undefined) params.set("minPrice", String(minPrice));
-    if (maxPrice !== undefined) params.set("maxPrice", String(maxPrice));
-    if (appliedState.trim()) params.set("state", appliedState.trim());
-    if (appliedCity.trim()) params.set("city", appliedCity.trim());
-    if (proOnly) params.set("proOnly", "1");
-    if (agencyOnly) params.set("agencyOnly", "1");
-    if (localOnly) params.set("localOnly", "1");
-    if (level1Only) params.set("lvl1", "1");
-    if (level2Only) params.set("lvl2", "1");
-    if (sortBy) params.set("sortBy", sortBy);
+    if (!filters.category && query !== "All Services") params.set("q", query);
+    if (filters.country) params.set("country", filters.country);
+    if (filters.category) params.set("category", filters.category);
+    if (filters.minRating !== undefined) params.set("minRating", String(filters.minRating));
+    if (filters.minPrice !== undefined) params.set("minPrice", String(filters.minPrice));
+    if (filters.maxPrice !== undefined) params.set("maxPrice", String(filters.maxPrice));
+    if (filters.state.trim()) params.set("state", filters.state.trim());
+    if (filters.city.trim()) params.set("city", filters.city.trim());
+    if (filters.proOnly) params.set("proOnly", "1");
+    if (filters.agencyOnly) params.set("agencyOnly", "1");
+    if (filters.level1Only) params.set("lvl1", "1");
+    if (filters.level2Only) params.set("lvl2", "1");
+    if (filters.sortBy) params.set("sortBy", filters.sortBy);
     const url = `/search?${params.toString()}`;
     window.history.replaceState(null, "", url);
-  }, [selectedCategory, minRating, countryFilterState, minPrice, maxPrice, appliedState, appliedCity, proOnly, agencyOnly, localOnly, level1Only, level2Only, sortBy, query]);
+  }, [filters, query]);
 
   // removed remote country fetch; using local COUNTRIES list
 
@@ -248,20 +368,20 @@ export default function SearchPage() {
                   ).map((cat) => (
                     <button
                       key={cat.id}
-                      className={`flex items-center justify-between w-full text-left px-2 py-1 rounded ${selectedCategory === cat.name ? 'bg-green-50 text-green-700 border border-green-200' : 'hover:bg-gray-50 text-gray-700'}`}
-                      onClick={() => setSelectedCategory(selectedCategory === cat.name ? undefined : cat.name)}
+                      className={`flex items-center justify-between w-full text-left px-2 py-1 rounded ${filters.category === cat.name ? 'bg-green-50 text-green-700 border border-green-200' : 'hover:bg-gray-50 text-gray-700'}`}
+                      onClick={() => dispatch({ type: 'SET_CATEGORY', payload: filters.category === cat.name ? undefined : cat.name })}
                       data-testid={`checkbox-category-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       <span className="text-sm font-medium">{cat.name}</span>
-                      {selectedCategory === cat.name && <Check className="h-4 w-4" />}
+                      {filters.category === cat.name && <Check className="h-4 w-4" />}
                     </button>
                   ))}
                   {categoryQuery.trim() && categories.filter((cat) => cat.name.toLowerCase().includes(categoryQuery.trim().toLowerCase())).length === 0 && (
                     <div className="text-xs text-gray-500 px-2">No categories found</div>
                   )}
                 </div>
-                {selectedCategory && (
-                  <button className="text-xs text-gray-500 mt-2 underline" onClick={() => setSelectedCategory(undefined)} data-testid="filter-category-clear">Clear</button>
+                {filters.category && (
+                  <button className="text-xs text-gray-500 mt-2 underline" onClick={() => dispatch({ type: 'SET_CATEGORY', payload: undefined })} data-testid="filter-category-clear">Clear</button>
                 )}
               </div>
          </AccordionContent>
@@ -275,11 +395,9 @@ export default function SearchPage() {
              <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">Country</Label>
               <Select 
-                value={countryFilterState || ""} 
+                value={filters.country || ""} 
                 onValueChange={(value) => {
-                  setCountryFilterState(value || undefined);
-                  setAppliedState("");
-                  setAppliedCity("");
+                  dispatch({ type: 'SET_COUNTRY', payload: value || undefined });
                   setStateSearch("");
                   setCitySearch("");
                 }}
@@ -321,16 +439,15 @@ export default function SearchPage() {
              <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">State / Province</Label>
               <Select 
-                value={appliedState || ""}
+                value={filters.state || ""}
                 onValueChange={(value) => {
-                  setAppliedState(value || "");
-                  setAppliedCity("");
+                  dispatch({ type: 'SET_STATE', payload: value || "" });
                   setCitySearch("");
                 }}
-                disabled={!countryFilterState || availableStates.length === 0}
+                disabled={!filters.country || availableStates.length === 0}
               >
                 <SelectTrigger className="h-8 text-sm" data-testid="select-state-filter">
-                  <SelectValue placeholder={!countryFilterState ? "Select country first..." : "Select state..."} />
+                  <SelectValue placeholder={!filters.country ? "Select country first..." : "Select state..."} />
                 </SelectTrigger>
                 <SelectContent>
                   <div className="p-2 border-b">
@@ -365,12 +482,12 @@ export default function SearchPage() {
              <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">City</Label>
               <Select 
-                value={appliedCity || ""}
-                onValueChange={(value) => setAppliedCity(value || "")}
-                disabled={!appliedState || availableCities.length === 0}
+                value={filters.city || ""}
+                onValueChange={(value) => dispatch({ type: 'SET_CITY', payload: value || "" })}
+                disabled={!filters.state || availableCities.length === 0}
               >
                 <SelectTrigger className="h-8 text-sm" data-testid="select-city-filter">
-                  <SelectValue placeholder={!appliedState ? "Select state first..." : "Select city..."} />
+                  <SelectValue placeholder={!filters.state ? "Select state first..." : "Select city..."} />
                 </SelectTrigger>
                 <SelectContent>
                   <div className="p-2 border-b">
@@ -402,15 +519,13 @@ export default function SearchPage() {
              </div>
 
              {/* Clear Button - Only shown when any location filter is active */}
-             {(countryFilterState || appliedState || appliedCity) && (
+             {(filters.country || filters.state || filters.city) && (
                <Button 
                  size="sm" 
                  variant="ghost" 
                  className="h-8 w-full" 
                  onClick={() => { 
-                   setCountryFilterState(undefined); 
-                   setAppliedState(""); 
-                   setAppliedCity("");
+                   dispatch({ type: 'SET_COUNTRY', payload: undefined });
                    setCountrySearch("");
                    setStateSearch("");
                    setCitySearch("");
@@ -421,11 +536,6 @@ export default function SearchPage() {
                  Clear Location
                </Button>
              )}
-            
-            <div className="flex items-center space-x-2 pt-2">
-              <Switch id="local-only" data-testid="switch-local-only" checked={localOnly} onCheckedChange={(v: boolean) => { setLocalOnly(v); if (v && selectedCountry.code !== 'ALL') { setCountryFilterState(selectedCountry.code); } }} />
-              <Label htmlFor="local-only" className="text-sm">Local Sellers Only</Label>
-            </div>
            </div>
          </AccordionContent>
        </AccordionItem>
@@ -437,21 +547,21 @@ export default function SearchPage() {
              <div className="grid grid-cols-2 gap-2">
                <div className="space-y-1">
                  <Label className="text-xs text-gray-500">MIN ({selectedCountry.currencySymbol})</Label>
-                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-min-price" value={minPriceInput} onChange={(e) => setMinPriceInput(e.target.value)} />
+                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-min-price" value={filters.minPriceInput} onChange={(e) => dispatch({ type: 'SET_MIN_PRICE_INPUT', payload: e.target.value })} />
                </div>
                <div className="space-y-1">
                  <Label className="text-xs text-gray-500">MAX ({selectedCountry.currencySymbol})</Label>
-                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-max-price" value={maxPriceInput} onChange={(e) => setMaxPriceInput(e.target.value)} />
+                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-max-price" value={filters.maxPriceInput} onChange={(e) => dispatch({ type: 'SET_MAX_PRICE_INPUT', payload: e.target.value })} />
                </div>
              </div>
              <div className="flex gap-2">
                <Button size="sm" variant="outline" className="h-8" data-testid="button-apply-price" onClick={() => {
-                 const min = parseFloat(minPriceInput);
-                 const max = parseFloat(maxPriceInput);
-                 setMinPrice(isNaN(min) ? undefined : min);
-                 setMaxPrice(isNaN(max) ? undefined : max);
+                 const min = parseFloat(filters.minPriceInput);
+                 const max = parseFloat(filters.maxPriceInput);
+                 dispatch({ type: 'SET_MIN_PRICE', payload: isNaN(min) ? undefined : min });
+                 dispatch({ type: 'SET_MAX_PRICE', payload: isNaN(max) ? undefined : max });
                }}>Apply Price</Button>
-               <Button size="sm" variant="ghost" className="h-8" onClick={() => { setMinPriceInput(""); setMaxPriceInput(""); setMinPrice(undefined); setMaxPrice(undefined); }}>Clear</Button>
+               <Button size="sm" variant="ghost" className="h-8" onClick={() => { dispatch({ type: 'SET_MIN_PRICE_INPUT', payload: "" }); dispatch({ type: 'SET_MAX_PRICE_INPUT', payload: "" }); dispatch({ type: 'SET_MIN_PRICE', payload: undefined }); dispatch({ type: 'SET_MAX_PRICE', payload: undefined }); }}>Clear</Button>
              </div>
            </div>
          </AccordionContent>
@@ -464,18 +574,18 @@ export default function SearchPage() {
             {[5,4,3,2,1].map(r => (
               <button
                 key={r}
-                className={`flex items-center gap-2 text-sm px-2 py-1 rounded ${minRating === r ? 'bg-green-50 text-green-700 border border-green-200' : 'hover:bg-gray-50 text-gray-700'}`}
-                onClick={() => setMinRating(minRating === r ? undefined : r)}
+                className={`flex items-center gap-2 text-sm px-2 py-1 rounded ${filters.minRating === r ? 'bg-green-50 text-green-700 border border-green-200' : 'hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => dispatch({ type: 'SET_MIN_RATING', payload: filters.minRating === r ? undefined : r })}
                 data-testid={`filter-rating-${r}`}
               >
                 <span className="flex items-center gap-1">
                   {Array.from({ length: r }).map((_, i) => (<Star key={i} className="h-4 w-4 fill-yellow-500 text-yellow-500" />))}
                 </span>
                 <span className="ml-1">&nbsp;and up</span>
-                {minRating === r && <Check className="h-4 w-4 ml-auto text-green-600" />}
+                {filters.minRating === r && <Check className="h-4 w-4 ml-auto text-green-600" />}
               </button>
             ))}
-            <button className="text-xs text-gray-500 mt-2 underline" onClick={() => setMinRating(undefined)} data-testid="filter-rating-clear">Clear</button>
+            <button className="text-xs text-gray-500 mt-2 underline" onClick={() => dispatch({ type: 'SET_MIN_RATING', payload: undefined })} data-testid="filter-rating-clear">Clear</button>
           </div>
         </AccordionContent>
       </AccordionItem>
@@ -485,19 +595,19 @@ export default function SearchPage() {
          <AccordionContent>
           <div className="space-y-2">
             <div className="flex items-center space-x-2">
-              <Switch id="pro-only" data-testid="switch-pro-only" checked={proOnly} onCheckedChange={(v: boolean) => { setProOnly(v); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
+              <Switch id="pro-only" data-testid="switch-pro-only" checked={filters.proOnly} onCheckedChange={(v: boolean) => { dispatch({ type: 'SET_PRO_ONLY', payload: v }); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
               <Label htmlFor="pro-only" className="text-sm font-semibold text-gray-700">Pro Detectives</Label>
             </div>
             <div className="flex items-center space-x-2">
-              <Switch id="agency-only" data-testid="switch-agency-only" checked={agencyOnly} onCheckedChange={(v: boolean) => { setAgencyOnly(v); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
+              <Switch id="agency-only" data-testid="switch-agency-only" checked={filters.agencyOnly} onCheckedChange={(v: boolean) => { dispatch({ type: 'SET_AGENCY_ONLY', payload: v }); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
               <Label htmlFor="agency-only" className="text-sm font-semibold text-gray-700">Agency Verified</Label>
             </div>
             <div className="flex items-center space-x-2">
-              <Switch id="level-1" data-testid="switch-level-1" checked={level1Only} onCheckedChange={(v: boolean) => { setLevel1Only(v); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
+              <Switch id="level-1" data-testid="switch-level-1" checked={filters.level1Only} onCheckedChange={(v: boolean) => { dispatch({ type: 'SET_LEVEL1_ONLY', payload: v }); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
               <Label htmlFor="level-1" className="text-sm font-semibold text-gray-700">Level 1</Label>
             </div>
             <div className="flex items-center space-x-2">
-              <Switch id="level-2" data-testid="switch-level-2" checked={level2Only} onCheckedChange={(v: boolean) => { setLevel2Only(v); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
+              <Switch id="level-2" data-testid="switch-level-2" checked={filters.level2Only} onCheckedChange={(v: boolean) => { dispatch({ type: 'SET_LEVEL2_ONLY', payload: v }); setOpenSections((p) => p.includes("options") ? p : [...p, "options"]); }} />
               <Label htmlFor="level-2" className="text-sm font-semibold text-gray-700">Level 2</Label>
             </div>
           </div>
@@ -549,9 +659,9 @@ export default function SearchPage() {
                 {categories.map((cat) => (
                   <button
                     key={cat.id}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors border ${selectedCategory === cat.name ? 'bg-green-50 text-green-700 border-green-300' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 border-gray-200'}`}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors border ${filters.category === cat.name ? 'bg-green-50 text-green-700 border-green-300' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 border-gray-200'}`}
                     data-testid={`button-category-${cat.name.toLowerCase().replace(/\s+/g, '-')}`}
-                    onClick={() => setSelectedCategory(selectedCategory === cat.name ? undefined : cat.name)}
+                    onClick={() => dispatch({ type: 'SET_CATEGORY', payload: filters.category === cat.name ? undefined : cat.name })}
                   >
                     {cat.name}
                   </button>
@@ -599,14 +709,14 @@ export default function SearchPage() {
                       <span className="text-gray-500">Sort by:</span>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                           <span className="font-bold cursor-pointer flex items-center gap-1" data-testid="button-sort-dropdown">{sortBy === 'popular' ? 'Recommended' : sortBy === 'recent' ? 'Newest Arrivals' : sortBy === 'rating' ? 'Best Rated' : sortBy === 'price_low' ? 'Price: Low to High' : 'Price: High to Low'} <ChevronDown className="h-3 w-3" /></span>
+                           <span className="font-bold cursor-pointer flex items-center gap-1" data-testid="button-sort-dropdown">{filters.sortBy === 'popular' ? 'Recommended' : filters.sortBy === 'recent' ? 'Newest Arrivals' : filters.sortBy === 'rating' ? 'Best Rated' : filters.sortBy === 'price_low' ? 'Price: Low to High' : 'Price: High to Low'} <ChevronDown className="h-3 w-3" /></span>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                           <DropdownMenuCheckboxItem checked={sortBy === 'popular'} onClick={() => setSortBy('popular')} data-testid="sort-recommended">Recommended</DropdownMenuCheckboxItem>
-                           <DropdownMenuCheckboxItem checked={sortBy === 'recent'} onClick={() => setSortBy('recent')} data-testid="sort-newest">Newest Arrivals</DropdownMenuCheckboxItem>
-                           <DropdownMenuCheckboxItem checked={sortBy === 'rating'} onClick={() => setSortBy('rating')} data-testid="sort-best-selling">Best Rated</DropdownMenuCheckboxItem>
-                           <DropdownMenuCheckboxItem checked={sortBy === 'price_low'} onClick={() => setSortBy('price_low')} data-testid="sort-price-low">Price: Low to High</DropdownMenuCheckboxItem>
-                           <DropdownMenuCheckboxItem checked={sortBy === 'price_high'} onClick={() => setSortBy('price_high')} data-testid="sort-price-high">Price: High to Low</DropdownMenuCheckboxItem>
+                           <DropdownMenuCheckboxItem checked={filters.sortBy === 'popular'} onClick={() => dispatch({ type: 'SET_SORT_BY', payload: 'popular' })} data-testid="sort-recommended">Recommended</DropdownMenuCheckboxItem>
+                           <DropdownMenuCheckboxItem checked={filters.sortBy === 'recent'} onClick={() => dispatch({ type: 'SET_SORT_BY', payload: 'recent' })} data-testid="sort-newest">Newest Arrivals</DropdownMenuCheckboxItem>
+                           <DropdownMenuCheckboxItem checked={filters.sortBy === 'rating'} onClick={() => dispatch({ type: 'SET_SORT_BY', payload: 'rating' })} data-testid="sort-best-selling">Best Rated</DropdownMenuCheckboxItem>
+                           <DropdownMenuCheckboxItem checked={filters.sortBy === 'price_low'} onClick={() => dispatch({ type: 'SET_SORT_BY', payload: 'price_low' })} data-testid="sort-price-low">Price: Low to High</DropdownMenuCheckboxItem>
+                           <DropdownMenuCheckboxItem checked={filters.sortBy === 'price_high'} onClick={() => dispatch({ type: 'SET_SORT_BY', payload: 'price_high' })} data-testid="sort-price-high">Price: High to Low</DropdownMenuCheckboxItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                    </div>
@@ -629,20 +739,11 @@ export default function SearchPage() {
                     </div>
                     <h3 className="text-xl font-bold text-gray-900 mb-2">No results yet</h3>
                     <p className="text-gray-500 mb-6 text-center max-w-md">
-                      We couldn't find any detectives matching your search for "{query}"{countryFilter ? ` in ${countryFilter}` : ""}.
+                      We couldn't find any detectives matching your search for "{query}"{filters.country ? ` in ${availableCountries.find(c => c.code === filters.country)?.name || filters.country}` : ""}.
                     </p>
                     <Button 
                       onClick={() => {
-                        setSelectedCategory(undefined);
-                        setMinRating(undefined);
-                        setCountryFilterState(undefined);
-                        setMinPrice(undefined);
-                        setMaxPrice(undefined);
-                        setMinPriceInput("");
-                        setMaxPriceInput("");
-                        setAppliedState("");
-                        setAppliedCity("");
-                        setCountryFilterState(undefined);
+                        dispatch({ type: 'RESET_FILTERS' });
                         window.location.href = "/search";
                       }}
                       variant="outline"
@@ -654,9 +755,9 @@ export default function SearchPage() {
                 )}
               </div>
 
-                {!isLoading && resultsWithImages.length > 0 && (
+                {!isLoading && finalResults.length >= filters.limit && (
                  <div className="mt-12 flex justify-center">
-                   <Button variant="outline" className="px-8 border-black text-black hover:bg-gray-50" data-testid="button-load-more">Load More</Button>
+                   <Button variant="outline" className="px-8 border-black text-black hover:bg-gray-50" data-testid="button-load-more" onClick={() => dispatch({ type: 'LOAD_MORE' })}>Load More</Button>
                  </div>
                )}
             </div>

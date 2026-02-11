@@ -39,11 +39,11 @@ async function checkIsVerified() {
       console.log();
     });
 
+    process.exit(0);
   } catch (error) {
     console.error("Error:", error);
+    process.exit(1);
   }
-  
-  process.exit(0);
 }
 
 checkIsVerified();

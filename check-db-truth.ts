@@ -3,7 +3,7 @@ import { resolve } from "path";
 config({ path: resolve(process.cwd(), ".env.local") });
 config({ path: resolve(process.cwd(), ".env") });
 
-import { pool } from "./db/index.js";
+import { pool } from "./db/index.ts";
 
 async function checkDatabaseTruth() {
   try {
@@ -30,12 +30,12 @@ async function checkDatabaseTruth() {
     }
     
     console.log("✅ This is what MUST be shown in the UI!");
-    
+    process.exitCode = 0;
   } catch (error) {
     console.error("Error:", error);
+    process.exitCode = 1;
   } finally {
     await pool.end();
-    process.exit(0);
   }
 }
 

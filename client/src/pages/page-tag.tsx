@@ -35,7 +35,8 @@ function getExcerpt(content: string): string {
 export default function PageTag() {
   const [matchNested, paramsNested] = useRoute("/blog/tag/:parent/:slug");
   const [match, params] = useRoute("/blog/tag/:slug");
-  if (!matchNested && !match) return null;
+  
+  // Compute slug after all hooks
   const slug = matchNested
     ? `${paramsNested?.parent}/${paramsNested?.slug}`
     : (params?.slug as string);
@@ -51,6 +52,11 @@ export default function PageTag() {
     },
     enabled: !!slug,
   });
+
+  // Return null if neither route matched
+  if (!matchNested && !match) {
+    return null;
+  }
 
   if (isError) {
     return (

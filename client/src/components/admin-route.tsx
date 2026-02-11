@@ -9,7 +9,7 @@ interface AdminRouteProps {
 
 /**
  * AdminRoute: Protects admin pages with authentication and authorization checks
- * - Redirects unauthenticated users to /admin/login
+ * - Redirects unauthenticated users to /login
  * - Redirects non-admin users to /
  * - Only renders children if user is authenticated and has admin role
  */
@@ -18,6 +18,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
   const [location, setLocation] = useLocation();
   const [employeePages, setEmployeePages] = useState<string[] | null>(null);
   const [isEmployeePagesLoading, setIsEmployeePagesLoading] = useState(false);
+  const [employeePagesError, setEmployeePagesError] = useState<Error | null>(null);
 
   const accessKey = useMemo(() => {
     const path = (location || "").toLowerCase();
@@ -35,19 +36,23 @@ export function AdminRoute({ children }: AdminRouteProps) {
 
   const employeeFirstPath = useMemo(() => {
     if (!employeePages || employeePages.length === 0) return "/";
-    const key = employeePages[0];
     const map: Record<string, string> = {
       dashboard: "/admin/dashboard",
       employees: "/admin/employees",
       detectives: "/admin/detectives",
       services: "/admin/services",
-      users: "/admin/signups",
+      users: "/admin/users",
       settings: "/admin/settings",
-      reports: "/admin/finance",
+      reports: "/admin/reports",
       payments: "/admin/finance",
       cms: "/admin/cms",
     };
-    return map[key] || "/admin/dashboard";
+    for (const page of employeePages) {
+      if (map[page]) {
+        return map[page];
+      }
+    }
+    return "/";
   }, [employeePages]);
 
   useEffect(() => {
@@ -69,10 +74,12 @@ export function AdminRoute({ children }: AdminRouteProps) {
         .get<{ pages: Array<{ key: string }> }>("/api/employee/pages")
         .then((data) => {
           setEmployeePages(data.pages.map((page) => page.key));
+          setEmployeePagesError(null);
         })
         .catch((error) => {
           console.error("[AdminRoute] Failed to load employee pages:", error);
           setEmployeePages([]);
+          setEmployeePagesError(error instanceof Error ? error : new Error(String(error)));
         })
         .finally(() => {
           setIsEmployeePagesLoading(false);
@@ -96,12 +103,31 @@ export function AdminRoute({ children }: AdminRouteProps) {
   }, [isAuthenticated, user, accessKey, employeePages, isEmployeePagesLoading, employeeFirstPath, setLocation]);
 
   // Show loading state while checking authentication
-  if (isLoading || (user?.role === "employee" && (isEmployeePagesLoading || employeePages === null))) {
+  if (isLoading || (user?.role === "employee" && isEmployeePagesLoading)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (user?.role === "employee" && employeePagesError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">Failed to load access permissions.</p>
+          <button
+            className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+            onClick={() => {
+              setEmployeePagesError(null);
+              setEmployeePages(null);
+            }}
+          >
+            Retry
+          </button>
         </div>
       </div>
     );

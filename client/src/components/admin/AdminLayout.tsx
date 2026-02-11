@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { api, buildApiUrl, getOrFetchCsrfToken } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -21,11 +22,20 @@ export default function AdminLayout({ title, children }: AdminLayoutProps) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Fetch CSRF token on admin page load to establish session
+  useEffect(() => {
+    getOrFetchCsrfToken().catch((err) => {
+      console.error("[AdminLayout] Failed to fetch CSRF token:", err);
+    });
+  }, []);
+
   // Check admin role (response shape: { user } same as /api/auth/me)
   const { data } = useQuery({
     queryKey: ["/api/user"],
     queryFn: async () => {
-      const res = await fetch("/api/user");
+      const res = await fetch(buildApiUrl("/api/user"), {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Not authenticated");
       return res.json();
     },
@@ -100,9 +110,12 @@ export default function AdminLayout({ title, children }: AdminLayoutProps) {
 
         <div className="p-4 border-t border-gray-800">
           <button
-            onClick={() => {
-              fetch("/api/logout", { method: "POST" });
-              navigate("/login");
+            onClick={async () => {
+              try {
+                await api.auth.logout();
+              } finally {
+                navigate("/login");
+              }
             }}
             className="w-full flex items-center gap-3 p-2 hover:bg-gray-800 rounded text-sm"
           >

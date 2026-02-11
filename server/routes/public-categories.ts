@@ -7,8 +7,11 @@ const router = Router();
 router.get("/:parent/:slug/pages", async (req: Request, res: Response) => {
   try {
     const { parent, slug } = req.params;
-    if (!slug || !parent) {
+    if (!slug) {
       return res.status(400).json({ error: "Category slug is required" });
+    }
+    if (!parent) {
+      return res.status(400).json({ error: "Category parent is required" });
     }
 
     const categorySlug = `${parent}/${slug}`;

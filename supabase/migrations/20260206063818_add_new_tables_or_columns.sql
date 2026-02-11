@@ -1,0 +1,2 @@
+-- No-op: schema already exists on remote; diff-generated migration would recreate types/tables.
+-- Intentionally left blank to avoid duplicate object errors during db push.

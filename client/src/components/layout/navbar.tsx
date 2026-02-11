@@ -51,14 +51,19 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       console.log("🔍 Fetching autocomplete for:", query);
       setLoading(true);
       try {
-        const data = await api.get<{ suggestions: AutocompleteSuggestion[] }>(`/api/search/autocomplete?q=${encodeURIComponent(query)}`);
+        const data = await api.get<{ suggestions: AutocompleteSuggestion[] }>(`/api/search/autocomplete?q=${encodeURIComponent(query)}`, { signal: controller.signal });
         console.log("🔍 Autocomplete results:", data);
         setSuggestions(data.suggestions || []);
       } catch (error) {
+        if ((error as any)?.name === 'AbortError') {
+          console.log("🔍 Autocomplete request cancelled");
+          return;
+        }
         console.error("❌ Autocomplete error:", error);
         setSuggestions([]);
       } finally {
@@ -66,7 +71,10 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [searchQuery]);
 
   const handleSearch = (e: React.KeyboardEvent) => {
@@ -88,6 +96,9 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
       } else if (selected?.type === "location" && selected.value.startsWith("country:")) {
         const countryCode = selected.value.replace("country:", "");
         setLocation(`/search?country=${countryCode}`);
+      } else if (selected?.type === "category") {
+        // Use category parameter for category suggestions
+        setLocation(`/search?category=${encodeURIComponent(selected.value)}`);
       } else {
         const val = selected?.label || searchQuery;
         const params = new URLSearchParams();
@@ -210,6 +221,9 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                   } else if (selected?.type === "location" && selected.value.startsWith("country:")) {
                     const countryCode = selected.value.replace("country:", "");
                     setLocation(`/search?country=${countryCode}`);
+                  } else if (selected?.type === "category") {
+                    // Use category parameter for category suggestions
+                    setLocation(`/search?category=${encodeURIComponent(selected.value)}`);
                   } else {
                     const val = selected?.label || searchQuery;
                     const params = new URLSearchParams();
@@ -236,6 +250,9 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                         } else if (s.type === "location" && s.value.startsWith("country:")) {
                           const countryCode = s.value.replace("country:", "");
                           setLocation(`/search?country=${countryCode}`);
+                        } else if (s.type === "category") {
+                          // Use category parameter for category suggestions
+                          setLocation(`/search?category=${encodeURIComponent(s.value)}`);
                         } else {
                           const params = new URLSearchParams();
                           params.set("q", s.label);
@@ -285,7 +302,7 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                        <DropdownMenuItem className="cursor-pointer">Admin Dashboard</DropdownMenuItem>
                     </Link>
                   ) : user.role === 'employee' ? (
-                     <Link href="/admin">
+                     <Link href="/admin/dashboard">
                        <DropdownMenuItem className="cursor-pointer">Employee Dashboard</DropdownMenuItem>
                      </Link>
                   ) : user.role === 'detective' ? (

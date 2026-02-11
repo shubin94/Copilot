@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createHash, randomBytes } from "node:crypto";
 import crypto from "crypto";
 import { createServer, type Server } from "http";
+import rateLimit from "express-rate-limit";
 import { storage } from "./storage.ts";
 import { sendClaimApprovedEmail } from "./email.ts";
 import { sendpulseEmail, EMAIL_TEMPLATES } from "./services/sendpulseEmail.ts";
@@ -60,6 +61,7 @@ import adminEmployeesRouter from "./routes/admin/employees.ts";
 import publicPagesRouter from "./routes/public-pages.ts";
 import publicCategoriesRouter from "./routes/public-categories.ts";
 import publicTagsRouter from "./routes/public-tags.ts";
+import sitemapRouter from "./routes/sitemap.ts";
 
 // Initialize Razorpay with env fallback (will be overridden by DB config)
 let razorpayClient = new Razorpay({
@@ -92,7 +94,16 @@ declare module "express-session" {
     userId: string;
     userRole: string;
     csrfToken?: string;
+    csrfTokenGeneratedAt?: number;
   }
+}
+
+// Helper: Rotate CSRF token after sensitive operations
+function rotateCsrfToken(req: Request): string {
+  const newToken = randomBytes(32).toString("hex");
+  req.session.csrfToken = newToken;
+  req.session.csrfTokenGeneratedAt = Date.now();
+  return newToken;
 }
 
 function getEmployeeAccessKeyFromAdminPath(path: string): string | null {
@@ -201,7 +212,8 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const setNoStore = (res: Response) => {
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    // Private, no-store, no-cache for authenticated/sensitive user data
+    res.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
     res.set("Pragma", "no-cache");
     res.set("Expires", "0");
     res.set("Surrogate-Control", "no-store");
@@ -435,67 +447,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error("[seed] Failed to seed subscription plan:", e);
   }
   
-  // ============== BODY PARSER APPLICATION - APPLY TO ALL API ROUTES ==============
-  // Apply body parsers globally to all /api routes with 10MB limit
-  // This ensures ALL routes can accept JSON/form data without configuration issues
-  app.use('/api/', bodyParsers.fileUpload.json, bodyParsers.fileUpload.urlencoded);
+  // ============== BODY PARSER APPLICATION - APPLIED PER-ROUTE ==============
+  // Body parsers are applied selectively to routes that need them:
+  // - authLimit (10KB) for /api/auth/* endpoints
+  // - publicLimit (1MB) for public/read-only endpoints  
+  // - fileUpload (10MB) attached directly to file upload routes ONLY
+  // This prevents global overrides that would bypass per-route limits
+  // NOTE: Routes using authentication should explicitly apply authLimit middleware
+
+  // ============== BODY PARSER FOR AUTH ENDPOINTS ==============
+  // Apply auth-specific body parser (10KB limit) to all /api/auth routes
+  app.use("/api/auth", bodyParsers.auth.json, bodyParsers.auth.urlencoded);
 
   // Disable caching for all auth endpoints (admin/employee/detective login)
   app.use("/api/auth", (_req, res, next) => {
     setNoStore(res);
     next();
   });
+
+  // ============== BODY PARSER FOR PUBLIC AND GENERAL ROUTES ==============
+  // Apply public body parser (1MB limit) to all /api routes by default
+  // This handles contact forms, searches, and other general endpoints
+  app.use("/api", bodyParsers.public.json, bodyParsers.public.urlencoded);
   
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
   // Using crypto.randomBytes(32) provides 256 bits of entropy.
   // NOTE: CORS headers are handled by middleware in app.ts
+  // CRITICAL: This endpoint MUST NEVER throw - wraps all logic in try-catch
   
-  app.get("/api/csrf-token", (req: Request, res: Response) => {
-    console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}`);
-    
-    if (!req.session.csrfToken) {
-      req.session.csrfToken = randomBytes(32).toString("hex");
-      console.log(`[CSRF-TOKEN] Generated new token: ${req.session.csrfToken.substring(0, 16)}...`);
+  // Rate limiter for CSRF token endpoint: 30 requests per minute per IP
+  const csrfTokenLimiter = rateLimit({
+    windowMs: 60000, // 1 minute
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req: Request, res: Response) => {
+      res.status(429).json({ error: "Too many token requests" });
+    },
+  });
+  
+  app.get("/api/csrf-token", csrfTokenLimiter, (req: Request, res: Response) => {
+    try {
+      const sessionId = (req.session as any)?.id || "UNKNOWN";
+      console.log(`[CSRF-TOKEN] Request - Origin: ${req.headers.origin}, Method: ${req.method}, SessionID: ${sessionId.substring(0, 20)}...`);
+      
+      // DEBUG: Show config domain and env variable
+      console.log(`[CSRF-TOKEN] DEBUG - COOKIE_DOMAIN env: ${process.env.COOKIE_DOMAIN}`);
+      console.log(`[CSRF-TOKEN] DEBUG - config.session.cookieDomain: ${config.session.cookieDomain}`);
+      res.setHeader("X-Debug-Cookie-Domain", process.env.COOKIE_DOMAIN || "undefined");
+
+      // Express-session creates req.session automatically; if missing, middleware failed
+      if (!req.session) {
+        console.error("[CSRF-TOKEN] Session object missing; session middleware may have failed");
+        return res.status(403).json({ error: "Session unavailable" });
+      }
+      
+      // Generate or reuse CSRF token
+      if (!req.session.csrfToken) {
+        req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfTokenGeneratedAt = Date.now();
+        console.log(`[CSRF-TOKEN] Generated new token: ${req.session.csrfToken.substring(0, 16)}... for session ${sessionId.substring(0, 20)}...`);
+      } else {
+        console.log(`[CSRF-TOKEN] Reusing existing token: ${req.session.csrfToken.substring(0, 16)}... for session ${sessionId.substring(0, 20)}...`);
+      }
+      
+      // Explicitly save session (required when saveUninitialized: false)
+      // This ensures the session cookie is sent even on first request
+      req.session.save((err) => {
+        if (err) {
+          console.error("[CSRF-TOKEN] Failed to save session:", err);
+          // Prevent double response if headers already sent
+          if (!res.headersSent) {
+            return res.status(403).json({ error: "Session persistence failed" });
+          }
+          return;
+        }
+        
+        // Prevent caching/ETag revalidation which can return 304 without a body
+        setNoStore(res);
+        
+        console.log(`[CSRF-TOKEN] Saved session ${sessionId.substring(0, 20)}... with token ${req.session.csrfToken?.substring(0, 16)}...`);
+        
+        // Final response - only if headers not sent
+        if (!res.headersSent) {
+          return res.json({ csrfToken: req.session.csrfToken });
+        }
+      });
+    } catch (error) {
+      console.error("[CSRF-TOKEN] Unexpected error:", error);
+      // Prevent double response if headers already sent (e.g., if save callback already responded)
+      if (!res.headersSent) {
+        return res.status(403).json({ error: "CSRF token generation failed" });
+      }
     }
-    
-    // Prevent caching/ETag revalidation which can return 304 without a body
-    setNoStore(res);
-    
-    console.log(`[CSRF-TOKEN] Response headers: ${JSON.stringify({
-      'access-control-allow-origin': res.getHeader('access-control-allow-origin'),
-      'access-control-allow-credentials': res.getHeader('access-control-allow-credentials'),
-    })}`);
-    
-    res.json({ csrfToken: req.session.csrfToken });
   });
 
   app.post("/api/contact", async (req: Request, res: Response) => {
-    const contactSchema = z.object({
-      firstName: z.string().trim().min(1).max(100),
-      lastName: z.string().trim().min(1).max(100),
-      email: z.string().trim().email().max(254),
-      message: z.string().trim().min(1).max(2000),
-    });
+    try {
+      const contactSchema = z.object({
+        firstName: z.string().trim().min(1).max(100),
+        lastName: z.string().trim().min(1).max(100),
+        email: z.string().trim().email().max(254),
+        message: z.string().trim().min(1).max(2000),
+      });
 
-    const parsed = contactSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid contact form data" });
+      const parsed = contactSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid contact form data" });
+      }
+
+      const { firstName, lastName, email, message } = parsed.data;
+      const result = await sendpulseEmail.sendTransactionalEmail(
+        "contact@askdetectives.com",
+        EMAIL_TEMPLATES.CONTACT_FORM,
+        { firstName, lastName, email, message },
+        "Contact Form Submission"
+      );
+
+      if (!result.success) {
+        return res.status(500).json({ error: "Failed to send message" });
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[Contact Form Error]", error instanceof Error ? error.message : String(error));
+      return res.status(500).json({ error: "Internal server error" });
     }
-
-    const { firstName, lastName, email, message } = parsed.data;
-    const result = await sendpulseEmail.sendTransactionalEmail(
-      "contact@askdetectives.com",
-      EMAIL_TEMPLATES.CONTACT_FORM,
-      { firstName, lastName, email, message },
-      "Contact Form Submission"
-    );
-
-    if (!result.success) {
-      return res.status(500).json({ error: "Failed to send message" });
-    }
-
-    return res.json({ success: true });
   });
 
   // ============== AUTHENTICATION ROUTES ==============
@@ -515,6 +593,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.createUser(validatedData);
 
       // Session fixation prevention: regenerate session before setting auth data
+      // Preserve CSRF token across regeneration (do NOT regenerate it)
+      const csrfToken = req.session.csrfToken;
+      const csrfTokenGeneratedAt = (req.session as any).csrfTokenGeneratedAt;
       req.session.regenerate((err) => {
         if (err) {
           console.warn("[auth] Session error during registration");
@@ -522,21 +603,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         req.session.userId = user.id;
         req.session.userRole = user.role;
-        req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
+        if (csrfTokenGeneratedAt) {
+          (req.session as any).csrfTokenGeneratedAt = csrfTokenGeneratedAt;
+        }
 
-        // Send welcome email (non-blocking)
-        sendpulseEmail.sendTransactionalEmail(
-          user.email,
-          EMAIL_TEMPLATES.WELCOME_USER,
-          {
-            userName: user.name,
-            email: user.email,
-            supportEmail: "support@askdetectives.com",
+        // Explicitly save session to ensure CSRF token is persisted
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("[auth] Failed to save session during registration", saveErr);
+            return res.status(500).json({ error: "Failed to register user" });
           }
-        ).catch(e => console.error("[Email] Failed to send welcome email:", e));
 
-        const { password: _p, ...userWithoutPassword } = user;
-        res.status(201).json({ user: userWithoutPassword, csrfToken: req.session.csrfToken });
+          // Send welcome email (non-blocking)
+          sendpulseEmail.sendTransactionalEmail(
+            user.email,
+            EMAIL_TEMPLATES.WELCOME_USER,
+            {
+              userName: user.name,
+              email: user.email,
+              supportEmail: "support@askdetectives.com",
+            }
+          ).catch(e => console.error("[Email] Failed to send welcome email:", e));
+
+          const { password: _p, ...userWithoutPassword } = user;
+          res.status(201).json({ user: userWithoutPassword });
+        });
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -624,6 +716,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Session fixation prevention: regenerate session before setting auth data
+      // Preserve CSRF token across regeneration (do NOT regenerate it)
+      const csrfToken = req.session.csrfToken;
+      const csrfTokenGeneratedAt = (req.session as any).csrfTokenGeneratedAt;
       req.session.regenerate((err) => {
         if (err) {
           console.warn("[auth] Session error during login", { userId: user.id, email });
@@ -631,10 +726,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         req.session.userId = user.id;
         req.session.userRole = user.role;
-        req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
+        if (csrfTokenGeneratedAt) {
+          (req.session as any).csrfTokenGeneratedAt = csrfTokenGeneratedAt;
+        }
 
-        const { password: _p, ...userWithoutPassword } = user;
-        res.json({ user: userWithoutPassword, csrfToken: req.session.csrfToken });
+        // Explicitly save session to ensure CSRF token and user data are persisted
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("[auth] Failed to save session during login", { userId: user.id, err: saveErr });
+            return res.status(500).json({ error: "Failed to log in" });
+          }
+
+          const { password: _p, ...userWithoutPassword } = user;
+          res.json({ user: userWithoutPassword });
+        });
       });
     } catch (_error) {
       console.warn("[auth] Login failed");
@@ -723,7 +829,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         req.session.userId = user!.id;
         req.session.userRole = user!.role;
-        req.session.csrfToken = randomBytes(32).toString("hex");
         res.redirect(302, frontOrigin + "/");
       });
     } catch (e) {
@@ -755,7 +860,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.setUserPassword(user.id, newPassword, false);
-      res.json({ message: "Password updated successfully" });
+      
+      // Rotate CSRF token after password change
+      const newToken = rotateCsrfToken(req);
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      
+      res.json({ message: "Password updated successfully", newToken });
     } catch (_error) {
       console.warn("[auth] Change password failed");
       res.status(500).json({ error: "Failed to change password" });
@@ -815,7 +930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (err) {
         return res.status(500).json({ error: "Failed to log out" });
       }
-      res.clearCookie("connect.sid", { path: "/", httpOnly: true, secure: config.session.secureCookies, sameSite: "lax" });
+      res.clearCookie("connect.sid", { path: "/", httpOnly: true, secure: config.session.secureCookies || !config.env.isDev, sameSite: "none", domain: config.env.isDev ? ".localhost" : undefined });
       res.json({ message: "Logged out successfully" });
     });
   });
@@ -945,6 +1060,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update user country/currency preferences
   app.patch("/api/users/preferences", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const { preferredCountry, preferredCurrency } = req.body;
 
       if (!preferredCountry || !preferredCurrency) {
@@ -1226,7 +1342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass", "smtp_from_email",
     "sendpulse_api_id", "sendpulse_api_secret", "sendpulse_sender_email", "sendpulse_sender_name", "sendpulse_enabled",
     "razorpay_key_id", "razorpay_key_secret", "paypal_client_id", "paypal_client_secret", "paypal_mode",
-    "gemini_api_key",
+    "gemini_api_key", "deepseek_api_key",
   ];
   const maskValue = (v: string) => (v && v.length > 4 ? v.slice(0, 2) + "****" + v.slice(-2) : "****");
 
@@ -1296,7 +1412,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/subscription-plans/:id", async (req: Request, res: Response) => {
     console.log("🔍 [GET subscription-plans/:id] Request received");
     console.log("🔍 [GET subscription-plans/:id] ID:", req.params.id);
-    console.log("🔍 [GET subscription-plans/:id] Headers:", req.headers);
     try {
       const plan = await storage.getSubscriptionPlanById(req.params.id);
       console.log("🔍 [GET subscription-plans/:id] Plan found:", !!plan);
@@ -1732,6 +1847,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[verify] Successfully updated detective: subscriptionPackageId=${updatedDetective.subscriptionPackageId}, billingCycle=${updatedDetective.billingCycle}, activatedAt=${updatedDetective.subscriptionActivatedAt}`);
       console.log("[verify] === PAYMENT VERIFICATION COMPLETE ===");
+      // Rotate CSRF token after payment verification
+      const newToken = rotateCsrfToken(req);
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      
 
       // Send payment success email (non-blocking)
       const user = await storage.getUser(req.session.userId!);
@@ -1770,7 +1894,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true, 
         packageId: packageId,
         billingCycle: billingCycle,
-        detective: updatedDetective
+        detective: updatedDetective,
+        newToken
       });
     } catch (error) {
       console.log("[verify] === PAYMENT VERIFICATION FAILED ===");
@@ -2024,6 +2149,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[paypal-capture] Successfully updated detective: subscriptionPackageId=${updatedDetective.subscriptionPackageId}, billingCycle=${updatedDetective.billingCycle}, activatedAt=${updatedDetective.subscriptionActivatedAt}`);
       console.log("[paypal-capture] === PAYPAL CAPTURE COMPLETE ===");
+      // Rotate CSRF token after PayPal payment capture
+      const newToken = rotateCsrfToken(req);
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      
 
       // Send payment success email (non-blocking)
       const user = await storage.getUser(req.session.userId!);
@@ -2075,7 +2209,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Build response based on package type
       const response: any = { 
         success: true, 
-        detective: updatedDetective
+        detective: updatedDetective,
+        newToken
       };
       
       if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
@@ -2104,6 +2239,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/pages", publicPagesRouter);
   app.use("/api/public/categories", publicCategoriesRouter);
   app.use("/api/public/tags", publicTagsRouter);
+
+  // Sitemap.xml - dynamic generation from database
+  app.use("/sitemap.xml", sitemapRouter);
 
   // Admin Employee Routes
   app.use("/api/admin/employees", adminEmployeesRouter);
@@ -2410,11 +2548,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[verify-blue-tick] Successfully activated Blue Tick add-on for detective: blueTickAddon=${(updatedDetective as any).blueTickAddon}`);
       console.log("[verify-blue-tick] === BLUE TICK VERIFICATION COMPLETE ===");
+      // Rotate CSRF token after Blue Tick purchase
+      const newToken = rotateCsrfToken(req);
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
 
       res.json({ 
         success: true, 
         hasBlueTick: true,
-        detective: updatedDetective
+        detective: updatedDetective,
+        newToken
       });
     } catch (error) {
       console.log("[verify-blue-tick] === BLUE TICK VERIFICATION FAILED ===");
@@ -2515,7 +2663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         yearlyPrice: parsed.yearlyPrice !== undefined ? String(parsed.yearlyPrice) : undefined,
       } as any);
       clearFreePlanCache();
-      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => cache.del(k));
+      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => { cache.del(k); });
       console.debug("[cache INVALIDATE]", "services:");
       res.json({ plan });
     } catch (error) {
@@ -2588,7 +2736,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get detective by ID (public)
+  // Get detective by ID (public with conditional caching)
   app.get("/api/detectives/:id", async (req: Request, res: Response) => {
     try {
       const detective = await storage.getDetective(req.params.id);
@@ -2631,7 +2779,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Cache failure must not break the request
         }
       }
-      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      // Conditional caching: public cache for anonymous, no-store for owner/admin
+      if (!skipCache) {
+        res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      } else {
+        setNoStore(res);
+      }
       sendCachedJson(req, res, payload);
     } catch (error) {
       console.error("Get detective error:", error);
@@ -2639,9 +2792,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Public: get user profile by id (limited fields)
+  // Get user profile by id (authenticated - user-specific data)
   app.get("/api/users/:id", requireAuth, async (req: Request, res: Response) => {
     try {
+      // User-specific authenticated data must NEVER cache
+      setNoStore(res);
+      
       const user = await storage.getUser(req.params.id);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -2653,8 +2809,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Forbidden" });
       }
       const { password, ...userWithoutPassword } = user as any;
-      res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
-      sendCachedJson(req, res, { user: userWithoutPassword });
+      res.json({ user: userWithoutPassword });
     } catch (error) {
       console.error("Get user error:", error);
       res.status(500).json({ error: "Failed to get user" });
@@ -2862,12 +3017,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tempPassword = randomBytes(16).toString('hex');
       
       await storage.resetDetectivePassword(detective.userId, tempPassword);
+            // Rotate CSRF token after admin password reset
+            const newToken = rotateCsrfToken(req);
+            await new Promise<void>((resolve, reject) => {
+              req.session.save((err) => {
+                if (err) reject(err);
+                else resolve();
+              });
+            });
+      
       
       // Return the temporary password to the admin
       res.json({ 
         message: "Password reset successfully",
         temporaryPassword: tempPassword,
-        email: detective.email
+        email: detective.email,
+        newToken
       });
     } catch (error) {
       console.warn("[auth] Reset password failed");
@@ -2912,6 +3077,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Delete detective error:", error);
       res.status(500).json({ error: "Failed to delete detective" });
+    }
+  });
+
+  // Admin-only service update (pricing & enquiry settings)
+  app.patch("/api/admin/services/:id", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const service = await storage.getService(req.params.id);
+      if (!service) {
+        return res.status(404).json({ error: "Service not found" });
+      }
+
+      // Admin can update pricing and isOnEnquiry
+      const allowedData = z.object({
+        basePrice: z.string().nullable().optional(),
+        offerPrice: z.string().nullable().optional(),
+        isOnEnquiry: z.boolean().optional(),
+        isActive: z.boolean().optional(),
+      }).parse(req.body);
+
+      // Validation: if isOnEnquiry is false, basePrice must be set
+      const isOnEnquiry = allowedData.isOnEnquiry !== undefined 
+        ? allowedData.isOnEnquiry 
+        : service.isOnEnquiry;
+
+      if (!isOnEnquiry) {
+        const basePrice = allowedData.basePrice !== undefined 
+          ? allowedData.basePrice 
+          : service.basePrice;
+        
+        if (!basePrice) {
+          return res.status(400).json({ 
+            error: "Base price is required when not using Price on Enquiry" 
+          });
+        }
+
+        const basePriceNum = parseFloat(basePrice);
+        if (!(basePriceNum > 0)) {
+          return res.status(400).json({ 
+            error: "Base price must be a positive number" 
+          });
+        }
+
+        // If offer price is provided, validate it
+        if (allowedData.offerPrice !== undefined && allowedData.offerPrice !== null) {
+          const offerPriceNum = parseFloat(allowedData.offerPrice);
+          if (!(offerPriceNum > 0) || !(offerPriceNum < basePriceNum)) {
+            return res.status(400).json({ 
+              error: "Offer price must be positive and lower than base price" 
+            });
+          }
+        }
+      }
+
+      const updatedService = await storage.updateService(req.params.id, allowedData);
+
+      // Invalidate all service-related caches
+      try {
+        cache.keys().filter(k => k.startsWith("services:")).forEach(k => cache.del(k));
+        cache.del(`detective:public:${service.detectiveId}`);
+        console.debug("[cache INVALIDATE]", "services:");
+        console.debug("[cache INVALIDATE]", `detective:public:${service.detectiveId}`);
+      } catch (_) {
+        // Cache invalidation must not fail the request
+      }
+
+      res.json({ service: updatedService });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("Admin update service error:", error);
+      res.status(500).json({ error: "Failed to update service" });
     }
   });
 
@@ -2995,8 +3232,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const body = req.body && typeof req.body === "object" ? req.body : {};
       const query = typeof body.query === "string" ? body.query.trim() : "";
-      const categories = await storage.getAllServiceCategories(true);
-      const categoryNames = categories.map((c: { name: string }) => c.name);
+      
+      // Get ALL categories with descriptions (not just names)
+      const fullCategories = await storage.getAllServiceCategories(true);
+      const categoriesWithDesc = fullCategories.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description || "",
+      }));
+      
       const checkAvailability = async (opts: { category: string; country: string; state?: string; city?: string }) => {
         const list = await storage.searchServices({
           category: opts.category,
@@ -3006,11 +3250,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }, 1, 0);
         return list.length;
       };
-      const result = await runSmartSearch(query, { categoryNames, checkAvailability });
+      
+      const result = await runSmartSearch(query, { categories: categoriesWithDesc, checkAvailability });
       
       // Ensure result is valid before sending
       if (!result || typeof result !== 'object') {
-        console.error("[deepseek-error] Invalid result from runSmartSearch:", result);
+        console.error("[smart-search-error] Invalid result from runSmartSearch:", result);
         return res.status(200).json({
           kind: "category_not_found",
           message: "We didn't find any relevant categories. You can browse here to find what you need.",
@@ -3019,7 +3264,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(result);
     } catch (error) {
-      console.error("[deepseek-error] Smart search error:", error);
+      console.error("[smart-search-error] Smart search error:", error);
       res.status(200).json({
         kind: "category_not_found",
         message: "We didn't find any relevant categories. You can browse here to find what you need.",
@@ -3048,9 +3293,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Search services (public)
   app.get("/api/services", async (req: Request, res: Response) => {
     try {
-      const { category, country, search, minPrice, maxPrice, minRating, limit = "20", offset = "0", sortBy = "popular" } = req.query;
+      const { category, country, search, minPrice, maxPrice, minRating, planName, level, limit = "20", offset = "0", sortBy = "popular" } = req.query;
       const stableParams = [
-        "category", "country", "search", "minPrice", "maxPrice", "minRating", "limit", "offset", "sortBy"
+        "category", "country", "search", "minPrice", "maxPrice", "minRating", "planName", "level", "limit", "offset", "sortBy"
       ].sort().map(k => `${k}=${String((req.query as Record<string, string>)[k] ?? "").trim()}`).join("&");
       const cacheKey = `services:search:${stableParams}`;
       const skipCache = !!(req.session?.userId);
@@ -3073,7 +3318,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      // Get all active services - ALL services visible
+      // Parse pagination parameters
+      const limitNum = Math.min(parseInt(limit as string) || 20, 100); // Cap at 100 to prevent abuse
+      const offsetNum = parseInt(offset as string) || 0;
+
+      // Get paginated services - only fetch what's needed (not 10,000)
       const allServices = await storage.searchServices({
         category: category as string,
         country: country as string,
@@ -3081,7 +3330,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
         maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
         ratingMin: minRating ? parseFloat(minRating as string) : undefined,
-      }, 10000, 0, sortBy as string);
+        planName: planName as string,
+        level: level as string,
+      }, limitNum, offsetNum, sortBy as string);
 
       // Filter out services without images
       const servicesWithImages = allServices.filter((s: any) => {
@@ -3089,7 +3340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return hasImages;
       });
 
-      // Get detective rankings for sorting (NOT filtering)
+      // Apply ranking for display order (after pagination)
       const rankedLimit = 1000;
       const rankedCacheKey = `ranked:${rankedLimit}`;
       let rankedDetectives = getRankedDetectivesCache(rankedCacheKey);
@@ -3100,8 +3351,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const detectiveRankMap = new Map(rankedDetectives.map((d: any, idx: number) => [d.id, { score: d.visibilityScore, rank: idx }]));
 
-      // Sort services by detective ranking (higher score = higher position)
-      const sortedServices = servicesWithImages.sort((a: any, b: any) => {
+      // Sort results by detective ranking (higher score = higher position)
+      const sortedResults = servicesWithImages.sort((a: any, b: any) => {
         const aRank = detectiveRankMap.get(a.detectiveId);
         const bRank = detectiveRankMap.get(b.detectiveId);
         // Higher score = better ranking = appears first
@@ -3114,12 +3365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return 0;
       });
 
-      // Apply pagination after ranking
-      const limitNum = parseInt(limit as string);
-      const offsetNum = parseInt(offset as string);
-      const paginatedServices = sortedServices.slice(offsetNum, offsetNum + limitNum);
-
-      const masked = await Promise.all(paginatedServices.map(async (s: any) => {
+      const masked = await Promise.all(sortedResults.map(async (s: any) => {
         const maskedDetective = await maskDetectiveContactsPublic(s.detective);
         const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
         return { ...s, detective: { ...maskedDetective, effectiveBadges } };
@@ -3165,7 +3411,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } else {
         // Only allow public access if service is complete and active
-        const isComplete = service.isActive === true && Array.isArray(service.images) && service.images.length > 0 && !!service.title && !!service.description && !!service.category && !!service.basePrice;
+        const hasImages = Array.isArray(service.images) && service.images.length > 0;
+        
+        // For Price on Enquiry services, images are optional
+        // For regular services, images are required
+        const hasRequiredContent = service.isOnEnquiry 
+          ? (!!service.title && !!service.description && !!service.category)
+          : (hasImages && !!service.title && !!service.description && !!service.category);
+        
+        const isComplete = service.isActive === true && hasRequiredContent && (service.isOnEnquiry || !!service.basePrice);
         if (!isComplete) {
           return res.status(404).json({ error: "Service not available" });
         }
@@ -3327,6 +3581,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const currentBase = parseFloat(basePriceValue as any);
         if (!(currentBase > 0)) {
           return res.status(400).json({ error: "Base price must be a positive number" });
+        }
+        // Enforce minimum price (same as in POST /api/services)
+        const detective = await storage.getDetective(service.detectiveId);
+        if (detective) {
+          const minPrice = getMinimumBasePriceForCountry(detective.country || undefined);
+          if (currentBase < minPrice.min) {
+            return res.status(400).json({ error: `Minimum base price is ${minPrice.display}` });
+          }
         }
         if (validatedData.offerPrice !== undefined && validatedData.offerPrice !== null) {
           const offer = parseFloat(validatedData.offerPrice as any);
@@ -3572,9 +3834,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Detective: get all reviews for my services
+  // Detective: get all reviews for my services (authenticated - dashboard data)
   app.get("/api/reviews/detective", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const detective = await storage.getDetectiveByUserId(req.session.userId!);
       if (!detective) return res.status(404).json({ error: "Detective profile not found" });
       const list = await storage.getReviewsByDetective(detective.id);
@@ -3660,9 +3923,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============== ORDER ROUTES ==============
   // Apply session middleware to orders endpoints
 
-  // Get user's orders
+  // Get user's orders (authenticated - user-specific data)
   app.get("/api/orders/user", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const { limit = "50", offset = "0" } = req.query;
       const limitNum = Math.min(Math.max(1, parseInt(limit as string) || 50), 100);
       const offsetNum = Math.max(0, parseInt(offset as string) || 0);
@@ -3752,9 +4016,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== FAVORITE ROUTES ==============
 
-  // Get user's favorites
+  // Get user's favorites (authenticated - user-specific data)
   app.get("/api/favorites", requireAuth, async (req: Request, res: Response) => {
     try {
+      setNoStore(res);
       const favorites = await storage.getFavoritesByUser(req.session.userId!);
       res.json({ favorites });
     } catch (error) {
@@ -4014,25 +4279,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
 
-          if (application.serviceCategories && application.categoryPricing) {
-            const pricingData = application.categoryPricing as Array<{category: string; price: string; currency: string}>;
-            for (const category of application.serviceCategories) {
-              const pricing = pricingData.find(p => p.category === category);
-              if (pricing && pricing.price) {
+          // 🔴 AUTO-CREATE SERVICES: Only if application has valid service categories
+          if (application.serviceCategories && Array.isArray(application.serviceCategories) && application.serviceCategories.length > 0) {
+            const existingServices = await storage.getAllServicesByDetective(detective.id);
+            if (existingServices.length > 0) {
+              console.log(`[AUTO-SERVICE-CREATE] ℹ️  Detective already has ${existingServices.length} service(s). Skipping auto-create.`);
+            } else {
+              const pricingData = (application.categoryPricing || []) as Array<{category: string; price?: string; currency: string; isOnEnquiry?: boolean}>;
+              
+              // Log for debugging
+              console.log(`[AUTO-SERVICE-CREATE] Detective: ${detective.id} (${application.fullName})`);
+              console.log(`[AUTO-SERVICE-CREATE] serviceCategories: ${JSON.stringify(application.serviceCategories)}`);
+              console.log(`[AUTO-SERVICE-CREATE] categoryPricing: ${JSON.stringify(pricingData)}`);
+              console.log(`[AUTO-SERVICE-CREATE] Total categories to process: ${application.serviceCategories.length}`);
+              
+              // Deduplicate categories (prevent same category from being processed twice)
+              const uniqueCategories = [...new Set(application.serviceCategories)];
+              if (uniqueCategories.length !== application.serviceCategories.length) {
+                console.warn(`[AUTO-SERVICE-CREATE] ⚠️  Duplicates detected in serviceCategories! Original: ${application.serviceCategories.length}, Unique: ${uniqueCategories.length}`);
+              }
+              
+              let servicesCreated = 0;
+              for (const category of uniqueCategories) {
+                if (!category || typeof category !== 'string') {
+                  console.warn(`[AUTO-SERVICE-CREATE] ⚠️  Skipping invalid category: ${JSON.stringify(category)}`);
+                  continue;
+                }
+                
+                const pricing = pricingData.find(p => p?.category === category);
+                if (!pricing) {
+                  console.warn(`[AUTO-SERVICE-CREATE] ⚠️  No pricing data found for category: ${category}`);
+                  continue;
+                }
+                
+                const isOnEnquiry = pricing.isOnEnquiry === true;
+                if (!isOnEnquiry && !pricing.price) {
+                  console.warn(`[AUTO-SERVICE-CREATE] ⚠️  No price found for category (not on-enquiry): ${category}`);
+                  continue;
+                }
+                
+                // Check if service already exists
                 const existing = await storage.getServiceByDetectiveAndCategory(detective.id, category);
-                if (!existing) {
+                if (existing) {
+                  console.log(`[AUTO-SERVICE-CREATE] ℹ️  Service already exists for category: ${category}, skipping`);
+                  continue;
+                }
+                
+                // Create the service
+                try {
                   await storage.createService({
                     detectiveId: detective.id,
                     category,
                     title: `${category} Services`,
                     description: `Professional ${category.toLowerCase()} services by ${application.fullName}. Contact for detailed consultation.`,
-                    basePrice: pricing.price,
+                    basePrice: isOnEnquiry ? null : (pricing.price || null),
                     images: (application as any).banner ? [(application as any).banner] : undefined,
                     isActive: true,
+                    isOnEnquiry: isOnEnquiry,
                   });
+                  servicesCreated++;
+                  console.log(`[AUTO-SERVICE-CREATE] ✅ Created service for category: ${category} (isOnEnquiry: ${isOnEnquiry})`);
+                } catch (serviceError: any) {
+                  console.error(`[AUTO-SERVICE-CREATE] ❌ Failed to create service for ${category}:`, serviceError?.message);
                 }
               }
+              
+              console.log(`[AUTO-SERVICE-CREATE] 📊 SUMMARY: ${servicesCreated} service(s) created out of ${uniqueCategories.length} unique categories`);
             }
+          } else {
+            console.log(`[AUTO-SERVICE-CREATE] ℹ️  No service categories to auto-create (serviceCategories: ${JSON.stringify(application.serviceCategories)})`);
           }
 
           console.log(`Detective account ${user ? "linked/created" : "unknown"} for: ${normalizedEmail} with ${application.serviceCategories?.length || 0} services.`);
@@ -4632,6 +4947,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { getAllEmailTemplates } = await import("./services/emailTemplateService");
       const templates = await getAllEmailTemplates();
+      console.log("[Admin] Email templates count:", templates.length);
+      console.log("[Admin] First template:", templates[0] ? { id: templates[0].id, key: templates[0].key, name: templates[0].name } : "none");
       res.json({ templates });
     } catch (error) {
       console.error("[Admin] Error fetching email templates:", error);
@@ -5154,7 +5471,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validatedData = updateServiceCategorySchema.parse(req.body);
+      
+      // If name is changing, cascade update to all services with the old name
+      const oldName = category.name;
+      const newName = validatedData.name;
+      
+      if (newName && oldName !== newName) {
+        console.debug(`[category RENAME] "${oldName}" → "${newName}"`);
+        // Update all services that reference the old category name
+        const result = await db.update(services)
+          .set({ category: newName, updatedAt: new Date() })
+          .where(eq(services.category, oldName));
+        console.debug(`[category RENAME] Updated services count:`, result);
+      }
+      
       const updatedCategory = await storage.updateServiceCategory(req.params.id, validatedData);
+      
+      // Invalidate all service-related caches
+      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => { cache.del(k); });
+      cache.del(`detective:public:*`);
+      
+      // Invalidate ranked detectives cache since services may have changed
+      rankedDetectivesCache.clear();
+      
+      console.debug("[cache INVALIDATE]", "services:", "detectives", "categories");
+      
       res.json({ category: updatedCategory });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -5174,6 +5515,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.deleteServiceCategory(req.params.id);
+      
+      // Invalidate all service-related caches
+      cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => { cache.del(k); });
+      cache.del(`detective:public:*`);
+      rankedDetectivesCache.clear();
+      
+      console.debug("[cache INVALIDATE]", "services:", "detectives", "categories");
+      
       res.json({ message: "Service category deleted successfully" });
     } catch (error) {
       console.error("Delete service category error:", error);

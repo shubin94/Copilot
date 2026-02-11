@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { getOrFetchCsrfToken } from "@/lib/api";
+import { buildApiUrl, getOrFetchCsrfToken } from "@/lib/api";
 
 interface PayPalButtonProps {
   packageId: string;
@@ -33,7 +33,7 @@ export function PayPalButton({
         console.log("[PayPal] Creating order for:", { packageId, billingCycle, amount });
 
         const csrfToken = await getOrFetchCsrfToken();
-        const createOrderRes = await fetch("/api/payments/paypal/create-order", {
+        const createOrderRes = await fetch(buildApiUrl("/api/payments/paypal/create-order"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -103,7 +103,7 @@ export function PayPalButton({
             try {
               // Capture the order
               const csrfToken = await getOrFetchCsrfToken();
-              const captureRes = await fetch("/api/payments/paypal/capture", {
+              const captureRes = await fetch(buildApiUrl("/api/payments/paypal/capture"), {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",

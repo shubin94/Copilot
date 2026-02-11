@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pgEnum, serial, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pgEnum, serial, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -397,12 +397,13 @@ export const insertDetectiveApplicationSchema = createInsertSchema(detectiveAppl
   fullAddress: z.string().min(5),
   pincode: z.string().min(3),
   yearsExperience: z.string().optional(),
-  serviceCategories: z.array(z.string()).max(2).optional(),
+  serviceCategories: z.array(z.string()).optional(),
   categoryPricing: z.array(z.object({
     category: z.string(),
     price: z.string(),
     currency: z.string(),
-  })).max(2).optional(),
+    isOnEnquiry: z.boolean().optional(),
+  })).optional(),
   about: z.string().optional(),
   companyName: z.string().optional(),
   businessWebsite: z.string().url().optional(),
@@ -707,10 +708,7 @@ export const userPages = pgTable("user_pages", {
     .references(() => users.id, { onDelete: "set null" }),  // Who assigned this access (admin id)
   grantedAt: timestamp("granted_at").notNull().defaultNow(),
 }, (table) => ({
-  pk: {
-    columns: [table.userId, table.pageId],
-    name: "user_pages_pk",
-  },
+  pk: primaryKey({ columns: [table.userId, table.pageId], name: "user_pages_pk" }),
   userIdIdx: index("user_pages_user_id_idx").on(table.userId),
   pageIdIdx: index("user_pages_page_id_idx").on(table.pageId),
   grantedByIdx: index("user_pages_granted_by_idx").on(table.grantedBy),

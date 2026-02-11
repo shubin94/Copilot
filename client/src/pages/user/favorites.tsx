@@ -134,7 +134,7 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
       badgeState={badgeState}
       phone={svc.detective.phone || undefined}
       whatsapp={svc.detective.whatsapp || undefined}
-      contactEmail={svc.detective.contactEmail || (svc.detective as any).email || undefined}
+      contactEmail={svc.detective.contactEmail}
       countryCode={svc.detective.country || undefined}
     />
   );

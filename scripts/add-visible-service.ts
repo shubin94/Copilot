@@ -30,11 +30,13 @@ async function run() {
     console.log(`Updated service to be visible: ${s.id}`);
     return;
   }
+  const categoryLabel = "Background Checks";
+  const businessLabel = detective.businessName || "this detective";
   const [created] = await db.insert(services).values({
     detectiveId: detective.id,
-    category: "Background Checks",
-    title: "Professional Background Check Service",
-    description: "Comprehensive background investigation including identity verification, employment and education history, and litigation checks. Delivered with a clear, actionable report.",
+    category: categoryLabel,
+    title: `${categoryLabel} Services`,
+    description: `Professional ${categoryLabel.toLowerCase()} services by ${businessLabel}. Contact for detailed consultation.`,
     images: sql`ARRAY[${img}]::text[]`,
     basePrice: "100.00",
     offerPrice: null,

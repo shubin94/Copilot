@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env.local') });
 
 const baseUrl = 'http://127.0.0.1:5000';
-const cookies: string[] = [];
+let cookies: string[] = [];
 
 function makeFetch(url: string, options: any = {}) {
   return new Promise((resolve, reject) => {
@@ -34,14 +34,15 @@ function makeFetch(url: string, options: any = {}) {
           if (setCookies) {
             setCookies.forEach((cookie: string) => {
               const cookieName = cookie.split('=')[0];
-              cookies.push(
-                cookieName + '=' + cookie.split('=').slice(1).join('=').split(';')[0]
-              );
+              const cookieValue = cookieName + '=' + cookie.split('=').slice(1).join('=').split(';')[0];
+              // Deduplicate by name: remove existing cookie with same name, then add new one
+              cookies = cookies.filter(c => !c.startsWith(cookieName + '='));
+              cookies.push(cookieValue);
             });
           }
           resolve({
             status: res.statusCode,
-            data: data ? JSON.parse(data) : {},
+            data: data ? (() => { try { return JSON.parse(data); } catch (e) { return { raw: data.substring(0, 100) }; } })() : {},
             headers: res.headers,
           });
         });
@@ -61,13 +62,15 @@ async function testEmployeeLogin() {
     console.log('✅ CSRF:', csrfToken.substring(0, 20) + '...');
     console.log('✅ Cookies:', cookies);
 
-    console.log('\n📝 Step 2: Logging in as employee (sam@s.com)...');
+    console.log('\n📝 Step 2: Logging in as employee...');
+    const testEmail = process.env.TEST_EMAIL || 'sam@s.com';
+    const testPassword = process.env.TEST_PASSWORD || 'Sam@123456!';
     const loginRes: any = await makeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: {
         'X-CSRF-Token': csrfToken,
       },
-      body: JSON.stringify({ email: 'sam@s.com', password: 'Sam@123456!' }),
+      body: JSON.stringify({ email: testEmail, password: testPassword }),
     });
 
     console.log('Login status:', loginRes.status);

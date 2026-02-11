@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useUser } from "@/lib/user-context";
-import { api } from "@/lib/api";
+import { api, getOrFetchCsrfToken } from "@/lib/api";
 import { useCurrentDetective } from "@/lib/hooks";
 
 interface DashboardLayoutProps {
@@ -46,6 +46,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const detective = role === "detective" ? detectiveData?.detective : null;
   const [employeePages, setEmployeePages] = useState<string[] | null>(null);
   const [isEmployeePagesLoading, setIsEmployeePagesLoading] = useState(false);
+
+  // Fetch CSRF token on dashboard load to establish session
+  useEffect(() => {
+    getOrFetchCsrfToken().catch((err) => {
+      console.error("[DashboardLayout] Failed to fetch CSRF token:", err);
+    });
+  }, []);
 
   useEffect(() => {
     if (isLoading) return;
@@ -71,6 +78,25 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     }
   }, [isAuthenticated, isLoading, role, setLocation, user]);
 
+  useEffect(() => {
+    if (role !== "admin" || user?.role !== "employee") return;
+    if (employeePages !== null || isEmployeePagesLoading) return;
+
+    setIsEmployeePagesLoading(true);
+    api
+      .get<{ pages: Array<{ key: string }> }>("/api/employee/pages")
+      .then((data) => {
+        setEmployeePages(data.pages.map((page) => page.key));
+      })
+      .catch((error) => {
+        console.error("[DashboardLayout] Failed to load employee pages:", error);
+        setEmployeePages([]);
+      })
+      .finally(() => {
+        setIsEmployeePagesLoading(false);
+      });
+  }, [role, user?.role, employeePages, isEmployeePagesLoading]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -87,26 +113,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   }
 
   if (role === "admin" && user.role !== "admin" && user.role !== "employee") return null;
-    useEffect(() => {
-      if (role !== "admin" || user?.role !== "employee") return;
-      if (employeePages !== null || isEmployeePagesLoading) return;
-
-      setIsEmployeePagesLoading(true);
-      api
-        .get<{ pages: Array<{ key: string }> }>("/api/employee/pages")
-        .then((data) => {
-          setEmployeePages(data.pages.map((page) => page.key));
-        })
-        .catch((error) => {
-          console.error("[DashboardLayout] Failed to load employee pages:", error);
-          setEmployeePages([]);
-        })
-        .finally(() => {
-          setIsEmployeePagesLoading(false);
-        });
-    }, [role, user?.role, employeePages, isEmployeePagesLoading]);
-  if (role === "detective" && user.role !== "detective") return null;
   if (role === "user" && user.role !== "user") return null;
+  if (role === "detective" && user.role !== "detective") return null;
 
   const getNextRenewalDate = () => {
     if (!detective) return null;
@@ -144,15 +152,6 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/admin/claims", label: "Claims", icon: Shield },
     { href: "/admin/detectives", label: "Detectives", icon: Users },
     { href: "/admin/employees", label: "Employees", icon: Users },
-    { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
-    { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
-    { href: "/admin/snippets", label: "Snippets", icon: Zap },
-    { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
-    { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
-    { href: "/admin/app-secrets", label: "App Secrets (Auth)", icon: Lock },
-    { href: "/admin/pages", label: "Pages", icon: Globe },
-    { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
-    { href: "/admin/settings", label: "Site Settings", icon: Settings },
     { 
       href: "#cms", 
       label: "CMS", 
@@ -163,6 +162,15 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         { href: "/admin/cms/pages", label: "Pages", icon: FileText },
       ]
     },
+    { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
+    { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
+    { href: "/admin/snippets", label: "Snippets", icon: Zap },
+    { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
+    { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
+    { href: "/admin/app-secrets", label: "App Secrets (Auth)", icon: Lock },
+    { href: "/admin/pages", label: "Pages", icon: Globe },
+    { href: "/admin/email-templates", label: "Email Templates", icon: Mail },
+    { href: "/admin/settings", label: "Site Settings", icon: Settings },
   ];
 
   const detectiveLinks = [

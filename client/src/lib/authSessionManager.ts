@@ -13,7 +13,7 @@
  */
 
 import { queryClient } from "./queryClient";
-import { clearCsrfToken } from "./api";
+import { buildApiUrl, clearCsrfToken } from "./api";
 
 // Flag to prevent multiple simultaneous logout triggers
 let isLoggingOut = false;
@@ -188,7 +188,7 @@ export function startAuthMonitor() {
       }
       
       // Fetch current auth state
-      const response = await fetch('/api/auth/me', {
+      const response = await fetch(buildApiUrl("/api/auth/me"), {
         credentials: 'include',
         headers: {
           'Cache-Control': 'no-cache'

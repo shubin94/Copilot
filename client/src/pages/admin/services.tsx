@@ -39,9 +39,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Eye, Briefcase, Plus, Pencil, Trash2 } from "lucide-react";
-import { useServices, useDetectives, useCreateService, useUpdateService, useDeleteService, useServiceCategories } from "@/lib/hooks";
+import { Search, Eye, Briefcase, Plus, Pencil, Trash2, DollarSign } from "lucide-react";
+import { useServices, useDetectives, useCreateService, useUpdateService, useDeleteService, useServiceCategories, useAdminUpdateServicePricing } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { Service } from "@shared/schema";
 import { useState } from "react";
 
@@ -57,8 +58,15 @@ export default function AdminServices() {
 
   const [showServiceDialog, setShowServiceDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showPricingDialog, setShowPricingDialog] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
+  const [pricingService, setPricingService] = useState<Service | null>(null);
+  const [pricingForm, setPricingForm] = useState({
+    basePrice: "",
+    offerPrice: "",
+    isOnEnquiry: false,
+  });
 
   const [formData, setFormData] = useState({
     title: "",
@@ -72,6 +80,7 @@ export default function AdminServices() {
   const createService = useCreateService();
   const updateService = useUpdateService();
   const deleteService = useDeleteService();
+  const updatePricing = useAdminUpdateServicePricing();
 
   const filteredServices = services.filter((service: Service) =>
     service.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -111,6 +120,56 @@ export default function AdminServices() {
   const handleOpenDeleteDialog = (serviceId: string) => {
     setDeletingServiceId(serviceId);
     setShowDeleteDialog(true);
+  };
+
+  const handleOpenPricingDialog = (service: Service) => {
+    setPricingService(service);
+    setPricingForm({
+      basePrice: service.basePrice || "",
+      offerPrice: service.offerPrice || "",
+      isOnEnquiry: service.isOnEnquiry || false,
+    });
+    setShowPricingDialog(true);
+  };
+
+  const handleUpdatePricing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pricingService) return;
+
+    // Validation
+    if (!pricingForm.isOnEnquiry && !pricingForm.basePrice) {
+      toast({
+        title: "Validation Error",
+        description: "Base price is required when not using Price on Enquiry",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await updatePricing.mutateAsync({
+        id: pricingService.id,
+        data: {
+          basePrice: pricingForm.isOnEnquiry ? null : pricingForm.basePrice,
+          offerPrice: pricingForm.isOnEnquiry || !pricingForm.offerPrice ? null : pricingForm.offerPrice,
+          isOnEnquiry: pricingForm.isOnEnquiry,
+        },
+      });
+
+      toast({
+        title: "Success",
+        description: "Pricing updated successfully",
+      });
+
+      setShowPricingDialog(false);
+      setPricingService(null);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update pricing",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -285,6 +344,15 @@ export default function AdminServices() {
                           <Button 
                             size="sm" 
                             variant="ghost"
+                            onClick={() => handleOpenPricingDialog(service)}
+                            title="Edit Pricing"
+                            data-testid={`button-pricing-${service.id}`}
+                          >
+                            <DollarSign className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost"
                             onClick={() => handleOpenEditDialog(service)}
                             data-testid={`button-edit-${service.id}`}
                           >
@@ -432,6 +500,88 @@ export default function AdminServices() {
                 data-testid="button-submit-service"
               >
                 {createService.isPending || updateService.isPending ? "Saving..." : (editingService ? "Update Service" : "Create Service")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPricingDialog} onOpenChange={setShowPricingDialog}>
+        <DialogContent className="max-w-md" data-testid="dialog-pricing-edit">
+          <DialogHeader>
+            <DialogTitle>Edit Service Pricing</DialogTitle>
+            <DialogDescription>
+              {pricingService && `Update pricing for "${pricingService.title}"`}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdatePricing}>
+            <div className="space-y-4 py-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="isOnEnquiry"
+                  checked={pricingForm.isOnEnquiry}
+                  onCheckedChange={(checked) => 
+                    setPricingForm({ ...pricingForm, isOnEnquiry: checked as boolean })
+                  }
+                  data-testid="checkbox-is-on-enquiry"
+                />
+                <Label htmlFor="isOnEnquiry" className="text-sm font-medium cursor-pointer">
+                  Price on Enquiry (no fixed price)
+                </Label>
+              </div>
+
+              {!pricingForm.isOnEnquiry && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="basePrice">Base Price ($) *</Label>
+                    <Input
+                      id="basePrice"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={pricingForm.basePrice}
+                      onChange={(e) => setPricingForm({ ...pricingForm, basePrice: e.target.value })}
+                      placeholder="0.00"
+                      data-testid="input-pricing-base-price"
+                      required={!pricingForm.isOnEnquiry}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="offerPrice">Offer Price ($)</Label>
+                    <Input
+                      id="offerPrice"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={pricingForm.offerPrice}
+                      onChange={(e) => setPricingForm({ ...pricingForm, offerPrice: e.target.value })}
+                      placeholder="0.00 (optional discount)"
+                      data-testid="input-pricing-offer-price"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Offer price must be lower than base price
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowPricingDialog(false)}
+                data-testid="button-cancel-pricing"
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit"
+                disabled={updatePricing.isPending}
+                data-testid="button-submit-pricing"
+              >
+                {updatePricing.isPending ? "Saving..." : "Update Pricing"}
               </Button>
             </DialogFooter>
           </form>

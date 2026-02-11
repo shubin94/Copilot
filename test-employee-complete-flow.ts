@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env.local') });
 
 const baseUrl = 'http://127.0.0.1:5000';
-const cookies: string[] = [];
+let cookies: string[] = [];
 
 function makeFetch(url: string, options: any = {}) {
   return new Promise((resolve, reject) => {
@@ -29,20 +29,25 @@ function makeFetch(url: string, options: any = {}) {
         let data = '';
         res.on('data', (chunk) => (data += chunk));
         res.on('end', () => {
-          const setCookies = res.headers['set-cookie'];
-          if (setCookies) {
-            setCookies.forEach((cookie: string) => {
-              const cookieName = cookie.split('=')[0];
-              cookies.push(
-                cookieName + '=' + cookie.split('=').slice(1).join('=').split(';')[0]
-              );
+          try {
+            const setCookies = res.headers['set-cookie'];
+            if (setCookies) {
+              setCookies.forEach((cookie: string) => {
+                const cookieName = cookie.split('=')[0];
+                const cookieValue = cookieName + '=' + cookie.split('=').slice(1).join('=').split(';')[0];
+                // Deduplicate by name: remove existing cookie with same name, then add new one
+                cookies = cookies.filter(c => !c.startsWith(cookieName + '='));
+                cookies.push(cookieValue);
+              });
+            }
+            resolve({
+              status: res.statusCode,
+              data: data ? JSON.parse(data) : {},
+              headers: res.headers,
             });
+          } catch (parseError) {
+            reject(new Error(`Failed to parse response: ${parseError}`));
           }
-          resolve({
-            status: res.statusCode,
-            data: data ? JSON.parse(data) : {},
-            headers: res.headers,
-          });
         });
       }
     );
@@ -54,6 +59,12 @@ function makeFetch(url: string, options: any = {}) {
 
 async function testFullFlow() {
   try {
+    const testAdminEmail = process.env.TEST_ADMIN_EMAIL;
+    const testAdminPassword = process.env.TEST_ADMIN_PASSWORD;
+    if (!testAdminEmail || !testAdminPassword) {
+      throw new Error('TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD environment variables are required');
+    }
+
     console.log('🔐 Step 1: Admin login to create test employee...');
     let csrfRes: any = await makeFetch(`${baseUrl}/api/csrf-token`);
     let csrfToken = csrfRes.data.csrfToken;
@@ -61,7 +72,7 @@ async function testFullFlow() {
     const adminLoginRes: any = await makeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'X-CSRF-Token': csrfToken },
-      body: JSON.stringify({ email: 'testadmin@test.com', password: 'TestAdmin123!' }),
+      body: JSON.stringify({ email: testAdminEmail, password: testAdminPassword }),
     });
 
     if (adminLoginRes.status !== 200 || !adminLoginRes.data.user) {
@@ -73,11 +84,12 @@ async function testFullFlow() {
     csrfToken = adminLoginRes.data.csrfToken;
 
     console.log('\n👤 Step 2: Creating test employee...');
+    const testEmail = `testemployee${Date.now()}@test.com`;
     const createRes: any = await makeFetch(`${baseUrl}/api/admin/employees`, {
       method: 'POST',
       headers: { 'X-CSRF-Token': csrfToken },
       body: JSON.stringify({
-        email: `testemployee${Date.now()}@test.com`,
+        email: testEmail,
         password: 'TestEmployee123!',
         name: 'Test Employee',
         allowedPages: ['dashboard', 'cms'],
@@ -89,7 +101,6 @@ async function testFullFlow() {
       return;
     }
 
-    const testEmail = `testemployee${Date.now()}@test.com`;
     console.log(`✅ Employee created: ${testEmail}`);
 
     console.log('\n🚪 Step 3: Logout and test employee login...');

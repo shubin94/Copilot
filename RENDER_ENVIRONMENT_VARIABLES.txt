@@ -9,7 +9,19 @@ Copy these EXACT values into Render Dashboard → Your Service → Environment
 =================================================================
 
 1. SESSION_SECRET
-   Copy the value generated below ⬇️
+   Generate a secure random value:
+   
+   **Option A: OpenSSL** (macOS/Linux):
+   ```
+   openssl rand -base64 32
+   ```
+   
+   **Option B: Node.js**:
+   ```
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+   ```
+   
+   Copy the generated value below ⬇️
 
 2. CSRF_ALLOWED_ORIGINS
    https://www.askdetectives.com,https://askdetectives1.vercel.app,https://copilot-06s5.onrender.com

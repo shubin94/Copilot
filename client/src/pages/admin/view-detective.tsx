@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { 
   ArrowLeft, 
   Mail, 
@@ -92,17 +93,40 @@ export default function ViewDetective() {
   const freeLimit = limitsData?.limits?.free;
   const canAddService = !!detective && detective.createdBy === "admin" && detective.isClaimable && !detective.subscriptionPackageId && services.length < freeLimit;
 
-  const adminCreateService = useAdminCreateServiceForDetective();
+  // Mutation for updating service pricing
+  const updateServicePricingMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }) => 
+      api.services.adminUpdatePricing(id, data),
+    onSuccess: async (result, variables) => {
+      if (detective?.id) {
+        // Invalidate admin Services list
+        await queryClient.refetchQueries({ queryKey: ["services", "detective", detective.id, "admin"] });
+        // Invalidate all service detail page variants (public, preview)
+        await queryClient.invalidateQueries({ queryKey: ["services", variables.id], exact: false });
+        // Invalidate public services list for this detective
+        await queryClient.invalidateQueries({ queryKey: ["services", "detective", detective.id] });
+      }
+    },
+  });
   const adminUpdateService = useAdminUpdateService();
+  const adminCreateService = useAdminCreateServiceForDetective();
   const [serviceForm, setServiceForm] = useState({
     title: "",
     description: "",
     category: "",
     basePrice: "",
     offerPrice: "",
+    isOnEnquiry: false,
     images: [] as string[],
   });
   const [showAddServiceDialog, setShowAddServiceDialog] = useState(false);
+  const [showEditPricingDialog, setShowEditPricingDialog] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [pricingForm, setPricingForm] = useState({
+    basePrice: "",
+    offerPrice: "",
+    isOnEnquiry: false,
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const currencySymbol = (() => {
     const key = (detective?.country || selectedCountry.code) || '';
@@ -136,20 +160,24 @@ export default function ViewDetective() {
   });
 
   const [autoSeeded, setAutoSeeded] = useState(false);
+  const seedInFlight = useRef(false);
   useEffect(() => {
-    if (!detective || autoSeeded) return;
+    if (!detective || autoSeeded || seedInFlight.current) return;
     const cats = categoriesData?.categories || [];
     const img = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+z6aQAAAAASUVORK5CYII=";
     (async () => {
+      seedInFlight.current = true;
       try {
         if (services.length === 0 && cats.length > 0) {
           const available = cats.map((c: any) => c.name).filter((name) => !services.some((s: any) => s.category === name));
           const category = available[0] || cats[0].name;
+          const categoryLabel = category?.trim() || "Service";
+          const businessLabel = detective.businessName || "this detective";
           const created = await adminCreateService.mutateAsync({
             detectiveId: detective.id,
             data: {
-              title: "Professional Background Check Service",
-              description: "Comprehensive background investigation including identity verification, employment and education history, and litigation checks. Delivered with a clear, actionable report.",
+              title: `${categoryLabel} Services`,
+              description: `Professional ${categoryLabel.toLowerCase()} services by ${businessLabel}. Contact for detailed consultation.`,
               category,
               basePrice: "100.00",
               images: [img],
@@ -174,7 +202,10 @@ export default function ViewDetective() {
             toast({ title: "Service Updated", description: "Made the existing service visible." });
           }
         }
-      } catch (e: any) {}
+      } catch (e: any) {
+      } finally {
+        seedInFlight.current = false;
+      }
     })();
   }, [detective, services, categoriesData, autoSeeded]);
 
@@ -665,9 +696,11 @@ export default function ViewDetective() {
                               })()}
                             </div>
                             <div className="text-right">
-                              <p className="text-sm text-gray-500">Base Price</p>
+                              <p className="text-sm text-gray-500">
+                                {service.isOnEnquiry ? "Price" : "Base Price"}
+                              </p>
                               <p className="text-xl font-bold text-blue-600" data-testid={`service-price-${service.id}`}>
-                                {formatPriceExactForCountry(Number(service.basePrice), detective.country)}
+                                {service.isOnEnquiry ? "On Enquiry" : formatPriceExactForCountry(Number(service.basePrice), detective.country)}
                               </p>
                             </div>
                           </div>
@@ -700,7 +733,6 @@ export default function ViewDetective() {
                                   size="sm"
                                   onClick={async () => {
                                     try {
-                                      await api.users.getById; // noop to ensure module is loaded
                                       const csrfToken = await getOrFetchCsrfToken();
                                       await fetch(`/api/admin/services/${service.id}/reassign`, {
                                         method: "POST",
@@ -729,7 +761,24 @@ export default function ViewDetective() {
                               Created {format(new Date(service.createdAt), "MMM d, yyyy")}
                             </div>
                             </div>
-                            <div className="mt-3 flex items-center gap-2">
+                            <div className="mt-3 flex items-center gap-2 flex-wrap">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingServiceId(service.id);
+                                  setPricingForm({
+                                    basePrice: service.basePrice || "",
+                                    offerPrice: service.offerPrice || "",
+                                    isOnEnquiry: service.isOnEnquiry || false,
+                                  });
+                                  setShowEditPricingDialog(true);
+                                }}
+                                data-testid={`button-edit-pricing-${service.id}`}
+                              >
+                                <DollarSign className="h-4 w-4 mr-1" />
+                                Edit Pricing
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -807,12 +856,26 @@ export default function ViewDetective() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Base Price</Label>
-                      <Input value={serviceForm.basePrice} onChange={(e) => setServiceForm({ ...serviceForm, basePrice: e.target.value })} placeholder={`${currencySymbol} 0.00`} />
+                      <Input disabled={serviceForm.isOnEnquiry} value={serviceForm.basePrice} onChange={(e) => setServiceForm({ ...serviceForm, basePrice: e.target.value })} placeholder={`${currencySymbol} 0.00`} />
                     </div>
                     <div className="space-y-2">
                       <Label>Offer Price</Label>
-                      <Input value={serviceForm.offerPrice} onChange={(e) => setServiceForm({ ...serviceForm, offerPrice: e.target.value })} placeholder={`${currencySymbol} 0.00`} />
+                      <Input disabled={serviceForm.isOnEnquiry} value={serviceForm.offerPrice} onChange={(e) => setServiceForm({ ...serviceForm, offerPrice: e.target.value })} placeholder={`${currencySymbol} 0.00`} />
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="isOnEnquiry-admin"
+                      checked={serviceForm.isOnEnquiry}
+                      onCheckedChange={(checked) => setServiceForm({ ...serviceForm, isOnEnquiry: checked as boolean })}
+                      data-testid="checkbox-price-on-enquiry-admin"
+                    />
+                    <Label htmlFor="isOnEnquiry-admin" className="cursor-pointer font-medium">
+                      Price on Enquiry
+                    </Label>
+                    <p className="text-xs text-gray-500 ml-2">
+                      Enable to hide pricing and display "On Enquiry" instead
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>Banner Image</Label>
@@ -840,7 +903,11 @@ export default function ViewDetective() {
                         const minTitle = serviceForm.title.trim().length >= 10;
                         const minDesc = serviceForm.description.trim().length >= 50;
                         const hasImage = serviceForm.images.length > 0;
-                        if (!serviceForm.category || !serviceForm.basePrice || !minTitle || !minDesc || !hasImage) {
+                        // Skip price validation if isOnEnquiry is true
+                        const hasPricing = !serviceForm.isOnEnquiry && serviceForm.basePrice;
+                        const needsPricing = !serviceForm.isOnEnquiry;
+                        
+                        if (!serviceForm.category || (needsPricing && !serviceForm.basePrice) || !minTitle || !minDesc || !hasImage) {
                           toast({ title: "Incomplete", description: "Fill all fields and upload a banner image", variant: "destructive" });
                           return;
                         }
@@ -848,7 +915,7 @@ export default function ViewDetective() {
                           toast({ title: "Duplicate category", description: "You have already added this category", variant: "destructive" });
                           return;
                         }
-                        if (serviceForm.offerPrice) {
+                        if (serviceForm.offerPrice && !serviceForm.isOnEnquiry) {
                           const bp = parseFloat(serviceForm.basePrice);
                           const op = parseFloat(serviceForm.offerPrice);
                           if (isNaN(bp) || isNaN(op) || op > bp || op <= 0) {
@@ -856,8 +923,8 @@ export default function ViewDetective() {
                             return;
                           }
                         }
-                        const cleanBase = serviceForm.basePrice.replace(/[^0-9.]/g, "");
-                        const cleanOffer = serviceForm.offerPrice ? serviceForm.offerPrice.replace(/[^0-9.]/g, "") : "";
+                        const cleanBase = serviceForm.isOnEnquiry ? "0" : serviceForm.basePrice.replace(/[^0-9.]/g, "");
+                        const cleanOffer = (serviceForm.offerPrice && !serviceForm.isOnEnquiry) ? serviceForm.offerPrice.replace(/[^0-9.]/g, "") : "";
                         const created = await adminCreateService.mutateAsync({
                           detectiveId: detective.id,
                           data: {
@@ -866,6 +933,7 @@ export default function ViewDetective() {
                             category: serviceForm.category,
                             basePrice: cleanBase,
                             offerPrice: cleanOffer || undefined,
+                            isOnEnquiry: serviceForm.isOnEnquiry,
                             images: serviceForm.images,
                           },
                         });
@@ -877,7 +945,7 @@ export default function ViewDetective() {
                         });
                         await queryClient.refetchQueries({ queryKey: ["services", "detective", detective.id, "admin"] });
                         setShowAddServiceDialog(false);
-                        setServiceForm({ title: "", description: "", category: "", basePrice: "", offerPrice: "", images: [] });
+                        setServiceForm({ title: "", description: "", category: "", basePrice: "", offerPrice: "", isOnEnquiry: false, images: [] });
                       } catch (e: any) {
                         toast({ title: "Failed", description: e?.message || "Failed to add service", variant: "destructive" });
                       }
@@ -885,6 +953,130 @@ export default function ViewDetective() {
                     disabled={adminCreateService.isPending}
                   >
                     {adminCreateService.isPending ? "Saving..." : "Save"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Edit Service Pricing Dialog */}
+            <Dialog open={showEditPricingDialog} onOpenChange={setShowEditPricingDialog}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Service Pricing</DialogTitle>
+                  <DialogDescription>Update the pricing details for this service</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="edit-isOnEnquiry"
+                      checked={pricingForm.isOnEnquiry}
+                      onCheckedChange={(checked) => setPricingForm({ ...pricingForm, isOnEnquiry: checked as boolean })}
+                    />
+                    <Label htmlFor="edit-isOnEnquiry" className="cursor-pointer font-medium">
+                      Price on Enquiry
+                    </Label>
+                    <p className="text-xs text-gray-500">
+                      Enable to hide pricing
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-basePrice">Base Price</Label>
+                      <Input
+                        id="edit-basePrice"
+                        disabled={pricingForm.isOnEnquiry}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={pricingForm.basePrice}
+                        onChange={(e) => setPricingForm({ ...pricingForm, basePrice: e.target.value })}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-offerPrice">Offer Price (Optional)</Label>
+                      <Input
+                        id="edit-offerPrice"
+                        disabled={pricingForm.isOnEnquiry}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={pricingForm.offerPrice}
+                        onChange={(e) => setPricingForm({ ...pricingForm, offerPrice: e.target.value })}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowEditPricingDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      if (!editingServiceId) return;
+                      try {
+                        if (!pricingForm.isOnEnquiry && !pricingForm.basePrice) {
+                          toast({
+                            title: "Validation Error",
+                            description: "Base price is required when not using Price on Enquiry",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        if (!pricingForm.isOnEnquiry) {
+                          const bp = parseFloat(pricingForm.basePrice);
+                          if (isNaN(bp) || !(bp > 0)) {
+                            toast({
+                              title: "Validation Error",
+                              description: "Base price must be a positive number",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          if (pricingForm.offerPrice) {
+                            const op = parseFloat(pricingForm.offerPrice);
+                            if (isNaN(op) || !(op > 0) || !(op < bp)) {
+                              toast({
+                                title: "Validation Error",
+                                description: "Offer price must be positive and lower than base price",
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                          }
+                        }
+                        
+                        await updateServicePricingMutation.mutateAsync({
+                          id: editingServiceId,
+                          data: {
+                            basePrice: pricingForm.isOnEnquiry ? null : pricingForm.basePrice,
+                            offerPrice: pricingForm.offerPrice || null,
+                            isOnEnquiry: pricingForm.isOnEnquiry,
+                            // Ensure service is active and has required fields for public visibility
+                            isActive: true,
+                          },
+                        });
+                        
+                        toast({
+                          title: "Success",
+                          description: "Service pricing updated successfully",
+                        });
+                        
+                        setShowEditPricingDialog(false);
+                        setEditingServiceId(null);
+                        setPricingForm({ basePrice: "", offerPrice: "", isOnEnquiry: false });
+                      } catch (e: any) {
+                        toast({
+                          title: "Error",
+                          description: e?.message || "Failed to update service pricing",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                    disabled={updateServicePricingMutation.isPending}
+                  >
+                    {updateServicePricingMutation.isPending ? "Saving..." : "Save Changes"}
                   </Button>
                 </DialogFooter>
               </DialogContent>

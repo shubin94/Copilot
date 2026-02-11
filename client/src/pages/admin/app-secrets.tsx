@@ -67,6 +67,7 @@ const KEY_LABELS: Record<string, string> = {
   paypal_client_secret: "PayPal Client Secret",
   paypal_mode: "PayPal Mode",
   gemini_api_key: "Gemini API Key",
+  deepseek_api_key: "DeepSeek API Key (for Smart Search)",
 };
 
 export default function AdminAppSecrets() {

@@ -70,8 +70,15 @@ export const bodyParsers = {
   }
 };
 
-// CORS configuration - define origins first BEFORE corsConfig object
+// CORS/CSRF configuration - define origins once to prevent drift
 const configuredOrigins = config.csrf.allowedOrigins;
+const allowedOrigins = [
+  ...configuredOrigins,
+  "http://localhost:5173",
+  "http://localhost:5000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5000",
+];
 
 // CORS configuration object - used for all CORS middleware
 const corsConfig = {
@@ -85,33 +92,43 @@ const corsConfig = {
     // Normalize origin by removing trailing slashes
     const normalizedOrigin = origin.replace(/\/$/, '');
     
-    const allowedOrigins = [
-      ...configuredOrigins,
-      "http://localhost:5173",
-      "http://localhost:5000",
-      "http://127.0.0.1:5173",
-      "http://127.0.0.1:5000",
-    ];
-    
     console.log(`[CORS] Incoming origin: ${normalizedOrigin}`);
     console.log(`[CORS] Allowed origins: ${allowedOrigins.join(", ")}`);
     
-    // Check for exact match or startsWith match (for subdomains)
-    const isAllowedExact = allowedOrigins.some(allowed => {
+    // Check for exact match or hostname suffix match (for subdomains)
+    let isAllowed = false;
+    
+    for (const allowed of allowedOrigins) {
       const normalizedAllowed = allowed.replace(/\/$/, '');
-      return normalizedOrigin === normalizedAllowed;
-    });
-
-    const isAllowedStartsWith = allowedOrigins.some(allowed => {
-      const normalizedAllowed = allowed.replace(/\/$/, '');
-      return normalizedOrigin.startsWith(normalizedAllowed + ".");
-    });
+      
+      if (normalizedOrigin === normalizedAllowed) {
+        isAllowed = true;
+        break;
+      }
+      
+      // Parse both URLs to compare hostnames
+      try {
+        const originUrl = new URL(normalizedOrigin);
+        const allowedUrl = new URL(normalizedAllowed);
+        const originHostname = originUrl.hostname;
+        const allowedHostname = allowedUrl.hostname;
+        
+        // Allow if hostname matches exactly or if origin hostname ends with ".{allowedHostname}"
+        if (originHostname === allowedHostname || 
+            originHostname.endsWith('.' + allowedHostname)) {
+          isAllowed = true;
+          break;
+        }
+      } catch (e) {
+        // Invalid URL, skip this allowed origin
+      }
+    }
 
     // Allow all Vercel preview deployments for askdetectives1-*.vercel.app
     const vercelPreviewRegex = /^https:\/\/askdetectives1-[a-z0-9-]+\.vercel\.app$/i;
     const isVercelPreview = vercelPreviewRegex.test(normalizedOrigin);
 
-    const isAllowed = isAllowedExact || isAllowedStartsWith || isVercelPreview;
+    isAllowed = isAllowed || isVercelPreview;
 
     if (isAllowed) {
       console.log(`[CORS] ✅ Origin allowed: ${normalizedOrigin}` + (isVercelPreview ? ' (Vercel preview)' : ''));
@@ -211,6 +228,18 @@ export function getSessionMiddleware() {
   } else {
     // Use Postgres session store in production
     const PgSession = connectPgSimple(session);
+    
+    // Determine if this is a production database by parsing the connection URL
+    let isProductionDb = true;
+    try {
+      const dbUrl = new URL(config.db.url || "");
+      const hostname = dbUrl.hostname;
+      isProductionDb = hostname !== "localhost" && hostname !== "127.0.0.1";
+    } catch {
+      // If URL parsing fails, assume production
+      isProductionDb = true;
+    }
+    
     sessionStore = new PgSession({
       pool: new Pool({
         connectionString: config.db.url,
@@ -219,8 +248,8 @@ export function getSessionMiddleware() {
         min: 1,                      // Keep 1 warm connection for session checks
         idleTimeoutMillis: 30000,    // Close idle connections after 30s
         connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
-        ssl: !config.db.url?.includes("localhost") && !config.db.url?.includes("127.0.0.1")
-          ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases
+        ssl: isProductionDb
+          ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases (Render, Supabase)
           : undefined,
       }),
       tableName: "session",
@@ -228,20 +257,25 @@ export function getSessionMiddleware() {
     });
   }
 
-  return session({
+  const sessionMiddleware = session({
     store: sessionStore,
     secret: config.session.secret,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: config.session.secureCookies,
-      sameSite: config.env.isProd ? "none" : "lax", // 'none' required for cross-domain in production
+      secure: config.env.isProd,  // Only secure in production (HTTPS)
+      sameSite: config.env.isProd ? "none" : "lax",  // Dev: lax (works with HTTP), Prod: none (cross-origin)
       maxAge: config.session.ttlMs,
-      // In production, allow cookies across Vercel frontend and Render backend
-      domain: config.env.isProd ? undefined : undefined,
+      domain: undefined,  // NO DOMAIN RESTRICTION
     },
   });
+  
+  if (process.env.NODE_ENV === "production") {
+    console.log("[Session] Cookie domain set to NULL (no restriction) for cross-origin SameSite=None");
+  }
+  
+  return sessionMiddleware;
 }
 
 // Apply session middleware globally so all routes have access to CSRF tokens
@@ -249,14 +283,6 @@ const globalSessionMiddleware = getSessionMiddleware();
 app.use(globalSessionMiddleware);
 
 const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-const CSRF_ALLOWED_ORIGINS = [
-  ...config.csrf.allowedOrigins,
-  "http://localhost:5173",
-  "http://localhost:5000",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:5000",
-];
-
 app.use((req, res, next) => {
   if (!CSRF_METHODS.has(req.method)) return next();
   if (req.method === "OPTIONS") return next();
@@ -266,12 +292,18 @@ app.use((req, res, next) => {
   const requestedWith = req.get("x-requested-with");
   const token = req.get("x-csrf-token");
   const sessionToken = (req.session as any)?.csrfToken;
+  const sessionId = (req.session as any)?.id || "NO_SESSION_ID";
+
+  if (!req.session) {
+    log(`CSRF blocked: session unavailable ${req.method} ${req.path}`, "csrf");
+    return res.status(403).json({ error: "Session unavailable" });
+  }
 
   const isAllowedOrigin = (urlValue: string | undefined): boolean => {
     if (!urlValue) return false;
     try {
       const incoming = new URL(urlValue);
-      return CSRF_ALLOWED_ORIGINS.some((allowed) => {
+      return allowedOrigins.some((allowed) => {
         try {
           const allowUrl = new URL(allowed);
           return allowUrl.protocol === incoming.protocol && allowUrl.host === incoming.host;
@@ -286,21 +318,25 @@ app.use((req, res, next) => {
 
   if (origin && !isAllowedOrigin(origin)) {
     log(`CSRF blocked: origin not allowed (${origin})`, "csrf");
-    return res.status(403).json({ message: "Forbidden" });
+    return res.status(403).json({ error: "CSRF origin not allowed" });
   }
 
   if (!origin && referer && !isAllowedOrigin(referer)) {
     log(`CSRF blocked: referer not allowed (${referer}) ${req.method} ${req.path}`, "csrf");
-    return res.status(403).json({ message: "Forbidden" });
+    return res.status(403).json({ error: "CSRF referer not allowed" });
   }
 
   if (!sessionToken || token !== sessionToken) {
-    log(`CSRF blocked: missing or invalid CSRF token ${req.method} ${req.path}`, "csrf");
-    return res.status(403).json({ message: "Forbidden" });
+    log(`CSRF blocked: ${req.method} ${req.path} - Session ${sessionId.substring(0, 20)}... - Token mismatch (header: ${token ? token.substring(0, 20) + "..." : "MISSING"}, session: ${sessionToken ? sessionToken.substring(0, 20) + "..." : "MISSING"})`, "csrf");
+    return res.status(403).json({ error: "Invalid CSRF token" });
   }
 
+  // CSRF token is valid for the entire session duration (no time-based expiration)
+  // The token becomes invalid only when the session expires
+
   if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
-    log(`CSRF warning: missing or invalid X-Requested-With header ${req.method} ${req.path}`, "csrf");
+    log(`CSRF blocked: missing or invalid X-Requested-With header ${req.method} ${req.path}`, "csrf");
+    return res.status(403).json({ error: "Missing or invalid X-Requested-With header" });
   }
 
   return next();

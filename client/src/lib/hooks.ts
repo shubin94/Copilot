@@ -26,7 +26,7 @@ export function useLogin() {
       await queryClient.invalidateQueries({ queryKey: ["auth"] });
       await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
       // Also refetch /api/user since some pages query it separately
-      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
     },
   });
 }
@@ -35,11 +35,10 @@ export function useLogout() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => api.auth.logout(),
-    onSuccess: () => {
-      queryClient.clear();
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["auth"] });
       // Force refetch auth status
-      queryClient.refetchQueries({ queryKey: ["auth", "me"] });
+      await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
     },
   });
 }
@@ -49,8 +48,8 @@ export function useRegister() {
   return useMutation({
     mutationFn: ({ email, password, name }: { email: string; password: string; name: string }) =>
       api.auth.register(email, password, name),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["auth"] });
     },
   });
 }
@@ -70,6 +69,8 @@ export function useDetective(id: string | null | undefined) {
     queryKey: ["detectives", id],
     queryFn: () => api.detectives.getById(id!),
     enabled: !!id,
+    staleTime: 60 * 1000, // 60 seconds - public detective profiles cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -80,6 +81,7 @@ export function useCurrentDetective() {
     staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -96,6 +98,8 @@ export function useDetectivesByCountry(country: string | null | undefined) {
     queryKey: ["detectives", "country", country],
     queryFn: () => api.detectives.getByCountry(country!),
     enabled: !!country,
+    staleTime: 60 * 1000, // 60 seconds - public detective listings cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -117,9 +121,9 @@ export function useCreateDetective() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: InsertDetective) => api.detectives.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["detectives"] });
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
+      await queryClient.invalidateQueries({ queryKey: ["auth"] });
     },
   });
 }
@@ -129,9 +133,9 @@ export function useUpdateDetective() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Detective> }) =>
       api.detectives.update(id, data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["detectives"] });
-      queryClient.invalidateQueries({ queryKey: ["services"] });
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -141,9 +145,9 @@ export function useAdminUpdateDetective() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Detective> }) =>
       api.detectives.adminUpdate(id, data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["detectives"] });
-      queryClient.invalidateQueries({ queryKey: ["services"] });
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -152,15 +156,15 @@ export function useAdminDeleteDetective() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.detectives.adminDelete(id),
-    onSuccess: () => {
+    onSuccess: async () => {
       // Invalidate all detective queries to update the UI immediately
-      queryClient.invalidateQueries({ queryKey: ["detectives"] });
-      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
+      await queryClient.invalidateQueries({ queryKey: ["applications"] });
       // Force refetch to ensure UI updates immediately
-      queryClient.refetchQueries({ queryKey: ["detectives"] });
+      await queryClient.refetchQueries({ queryKey: ["detectives"] });
       // Also invalidate services since detective deletion cascades to their services
-      queryClient.invalidateQueries({ queryKey: ["services"] });
-      queryClient.refetchQueries({ queryKey: ["services"] });
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      await queryClient.refetchQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -185,12 +189,16 @@ export function useSearchServices(params?: {
   maxPrice?: number;
   sortBy?: string;
   minRating?: number;
+  planName?: string;
+  level?: string;
   limit?: number;
   offset?: number;
 }) {
   return useQuery({
     queryKey: ["services", "search", params],
     queryFn: () => api.services.search(params),
+    staleTime: 60 * 1000, // 60 seconds - public search results cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -199,6 +207,8 @@ export function useService(id: string | null | undefined, preview?: boolean) {
     queryKey: ["services", id, preview ? "preview" : "public"],
     queryFn: () => api.services.getById(id!, { preview }),
     enabled: !!id,
+    staleTime: 60 * 1000, // 60 seconds - public service pages cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -207,6 +217,8 @@ export function usePublicServiceCount(detectiveId: string | null | undefined) {
     queryKey: ["detectives", detectiveId, "public-service-count"],
     queryFn: () => api.detectives.getPublicServiceCount(detectiveId!),
     enabled: !!detectiveId,
+    staleTime: 60 * 1000, // 60 seconds - public data cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });
 }
 
@@ -218,6 +230,7 @@ export function useServicesByDetective(detectiveId: string | null | undefined) {
     staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -226,6 +239,10 @@ export function useAdminServicesByDetective(detectiveId: string | null | undefin
     queryKey: ["services", "detective", detectiveId, "admin"],
     queryFn: () => api.services.adminGetByDetective(detectiveId!),
     enabled: !!detectiveId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -233,8 +250,8 @@ export function useCreateService() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: InsertService) => api.services.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["services"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -244,17 +261,17 @@ export function useUpdateService() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Service> }) =>
       api.services.update(id, data),
-    onSuccess: (result: { service: Service }, variables) => {
+    onSuccess: async (result: { service: Service }, variables) => {
       // Invalidate all variations of the specific service query
-      queryClient.invalidateQueries({ queryKey: ["services", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "preview"] });
-      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "public"] });
+      await queryClient.invalidateQueries({ queryKey: ["services", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["services", variables.id, "preview"] });
+      await queryClient.invalidateQueries({ queryKey: ["services", variables.id, "public"] });
       // Invalidate service lists
-      queryClient.invalidateQueries({ queryKey: ["services", "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["services", "all"] });
       // Invalidate detective's services if detectiveId is known
       if (result?.service?.detectiveId) {
-        queryClient.invalidateQueries({ queryKey: ["services", "detective", result.service.detectiveId] });
-        queryClient.invalidateQueries({ queryKey: ["services", "detective", result.service.detectiveId, "admin"] });
+        await queryClient.invalidateQueries({ queryKey: ["services", "detective", result.service.detectiveId] });
+        await queryClient.invalidateQueries({ queryKey: ["services", "detective", result.service.detectiveId, "admin"] });
       }
     },
   });
@@ -265,10 +282,10 @@ export function useAdminCreateServiceForDetective() {
   return useMutation({
     mutationFn: ({ detectiveId, data }: { detectiveId: string; data: Omit<InsertService, "detectiveId"> }) =>
       api.services.adminCreateForDetective(detectiveId, data),
-    onSuccess: (result: { service: Service }, variables: { detectiveId: string; data: any }) => {
-      queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId] });
-      queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId, "admin"] });
-      queryClient.invalidateQueries({ queryKey: ["services", "all"] });
+    onSuccess: async (result: { service: Service }, variables: { detectiveId: string; data: any }) => {
+      await queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId] });
+      await queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId, "admin"] });
+      await queryClient.invalidateQueries({ queryKey: ["services", "all"] });
       const key = ["services", "detective", variables.detectiveId, "admin"];
       const existing: any = queryClient.getQueryData(key);
       const next = Array.isArray(existing?.services) ? [result.service, ...existing.services] : [result.service];
@@ -282,16 +299,30 @@ export function useAdminUpdateService() {
   return useMutation({
     mutationFn: ({ id, detectiveId, data }: { id: string; detectiveId: string; data: Partial<Service> }) =>
       api.services.update(id, data),
-    onSuccess: (_: any, variables: { id: string; detectiveId: string; data: Partial<Service> }) => {
+    onSuccess: async (_: any, variables: { id: string; detectiveId: string; data: Partial<Service> }) => {
       // Invalidate all variations of the specific service query
-      queryClient.invalidateQueries({ queryKey: ["services", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "preview"] });
-      queryClient.invalidateQueries({ queryKey: ["services", variables.id, "public"] });
+      await queryClient.invalidateQueries({ queryKey: ["services", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["services", variables.id, "preview"] });
+      await queryClient.invalidateQueries({ queryKey: ["services", variables.id, "public"] });
       // Invalidate detective's services
-      queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId, "admin"] });
-      queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId] });
+      await queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId, "admin"] });
+      await queryClient.invalidateQueries({ queryKey: ["services", "detective", variables.detectiveId] });
       // Invalidate all services list
-      queryClient.invalidateQueries({ queryKey: ["services", "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["services", "all"] });
+    },
+  });
+}
+
+export function useAdminUpdateServicePricing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }) =>
+      api.services.adminUpdatePricing(id, data),
+    onSuccess: async (_: any, variables: { id: string }) => {
+      // Invalidate all service-related queries to ensure fresh data everywhere
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      // Force refetch to ensure UI updates immediately
+      await queryClient.refetchQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -300,9 +331,9 @@ export function useDeleteService() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.services.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["services"] });
-      queryClient.refetchQueries({ queryKey: ["services"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      await queryClient.refetchQueries({ queryKey: ["services"] });
     },
   });
 }
@@ -329,6 +360,10 @@ export function useReviewsByDetective() {
     queryKey: ["reviews", "detective", detectiveId],
     queryFn: () => api.reviews.getByDetective(),
     enabled: !!detectiveId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -336,14 +371,14 @@ export function useCreateReview() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: InsertReview) => api.reviews.create(data),
-    onSuccess: (response: any) => {
+    onSuccess: async (response: any) => {
       // Invalidate all review queries
-      queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      await queryClient.invalidateQueries({ queryKey: ["reviews"] });
       
       // CRITICAL: Also invalidate service queries since avgRating/reviewCount changed
       // This ensures service cards, detail pages, and search results show updated data
-      queryClient.invalidateQueries({ queryKey: ["services"] });
-      queryClient.invalidateQueries({ queryKey: ["detectives"] });
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
     },
   });
 }
@@ -353,16 +388,16 @@ export function useUpdateReview() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Review> }) =>
       api.reviews.update(id, data),
-    onSuccess: (_, variables) => {
+    onSuccess: async (_, variables) => {
       // Invalidate all review queries
-      queryClient.invalidateQueries({ queryKey: ["reviews", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["reviews", "all"] });
-      queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      await queryClient.invalidateQueries({ queryKey: ["reviews", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["reviews", "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["reviews"] });
       
       // CRITICAL: Also invalidate service queries since avgRating/reviewCount changed
       // This ensures service cards, detail pages, and search results show updated data
-      queryClient.invalidateQueries({ queryKey: ["services"] });
-      queryClient.invalidateQueries({ queryKey: ["detectives"] });
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
     },
   });
 }
@@ -371,9 +406,9 @@ export function useDeleteReview() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.reviews.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reviews"] });
-      queryClient.refetchQueries({ queryKey: ["reviews"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      await queryClient.refetchQueries({ queryKey: ["reviews"] });
     },
   });
 }
@@ -406,6 +441,10 @@ export function useOrdersByDetective(detectiveId: string | null | undefined) {
     queryKey: ["orders", "detective", detectiveId],
     queryFn: () => api.orders.getByDetective(detectiveId!),
     enabled: !!detectiveId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -413,8 +452,8 @@ export function useCreateOrder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: InsertOrder) => api.orders.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["orders"] });
     },
   });
 }
@@ -424,9 +463,9 @@ export function useUpdateOrder() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Order> }) =>
       api.orders.update(id, data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["orders", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["orders", "all"] });
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["orders", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["orders", "all"] });
     },
   });
 }
@@ -436,6 +475,10 @@ export function useFavorites(userId: string | null | undefined) {
     queryKey: ["favorites", "user", userId],
     queryFn: () => api.favorites.getByUser(userId!),
     enabled: !!userId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -444,8 +487,8 @@ export function useAddFavorite() {
   return useMutation({
     mutationFn: ({ userId, detectiveId }: { userId: string; detectiveId: string }) =>
       api.favorites.add(userId, detectiveId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["favorites"] });
     },
   });
 }
@@ -455,8 +498,8 @@ export function useRemoveFavorite() {
   return useMutation({
     mutationFn: ({ userId, detectiveId }: { userId: string; detectiveId: string }) =>
       api.favorites.remove(userId, detectiveId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["favorites"] });
     },
   });
 }
@@ -474,9 +517,9 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<User> }) =>
       api.users.update(id, data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["users", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["users", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["auth"] });
     },
   });
 }
@@ -485,6 +528,10 @@ export function useApplications(params?: { status?: string; search?: string; lim
   return useQuery({
     queryKey: ["applications", params?.status, params?.search, params?.limit, params?.offset],
     queryFn: () => api.applications.getAll(params),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -493,6 +540,10 @@ export function useApplication(id: string | null | undefined) {
     queryKey: ["applications", id],
     queryFn: () => api.applications.getById(id!),
     enabled: !!id,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -501,8 +552,8 @@ export function useCreateApplication() {
   return useMutation({
     mutationFn: (data: InsertDetectiveApplication) =>
       api.applications.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["applications"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["applications"] });
     },
   });
 }
@@ -512,10 +563,10 @@ export function useUpdateApplicationStatus() {
   return useMutation({
     mutationFn: ({ id, status, reviewNotes }: { id: string; status: "approved" | "rejected"; reviewNotes?: string }) =>
       api.applications.updateStatus(id, { status, reviewNotes }),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["applications"] });
-      queryClient.invalidateQueries({ queryKey: ["applications", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["detectives"] });
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["applications"] });
+      await queryClient.invalidateQueries({ queryKey: ["applications", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
     },
   });
 }
@@ -525,9 +576,9 @@ export function useUpdateApplicationNotes() {
   return useMutation({
     mutationFn: ({ id, reviewNotes }: { id: string; reviewNotes: string }) =>
       api.applications.updateStatus(id, { reviewNotes }),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["applications", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["applications"] });
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["applications", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["applications"] });
     },
   });
 }
@@ -536,6 +587,10 @@ export function useClaims(status: string = "pending", limit: number = 50) {
   return useQuery({
     queryKey: ["claims", status, limit],
     queryFn: () => api.claims.getAll(status, limit),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -544,9 +599,9 @@ export function useUpdateClaimStatus() {
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: "approved" | "rejected" }) =>
       api.claims.updateStatus(id, status),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["claims"] });
-      queryClient.invalidateQueries({ queryKey: ["detectives"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["claims"] });
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
     },
   });
 }
@@ -556,6 +611,8 @@ export function useServiceCategories(activeOnly?: boolean, enabled: boolean = tr
     queryKey: ["serviceCategories", activeOnly],
     queryFn: () => api.serviceCategories.getAll(activeOnly),
     enabled,
+    staleTime: 2 * 60 * 1000, // 2 minutes - categories rarely change, safe to cache longer
+    gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache when navigating away
   });
 }
 
@@ -571,9 +628,10 @@ export function useSiteSettings() {
   return useQuery({
     queryKey: ["settings", "site"],
     queryFn: () => api.settings.getSite(),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
     staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 }
 
@@ -581,8 +639,8 @@ export function useUpdateSiteSettings() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: { logoUrl?: string | null; footerLinks?: Array<{ label: string; href: string }> }) => api.settings.updateSite(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["settings", "site"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["settings", "site"] });
     },
   });
 }
@@ -599,11 +657,11 @@ export function useCreateServiceCategory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: InsertServiceCategory) => api.serviceCategories.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories", true] });
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories", false] });
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories", undefined] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories", true] });
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories", false] });
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories", undefined] });
     },
   });
 }
@@ -613,12 +671,20 @@ export function useUpdateServiceCategory() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<ServiceCategory> }) =>
       api.serviceCategories.update(id, data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories", true] });
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories", false] });
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories", undefined] });
+    onSuccess: async (_, variables) => {
+      // Invalidate category caches
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories", true] });
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories", false] });
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories", undefined] });
+      
+      // Invalidate all service caches since category name change affects services that reference it
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      await queryClient.invalidateQueries({ queryKey: ["detectives"] });
+      
+      // Clear all queries that might be affected by category changes
+      await queryClient.removeQueries({ queryKey: ["services", "search"] });
     },
   });
 }
@@ -627,7 +693,7 @@ export function useDeleteServiceCategory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.serviceCategories.delete(id),
-    onSuccess: (_data, id) => {
+    onSuccess: async (_data, id) => {
       const keys = [
         ["serviceCategories"],
         ["serviceCategories", true],
@@ -646,11 +712,11 @@ export function useDeleteServiceCategory() {
       }
       
       // Then invalidate and refetch to ensure fresh data
-      queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
+      await queryClient.invalidateQueries({ queryKey: ["serviceCategories"] });
       
       // Force refetch specifically for the keys that might be in use
-      queryClient.refetchQueries({ queryKey: ["serviceCategories", false], type: "active" });
-      queryClient.refetchQueries({ queryKey: ["serviceCategories", undefined], type: "active" });
+      await queryClient.refetchQueries({ queryKey: ["serviceCategories", false], type: "active" });
+      await queryClient.refetchQueries({ queryKey: ["serviceCategories", undefined], type: "active" });
     },
   });
 }

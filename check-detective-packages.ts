@@ -6,7 +6,7 @@ config({ path: resolve(process.cwd(), ".env.local") });
 config({ path: resolve(process.cwd(), ".env") });
 
 // Now import db after env is loaded
-import { pool } from "./db/index.js";
+import { pool } from "./db/index.ts";
 
 async function checkDetectivePackages() {
   try {
@@ -60,7 +60,7 @@ async function checkDetectivePackages() {
 
     if (test1) {
       const test1Services = await pool.query(
-        `SELECT COUNT(*) as count FROM services WHERE detective_id = $1 AND status = 'active'`,
+        `SELECT COUNT(*) as count FROM services WHERE detective_id = $1 AND is_active = true`,
         [test1.id]
       );
       console.log(`\nTest 1 active services: ${test1Services.rows[0].count}`);
@@ -68,7 +68,7 @@ async function checkDetectivePackages() {
 
     if (changappa) {
       const changappaServices = await pool.query(
-        `SELECT COUNT(*) as count FROM services WHERE detective_id = $1 AND status = 'active'`,
+        `SELECT COUNT(*) as count FROM services WHERE detective_id = $1 AND is_active = true`,
         [changappa.id]
       );
       console.log(`Changappa A K active services: ${changappaServices.rows[0].count}`);
@@ -76,8 +76,9 @@ async function checkDetectivePackages() {
 
   } catch (error) {
     console.error("Error checking detective packages:", error);
+    process.exit(1);
   } finally {
-    process.exit(0);
+    await pool.end();
   }
 }
 

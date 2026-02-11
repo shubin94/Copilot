@@ -1,7 +1,18 @@
-import { Pool } from 'pg';
+import pkg from "pg";
+import { loadEnv } from "./server/lib/loadEnv.ts";
+
+const { Pool } = pkg;
+
+loadEnv();
+
+if (!process.env.DATABASE_URL) {
+  console.error("ERROR: DATABASE_URL environment variable is not set");
+  process.exit(1);
+}
 
 const pool = new Pool({
-  connectionString: 'postgresql://postgres.gjgrwxxtkyggwfrydpdb:AKshubin123@aws-1-ap-south-1.pooler.supabase.com:6543/postgres'
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: true } : false
 });
 
 async function checkTables() {

@@ -71,7 +71,7 @@ if (config.env.isDev && url) {
 }
 
 export const supabase = (url && key) ? createClient(url, key) : null as any;
-const isLocalDev = !config.env.isProd || (config.baseUrl || "").includes("localhost") || (config.baseUrl || "").includes("127.0.0.1");
+const isLocalDev = !config.env.isProd && ((config.baseUrl || "").includes("localhost") || (config.baseUrl || "").includes("127.0.0.1"));
 
 export async function ensureBucket(name: string) {
   if (!supabase) {

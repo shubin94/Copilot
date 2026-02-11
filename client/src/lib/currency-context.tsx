@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { useUser } from "./user-context";
 import { WORLD_COUNTRIES } from "./world-countries";
 import { getCurrencyForCountry, isCurrencySupported, getEffectiveCurrency, SUPPORTED_CURRENCIES } from "./country-currency-map";
-import { getOrFetchCsrfToken } from "./api";
+import { buildApiUrl, getOrFetchCsrfToken } from "./api";
 
 export type CurrencyCode = "USD" | "GBP" | "INR" | "CAD" | "AUD" | "EUR";
 
@@ -117,7 +117,9 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
         }
 
         // Fetch fresh rates from backend
-        const response = await fetch("/api/currency-rates");
+        const response = await fetch(buildApiUrl("/api/currency-rates"), {
+          credentials: "include",
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = (await response.json()) as { rates: Record<string, number> };
@@ -211,7 +213,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     
     try {
       const csrfToken = await getOrFetchCsrfToken();
-      await fetch("/api/users/preferences", {
+      await fetch(buildApiUrl("/api/users/preferences"), {
         method: "PATCH",
         headers: { 
           "Content-Type": "application/json",

@@ -40,7 +40,7 @@ async function main() {
 
     if (tableExists.rows[0]?.exists) {
       console.log("✅ Table claim_tokens already exists - no action needed");
-      process.exit(0);
+      return;
     }
 
     // Apply the migration
@@ -67,7 +67,13 @@ async function main() {
   } catch (error) {
     console.error("\n❌ Migration failed:");
     console.error(error);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    if (db && typeof (db as any).end === 'function') {
+      await (db as any).end();
+    } else if (db && typeof (db as any).close === 'function') {
+      await (db as any).close();
+    }
   }
 }
 
