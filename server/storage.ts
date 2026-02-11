@@ -1550,18 +1550,34 @@ export class DatabaseStorage implements IStorage {
   async updateServiceCategory(id: string, updates: Partial<ServiceCategory>): Promise<ServiceCategory | undefined> {
     const allowedFields: (keyof ServiceCategory)[] = ['name', 'description', 'isActive'];
     const safeUpdates: Partial<ServiceCategory> = {};
-    
+
     for (const key of allowedFields) {
       if (key in updates) {
         (safeUpdates as any)[key] = updates[key];
       }
     }
-    
-    const [category] = await db.update(serviceCategories)
-      .set({ ...safeUpdates, updatedAt: new Date() })
-      .where(eq(serviceCategories.id, id))
-      .returning();
-    return category;
+
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx.select({ name: serviceCategories.name })
+        .from(serviceCategories)
+        .where(eq(serviceCategories.id, id))
+        .limit(1);
+
+      if (!existing) return undefined;
+
+      const [category] = await tx.update(serviceCategories)
+        .set({ ...safeUpdates, updatedAt: new Date() })
+        .where(eq(serviceCategories.id, id))
+        .returning();
+
+      if (safeUpdates.name && safeUpdates.name !== existing.name) {
+        await tx.update(services)
+          .set({ category: safeUpdates.name })
+          .where(eq(services.category, existing.name));
+      }
+
+      return category;
+    });
   }
 
   async deleteServiceCategory(id: string): Promise<boolean> {
