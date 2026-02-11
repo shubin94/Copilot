@@ -367,6 +367,41 @@ export class DatabaseStorage implements IStorage {
 
     if (!result) return undefined;
 
+    // RUNTIME SAFETY: If detective has NULL or missing subscription, auto-fix it
+    let finalSubscriptionId = result.subscriptionId;
+    let finalSubscriptionName = result.subscriptionName || 'free';
+    let finalServiceLimit = result.serviceLimit;
+    
+    if (!result.subscriptionId || !result.subscriptionName) {
+      console.warn('[DASHBOARD_SAFETY] Detective missing subscription, auto-fixing:', {
+        detectiveId: result.detectiveId,
+        subscriptionPackageId: result.subscriptionPackageId,
+        subscriptionId: result.subscriptionId,
+      });
+      
+      // Get or create free plan
+      const freePlanId = await getFreePlanId();
+      
+      // Update detective if subscription is null
+      if (!result.subscriptionPackageId) {
+        await db.update(detectives)
+          .set({ subscriptionPackageId: freePlanId, subscriptionActivatedAt: new Date() })
+          .where(eq(detectives.id, result.detectiveId));
+      }
+      
+      // Fetch the free plan details
+      const [freePlan] = await db.select()
+        .from(subscriptionPlans)
+        .where(eq(subscriptionPlans.id, freePlanId))
+        .limit(1);
+      
+      if (freePlan) {
+        finalSubscriptionId = freePlan.id;
+        finalSubscriptionName = freePlan.name;
+        finalServiceLimit = freePlan.serviceLimit;
+      }
+    }
+
     // Fetch active services in same query batch
     const serviceResults = await db.select({
       id: services.id,
@@ -403,9 +438,9 @@ export class DatabaseStorage implements IStorage {
         isActive: s.isActive,
       })),
       subscription: {
-        id: result.subscriptionId || '',
-        name: result.subscriptionName || 'free',
-        serviceLimit: result.serviceLimit ? Number(result.serviceLimit) : 0,
+        id: finalSubscriptionId || '',
+        name: finalSubscriptionName,
+        serviceLimit: finalServiceLimit ? Number(finalServiceLimit) : 0,
       },
     };
   }

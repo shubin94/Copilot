@@ -8,69 +8,29 @@ import { Check, Upload, Shield, ArrowRight, ArrowLeft, Loader2 } from "lucide-re
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useServiceCategories, useCreateApplication, useSubscriptionLimits } from "@/lib/hooks";
+import { useServiceCategories, useCreateApplication, useSubscriptionLimits, useCountries, useStates, useCities } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
-import { COUNTRY_STATES, STATE_CITIES } from "@/lib/geo";
+import { WORLD_COUNTRIES } from "@/lib/world-countries";
+import { getCurrencyForCountry } from "@/lib/country-currency-map";
 import type { InsertDetectiveApplication } from "@shared/schema";
 
-const COUNTRIES = [
-  {
-    name: "United States",
-    code: "US",
-    currency: "$",
-    currencyCode: "USD",
-    phoneCode: "+1",
-    states: COUNTRY_STATES.US
-  },
-  {
-    name: "United Kingdom",
-    code: "UK",
-    currency: "£",
-    currencyCode: "GBP",
-    phoneCode: "+44",
-    states: COUNTRY_STATES.UK
-  },
-  {
-    name: "India",
-    code: "IN",
-    currency: "₹",
-    currencyCode: "INR",
-    phoneCode: "+91",
-    states: COUNTRY_STATES.IN
-  },
-  {
-    name: "Canada",
-    code: "CA",
-    currency: "CA$",
-    currencyCode: "CAD",
-    phoneCode: "+1",
-    states: COUNTRY_STATES.CA
-  },
-  {
-    name: "Australia",
-    code: "AU",
-    currency: "AU$",
-    currencyCode: "AUD",
-    phoneCode: "+61",
-    states: COUNTRY_STATES.AU
-  },
-  {
-    name: "Germany",
-    code: "DE",
-    currency: "€",
-    currencyCode: "EUR",
-    phoneCode: "+49",
-    states: COUNTRY_STATES.DE
-  },
-  {
-    name: "France",
-    code: "FR",
-    currency: "€",
-    currencyCode: "EUR",
-    phoneCode: "+33",
-    states: COUNTRY_STATES.FR
-  },
-];
+// Create a map of country code to country name for quick lookup
+const COUNTRY_CODE_TO_NAME: Record<string, string> = {};
+WORLD_COUNTRIES.forEach(c => {
+  COUNTRY_CODE_TO_NAME[c.code] = c.name;
+});
+
+// Common phone codes for countries that might appear in the location API
+const COMMON_PHONE_CODES: Record<string, string> = {
+  "US": "+1", "UK": "+44", "IN": "+91", "CA": "+1", "AU": "+61", 
+  "DE": "+49", "FR": "+33", "IT": "+39", "ES": "+34", "NL": "+31",
+  "BE": "+32", "CH": "+41", "AT": "+43", "SE": "+46", "NO": "+47",
+  "DK": "+45", "FI": "+358", "PL": "+48", "CZ": "+420", "RO": "+40",
+  "GR": "+30", "PT": "+351", "IE": "+353", "BR": "+55", "MX": "+52",
+  "JP": "+81", "CN": "+86", "SG": "+65", "HK": "+852", "KR": "+82",
+  "MY": "+60", "TH": "+66", "PH": "+63", "ID": "+62", "NZ": "+64",
+  "ZA": "+27", "AE": "+971", "SA": "+966", "IL": "+972", "TW": "+886"
+};
 
 interface DetectiveApplicationFormProps {
   mode: "public" | "admin";
@@ -83,8 +43,6 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
   const { toast } = useToast();
   const [countryQuery, setCountryQuery] = useState("");
   const [stateQuery, setStateQuery] = useState("");
-  const [countrySuggestions, setCountrySuggestions] = useState<Array<{ name: string; code: string }>>([]);
-  const [loadingCountry, setLoadingCountry] = useState(false);
   
   // Track which fields have been touched by user
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -92,6 +50,14 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
   // Track field-level errors
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   
+  // Track uniqueness check states
+  const [checkingUniqueness, setCheckingUniqueness] = useState<Record<string, boolean>>({ email: false, phone: false });
+  
+  // Currency state for selected country
+  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState("USD");
+  const [selectedCurrencySymbol, setSelectedCurrencySymbol] = useState("$");
+
+  // Initialize formData state first (before hooks that depend on it)
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -106,7 +72,7 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     logo: "",
     banner: "",
     businessDocuments: [] as string[],
-    country: "US",
+    country: "",
     state: "",
     city: "",
     fullAddress: "",
@@ -119,6 +85,11 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     documents: [] as string[],
     isClaimable: false,
   });
+
+  // Location hooks for dynamic data (called after formData is initialized)
+  const { data: countriesData, isLoading: countriesLoading } = useCountries();
+  const { data: statesData, isLoading: statesLoading } = useStates(formData.country || undefined);
+  const { data: citiesData, isLoading: citiesLoading } = useCities(formData.country || undefined, formData.state || undefined);
 
   const createApplication = useCreateApplication();
   const { data: categoriesData } = useServiceCategories();
@@ -236,31 +207,6 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     return true;
   };
 
-  useEffect(() => {
-    const q = countryQuery.trim();
-    if (q.length < 2) {
-      setCountrySuggestions([]);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoadingCountry(true);
-        const res = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(q)}?fields=name,cca2`);
-        if (!res.ok) throw new Error("Failed to fetch countries");
-        const data = await res.json();
-        if (cancelled) return;
-        const list = Array.isArray(data) ? data.map((c: any) => ({ name: c?.name?.common || "", code: (c?.cca2 || "").toUpperCase() })).filter((c: any) => c.name && c.code) : [];
-        setCountrySuggestions(list);
-      } catch {
-        if (!cancelled) setCountrySuggestions([]);
-      } finally {
-        if (!cancelled) setLoadingCountry(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [countryQuery]);
-
   const nextStep = () => {
     if (validateStep(step)) {
       setStep(step + 1);
@@ -274,10 +220,8 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     if (field === "state") {
       setFormData(prev => ({ ...prev, [field]: value, city: "" }));
     } else if (field === "country") {
-      // Auto-set phone country code based on selected country
-      const selectedCountry = COUNTRIES.find(c => c.code === value);
-      const phoneCode = selectedCountry?.phoneCode || "+1";
-      setFormData(prev => ({ ...prev, [field]: value, state: "", city: "", phoneCountryCode: phoneCode }));
+      // When country changes, reset state and city
+      setFormData(prev => ({ ...prev, [field]: value, state: "", city: "" }));
     } else {
       setFormData(prev => ({ ...prev, [field]: value }));
     }
@@ -418,10 +362,66 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     setFieldErrors(errors);
   };
 
+  // Check email/phone uniqueness via API
+  const checkEmailUniqueness = async (email: string) => {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return; // Skip if empty or invalid format
+    }
+    
+    setCheckingUniqueness(prev => ({ ...prev, email: true }));
+    try {
+      const res = await fetch(`/api/check-unique?email=${encodeURIComponent(email.toLowerCase())}`);
+      const data = await res.json();
+      
+      const errors = { ...fieldErrors };
+      if (data.emailExists) {
+        errors['email'] = 'This email is already registered';
+      } else {
+        delete errors['email'];
+      }
+      setFieldErrors(errors);
+    } catch (err) {
+      console.error('Failed to check email uniqueness:', err);
+    } finally {
+      setCheckingUniqueness(prev => ({ ...prev, email: false }));
+    }
+  };
+
+  const checkPhoneUniqueness = async (phone: string) => {
+    if (!phone || !/^\d{7,}$/.test(phone.replace(/\D/g, ""))) {
+      return; // Skip if empty or invalid format
+    }
+    
+    setCheckingUniqueness(prev => ({ ...prev, phone: true }));
+    try {
+      const res = await fetch(`/api/check-unique?phone=${encodeURIComponent(phone)}`);
+      const data = await res.json();
+      
+      const errors = { ...fieldErrors };
+      if (data.phoneExists) {
+        errors['phoneNumber'] = 'This phone number is already registered';
+      } else {
+        delete errors['phoneNumber'];
+      }
+      setFieldErrors(errors);
+    } catch (err) {
+      console.error('Failed to check phone uniqueness:', err);
+    } finally {
+      setCheckingUniqueness(prev => ({ ...prev, phone: false }));
+    }
+  };
+
   // Handle field blur - mark as touched and validate
   const handleFieldBlur = (fieldName: string) => {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
     validateField(fieldName);
+    
+    // Check uniqueness for email and phone
+    if (fieldName === 'email') {
+      checkEmailUniqueness(formData.email);
+    } else if (fieldName === 'phoneNumber') {
+      checkPhoneUniqueness(formData.phoneNumber);
+    }
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>, field: 'logo' | 'banner' | 'documents' | 'businessDocuments') => {
@@ -684,16 +684,19 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email Address *</Label>
-                <Input 
-                  id="email" 
-                  type="email" 
-                  placeholder="sherlock@bakerstreet.com"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange("email", e.target.value)}
-                  onBlur={() => handleFieldBlur("email")}
-                  data-testid="input-email"
-                  className={fieldErrors.email && touched.email ? "border-red-500" : ""}
-                />
+                <div className="relative">
+                  <Input 
+                    id="email" 
+                    type="email" 
+                    placeholder="sherlock@bakerstreet.com"
+                    value={formData.email}
+                    onChange={(e) => handleInputChange("email", e.target.value)}
+                    onBlur={() => handleFieldBlur("email")}
+                    data-testid="input-email"
+                    className={fieldErrors.email && touched.email ? "border-red-500" : ""}
+                  />
+                  {checkingUniqueness.email && <div className="absolute right-3 top-3"><Loader2 className="h-4 w-4 animate-spin text-gray-400" /></div>}
+                </div>
                 {fieldErrors.email && touched.email && (
                   <p className="text-sm text-red-600">{fieldErrors.email}</p>
                 )}
@@ -876,7 +879,17 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                     value={formData.country} 
                     onValueChange={(value) => {
                       handleInputChange("country", value);
-                      handleInputChange("state", "");
+                      handleInputChange("phoneCountryCode", COMMON_PHONE_CODES[value] || "+1");
+                      // Update currency code and symbol
+                      const currency = getCurrencyForCountry(value);
+                      setSelectedCurrencyCode(currency.currencyCode);
+                      setSelectedCurrencySymbol(currency.currencySymbol);
+                      // Also update all selected categoryPricing currency fields
+                      setFormData(prev => ({
+                        ...prev,
+                        state: "",
+                        categoryPricing: prev.categoryPricing.map(p => ({ ...p, currency: currency.currencyCode }))
+                      }));
                       setCountryQuery("");
                       setStateQuery("");
                     }}
@@ -884,8 +897,8 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                     <SelectTrigger data-testid="select-country">
                       <SelectValue placeholder="Select country" />
                     </SelectTrigger>
-                    <SelectContent>
-                     <div className="px-2 py-2">
+                    <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
+                     <div className="sticky top-0 bg-white px-2 py-2 border-b z-10">
                         <Input
                           placeholder="Type to search…"
                           value={countryQuery}
@@ -895,13 +908,14 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                           autoFocus
                         />
                       </div>
-                      {COUNTRIES.map((country) => (
-                        country.name.toLowerCase().includes(countryQuery.toLowerCase()) && (
-                          <SelectItem key={country.code} value={country.code}>
-                            {country.name}
+                      {countriesData?.countries
+                        .filter((countryCode) => (COUNTRY_CODE_TO_NAME[countryCode] || countryCode).toLowerCase().includes(countryQuery.toLowerCase()))
+                        .map((countryCode) => (
+                          <SelectItem key={countryCode} value={countryCode}>
+                            {COUNTRY_CODE_TO_NAME[countryCode] || countryCode}
                           </SelectItem>
-                        )
-                      ))}
+                        ))}
+                      {countriesLoading && <div className="px-2 py-2 text-xs text-gray-500">Loading countries...</div>}
                     </SelectContent>
                   </Select>
                 </div>
@@ -910,28 +924,32 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   <Select 
                     value={formData.state} 
                     onValueChange={(value) => handleInputChange("state", value)}
+                    disabled={!formData.country}
                   >
                     <SelectTrigger data-testid="select-state">
-                      <SelectValue placeholder="Select state" />
+                      <SelectValue placeholder={!formData.country ? "Select country first" : statesLoading ? "Loading..." : "Select state"} />
                     </SelectTrigger>
-                    <SelectContent>
-                      <div className="px-2 py-2">
-                        <Input
-                          placeholder="Type to search…"
-                          value={stateQuery}
-                          onChange={(e) => setStateQuery(e.target.value)}
-                          onKeyDown={(e) => e.stopPropagation()}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          autoFocus
-                        />
-                      </div>
-                      {COUNTRIES.find(c => c.code === formData.country)?.states
+                    <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
+                      {formData.country && (
+                        <div className="sticky top-0 bg-white px-2 py-2 border-b z-10">
+                          <Input
+                            placeholder="Type to search…"
+                            value={stateQuery}
+                            onChange={(e) => setStateQuery(e.target.value)}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            autoFocus
+                          />
+                        </div>
+                      )}
+                      {statesData?.states
                         .filter((s) => s.toLowerCase().includes(stateQuery.toLowerCase()))
                         .map((state) => (
                           <SelectItem key={state} value={state}>
                             {state}
                           </SelectItem>
                         ))}
+                      {statesLoading && <div className="px-2 py-2 text-xs text-gray-500">Loading states...</div>}
                     </SelectContent>
                   </Select>
                 </div>
@@ -945,11 +963,11 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   disabled={!formData.state}
                 >
                   <SelectTrigger data-testid="select-city">
-                    <SelectValue placeholder={!formData.state ? "Select state first" : "Select city"} />
+                    <SelectValue placeholder={!formData.state ? "Select state first" : citiesLoading ? "Loading..." : "Select city"} />
                   </SelectTrigger>
-                  <SelectContent>
-                    {formData.state && STATE_CITIES[formData.state] && STATE_CITIES[formData.state].length > 0 ? (
-                      STATE_CITIES[formData.state].map((city) => (
+                  <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
+                    {citiesData?.cities && citiesData.cities.length > 0 ? (
+                      citiesData.cities.map((city) => (
                         <SelectItem key={city} value={city}>
                           {city}
                         </SelectItem>
@@ -987,23 +1005,26 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {COUNTRIES.map((country) => (
-                        <SelectItem key={country.code} value={country.phoneCode}>
-                          {country.phoneCode} {country.code}
+                      {countriesData?.countries.map((country) => (
+                        <SelectItem key={country} value={COMMON_PHONE_CODES[country] || "+1"}>
+                          {COMMON_PHONE_CODES[country] || "+1"} {country}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <Input 
-                    id="phone" 
-                    type="tel" 
-                    placeholder="5551234567"
-                    value={formData.phoneNumber}
-                    onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
-                    onBlur={() => handleFieldBlur("phoneNumber")}
-                    data-testid="input-phoneNumber"
-                    className={`flex-1 ${fieldErrors.phoneNumber && touched.phoneNumber ? "border-red-500" : ""}`}
-                  />
+                  <div className="relative flex-1">
+                    <Input 
+                      id="phone" 
+                      type="tel" 
+                      placeholder="5551234567"
+                      value={formData.phoneNumber}
+                      onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
+                      onBlur={() => handleFieldBlur("phoneNumber")}
+                      data-testid="input-phoneNumber"
+                      className={`flex-1 ${fieldErrors.phoneNumber && touched.phoneNumber ? "border-red-500" : ""}`}
+                    />
+                    {checkingUniqueness.phone && <div className="absolute right-3 top-3"><Loader2 className="h-4 w-4 animate-spin text-gray-400" /></div>}
+                  </div>
                 </div>
                 {fieldErrors.phoneNumber && touched.phoneNumber && (
                   <p className="text-sm text-red-600">{fieldErrors.phoneNumber}</p>
@@ -1079,7 +1100,7 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   {serviceCategories.map((category) => {
                     const isSelected = formData.serviceCategories.includes(category.name);
                     const pricing = formData.categoryPricing.find(p => p.category === category.name);
-                    const selectedCountry = COUNTRIES.find(c => c.code === formData.country);
+                    // Use selected currency for all categories
                     
                     return (
                       <div key={category.id} className="border rounded-md p-3">
@@ -1103,7 +1124,7 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                                   categoryPricing: [...prev.categoryPricing, {
                                     category: category.name,
                                     price: "",
-                                    currency: selectedCountry?.currencyCode || "USD",
+                                    currency: selectedCurrencyCode,
                                     isOnEnquiry: false
                                   }]
                                 }));
@@ -1150,7 +1171,7 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                                   <div className="flex items-center gap-2">
                                     <span className="text-sm text-gray-600">Starting Price:</span>
                                     <div className="flex items-center gap-1">
-                                      <span className="text-sm font-medium">{selectedCountry?.currency || "$"}</span>
+                                      <span className="text-sm font-medium">{selectedCurrencySymbol}</span>
                                       <Input 
                                         type="number"
                                         min="0"
@@ -1170,7 +1191,7 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                                         className="w-32"
                                         data-testid={`input-price-${category.id}`}
                                       />
-                                      <span className="text-xs text-gray-500">{selectedCountry?.currencyCode || "USD"}</span>
+                                      <span className="text-xs text-gray-500">{selectedCurrencyCode}</span>
                                     </div>
                                   </div>
                                 )}

@@ -47,6 +47,8 @@ import { bodyParsers } from "./app.ts";
 import * as cache from "./lib/cache.ts";
 import { runSmartSearch } from "./lib/smart-search.ts";
 import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.ts";
+import { WORLD_COUNTRIES } from "../client/src/lib/world-countries.ts";
+import { Country, State, City } from "country-state-city";
 import pkg from "pg";
 const { Pool } = pkg;
 import { requirePolicy } from "./policy.ts";
@@ -637,6 +639,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.warn("[auth] Registration failed");
       res.status(500).json({ error: "Failed to register user" });
+    }
+  });
+
+  // Check email/phone uniqueness (public endpoint)
+  app.get("/api/check-unique", async (req: Request, res: Response) => {
+    try {
+      const { email, phone } = req.query;
+      let emailExists = false;
+      let phoneExists = false;
+
+      if (email) {
+        const emailStr = String(email).toLowerCase().trim();
+        const user = await storage.getUserByEmail(emailStr);
+        emailExists = !!user;
+        
+        // Also check pending detective applications
+        if (!emailExists) {
+          const application = await storage.getDetectiveApplicationByEmail(emailStr);
+          emailExists = !!application;
+        }
+      }
+
+      if (phone) {
+        const phoneStr = String(phone).trim();
+        const detective = await db
+          .select()
+          .from(detectives)
+          .where(eq(detectives.phone, phoneStr))
+          .limit(1);
+        phoneExists = detective.length > 0;
+      }
+
+      res.json({ emailExists, phoneExists });
+    } catch (error) {
+      console.error("[check-unique] Error:", error);
+      res.status(500).json({ error: "Failed to check uniqueness" });
     }
   });
 
@@ -4266,6 +4304,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ? `${application.phoneCountryCode}${application.phoneNumber}`
             : undefined;
 
+          // Check if phone already exists in detectives table (phone uniqueness constraint)
+          if (phone) {
+            const existingWithPhone = await db
+              .select()
+              .from(detectives)
+              .where(eq(detectives.phone, phone))
+              .limit(1);
+            
+            if (existingWithPhone.length > 0) {
+              return res.status(409).json({ error: "A detective with this phone number already exists" });
+            }
+          }
+
           // Create detective profile with ALL application data
           // Determine if this is admin-created or self-registered
           const isAdminCreated = application.isClaimable === true;
@@ -4386,6 +4437,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (createError: any) {
           console.error("Failed to create detective account:", createError);
           const message = createError?.message || String(createError);
+          
+          // Handle specific constraint violations
+          if ((message.includes("detectives_phone_unique") || message.includes("duplicate key")) && message.includes("phone")) {
+            return res.status(409).json({ 
+              error: "A detective with this phone number already exists",
+            });
+          }
+          if ((message.includes("users_email_unique") || message.includes("duplicate key")) && message.includes("email")) {
+            return res.status(409).json({ 
+              error: "A detective with this email already exists",
+            });
+          }
+          
           return res.status(500).json({ 
             error: message.includes("FREE plan") ? message : `Failed to create detective account: ${message}`,
           });
@@ -5218,41 +5282,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== LOCATION ROUTES ==============
 
-  // Get distinct countries with detectives
+  // Get all countries from authoritative library
   app.get("/api/locations/countries", async (req: Request, res: Response) => {
     try {
-      console.log("[locations/countries] Starting query...");
-      
-      const result = await db
-        .selectDistinct({ country: detectives.country })
-        .from(detectives)
-        .where(eq(detectives.status, "active"));
-      
-      console.log("[locations/countries] Query result:", result);
-      
-      if (!Array.isArray(result)) {
-        console.warn("[locations/countries] Query result is not an array:", typeof result);
-        return res.json({ countries: [] });
-      }
-      
-      const countries = result
-        .map(r => r.country)
-        .filter(c => c != null && c !== '')
+      const countries = Country.getAllCountries()
+        .map(c => c.isoCode)
         .sort();
-      
-      console.log("[locations/countries] Filtered countries:", countries);
       res.json({ countries });
     } catch (error) {
-      console.error("[locations/countries] ERROR DETAILS:", {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        type: error instanceof Error ? error.constructor.name : typeof error
-      });
+      console.error("[locations/countries] ERROR:", error);
       res.status(500).json({ error: "Failed to get countries" });
     }
   });
 
-  // Get distinct states for a country
+  // Get states for a country from authoritative library
   app.get("/api/locations/states", async (req: Request, res: Response) => {
     try {
       const { country } = req.query;
@@ -5260,40 +5303,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Country parameter required" });
       }
 
-      console.log("[locations/states] Query for country:", country);
-      const result = await db
-        .selectDistinct({ state: detectives.state })
-        .from(detectives)
-        .where(and(
-          eq(detectives.country, country),
-          eq(detectives.status, "active")
-        ));
-      
-      console.log("[locations/states] Query result:", result);
-      
-      if (!Array.isArray(result)) {
-        console.warn("[locations/states] Query result is not an array:", typeof result);
-        return res.json({ states: [] });
-      }
-      
-      const states = result
-        .map(r => r.state)
-        .filter(s => s != null && s !== '')
+      const states = State.getStatesOfCountry(country)
+        .map(s => s.name)
         .sort();
-      
-      console.log("[locations/states] Filtered states:", states);
       res.json({ states });
     } catch (error) {
-      console.error("[locations/states] ERROR DETAILS:", {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        type: error instanceof Error ? error.constructor.name : typeof error
-      });
+      console.error("[locations/states] ERROR:", error);
       res.status(500).json({ error: "Failed to get states" });
     }
   });
 
-  // Get distinct cities for a country + state
+  // Get cities for a country + state from authoritative library
   app.get("/api/locations/cities", async (req: Request, res: Response) => {
     try {
       const { country, state } = req.query;
@@ -5304,36 +5324,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "State parameter required" });
       }
 
-      console.log("[locations/cities] Query for country:", country, "state:", state);
-      const result = await db
-        .selectDistinct({ city: detectives.city })
-        .from(detectives)
-        .where(and(
-          eq(detectives.country, country),
-          eq(detectives.state, state),
-          eq(detectives.status, "active")
-        ));
+      // Get state isoCode from state name (library requires state code, not name)
+      const stateObj = State.getStatesOfCountry(country)
+        .find(s => s.name === state);
       
-      console.log("[locations/cities] Query result:", result);
-      
-      if (!Array.isArray(result)) {
-        console.warn("[locations/cities] Query result is not an array:", typeof result);
+      if (!stateObj) {
         return res.json({ cities: [] });
       }
-      
-      const cities = result
-        .map(r => r.city)
-        .filter(c => c != null && c !== '')
+
+      const cities = City.getCitiesOfState(country, stateObj.isoCode)
+        .map(c => c.name)
         .sort();
-      
-      console.log("[locations/cities] Filtered cities:", cities);
       res.json({ cities });
     } catch (error) {
-      console.error("[locations/cities] ERROR DETAILS:", {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        type: error instanceof Error ? error.constructor.name : typeof error
-      });
+      console.error("[locations/cities] ERROR:", error);
       res.status(500).json({ error: "Failed to get cities" });
     }
   });

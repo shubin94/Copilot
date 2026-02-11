@@ -405,8 +405,8 @@ export default function SearchPage() {
                 <SelectTrigger className="h-8 text-sm" data-testid="select-country-filter">
                   <SelectValue placeholder="Select country..." />
                 </SelectTrigger>
-                <SelectContent>
-                  <div className="p-2 border-b">
+                <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
+                  <div className="sticky top-0 bg-white p-2 border-b z-10">
                     <Input 
                       ref={countrySearchRef}
                       placeholder="Search countries..." 
@@ -449,8 +449,8 @@ export default function SearchPage() {
                 <SelectTrigger className="h-8 text-sm" data-testid="select-state-filter">
                   <SelectValue placeholder={!filters.country ? "Select country first..." : "Select state..."} />
                 </SelectTrigger>
-                <SelectContent>
-                  <div className="p-2 border-b">
+                <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
+                  <div className="sticky top-0 bg-white p-2 border-b z-10">
                     <Input 
                       ref={stateSearchRef}
                       placeholder="Search states..." 
@@ -489,8 +489,8 @@ export default function SearchPage() {
                 <SelectTrigger className="h-8 text-sm" data-testid="select-city-filter">
                   <SelectValue placeholder={!filters.state ? "Select state first..." : "Select city..."} />
                 </SelectTrigger>
-                <SelectContent>
-                  <div className="p-2 border-b">
+                <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
+                  <div className="sticky top-0 bg-white p-2 border-b z-10">
                     <Input 
                       ref={citySearchRef}
                       placeholder="Search cities..." 

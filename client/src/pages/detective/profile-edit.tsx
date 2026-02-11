@@ -10,30 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { useCurrentDetective, useUpdateDetective } from "@/lib/hooks";
+import { useCurrentDetective, useUpdateDetective, useCountries, useStates, useCities } from "@/lib/hooks";
+import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-const COUNTRIES = [
-  { code: "US", name: "United States" },
-  { code: "UK", name: "United Kingdom" },
-  { code: "IN", name: "India" },
-  { code: "CA", name: "Canada" },
-  { code: "AU", name: "Australia" },
-  { code: "EU", name: "European Union" },
-];
-
-const COUNTRY_STATES: Record<string, string[]> = {
-  US: [
-    "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico","New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont","Virginia","Washington","West Virginia","Wisconsin","Wyoming"
-  ],
-  UK: ["England","Scotland","Wales","Northern Ireland"],
-  IN: ["Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh","Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand","Karnataka","Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram","Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana","Tripura","Uttar Pradesh","Uttarakhand","West Bengal","Delhi"],
-  CA: ["Alberta","British Columbia","Manitoba","New Brunswick","Newfoundland and Labrador","Nova Scotia","Ontario","Prince Edward Island","Quebec","Saskatchewan"],
-  AU: ["New South Wales","Queensland","South Australia","Tasmania","Victoria","Western Australia","Australian Capital Territory","Northern Territory"],
-  EU: ["Select Region"],
-};
+// Create a map of country code to country name for quick lookup
+const COUNTRY_CODE_TO_NAME: Record<string, string> = {};
+WORLD_COUNTRIES.forEach(c => {
+  COUNTRY_CODE_TO_NAME[c.code] = c.name;
+});
 
 interface Recognition {
   title: string;
@@ -54,7 +41,7 @@ export default function DetectiveProfileEdit() {
     location: "",
     city: "",
     state: "",
-    country: "US",
+    country: "",
     address: "",
     pincode: "",
     contactEmail: "",
@@ -67,6 +54,14 @@ export default function DetectiveProfileEdit() {
     licenseNumber: "",
     businessType: "",
   });
+
+  // Location hooks for dynamic data
+  const { data: countriesData, isLoading: countriesLoading } = useCountries();
+  const { data: statesData, isLoading: statesLoading } = useStates(formData.country || undefined);
+  const { data: citiesData, isLoading: citiesLoading } = useCities(formData.country || undefined, formData.state || undefined);
+  
+  const [countryQuery, setCountryQuery] = useState("");
+  const [stateQuery, setStateQuery] = useState("");
 
   const [recognitions, setRecognitions] = useState<Recognition[]>([]);
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -86,7 +81,7 @@ export default function DetectiveProfileEdit() {
         location: detective.location || "",
         city,
         state,
-        country: detective.country || "US",
+        country: detective.country || "",
         address: (detective as any).address || "",
         pincode: (detective as any).pincode || "",
         contactEmail: ((detective as any).contactEmail as string) || ((detective as any).email as string) || "",
@@ -425,16 +420,20 @@ export default function DetectiveProfileEdit() {
 
               <div className="space-y-2">
                 <Label htmlFor="state">State / Province</Label>
-                <Select value={formData.state}>
+                <Select value={formData.state} disabled>
                   <SelectTrigger id="state" data-testid="select-state" disabled className="bg-gray-100">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(COUNTRY_STATES[formData.country] || ["Select Region"]).map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
+                    {statesData?.states && statesData.states.length > 0 ? (
+                      statesData.states.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="select-region">Select Region</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -450,9 +449,9 @@ export default function DetectiveProfileEdit() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {COUNTRIES.map((c) => (
-                      <SelectItem key={c.code} value={c.code}>
-                        {c.name}
+                    {countriesData?.countries.map((countryCode) => (
+                      <SelectItem key={countryCode} value={countryCode}>
+                        {COUNTRY_CODE_TO_NAME[countryCode] || countryCode}
                       </SelectItem>
                     ))}
                   </SelectContent>
