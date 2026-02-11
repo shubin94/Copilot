@@ -7,6 +7,7 @@ import { Footer } from "@/components/layout/footer";
 import { SEO } from "@/components/seo";
 import { parseContentBlocks } from "@/shared/content-blocks";
 import { renderBlocks } from "@/utils/render-blocks";
+import { RelatedPosts } from "@/components/related-posts";
 import NotFound from "./not-found";
 
 interface PageData {
@@ -98,12 +99,37 @@ export default function PageView() {
   if (!data?.page) return <NotFound />;
 
   const page = data.page;
+  
+  const breadcrumbs = page.category
+    ? [
+        { name: "Home", url: "/" },
+        { name: page.category.name, url: `/blog/category/${page.category.slug}` },
+        { name: page.title, url: window.location.pathname }
+      ]
+    : [
+        { name: "Home", url: "/" },
+        { name: page.title, url: window.location.pathname }
+      ];
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <SEO 
         title={page.metaTitle || page.title} 
-        description={page.metaDescription} 
+        description={page.metaDescription}
+        breadcrumbs={breadcrumbs}
+        publishedTime={page.createdAt}
+        modifiedTime={page.updatedAt}
+        image={page.bannerImage}
+        structuredData={{
+          article: {
+            headline: page.title,
+            datePublished: page.createdAt,
+            dateModified: page.updatedAt,
+            image: page.bannerImage,
+            articleSection: page.category?.name,
+            keywords: page.tags.map(t => t.name)
+          }
+        }}
       />
       <Navbar />
 
@@ -131,8 +157,9 @@ export default function PageView() {
               <div className="w-full">
                 <img
                   src={page.bannerImage}
-                  alt={page.title}
+                  alt={`${page.title} - ${page.category?.name || 'Article'} banner image`}
                   className="w-full h-64 md:h-80 lg:h-96 object-cover rounded-2xl shadow-xl"
+                  loading="lazy"
                 />
               </div>
             </div>
@@ -246,6 +273,12 @@ export default function PageView() {
           </div>
         </article>
       </main>
+
+      <RelatedPosts 
+        currentPostId={page.id}
+        categoryId={page.category?.id}
+        tags={page.tags}
+      />
 
       <Footer />
     </div>

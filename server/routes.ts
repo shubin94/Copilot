@@ -62,6 +62,7 @@ import publicPagesRouter from "./routes/public-pages.ts";
 import publicCategoriesRouter from "./routes/public-categories.ts";
 import publicTagsRouter from "./routes/public-tags.ts";
 import sitemapRouter from "./routes/sitemap.ts";
+import rssRouter from "./routes/rss.ts";
 
 // Initialize Razorpay with env fallback (will be overridden by DB config)
 let razorpayClient = new Razorpay({
@@ -2255,6 +2256,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Sitemap.xml - dynamic generation from database
   app.use("/sitemap.xml", sitemapRouter);
+
+  // RSS Feed - blog content syndication
+  app.use("/rss.xml", rssRouter);
 
   // Admin Employee Routes
   app.use("/api/admin/employees", adminEmployeesRouter);

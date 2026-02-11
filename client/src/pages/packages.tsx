@@ -8,9 +8,61 @@ import { useCurrency } from "@/lib/currency-context";
 
 export default function PackagesPage() {
   const { formatPrice } = useCurrency();
+  
+  const offers = [
+    {
+      "@type": "Offer",
+      name: "Free Plan",
+      description: "For new detectives just starting out. Basic Profile, 1 Service Listing, Standard Support.",
+      price: "0",
+      priceCurrency: "USD",
+      priceSpecification: {
+        "@type": "UnitPriceSpecification",
+        price: "0",
+        priceCurrency: "USD",
+        unitText: "MONTH"
+      },
+      url: window.location.origin + "/detective-signup"
+    },
+    {
+      "@type": "Offer",
+      name: "Pro Plan",
+      description: "For professional investigators growing their business. Verified Badge, Unlimited Service Listings, Priority Support, Analytics Dashboard.",
+      price: "49",
+      priceCurrency: "USD",
+      priceSpecification: {
+        "@type": "UnitPriceSpecification",
+        price: "49",
+        priceCurrency: "USD",
+        unitText: "MONTH"
+      },
+      url: window.location.origin + "/detective-signup"
+    },
+    {
+      "@type": "Offer",
+      name: "Agency Plan",
+      description: "For established agencies with multiple agents. Everything in Pro, Multiple Team Members, API Access, Dedicated Account Manager.",
+      price: "199",
+      priceCurrency: "USD",
+      priceSpecification: {
+        "@type": "UnitPriceSpecification",
+        price: "199",
+        priceCurrency: "USD",
+        unitText: "MONTH"
+      },
+      url: window.location.origin + "/contact"
+    }
+  ];
+
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title="Pricing & Packages" description="Choose the right plan for your detective agency." />
+      <SEO 
+        title="Pricing & Packages" 
+        description="Choose the right plan for your detective agency."
+        structuredData={{
+          offers: offers
+        }}
+      />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
         <div className="text-center mb-12">

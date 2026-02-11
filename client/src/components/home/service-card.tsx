@@ -115,7 +115,7 @@ const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, le
             {displayImages.length > 0 && displayImages[currentImageIndex] ? (
               <img 
                 src={displayImages[currentImageIndex]} 
-                alt={title} 
+                alt={`${title} - ${name}${countryCode ? ` in ${countryCode}` : ''} | Professional Detective Service`}
                 loading="lazy"
                 className={`object-cover w-full h-full transition-transform duration-300 ${isUnclaimed ? 'grayscale' : ''}`}
               />
@@ -177,7 +177,7 @@ const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, le
               }}
             >
               <Avatar className="h-8 w-8 border border-gray-100">
-                {avatar && <AvatarImage src={avatar} />}
+                {avatar && <AvatarImage src={avatar} alt={`${name} - Professional Private Investigator`} />}
                 <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{name[0]}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col overflow-hidden">

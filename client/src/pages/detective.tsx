@@ -24,13 +24,84 @@ export default function DetectivePublicPage() {
 
   const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
+  // SEO: Generate optimal title and description
+  const detectiveName = detective?.businessName || `${(detective as any)?.firstName || ''} ${(detective as any)?.lastName || ''}`.trim() || 'Detective';
+  const location = detective?.city && detective?.country 
+    ? `${detective.city}, ${detective.country}`
+    : detective?.location || detective?.country || '';
+  
+  const seoTitle = location
+    ? `${detectiveName} - Private Investigator in ${location} | FindDetectives`
+    : `${detectiveName} - Professional Detective Services | FindDetectives`;
+  
+  const seoDescription = detective
+    ? `Hire ${detectiveName}${location ? ` in ${location}` : ''}. ${services.length} service${services.length !== 1 ? 's' : ''} available. View ratings, reviews, and contact information for verified private investigator.`
+    : 'View detective profile on FindDetectives';
+  
+  const h1Text = location
+    ? `${detectiveName} - Private Investigator in ${location}`
+    : `${detectiveName} - Professional Detective Services`;
+  
+  const canonicalUrl = `https://www.askdetectives.com/p/${detectiveId}`;
+  
+  // SEO: LocalBusiness schema
+  const localBusinessSchema = detective ? {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    "@id": canonicalUrl,
+    "name": detectiveName,
+    "image": detective.logo || "",
+    "description": detective.bio || `Professional detective services offered by ${detectiveName}`,
+    ...(detective.city && detective.country && {
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": detective.city,
+        "addressCountry": detective.country
+      }
+    }),
+    ...(services.length > 0 && services.some((s: any) => s.avgRating && s.reviewCount) && {
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": (services.reduce((sum: number, s: any) => sum + (s.avgRating || 0), 0) / services.filter((s: any) => s.avgRating).length).toFixed(1),
+        "reviewCount": services.reduce((sum: number, s: any) => sum + (s.reviewCount || 0), 0)
+      }
+    }),
+    ...((detective as any).phone && { "telephone": (detective as any).phone }),
+    ...((detective as any).contactEmail && { "email": (detective as any).contactEmail }),
+    ...(services.length > 0 && {
+      "hasOfferCatalog": {
+        "@type": "OfferCatalog",
+        "name": "Detective Services",
+        "itemListElement": services.slice(0, 10).map((service: any, index: number) => ({
+          "@type": "Offer",
+          "position": index + 1,
+          "itemOffered": {
+            "@type": "Service",
+            "name": service.title,
+            "url": `https://www.askdetectives.com/service/${service.id}`
+          }
+        }))
+      }
+    })
+  } : undefined;
+
   return (
     <div className="min-h-screen bg-white">
       <SEO 
-        title={detective ? `${detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`} - Private Investigator | FindDetectives` : 'Detective Profile | FindDetectives'}
-        description={detective ? `Hire ${detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}${detective.location ? ` in ${detective.location}` : ''}. View services, ratings, and reviews. Contact verified private investigator.` : 'View detective profile on FindDetectives'}
-        canonical={detectiveId ? `${window.location.origin}/p/${detectiveId}` : window.location.href}
+        title={seoTitle}
+        description={seoDescription}
+        canonical={canonicalUrl}
         robots="index, follow"
+        image={detective?.logo || ""}
+        schema={localBusinessSchema}
+        keywords={[
+          detectiveName,
+          'private investigator',
+          detective?.city || '',
+          detective?.country || '',
+          'detective services',
+          ...(services.map((s: any) => s.category).filter(Boolean).slice(0, 5))
+        ].filter(Boolean)}
       />
       <Navbar />
       <main className="container mx-auto px-6 py-8">
@@ -43,7 +114,9 @@ export default function DetectivePublicPage() {
             </div>
           </div>
         ) : detective ? (
-          <Card className="mb-6">
+          <>
+            <h1 className="text-3xl font-bold mb-6" data-testid="heading-detective-name">{h1Text}</h1>
+            <Card className="mb-6">
             <CardContent className="p-6">
               <div className="flex items-center gap-4">
                 <img src={detective.logo || "/placeholder-avatar.png"} alt="avatar" className="h-16 w-16 rounded-full object-cover border" />
@@ -174,6 +247,7 @@ export default function DetectivePublicPage() {
               )}
             </CardContent>
           </Card>
+          </>
         ) : null}
 
         <section>

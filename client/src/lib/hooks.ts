@@ -291,6 +291,21 @@ export function useServicesByDetective(detectiveId: string | null | undefined) {
   });
 }
 
+export function useRelatedServices(category: string | null | undefined, excludeId?: string, limit: number = 4) {
+  return useQuery({
+    queryKey: ["services", "related", category, excludeId, limit],
+    queryFn: async () => {
+      if (!category) return [];
+      const result = await api.services.search({ category, limit, sortBy: "popular" });
+      // Filter out the current service
+      return result.services.filter((s: any) => s.id !== excludeId).slice(0, limit);
+    },
+    enabled: !!category,
+    staleTime: 60 * 1000, // 60 seconds cache
+    gcTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
 export function useAdminServicesByDetective(detectiveId: string | null | undefined) {
   return useQuery({
     queryKey: ["services", "detective", detectiveId, "admin"],

@@ -94,8 +94,24 @@ export default function Home() {
         title="FindDetectives - Hire Top Private Investigators" 
         description="The leading marketplace for professional private investigation services. Find verified detectives for surveillance, background checks, and more."
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
-        canonical={window.location.origin}
+        canonical="https://www.askdetectives.com"
         robots="index, follow"
+        schema={{
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          "@id": "https://www.askdetectives.com/#website",
+          "url": "https://www.askdetectives.com",
+          "name": "FindDetectives",
+          "description": "Find and hire verified private investigators",
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://www.askdetectives.com/search?q={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          }
+        }}
       />
       <Navbar transparentOnHome={true} overlayOnHome={true} />
       

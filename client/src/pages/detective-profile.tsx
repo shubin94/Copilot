@@ -15,12 +15,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/user-context";
-import { useService, useReviewsByService, useServicesByDetective } from "@/lib/hooks";
+import { useService, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
+import { Breadcrumb } from "@/components/breadcrumb";
+import { ServiceFAQ, getServiceFAQs } from "@/components/service-faq";
+import { RelatedServices } from "@/components/related-services";
 import { format } from "date-fns";
 import type { Review, User } from "@shared/schema";
 import { computeServiceBadges } from "@/lib/service-badges";
@@ -36,6 +39,7 @@ export default function DetectiveProfile() {
   const detectiveIdForServices = serviceData?.detective?.id;
   const { data: servicesByDetective } = useServicesByDetective(detectiveIdForServices);
   const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceId);
+  const { data: relatedServicesData } = useRelatedServices(serviceData?.service?.category, serviceId, 4);
   
   const { selectedCountry, formatPriceFromTo } = useCurrency();
   const { user, isFavorite, toggleFavorite } = useUser();
@@ -185,11 +189,32 @@ export default function DetectiveProfile() {
   });
   
   const memberSince = format(new Date(detective.memberSince), "MMMM yyyy");
-  const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   
-  // Use actual detective logo and service images from database - NO MOCK DATA
-  const detectiveLogo = detective.logo;
-  const serviceImage = service.images && service.images.length > 0 ? service.images[0] : null;
+  // SEO: Generate keywords from service data
+  const locationText = detective.city && detective.country 
+    ? `${detective.city}, ${detective.country}` 
+    : detective.country || "India";
+  
+  const seoKeywords = [
+    service.category || "detective services",
+    service.title,
+    detectiveName,
+    detective.city || "",
+    detective.country || "India",
+    "private investigator",
+    "investigation services",
+    detective.isVerified ? "verified detective" : ""
+  ].filter(Boolean);
+  
+  // SEO: Breadcrumbs for navigation and schema
+  const breadcrumbs = [
+    { name: "Home", url: "https://www.askdetectives.com/" },
+    { name: service.category || "Services", url: `https://www.askdetectives.com/search?category=${encodeURIComponent(service.category || "")}` },
+    { name: service.title, url: `https://www.askdetectives.com/service/${service.id}` }
+  ];
+  
+  // SEO: Canonical URL (always use production domain, strip query params)
+  const canonicalUrl = `https://www.askdetectives.com/service/${service.id}`;
 
   // Parse prices properly - handle decimal strings from database
   const basePrice = (() => {
@@ -205,6 +230,36 @@ export default function DetectiveProfile() {
     const parsed = typeof raw === 'string' ? parseFloat(raw) : Number(raw);
     return (isNaN(parsed) || parsed <= 0) ? null : parsed;
   })();
+  
+  // SEO: Enhanced H1 with location for better ranking
+  const seoH1 = detective.city 
+    ? `${service.title} in ${detective.city}, ${detective.country || "India"} - ${detectiveName}`
+    : `${service.title} by ${detectiveName}`;
+  
+  // SEO: Generate FAQs for schema
+  const serviceFaqs = getServiceFAQs(
+    {
+      title: service.title,
+      category: service.category,
+      basePrice,
+      offerPrice,
+      isOnEnquiry: service.isOnEnquiry
+    },
+    {
+      businessName: detectiveName,
+      city: detective.city,
+      country: detective.country,
+      phone: detective.phone,
+      whatsapp: detective.whatsapp,
+      contactEmail: detective.contactEmail
+    },
+    (price) => formatPriceFromTo(price, detective.country, selectedCountry.code)
+  );
+  const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  
+  // Use actual detective logo and service images from database - NO MOCK DATA
+  const detectiveLogo = detective.logo;
+  const serviceImage = service.images && service.images.length > 0 ? service.images[0] : null;
 
   // Debug log for troubleshooting (can be removed after fix)
   if (basePrice === 0) {
@@ -254,14 +309,36 @@ export default function DetectiveProfile() {
     <div className="min-h-screen bg-white font-sans text-gray-900">
       <SEO 
         title={`${service.title} by ${detectiveName}`}
-        description={service.description}
+        description={service.description.slice(0, 155)}
         image={serviceImage || detectiveLogo || ""}
         type="profile"
+        keywords={seoKeywords}
+        canonical={canonicalUrl}
+        robots={isPreview ? "noindex, nofollow" : "index, follow"}
         schema={detectiveSchema}
+        breadcrumbs={breadcrumbs}
+        structuredData={{
+          service: {
+            price: basePrice,
+            offerPrice,
+            isOnEnquiry: service.isOnEnquiry,
+            category: service.category,
+            city: detective.city,
+            country: detective.country,
+            detectiveName,
+            detectiveLogo
+          },
+          faqs: serviceFaqs
+        }}
+        publishedTime={service.createdAt}
+        modifiedTime={service.updatedAt}
       />
       <Navbar />
       
       <main className="container mx-auto px-6 md:px-12 lg:px-24 py-8">
+        {/* Breadcrumb Navigation */}
+        <Breadcrumb items={breadcrumbs} />
+        
         <div className="mb-4">
           <Button variant="ghost" size="sm" className="gap-2" onClick={() => {
             if (window.history.length > 1) {
@@ -289,7 +366,7 @@ export default function DetectiveProfile() {
           <div className="flex-1">
             <div className="flex justify-between items-start">
                <h1 className="text-2xl md:text-3xl font-bold font-heading mb-4 text-gray-900 flex-1" data-testid="text-service-title">
-                 {service.title}
+                 {seoH1}
                </h1>
                
                <Button 
@@ -490,6 +567,26 @@ export default function DetectiveProfile() {
                   </p>
                 </div>
 
+            {/* FAQ Section - Important for SEO */}
+            <ServiceFAQ 
+              service={{
+                title: service.title,
+                category: service.category,
+                basePrice,
+                offerPrice,
+                isOnEnquiry: service.isOnEnquiry
+              }}
+              detective={{
+                businessName: detectiveName,
+                city: detective.city,
+                country: detective.country,
+                phone: detective.phone,
+                whatsapp: detective.whatsapp,
+                contactEmail: detective.contactEmail
+              }}
+              formatPrice={(price) => formatPriceFromTo(price, detective.country, selectedCountry.code)}
+            />
+            
             <Separator className="my-8" />
 
             {/* About The Detective */}
@@ -611,7 +708,7 @@ export default function DetectiveProfile() {
 
               {/* Reviews Section */}
               <div className="mb-10">
-                <h2 className="text-xl font-bold font-heading mb-6">Reviews</h2>
+                <h2 className="text-xl font-bold font-heading mb-6">Customer Reviews</h2>
                 <div className="flex items-center gap-2">
                   {reviewCount > 0 ? (
                     <>
@@ -718,6 +815,14 @@ export default function DetectiveProfile() {
                 )}
               </div>
             </section>
+
+            {/* Related Services Section - SEO Internal Linking */}
+            {relatedServicesData && relatedServicesData.length > 0 && (
+              <RelatedServices 
+                services={relatedServicesData}
+                currentServiceTitle={service.title}
+              />
+            )}
 
           </div>
 

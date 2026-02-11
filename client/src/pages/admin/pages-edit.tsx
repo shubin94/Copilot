@@ -198,19 +198,11 @@ export default function PagesAdminEdit() {
     saveMutation.mutate(formData);
   };
 
-  const generateSlug = (title: string, categoryId?: string) => {
-    const pageSlug = title
+  const generateSlug = (title: string) => {
+    return title
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replace(/[^\w-]/g, "");
-    
-    if (categoryId) {
-      const category = categories.find((c) => c.id === categoryId);
-      if (category) {
-        return `${category.slug}/${pageSlug}`;
-      }
-    }
-    return pageSlug;
   };
 
   const handleBannerFile = async (file?: File | null) => {
@@ -371,7 +363,7 @@ export default function PagesAdminEdit() {
                     setFormData({
                       ...formData,
                       title: e.target.value,
-                      slug: generateSlug(e.target.value, formData.categoryId),
+                      slug: generateSlug(e.target.value),
                     });
                   }}
                   className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -428,7 +420,6 @@ export default function PagesAdminEdit() {
                       setFormData({
                         ...formData,
                         categoryId: newCategoryId,
-                        slug: generateSlug(formData.title, newCategoryId),
                       });
                     }}
                     className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"

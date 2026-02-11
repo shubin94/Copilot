@@ -60,9 +60,19 @@ export default function PageCategory() {
 
   const categoryName = data?.category?.name || "Category";
 
+  const breadcrumbs = [
+    { name: "Home", url: "/" },
+    { name: "Blog", url: "/blog" },
+    { name: categoryName, url: window.location.pathname }
+  ];
+
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title={`${categoryName} | Pages`} description={`Pages in ${categoryName}`} />
+      <SEO 
+        title={`${categoryName} | Pages`} 
+        description={`Pages in ${categoryName}`}
+        breadcrumbs={breadcrumbs}
+      />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
         <div className="mb-8">
@@ -84,8 +94,9 @@ export default function PageCategory() {
                   {page.bannerImage && (
                     <img
                       src={page.bannerImage}
-                      alt={page.title}
+                      alt={`${page.title} - ${page.category.name}`}
                       className="w-full h-44 object-cover"
+                      loading="lazy"
                     />
                   )}
                   <div className="p-5 space-y-3">
