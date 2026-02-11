@@ -157,11 +157,9 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
     isOnEnquiry: service.isOnEnquiry,
     countryCode: service.detective.country,
-    location: service.detective.location || "",
     phone: service.detective.phone || undefined,
     whatsapp: service.detective.whatsapp || undefined,
-    contactEmail: service.detective.contactEmail || service.detective.email || undefined,
-    planName: service.planName,
+    contactEmail: service.detective.contactEmail || undefined,
   };
 }
 
@@ -188,7 +186,7 @@ export default function SearchPage() {
     level2Only: initialSearchParams.current.get("lvl2") === "1",
     sortBy: initialSearchParams.current.get("sortBy") || "popular",
     offset: 0,
-    limit: 50,
+    limit: 15,
   });
 
   // Sync filters when navigating to this page with new URL params

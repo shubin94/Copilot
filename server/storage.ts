@@ -131,6 +131,17 @@ export interface IStorage {
   createServiceCategory(category: InsertServiceCategory): Promise<ServiceCategory>;
   updateServiceCategory(id: string, updates: Partial<ServiceCategory>): Promise<ServiceCategory | undefined>;
   deleteServiceCategory(id: string): Promise<boolean>;
+  // Admin dashboard
+  getAdminDashboardSummary(): Promise<{
+    totalDetectives: number;
+    activeDetectives: number;
+    pendingDetectives: number;
+    totalServices: number;
+    activeServices: number;
+    recentDetectivesLast30Days: number;
+    recentServicesLast30Days: number;
+  }>;
+
   // Admin destructive operations
   deleteDetectiveAccount(detectiveId: string): Promise<boolean>;
   getPublicServiceCountByDetective(detectiveId: string): Promise<number>;
@@ -303,6 +314,99 @@ export class DatabaseStorage implements IStorage {
       email: result.email || undefined,
       subscriptionPackage: result.package || undefined,
       pendingPackage: pendingPackage || undefined,
+    };
+  }
+
+  // OPTIMIZED: Dashboard data fetch - single query with services and subscription
+  async getDetectiveDashboardData(userId: string): Promise<{
+    detective: {
+      id: string;
+      businessName: string | null;
+      status: string;
+      location: string;
+      city: string;
+      state: string;
+      country: string;
+      subscriptionPackageId: string;
+    };
+    services: Array<{
+      id: string;
+      title: string;
+      category: string;
+      basePrice: string | null;
+      offerPrice: string | null;
+      isActive: boolean;
+    }>;
+    subscription: {
+      id: string;
+      name: string;
+      serviceLimit: number | null;
+    };
+  } | undefined> {
+    const [result] = await db.select({
+      // Detective fields needed for dashboard
+      detectiveId: detectives.id,
+      businessName: detectives.businessName,
+      status: detectives.status,
+      location: detectives.location,
+      city: detectives.city,
+      state: detectives.state,
+      country: detectives.country,
+      subscriptionPackageId: detectives.subscriptionPackageId,
+      
+      // Subscription fields
+      subscriptionId: subscriptionPlans.id,
+      subscriptionName: subscriptionPlans.name,
+      serviceLimit: subscriptionPlans.serviceLimit,
+    })
+    .from(detectives)
+    .innerJoin(users, eq(detectives.userId, users.id))
+    .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
+    .where(eq(detectives.userId, userId))
+    .limit(1);
+
+    if (!result) return undefined;
+
+    // Fetch active services in same query batch
+    const serviceResults = await db.select({
+      id: services.id,
+      title: services.title,
+      category: services.category,
+      basePrice: services.basePrice,
+      offerPrice: services.offerPrice,
+      isActive: services.isActive,
+    })
+    .from(services)
+    .where(and(
+      eq(services.detectiveId, result.detectiveId),
+      eq(services.isActive, true)
+    ))
+    .orderBy(desc(services.createdAt));
+
+    return {
+      detective: {
+        id: result.detectiveId,
+        businessName: result.businessName || undefined,
+        status: result.status,
+        location: result.location,
+        city: result.city,
+        state: result.state,
+        country: result.country,
+        subscriptionPackageId: result.subscriptionPackageId,
+      },
+      services: serviceResults.map(s => ({
+        id: s.id,
+        title: s.title,
+        category: s.category,
+        basePrice: s.basePrice?.toString() || null,
+        offerPrice: s.offerPrice?.toString() || null,
+        isActive: s.isActive,
+      })),
+      subscription: {
+        id: result.subscriptionId || '',
+        name: result.subscriptionName || 'free',
+        serviceLimit: result.serviceLimit ? Number(result.serviceLimit) : 0,
+      },
     };
   }
 
@@ -637,9 +741,7 @@ export class DatabaseStorage implements IStorage {
       serviceBasePrice: services.basePrice,
       serviceOfferPrice: services.offerPrice,
       serviceIsOnEnquiry: services.isOnEnquiry,
-      serviceImages: services.images,
-      serviceIsActive: services.isActive,
-      serviceCreatedAt: services.createdAt,
+      serviceMainImage: sql<string | null>`(${services.images})[1]`,
       serviceOrderCount: services.orderCount,
       
       // Detective fields needed by ServiceCard
@@ -648,15 +750,11 @@ export class DatabaseStorage implements IStorage {
       detectiveLevel: detectives.level,
       detectiveLogo: detectives.logo,
       detectiveCountry: detectives.country,
-      detectiveLocation: detectives.location,
+      detectiveCity: detectives.city,
       detectivePhone: detectives.phone,
       detectiveWhatsapp: detectives.whatsapp,
       detectiveContactEmail: detectives.contactEmail,
       detectiveIsVerified: detectives.isVerified,
-      
-      // User & Subscription fields
-      email: users.email,
-      planName: subscriptionPlans.name,
       
       // Aggregated values
       avgRating: reviewsAgg.avgRating,
@@ -687,7 +785,8 @@ export class DatabaseStorage implements IStorage {
       query = query.orderBy(desc(services.createdAt)) as any;
     }
 
-    const results = await query.limit(limit).offset(offset);
+    const cappedLimit = sortBy === "popular" ? 15 : limit;
+    const results = await query.limit(cappedLimit).offset(offset);
     
     console.log('[searchServices] FINAL services count:', results.length, 'sortBy:', sortBy);
     
@@ -698,9 +797,7 @@ export class DatabaseStorage implements IStorage {
       basePrice: r.serviceBasePrice,
       offerPrice: r.serviceOfferPrice,
       isOnEnquiry: r.serviceIsOnEnquiry,
-      images: r.serviceImages,
-      isActive: r.serviceIsActive,
-      createdAt: r.serviceCreatedAt,
+      images: r.serviceMainImage ? [r.serviceMainImage] : [],
       orderCount: r.serviceOrderCount,
       detective: {
         id: r.detectiveId,
@@ -708,16 +805,14 @@ export class DatabaseStorage implements IStorage {
         level: r.detectiveLevel,
         logo: r.detectiveLogo,
         country: r.detectiveCountry,
-        location: r.detectiveLocation,
+        city: r.detectiveCity,
         phone: r.detectivePhone,
         whatsapp: r.detectiveWhatsapp,
         contactEmail: r.detectiveContactEmail,
         isVerified: r.detectiveIsVerified,
-        email: r.email || undefined,
       },
       avgRating: Number(r.avgRating),
       reviewCount: Number(r.reviewCount),
-      planName: r.planName || undefined
     }));
   }
 
@@ -861,6 +956,42 @@ export class DatabaseStorage implements IStorage {
   async countClaims(): Promise<number> {
     const [row] = await db.select({ c: count(profileClaims.id) }).from(profileClaims);
     return Number((row as any)?.c) || 0;
+  }
+
+  // OPTIMIZED: Admin dashboard summary - single query with conditional aggregation
+  async getAdminDashboardSummary(): Promise<{
+    totalDetectives: number;
+    activeDetectives: number;
+    pendingDetectives: number;
+    totalServices: number;
+    activeServices: number;
+    recentDetectivesLast30Days: number;
+    recentServicesLast30Days: number;
+  }> {
+    // Fetch detective stats with conditional counts in single query
+    const [detectiveStats] = await db.select({
+      total: count(detectives.id),
+      active: sql<number>`COUNT(CASE WHEN STATUS = 'active' THEN 1 END)`,
+      pending: sql<number>`COUNT(CASE WHEN STATUS = 'pending' THEN 1 END)`,
+      recent30Days: sql<number>`COUNT(CASE WHEN ${detectives.createdAt} >= now() - interval '30 days' THEN 1 END)`,
+    }).from(detectives);
+
+    // Fetch service stats with conditional counts in single query
+    const [serviceStats] = await db.select({
+      total: count(services.id),
+      active: sql<number>`COUNT(CASE WHEN is_active = true THEN 1 END)`,
+      recent30Days: sql<number>`COUNT(CASE WHEN ${services.createdAt} >= now() - interval '30 days' THEN 1 END)`,
+    }).from(services);
+
+    return {
+      totalDetectives: Number(detectiveStats?.total) || 0,
+      activeDetectives: Number(detectiveStats?.active) || 0,
+      pendingDetectives: Number(detectiveStats?.pending) || 0,
+      totalServices: Number(serviceStats?.total) || 0,
+      activeServices: Number(serviceStats?.active) || 0,
+      recentDetectivesLast30Days: Number(detectiveStats?.recent30Days) || 0,
+      recentServicesLast30Days: Number(serviceStats?.recent30Days) || 0,
+    };
   }
 
   // OPTIMIZED: Get all counts via independent queries (5 sequential queries; previously awaited one-by-one)

@@ -1289,6 +1289,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // OPTIMIZED: Admin Dashboard Summary - single query with conditional aggregation
+  // Returns only summary statistics (no full records, <100ms execution target)
+  app.get("/api/admin/dashboard/summary", requireRole("admin"), async (_req: Request, res: Response) => {
+    try {
+      setNoStore(res);
+      const summary = await storage.getAdminDashboardSummary();
+      res.json(summary);
+    } catch (error) {
+      console.error("Admin dashboard summary error:", error);
+      res.status(500).json({ error: "Failed to get dashboard summary" });
+    }
+  });
+
   app.get("/api/admin/detectives/raw", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       // OPTIMIZED: Support pagination parameters with safe limits
@@ -2723,6 +2736,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Get current detective error:", error);
       res.status(500).json({ error: "Failed to get current detective" });
+    }
+  });
+
+  // OPTIMIZED: Dashboard endpoint - single query for detective + services + subscription
+  app.get("/api/detectives/me/dashboard", requireAuth, async (req: Request, res: Response) => {
+    try {
+      setNoStore(res);
+      const dashboardData = await storage.getDetectiveDashboardData(req.session.userId!);
+      if (!dashboardData) {
+        return res.status(404).json({ error: "Detective profile not found" });
+      }
+      res.json(dashboardData);
+    } catch (error) {
+      console.error("Get detective dashboard error:", error);
+      res.status(500).json({ error: "Failed to get detective dashboard" });
     }
   });
 

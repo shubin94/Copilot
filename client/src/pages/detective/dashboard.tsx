@@ -6,7 +6,7 @@ import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Star, Eye, MousePointer, MessageSquare, AlertCircle, Ban, Loader2, Crown, Shield, Zap, Check } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useCurrentDetective, useAuth, useServiceCategories, useServicesByDetective, useSubscriptionLimits } from "@/lib/hooks";
+import { useDetectiveDashboard, useAuth, useServiceCategories } from "@/lib/hooks";
 import { useCurrency, COUNTRIES } from "@/lib/currency-context";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -21,9 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export default function DetectiveDashboard() {
   const [, navigate] = useLocation();
   const auth = useAuth();
-  const { data, isLoading, error } = useCurrentDetective();
-  const detective = data?.detective;
-  const { data: myServicesData } = useServicesByDetective(detective?.id);
+  const { detective, services, subscription, isLoading, error } = useDetectiveDashboard();
   const { selectedCountry, formatPriceForCountry } = useCurrency();
   const detectiveCountry = detective?.country || selectedCountry.code;
   const currencySymbol = (() => {
@@ -46,9 +44,8 @@ export default function DetectiveDashboard() {
   const [entry, setEntry] = useState<{ category: string; basePrice: string; offerPrice?: string; title: string; description: string; images: string[] }>({ category: "", basePrice: "", offerPrice: "", title: "", description: "", images: [] });
   const [savingServices, setSavingServices] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const { data: limitsData } = useSubscriptionLimits();
   const getPlanLimits = (plan: string) => {
-    const max = limitsData?.limits?.[plan] ?? 2;
+    const max = subscription?.serviceLimit ?? 2;
     return { min: 1, max };
   };
 
@@ -79,10 +76,10 @@ export default function DetectiveDashboard() {
 
   const openOnboardingIfNeeded = () => {
     if (!detective) return;
-    if (!Array.isArray(myServicesData?.services)) return;
-    const hasServices = (myServicesData?.services?.length || 0) > 0;
-    // Use actual subscription package name, not legacy subscriptionPlan field
-    const actualPlan = (detective as any).subscriptionPackage?.name || "free";
+    if (!Array.isArray(services)) return;
+    const hasServices = (services?.length || 0) > 0;
+    // Use subscription name from dashboard hook
+    const actualPlan = subscription?.name || "free";
     setSelectedPlan(actualPlan);
     if (hasServices) {
       setShowPlanDialog(false);
@@ -100,14 +97,7 @@ export default function DetectiveDashboard() {
     if (detective && !mustChange) {
       openOnboardingIfNeeded();
     }
-  }, [detective, mustChange, myServicesData]);
-
-  useEffect(() => {
-    if ((myServicesData?.services?.length || 0) > 0) {
-      setShowPlanDialog(false);
-      setShowCategoriesDialog(false);
-    }
-  }, [myServicesData]);
+  }, [detective, mustChange, services]);
 
   const handleSavePlan = async () => {
     try {
@@ -145,8 +135,7 @@ export default function DetectiveDashboard() {
       await api.detectives.createOnboardingServices(detective!.id, complete as any);
       toast({ title: "Onboarding complete", description: "Your profile is now live" });
       setShowCategoriesDialog(false);
-      queryClient.invalidateQueries({ queryKey: ["detectives", "current"] });
-      queryClient.invalidateQueries({ queryKey: ["services", "detective", detective?.id] });
+      queryClient.invalidateQueries({ queryKey: ["detectives", "dashboard"] });
     } catch (error: any) {
       toast({ title: "Failed", description: error.message || "Error saving services", variant: "destructive" });
     }
@@ -573,7 +562,7 @@ export default function DetectiveDashboard() {
         )}
 
         {/* No services CTA */}
-        {Array.isArray(myServicesData?.services) && (myServicesData?.services?.length || 0) === 0 && (
+        {Array.isArray(services) && (services?.length || 0) === 0 && (
           <Card className="border-green-200 bg-green-50">
             <CardContent className="p-6 flex items-center justify-between">
               <div className="space-y-1">
@@ -592,11 +581,9 @@ export default function DetectiveDashboard() {
 
         {/* Service Slots Reminder */}
         {(() => {
-          // Use actual subscription package, not legacy subscriptionPlan field
-          const subscriptionPackage = (detective as any).subscriptionPackage;
-          const plan = subscriptionPackage?.name || "free";
+          const plan = subscription?.name || "free";
           const limits = getPlanLimits(plan);
-          const current = (myServicesData?.services?.length || 0);
+          const current = (services?.length || 0);
           const remaining = Math.max((limits.max || 0) - current, 0);
           const show = plan === "agency" ? true : current < limits.max;
           if (!show) return null;
