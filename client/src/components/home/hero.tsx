@@ -220,7 +220,7 @@ export function Hero() {
           >
             <span className="text-sm text-white/80 mr-1 self-center">Popular:</span>
             {((popularData?.categories || []).map((c: { category: string }) => c.category))
-              .slice(0, 6)
+              .slice(0, 2)
               .map((tag: string) => (
                 <button
                   key={tag}

@@ -5355,9 +5355,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/popular-categories", async (_req: Request, res: Response) => {
     try {
-      const popular = await storage.getPopularSearches(6);
+      const popular = await storage.getPopularCategories(2);
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-      sendCachedJson(_req, res, { categories: popular.map(p => ({ category: p.query, count: p.count })) });
+      sendCachedJson(_req, res, { categories: popular.map(p => ({ category: p.category, count: p.count })) });
     } catch (error) {
       res.status(500).json({ error: "Failed to get popular categories" });
     }
