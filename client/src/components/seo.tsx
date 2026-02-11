@@ -10,6 +10,15 @@ interface SEOProps {
   robots?: string;
   schema?: Record<string, any>;
   breadcrumbs?: Array<{ name: string; url: string }>;
+  author?: {
+    name: string;
+    email?: string;
+    bio?: string;
+    socialProfiles?: Array<{
+      platform: string;
+      url: string;
+    }>;
+  };
   structuredData?: {
     service?: {
       price?: number;
@@ -51,6 +60,7 @@ export function SEO({
   robots = 'index, follow',
   schema,
   breadcrumbs,
+  author,
   structuredData,
   publishedTime,
   modifiedTime,
@@ -259,17 +269,28 @@ export function SEO({
     
     // Article schema
     if (structuredData?.article) {
+      const authorPerson = author ? {
+        "@type": "Person",
+        "name": author.name,
+        ...(author.email && { "email": author.email }),
+        ...(author.bio && { "description": author.bio }),
+        ...(author.socialProfiles && author.socialProfiles.length > 0 && {
+          "sameAs": author.socialProfiles.map(profile => profile.url)
+        }),
+        "url": "https://www.askdetectives.com"
+      } : {
+        "@type": "Organization",
+        "name": structuredData.article.author || "FindDetectives",
+        "url": "https://www.askdetectives.com"
+      };
+      
       const articleSchema = {
         "@context": "https://schema.org",
         "@type": "Article",
         "headline": structuredData.article.headline,
         "datePublished": structuredData.article.datePublished,
         "dateModified": structuredData.article.dateModified,
-        "author": {
-          "@type": "Organization",
-          "name": structuredData.article.author || "FindDetectives",
-          "url": "https://www.askdetectives.com"
-        },
+        "author": authorPerson,
         "publisher": {
           "@type": "Organization",
           "name": "FindDetectives",

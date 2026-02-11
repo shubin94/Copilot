@@ -285,6 +285,8 @@ export default function SearchPage() {
     if (filters.maxPrice !== undefined && converted > filters.maxPrice) return false;
     return true;
   });
+
+  const resultServicesComputed = finalResults;
   
   const hasActiveFilters = !!(
     filters.category || 

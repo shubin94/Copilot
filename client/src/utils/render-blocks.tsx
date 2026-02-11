@@ -44,6 +44,15 @@ function renderHeadingBlock(block: HeadingBlock): React.ReactNode {
 }
 
 function renderParagraphBlock(block: ParagraphBlock): React.ReactNode {
+  const trimmed = block.text.trim();
+  const snippetId = parseDetectiveSnippetId(trimmed);
+  if (snippetId && isSnippetOnly(trimmed)) {
+    return (
+      <div className="my-8" key={Math.random()}>
+        <DetectiveSnippetGrid snippetId={snippetId} />
+      </div>
+    );
+  }
   return (
     <p className="text-gray-800 text-lg leading-relaxed mb-6 whitespace-pre-wrap" key={Math.random()}>
       {block.text}
@@ -100,14 +109,23 @@ function renderVideoBlock(block: VideoBlock): React.ReactNode {
   );
 }
 
-// Parse [detective_snippet id="xxx"] or snippetId="xxx" from shortcode value
+// Parse [detective_snippet id="xxx"], snippetId="xxx", or <DetectiveSnippetGrid snippetId="xxx" />
 function parseDetectiveSnippetId(value: string): string | null {
   const trimmed = value.trim();
   const bracketMatch = trimmed.match(/\[detective_snippet\s+id=["']([^"']+)["']\s*\]/i);
-  if (bracketMatch) return bracketMatch[1];
+  if (bracketMatch) return bracketMatch[1].trim();
   const attrMatch = trimmed.match(/snippetId=["']([^"']+)["']/i);
-  if (attrMatch) return attrMatch[1];
+  if (attrMatch) return attrMatch[1].trim();
+  const jsxMatch = trimmed.match(/<DetectiveSnippetGrid\s+snippetId=["']([^"']+)["']\s*\/?\s*>/i);
+  if (jsxMatch) return jsxMatch[1].trim();
   return null;
+}
+
+function isSnippetOnly(value: string): boolean {
+  return (
+    /^\s*\[detective_snippet\s+id=["'][^"']+["']\s*\]\s*$/i.test(value) ||
+    /^\s*<DetectiveSnippetGrid\s+snippetId=["'][^"']+["']\s*\/?\s*>\s*$/i.test(value)
+  );
 }
 
 function renderShortcodeBlock(block: ShortcodeBlock): React.ReactNode {

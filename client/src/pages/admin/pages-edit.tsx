@@ -46,6 +46,9 @@ export default function PagesAdminEdit() {
     content: "",
     bannerImage: "",
     tagIds: [] as string[],
+    authorBio: "",
+    authorSocial: [] as Array<{ platform: string; url: string }>,
+    status: "published" as 'published' | 'draft' | 'archived',
   });
   const [tagsOpen, setTagsOpen] = useState(false);
   const [error, setError] = useState<string>("");
@@ -128,6 +131,9 @@ export default function PagesAdminEdit() {
         content: "",
         bannerImage: "",
         tagIds: [],
+        authorBio: "",
+        authorSocial: [],
+        status: "published",
       });
       setEditingId(null);
       setError("");
@@ -169,6 +175,9 @@ export default function PagesAdminEdit() {
       content: page.content,
       bannerImage: page.bannerImage || "",
       tagIds: page.tags.map((t) => t.id),
+      authorBio: "",
+      authorSocial: [],
+      status: (page.status as 'published' | 'draft' | 'archived') || "published",
     });
     setShowModal(true);
     setError("");
@@ -382,6 +391,86 @@ export default function PagesAdminEdit() {
                 />
               </div>
 
+              {/* Author Display */}
+              {user && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Author</label>
+                  <div className="w-full px-4 py-2 border rounded bg-blue-50 text-blue-900 border-blue-200">
+                    <p className="font-medium">{user.name || user.email}</p>
+                    <p className="text-xs text-blue-700">Auto-assigned as page author</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Author Bio */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Author Bio (optional)</label>
+                <textarea
+                  value={formData.authorBio}
+                  onChange={(e) =>
+                    setFormData({ ...formData, authorBio: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Brief biography of the author"
+                  rows={2}
+                />
+              </div>
+
+              {/* Author Social Links */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Author Social Profiles (optional)</label>
+                <div className="space-y-2 mb-3">
+                  {formData.authorSocial && formData.authorSocial.length > 0 && formData.authorSocial.map((social, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g., Twitter, LinkedIn, GitHub"
+                        value={social.platform}
+                        onChange={(e) => {
+                          const newSocial = [...formData.authorSocial];
+                          newSocial[idx].platform = e.target.value;
+                          setFormData({ ...formData, authorSocial: newSocial });
+                        }}
+                        className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <input
+                        type="url"
+                        placeholder="https://..."
+                        value={social.url}
+                        onChange={(e) => {
+                          const newSocial = [...formData.authorSocial];
+                          newSocial[idx].url = e.target.value;
+                          setFormData({ ...formData, authorSocial: newSocial });
+                        }}
+                        className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newSocial = formData.authorSocial.filter((_, i) => i !== idx);
+                          setFormData({ ...formData, authorSocial: newSocial });
+                        }}
+                        className="px-3 py-2 bg-red-50 text-red-600 rounded hover:bg-red-100"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData({
+                      ...formData,
+                      authorSocial: [...(formData.authorSocial || []), { platform: "", url: "" }],
+                    });
+                  }}
+                  className="px-4 py-2 bg-blue-50 text-blue-600 border border-blue-200 rounded hover:bg-blue-100"
+                >
+                  {(formData.authorSocial && formData.authorSocial.length === 0) ? "Add Social Profile" : "Add Another"}
+                </button>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium mb-1">Banner Image</label>
                 <div className="space-y-3">
@@ -498,7 +587,23 @@ export default function PagesAdminEdit() {
                   placeholder="Enter page content (HTML or Markdown)"
                 />
               </div>
-
+            <div>
+              <label className="block text-sm font-medium mb-1">Page Status</label>
+              <select
+                value={formData.status || 'published'}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    status: e.target.value as 'published' | 'draft' | 'archived',
+                  })
+                }
+                className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="published">Published</option>
+                <option value="draft">Draft</option>
+                <option value="archived">Archived</option>
+              </select>
+            </div>
               <div className="flex gap-2 pt-4">
                 <button
                   type="submit"

@@ -21,6 +21,15 @@ interface PageData {
   metaDescription?: string;
   createdAt: string;
   updatedAt: string;
+  author?: {
+    name: string;
+    email?: string;
+    bio?: string;
+    socialProfiles?: Array<{
+      platform: string;
+      url: string;
+    }>;
+  } | null;
   category?: {
     id: string;
     name: string;
@@ -120,9 +129,14 @@ export default function PageView() {
         publishedTime={page.createdAt}
         modifiedTime={page.updatedAt}
         image={page.bannerImage}
+        author={page.author ? {
+          name: page.author.name,
+          email: page.author.email
+        } : undefined}
         structuredData={{
           article: {
             headline: page.title,
+            author: page.author?.name || "FindDetectives",
             datePublished: page.createdAt,
             dateModified: page.updatedAt,
             image: page.bannerImage,
@@ -251,6 +265,44 @@ export default function PageView() {
           <div>
             {renderBlocks(parseContentBlocks(page.content))}
           </div>
+
+          {/* Author Section */}
+          {page.author && (
+            <div className="mt-12 pt-8 border-t bg-gray-50 rounded-lg p-6">
+              <div>
+                <h3 className="font-semibold text-lg text-gray-900 mb-2">
+                  Written by {page.author.name}
+                </h3>
+                {page.author.email && (
+                  <p className="text-sm text-gray-600">
+                    Contact: <a href={`mailto:${page.author.email}`} className="text-blue-600 hover:underline">
+                      {page.author.email}
+                    </a>
+                  </p>
+                )}
+                {page.author.bio && (
+                  <p className="text-sm text-gray-700 mt-3">
+                    {page.author.bio}
+                  </p>
+                )}
+                {page.author.socialProfiles && page.author.socialProfiles.length > 0 && (
+                  <div className="flex gap-4 mt-4">
+                    {page.author.socialProfiles.map((profile) => (
+                      <a
+                        key={profile.platform}
+                        href={profile.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center px-3 py-1 bg-white border rounded text-sm hover:bg-blue-50 transition"
+                      >
+                        {profile.platform}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Article Footer */}
           <div className="mt-12 pt-8 border-t">
