@@ -7,6 +7,7 @@ import { Footer } from "@/components/layout/footer";
 import { SEO } from "@/components/seo";
 import { parseContentBlocks } from "@/shared/content-blocks";
 import { renderBlocks } from "@/utils/render-blocks";
+import { RelatedPosts } from "@/components/related-posts";
 import NotFound from "./not-found";
 
 interface PageData {
@@ -20,6 +21,15 @@ interface PageData {
   metaDescription?: string;
   createdAt: string;
   updatedAt: string;
+  author?: {
+    name: string;
+    email?: string;
+    bio?: string;
+    socialProfiles?: Array<{
+      platform: string;
+      url: string;
+    }>;
+  } | null;
   category?: {
     id: string;
     name: string;
@@ -98,12 +108,42 @@ export default function PageView() {
   if (!data?.page) return <NotFound />;
 
   const page = data.page;
+  
+  const breadcrumbs = page.category
+    ? [
+        { name: "Home", url: "/" },
+        { name: page.category.name, url: `/blog/category/${page.category.slug}` },
+        { name: page.title, url: window.location.pathname }
+      ]
+    : [
+        { name: "Home", url: "/" },
+        { name: page.title, url: window.location.pathname }
+      ];
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <SEO 
         title={page.metaTitle || page.title} 
-        description={page.metaDescription} 
+        description={page.metaDescription}
+        breadcrumbs={breadcrumbs}
+        publishedTime={page.createdAt}
+        modifiedTime={page.updatedAt}
+        image={page.bannerImage}
+        author={page.author ? {
+          name: page.author.name,
+          email: page.author.email
+        } : undefined}
+        structuredData={{
+          article: {
+            headline: page.title,
+            author: page.author?.name || "FindDetectives",
+            datePublished: page.createdAt,
+            dateModified: page.updatedAt,
+            image: page.bannerImage,
+            articleSection: page.category?.name,
+            keywords: page.tags.map(t => t.name)
+          }
+        }}
       />
       <Navbar />
 
@@ -131,8 +171,9 @@ export default function PageView() {
               <div className="w-full">
                 <img
                   src={page.bannerImage}
-                  alt={page.title}
+                  alt={`${page.title} - ${page.category?.name || 'Article'} banner image`}
                   className="w-full h-64 md:h-80 lg:h-96 object-cover rounded-2xl shadow-xl"
+                  loading="lazy"
                 />
               </div>
             </div>
@@ -225,6 +266,44 @@ export default function PageView() {
             {renderBlocks(parseContentBlocks(page.content))}
           </div>
 
+          {/* Author Section */}
+          {page.author && (
+            <div className="mt-12 pt-8 border-t bg-gray-50 rounded-lg p-6">
+              <div>
+                <h3 className="font-semibold text-lg text-gray-900 mb-2">
+                  Written by {page.author.name}
+                </h3>
+                {page.author.email && (
+                  <p className="text-sm text-gray-600">
+                    Contact: <a href={`mailto:${page.author.email}`} className="text-blue-600 hover:underline">
+                      {page.author.email}
+                    </a>
+                  </p>
+                )}
+                {page.author.bio && (
+                  <p className="text-sm text-gray-700 mt-3">
+                    {page.author.bio}
+                  </p>
+                )}
+                {page.author.socialProfiles && page.author.socialProfiles.length > 0 && (
+                  <div className="flex gap-4 mt-4">
+                    {page.author.socialProfiles.map((profile) => (
+                      <a
+                        key={profile.platform}
+                        href={profile.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center px-3 py-1 bg-white border rounded text-sm hover:bg-blue-50 transition"
+                      >
+                        {profile.platform}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Article Footer */}
           <div className="mt-12 pt-8 border-t">
             <div className="flex flex-wrap gap-4">
@@ -246,6 +325,12 @@ export default function PageView() {
           </div>
         </article>
       </main>
+
+      <RelatedPosts 
+        currentPostId={page.id}
+        categoryId={page.category?.id}
+        tags={page.tags}
+      />
 
       <Footer />
     </div>

@@ -5,18 +5,37 @@ import * as cache from "../lib/cache.ts";
 const router = Router();
 const CMS_PAGE_TTL_SECONDS = 300; // 5 minutes
 
-async function fetchPage(slug: string, category?: string) {
-  // For hierarchical categories, we need to query by the full slug path stored in the database
-  const params: any[] = [slug];
-  let where = "p.slug = $1 AND p.status = 'published'";
-  
-  if (category) {
-    params.push(category);  // This is now the full hierarchical slug (e.g., "test/new")
-    where = `${where} AND c.slug = $2`;
+// Helper to resolve hierarchical category slugs
+async function getCategoryIdFromHierarchicalSlug(slugPath: string): Promise<string | null> {
+  const directResult = await pool.query("SELECT id FROM categories WHERE slug = $1", [slugPath]);
+  if (directResult.rows.length > 0) {
+    return directResult.rows[0].id;
   }
 
-  const pageResult = await pool.query(
-    `SELECT 
+  const slugParts = slugPath.split("/");
+  let currentCategoryId: string | null = null;
+
+  for (const slug of slugParts) {
+    let query = "SELECT id FROM categories WHERE slug = $1";
+    const params: any[] = [slug];
+
+    if (currentCategoryId) {
+      query += " AND parent_id = $2";
+      params.push(currentCategoryId);
+    } else {
+      query += " AND parent_id IS NULL";
+    }
+
+    const result = await pool.query(query, params);
+    if (result.rows.length === 0) return null;
+    currentCategoryId = result.rows[0].id;
+  }
+
+  return currentCategoryId;
+}
+
+async function fetchPage(slug: string, category?: string) {
+  const baseSelect = `SELECT 
       p.id,
       p.title,
       p.slug,
@@ -32,9 +51,58 @@ async function fetchPage(slug: string, category?: string) {
       c.slug as category_slug
      FROM pages p
      LEFT JOIN categories c ON p.category_id = c.id
-     WHERE ${where}`,
-    params
-  );
+     WHERE`;
+
+  const selectWithAuthor = `SELECT 
+      p.id,
+      p.title,
+      p.slug,
+      p.content,
+      p.banner_image,
+      p.status,
+      p.meta_title,
+      p.meta_description,
+      p.created_at,
+      p.updated_at,
+      c.id as category_id,
+      c.name as category_name,
+      c.slug as category_slug,
+      p.author_name,
+      p.author_email,
+      p.author_bio,
+      p.author_social
+     FROM pages p
+     LEFT JOIN categories c ON p.category_id = c.id
+     WHERE`;
+
+  const runQuery = async (where: string, params: any[]) => {
+    try {
+      return await pool.query(`${selectWithAuthor} ${where}`, params);
+    } catch (error: any) {
+      if (error?.message?.includes("column") && error?.message?.includes("does not exist")) {
+        return await pool.query(`${baseSelect} ${where}`, params);
+      }
+      throw error;
+    }
+  };
+
+  const params: any[] = [slug];
+  let where = "p.slug = $1 AND p.status = 'published'";
+  let pageResult;
+
+  if (category) {
+    // Resolve the hierarchical category slug to get the category ID
+    const categoryId = await getCategoryIdFromHierarchicalSlug(category);
+    if (categoryId) {
+      params.push(categoryId);
+      where = `${where} AND p.category_id = $2`;
+      pageResult = await runQuery(where, params);
+    }
+  }
+
+  if (!pageResult || pageResult.rows.length === 0) {
+    pageResult = await runQuery("p.slug = $1 AND p.status = 'published'", [slug]);
+  }
 
   if (pageResult.rows.length === 0) return null;
 
@@ -58,6 +126,12 @@ async function fetchPage(slug: string, category?: string) {
     metaDescription: pageRow.meta_description,
     createdAt: pageRow.created_at,
     updatedAt: pageRow.updated_at,
+    author: pageRow.author_name ? {
+      name: pageRow.author_name,
+      email: pageRow.author_email || undefined,
+      bio: pageRow.author_bio || undefined,
+      socialProfiles: pageRow.author_social || []
+    } : null,
     category: pageRow.category_id
       ? { id: pageRow.category_id, name: pageRow.category_name, slug: pageRow.category_slug }
       : null,

@@ -408,7 +408,7 @@ router.get("/pages", requireRole("admin", "employee"), async (req: Request, res:
 // POST /api/admin/pages
 router.post("/pages", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
-    const { title, slug, categoryId, content, bannerImage, tagIds, status } = z
+    const { title, slug, categoryId, content, bannerImage, tagIds, status, authorBio, authorSocial } = z
       .object({
         title: z.string().min(1),
         slug: z.string().min(1),
@@ -417,6 +417,8 @@ router.post("/pages", requireRole("admin", "employee"), async (req: Request, res
         bannerImage: z.string().optional(),
         tagIds: z.array(z.string().uuid()).min(1, "At least one tag required"),
         status: z.enum(["published", "draft", "archived"]).optional(),
+        authorBio: z.string().optional(),
+        authorSocial: z.array(z.object({ platform: z.string(), url: z.string() })).optional(),
       })
       .parse(req.body);
 
@@ -458,7 +460,24 @@ router.post("/pages", requireRole("admin", "employee"), async (req: Request, res
 
     const uploadedContent = await uploadContentImages(content);
 
-    const page = await createPage(title, slug, categoryId, uploadedContent || content, bannerImageUrl, tagIds, status);
+    // Get author info from session - with safe fallbacks
+    const authorName = req.session?.userName || req.session?.userEmail?.split("@")[0] || "Admin";
+    const authorEmail = req.session?.userEmail || "";
+    
+    // Build author meta with bio and social profiles
+    const authorMeta = (authorName && authorName !== "Admin") || authorEmail 
+      ? { 
+          name: authorName, 
+          email: authorEmail,
+          bio: authorBio || undefined,
+          socialProfiles: (authorSocial && authorSocial.length > 0) ? authorSocial : undefined
+        }
+      : undefined;
+
+    // Default to 'published' if no status provided
+    const pageStatus = status || 'published';
+
+    const page = await createPage(title, slug, categoryId, uploadedContent || content, bannerImageUrl, tagIds, pageStatus, authorMeta);
     if (!page) {
       console.error("[cms] Create page: returned null page");
       return res.status(500).json({ error: "Failed to create page" });
@@ -476,7 +495,13 @@ router.post("/pages", requireRole("admin", "employee"), async (req: Request, res
       console.warn("[cms] Create page validation error:", fromZodError(error).message);
       return res.status(400).json({ error: fromZodError(error).message });
     }
-    console.error("[cms] Create page error:", error instanceof Error ? error.message : error);
+    console.error("[cms] Create page error:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      title,
+      slug,
+      categoryId
+    });
     res.status(500).json({ error: "Failed to create page" });
   }
 });

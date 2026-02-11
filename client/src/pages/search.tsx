@@ -285,6 +285,8 @@ export default function SearchPage() {
     if (filters.maxPrice !== undefined && converted > filters.maxPrice) return false;
     return true;
   });
+
+  const resultServicesComputed = finalResults;
   
   const hasActiveFilters = !!(
     filters.category || 
@@ -639,13 +641,80 @@ export default function SearchPage() {
      </Accordion>
   );
 
+  // SEO: Dynamic title and H1 based on filters
+  const seoTitle = filters.category 
+    ? `${filters.category}${filters.country ? ` in ${filters.country}` : ''}${filters.city ? `, ${filters.city}` : ''} | FindDetectives`
+    : `Find Professional Private Investigators${filters.country ? ` in ${filters.country}` : ''} | FindDetectives`;
+  
+  const seoDescription = filters.category
+    ? `Browse ${resultServicesComputed.length || 'verified'} ${filters.category} services${filters.country ? ` in ${filters.country}` : ''}${filters.city ? `, ${filters.city}` : ''}. Compare prices, reviews, and ratings from top private investigators.`
+    : `Find and hire verified private investigators${filters.country ? ` in ${filters.country}` : ''}. Browse services, compare prices, and read reviews from professional detectives.`;
+  
+  const h1Text = filters.category
+    ? `${filters.category} Detectives${filters.country ? ` in ${filters.country}` : ''}${filters.city ? `, ${filters.city}` : ''}`
+    : filters.country
+    ? `Private Investigators in ${filters.country}${filters.city ? `, ${filters.city}` : ''}`
+    : 'Find Professional Private Investigators';
+  
+  // SEO: Clean canonical URL (strip offset, utm params)
+  const canonicalParams = new URLSearchParams();
+  if (filters.category) canonicalParams.set('category', filters.category);
+  if (filters.country) canonicalParams.set('country', filters.country);
+  if (filters.city) canonicalParams.set('city', filters.city);
+  if (filters.sortBy && filters.sortBy !== 'popular') canonicalParams.set('sortBy', filters.sortBy);
+  const canonicalUrl = `https://www.askdetectives.com/search${canonicalParams.toString() ? `?${canonicalParams.toString()}` : ''}`;
+
+  // SEO: ItemList schema for search results
+  const itemListSchema = resultServicesComputed.length > 0 ? {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    "numberOfItems": resultServicesComputed.length,
+    "itemListElement": resultServicesComputed.slice(0, 20).map((service, index) => ({
+      "@type": "ListItem",
+      "position": index + 1,
+      "item": {
+        "@type": "Service",
+        "@id": `https://www.askdetectives.com/service/${service.id}`,
+        "name": service.title,
+        "url": `https://www.askdetectives.com/service/${service.id}`,
+        "provider": {
+          "@type": "Organization",
+          "name": service.name
+        },
+        ...(service.isOnEnquiry ? {} : {
+          "offers": {
+            "@type": "Offer",
+            "price": service.offerPrice || service.price,
+            "priceCurrency": "INR"
+          }
+        }),
+        ...(service.rating && service.reviews > 0 && {
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": service.rating,
+            "reviewCount": service.reviews
+          }
+        })
+      }
+    }))
+  } : undefined;
+
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900 bg-white">
       <SEO 
-        title={`Search Results for "${query}" | FindDetectives`}
-        description={`Find the best private investigators for ${query}. Compare ratings, reviews, and prices from verified professionals.`}
-        canonical={`${window.location.origin}/search${query ? `?q=${encodeURIComponent(query)}` : ''}`}
+        title={seoTitle}
+        description={seoDescription}
+        canonical={canonicalUrl}
         robots="index, follow"
+        schema={itemListSchema}
+        keywords={[
+          filters.category || 'private investigator',
+          filters.country || '',
+          filters.city || '',
+          'detective services',
+          'investigation',
+          'background check'
+        ].filter(Boolean)}
       />
       <Navbar />
       
@@ -697,7 +766,15 @@ export default function SearchPage() {
 
             <div className="flex-1">
               <div className="mb-6">
-                <h1 className="text-3xl font-bold font-heading mb-2" data-testid="text-search-heading">Results for "{query}"</h1>
+                <h1 className="text-3xl font-bold font-heading mb-2" data-testid="text-search-heading">{h1Text}</h1>
+                {resultServicesComputed.length > 0 && (
+                  <p className="text-gray-600 text-sm">
+                    Showing {resultServicesComputed.length} verified service{resultServicesComputed.length !== 1 ? 's' : ''}
+                    {filters.category && ` in ${filters.category}`}
+                    {filters.country && ` • ${filters.country}`}
+                    {filters.city && ` • ${filters.city}`}
+                  </p>
+                )}
                 <div className="flex justify-between items-center">
             <div className="flex items-center gap-2 text-gray-500 text-sm">
                <span className="font-semibold text-gray-900" data-testid="text-results-count">{isLoading ? '...' : finalResults.length}</span> services available

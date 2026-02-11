@@ -66,9 +66,19 @@ export default function PageTag() {
 
   const tagName = data?.tag?.name || "Tag";
 
+  const breadcrumbs = [
+    { name: "Home", url: "/" },
+    { name: "Blog", url: "/blog" },
+    { name: `#${tagName}`, url: window.location.pathname }
+  ];
+
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title={`${tagName} | Pages`} description={`Pages tagged ${tagName}`} />
+      <SEO 
+        title={`${tagName} | Pages`} 
+        description={`Pages tagged ${tagName}`}
+        breadcrumbs={breadcrumbs}
+      />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
         <div className="mb-8">
@@ -90,8 +100,9 @@ export default function PageTag() {
                   {page.bannerImage && (
                     <img
                       src={page.bannerImage}
-                      alt={page.title}
+                      alt={`${page.title} - ${page.category?.name || 'Article'}`}
                       className="w-full h-44 object-cover"
+                      loading="lazy"
                     />
                   )}
                   <div className="p-5 space-y-3">

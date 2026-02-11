@@ -288,6 +288,15 @@ export interface Page {
   content: string; // JSON string OR plain text (backward compatible)
   blocks?: ContentBlock[]; // Parsed blocks (for convenience)
   bannerImage?: string;
+  author?: {
+    name: string;
+    email?: string;
+    bio?: string;
+    socialProfiles?: Array<{
+      platform: string;
+      url: string;
+    }>;
+  };
   category?: {
     id: string;
     name: string;
@@ -387,7 +396,8 @@ export async function createPage(
   content: string,
   bannerImage: string | undefined,
   tagIds: string[],
-  status?: string
+  status?: string,
+  authorMeta?: any
 ): Promise<Page> {
   const pageId = uuidv4();
 
@@ -396,22 +406,85 @@ export async function createPage(
   try {
     await client.query("BEGIN");
 
-    // Create page
+    // Create page - try with author fields first, fallback if columns don't exist
     let query = "INSERT INTO pages (id, title, slug, category_id, content, banner_image";
     const params: any[] = [pageId, title, slug, categoryId, content, bannerImage || null];
+    let includeAuthor = false;
 
     if (status) {
       query += ", status";
       params.push(status);
     }
 
+    // Add author fields only if provided
+    if (authorMeta?.name || authorMeta?.email || authorMeta?.bio || authorMeta?.socialProfiles) {
+      includeAuthor = true;
+      if (authorMeta?.name) {
+        query += ", author_name";
+        params.push(authorMeta.name);
+      }
+      if (authorMeta?.email) {
+        query += ", author_email";
+        params.push(authorMeta.email);
+      }
+      if (authorMeta?.bio) {
+        query += ", author_bio";
+        params.push(authorMeta.bio);
+      }
+      if (authorMeta?.socialProfiles && authorMeta.socialProfiles.length > 0) {
+        query += ", author_social";
+        params.push(JSON.stringify(authorMeta.socialProfiles));
+      }
+    }
+
     query += ") VALUES ($1, $2, $3, $4, $5, $6";
+    let paramIndex = 7;
     if (status) {
-      query += ", $7";
+      query += `, $${paramIndex}`;
+      paramIndex++;
+    }
+    if (authorMeta?.name) {
+      query += `, $${paramIndex}`;
+      paramIndex++;
+    }
+    if (authorMeta?.email) {
+      query += `, $${paramIndex}`;
+      paramIndex++;
+    }
+    if (authorMeta?.bio) {
+      query += `, $${paramIndex}`;
+      paramIndex++;
+    }
+    if (authorMeta?.socialProfiles && authorMeta.socialProfiles.length > 0) {
+      query += `, $${paramIndex}`;
+      paramIndex++;
     }
     query += ") RETURNING *";
 
-    const result = await client.query(query, params);
+    let result: any;
+    try {
+      result = await client.query(query, params);
+    } catch (error: any) {
+      // If the error is about undefined columns, retry without author fields
+      if (error.message?.includes("column") && error.message?.includes("does not exist") && includeAuthor) {
+        console.warn("[cms] Author columns not found, retrying without author fields", error.message);
+        
+        // Rebuild query without author fields
+        query = "INSERT INTO pages (id, title, slug, category_id, content, banner_image";
+        const paramsRetry: any[] = [pageId, title, slug, categoryId, content, bannerImage || null];
+        
+        if (status) {
+          query += ", status";
+          paramsRetry.push(status);
+        }
+        
+        query += `) VALUES ($1, $2, $3, $4, $5, $6${status ? ", $7" : ""}) RETURNING *`;
+        result = await client.query(query, paramsRetry);
+      } else {
+        throw error;
+      }
+    }
+
     if (!result.rows[0]) {
       throw new Error("Failed to insert page");
     }
@@ -440,6 +513,10 @@ export async function createPage(
       status: pageRow.status,
       metaTitle: pageRow.meta_title,
       metaDescription: pageRow.meta_description,
+      author: pageRow.author_name ? {
+        name: pageRow.author_name,
+        email: pageRow.author_email || undefined
+      } : undefined,
       createdAt: pageRow.created_at,
       updatedAt: pageRow.updated_at,
       tags: tagsResult.rows.map((row) => ({
