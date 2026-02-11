@@ -1,11 +1,10 @@
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Users, UserCheck, Package, Plus } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { useDetectives, useServices } from "@/lib/hooks";
+import { useAdminDashboardSummary } from "@/lib/hooks";
 import { useUser } from "@/lib/user-context";
 import { useEffect } from "react";
 
@@ -13,8 +12,7 @@ import { useEffect } from "react";
 export default function AdminDashboard() {
   const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
   const [, setLocation] = useLocation();
-  const { data: detectivesData, isLoading: isLoadingDetectives } = useDetectives();
-  const { data: servicesData, isLoading: isLoadingServices } = useServices();
+  const { data: summary, isLoading: isLoadingSummary } = useAdminDashboardSummary();
   const isAdminOrEmployee = user?.role === "admin" || user?.role === "employee";
 
   // Redirect if not authenticated or not admin
@@ -34,20 +32,14 @@ export default function AdminDashboard() {
     return null;
   }
 
-  const detectives = detectivesData?.detectives || [];
-  const services = servicesData?.services || [];
-
-  // Calculate stats
-  const totalDetectives = detectives.length;
-  const pendingDetectives = detectives.filter(d => d.status === 'pending').length;
-  const activeDetectives = detectives.filter(d => d.status === 'active').length;
-  const totalServices = services.length;
-  const activeServices = services.filter(s => s.isActive).length;
-
-  // Get recent detectives (last 3)
-  const recentDetectives = detectives
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 3);
+  // Destructure summary stats with defaults
+  const totalDetectives = summary?.totalDetectives || 0;
+  const pendingDetectives = summary?.pendingDetectives || 0;
+  const activeDetectives = summary?.activeDetectives || 0;
+  const totalServices = summary?.totalServices || 0;
+  const activeServices = summary?.activeServices || 0;
+  const recentDetectivesLast30Days = summary?.recentDetectivesLast30Days || 0;
+  const recentServicesLast30Days = summary?.recentServicesLast30Days || 0;
 
   return (
     <DashboardLayout role="admin">
@@ -72,7 +64,7 @@ export default function AdminDashboard() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {isLoadingDetectives ? (
+              {isLoadingSummary ? (
                 <>
                   <Skeleton className="h-8 w-20 mb-2" />
                   <Skeleton className="h-4 w-32" />
@@ -92,7 +84,7 @@ export default function AdminDashboard() {
               <UserCheck className="h-4 w-4 text-yellow-500" />
             </CardHeader>
             <CardContent>
-              {isLoadingDetectives ? (
+              {isLoadingSummary ? (
                 <>
                   <Skeleton className="h-8 w-20 mb-2" />
                   <Skeleton className="h-4 w-32" />
@@ -114,7 +106,7 @@ export default function AdminDashboard() {
               <Package className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              {isLoadingServices ? (
+              {isLoadingSummary ? (
                 <>
                   <Skeleton className="h-8 w-20 mb-2" />
                   <Skeleton className="h-4 w-32" />
@@ -132,56 +124,39 @@ export default function AdminDashboard() {
 
         <div className="grid gap-6 md:grid-cols-1">
 
-          {/* Recent Detectives */}
-          <Card className="col-span-3" data-testid="card-recent-detectives">
+          {/* Recent Activity Summary */}
+          <Card className="col-span-3" data-testid="card-recent-activity">
             <CardHeader>
-              <CardTitle>Recent Detectives</CardTitle>
+              <CardTitle>Recent Activity</CardTitle>
             </CardHeader>
             <CardContent>
-              {isLoadingDetectives ? (
+              {isLoadingSummary ? (
                 <div className="space-y-6">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="flex items-center space-x-4">
-                      <Skeleton className="h-10 w-10 rounded-full" />
-                      <div className="space-y-2 flex-1">
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-3 w-24" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : recentDetectives.length > 0 ? (
-                <div className="space-y-6">
-                  {recentDetectives.map((detective) => (
-                    <div key={detective.id} className="flex items-center justify-between" data-testid={`detective-${detective.id}`}>
-                      <div className="flex items-center space-x-4">
-                        <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-sm">
-                          {detective.businessName ? detective.businessName[0].toUpperCase() : 'D'}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium leading-none" data-testid={`text-detective-name-${detective.id}`}>
-                            {detective.businessName || 'Unnamed Detective'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">{detective.country}</p>
-                          <div className="flex gap-2 mt-1">
-                            <Badge 
-                              variant={detective.status === 'active' ? 'default' : detective.status === 'pending' ? 'secondary' : 'destructive'} 
-                              className="text-[10px] h-5"
-                              data-testid={`badge-status-${detective.id}`}
-                            >
-                              {detective.status}
-                            </Badge>
-                            <Badge variant="outline" className="text-[10px] h-5">
-                              {(detective as any).subscriptionPackage?.displayName || (detective as any).subscriptionPackage?.name || detective.subscriptionPlan}
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
+                  {[1, 2].map((i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <Skeleton className="h-4 w-48" />
+                      <Skeleton className="h-8 w-16" />
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-8">No detectives yet</p>
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium leading-none">Detectives Added</p>
+                      <p className="text-xs text-muted-foreground">Last 30 days</p>
+                    </div>
+                    <span className="text-2xl font-bold" data-testid="text-recent-detectives">{recentDetectivesLast30Days}</span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium leading-none">Services Added</p>
+                      <p className="text-xs text-muted-foreground">Last 30 days</p>
+                    </div>
+                    <span className="text-2xl font-bold" data-testid="text-recent-services">{recentServicesLast30Days}</span>
+                  </div>
+                </div>
               )}
               <Link href="/admin/detectives">
                 <Button variant="outline" className="w-full mt-6" data-testid="button-view-all-detectives">

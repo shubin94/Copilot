@@ -85,6 +85,63 @@ export function useCurrentDetective() {
   });
 }
 
+// OPTIMIZED: Detective dashboard data - single query with all dashboard data
+// Fetches detective profile + services + subscription in one endpoint
+export function useDetectiveDashboard() {
+  return useQuery<{
+    detective: {
+      id: string;
+      businessName: string | null;
+      status: string;
+      location: string;
+      city: string;
+      state: string;
+      country: string;
+      subscriptionPackageId: string;
+    };
+    services: Array<{
+      id: string;
+      title: string;
+      category: string;
+      basePrice: string | null;
+      offerPrice: string | null;
+      isActive: boolean;
+    }>;
+    subscription: {
+      id: string;
+      name: string;
+      serviceLimit: number | null;
+    };
+  }>({
+    queryKey: ["detectives", "dashboard"],
+    queryFn: () => api.get("/api/detectives/me/dashboard"),
+    staleTime: 5 * 60 * 1000,    // 5 minutes - reuse cached data for 5 mins
+    gcTime: 10 * 60 * 1000,      // 10 minutes - keep in memory for 10 mins
+    retry: 1,                    // Retry once on failure
+  });
+}
+
+// OPTIMIZED: Admin dashboard summary - single query with aggregated statistics
+// Fetches count-based summary without individual records
+export function useAdminDashboardSummary() {
+  return useQuery<{
+    totalDetectives: number;
+    activeDetectives: number;
+    pendingDetectives: number;
+    totalServices: number;
+    activeServices: number;
+    recentDetectivesLast30Days: number;
+    recentServicesLast30Days: number;
+  }>({
+    queryKey: ["admin", "dashboard", "summary"],
+    queryFn: () => api.get("/api/admin/dashboard/summary"),
+    staleTime: 5 * 60 * 1000,    // 5 minutes - reuse cached data for 5 mins
+    gcTime: 10 * 60 * 1000,      // 10 minutes - keep in memory for 10 mins
+    refetchOnWindowFocus: false,  // Don't refetch on window focus - stable summary data
+    retry: 1,                    // Retry once on failure
+  });
+}
+
 export function useSubscriptionLimits() {
   return useQuery({
     queryKey: ["subscription", "limits"],
