@@ -774,7 +774,7 @@ export class DatabaseStorage implements IStorage {
 
     // Sort
     if (sortBy === 'popular') {
-      query = query.orderBy(desc(services.orderCount)) as any;
+      query = query.orderBy(desc(services.orderCount), sql`RANDOM()`) as any;
     } else if (sortBy === 'rating') {
       query = query.orderBy(desc(reviewsAgg.avgRating)) as any;
     } else if (sortBy === 'price_low') {
