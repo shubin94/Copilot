@@ -206,6 +206,7 @@ export default function DetectivePublicPage() {
                     reviews={service.reviewCount}
                     price={Number(service.basePrice)}
                     offerPrice={service.offerPrice ? Number(service.offerPrice) : null}
+                    isOnEnquiry={service.isOnEnquiry}
                     isUnclaimed={false}
                     countryCode={detective?.country}
                     phone={(detective as any)?.phone}
