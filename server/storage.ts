@@ -19,7 +19,7 @@ import {
   appPolicies,
   subscriptionPlans
 } from "../shared/schema.ts";
-import { eq, and, desc, sql, count, avg, or, ilike, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, count, avg, or, ilike, inArray, isNotNull, ne } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan.ts";
 
@@ -1590,6 +1590,12 @@ export class DatabaseStorage implements IStorage {
     const rows = await db
       .select({ category: services.category, count: count() })
       .from(services)
+      .innerJoin(serviceCategories, eq(serviceCategories.name, services.category))
+      .where(and(
+        isNotNull(services.category),
+        ne(services.category, ""),
+        eq(serviceCategories.isActive, true)
+      ))
       .groupBy(services.category)
       .orderBy(desc(count()))
       .limit(limit);
