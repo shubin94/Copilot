@@ -160,8 +160,7 @@ router.get("/", async (req: Request, res: Response) => {
       SELECT id, updated_at
       FROM detectives
       WHERE status = 'active'
-      ORDER BY created_at DESC
-      LIMIT 100
+      ORDER BY updated_at DESC
     `);
 
     xml += `\n  <!-- Detective Profiles -->\n`;
@@ -183,7 +182,6 @@ router.get("/", async (req: Request, res: Response) => {
       INNER JOIN detectives d ON s.detective_id = d.id
       WHERE s.is_active = true AND d.status = 'active'
       ORDER BY s.updated_at DESC
-      LIMIT 200
     `);
 
     xml += `\n  <!-- Services -->\n`;

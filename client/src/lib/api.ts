@@ -529,6 +529,13 @@ export const api = {
       return handleResponse(response);
     },
 
+    getFeaturedHome: async (): Promise<{ services: Service[] }> => {
+      const response = await csrfFetch(`/api/services/featured/home`, {
+        credentials: "include",
+      });
+      return handleResponse(response);
+    },
+
     adminGetByDetective: async (detectiveId: string): Promise<{ services: Service[] }> => {
       const response = await csrfFetch(`/api/admin/detectives/${detectiveId}/services`, {
         credentials: "include",
