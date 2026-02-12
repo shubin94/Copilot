@@ -65,6 +65,7 @@ import publicCategoriesRouter from "./routes/public-categories.ts";
 import publicTagsRouter from "./routes/public-tags.ts";
 import sitemapRouter from "./routes/sitemap.ts";
 import rssRouter from "./routes/rss.ts";
+import featuredHomeServicesRouter from "./routes/featured-home-services.ts";
 
 // Initialize Razorpay with env fallback (will be overridden by DB config)
 let razorpayClient = new Razorpay({
@@ -2297,6 +2298,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // RSS Feed - blog content syndication
   app.use("/rss.xml", rssRouter);
+
+  // Featured home services (8 services, 1 per detective - optimized for home page loading)
+  app.use("/api/services/featured/home", featuredHomeServicesRouter);
 
   // Admin Employee Routes
   app.use("/api/admin/employees", adminEmployeesRouter);

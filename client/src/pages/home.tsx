@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, AlertCircle, Layers } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Link } from "wouter";
-import { useSearchServices, useServiceCategories, useSearchDetectives, useSiteSettings } from "@/lib/hooks";
+import { useSearchServices, useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
 import type { Service, Detective, ServiceCategory } from "@shared/schema";
 import { computeServiceBadges } from "@/lib/service-badges";
 import { useEffect, useRef } from "react";
@@ -55,12 +55,9 @@ export default function Home() {
   const { data: categoriesData, isLoading: isLoadingCategories } = useServiceCategories(true);
   const categories = categoriesData?.categories || [];
 
-  const { data: popularServicesData, isLoading: isLoadingPopular } = useSearchServices({ 
-    limit: 8, 
-    sortBy: "recent" 
-  });
+  const { data: popularServicesData, isLoading: isLoadingPopular } = useFeaturedHomeServices();
 
-  const popularServices = popularServicesData?.services?.map(mapServiceToCard) || [];
+  const popularServices = (popularServicesData?.services || []).map(mapServiceToCard);
   const { data: featuredDetectivesData, isLoading: isLoadingDetectives } = useSearchDetectives({ status: "active", limit: 4 });
   const featuredDetectives = featuredDetectivesData?.detectives || [];
   const { data: siteData } = useSiteSettings();
