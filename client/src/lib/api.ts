@@ -136,6 +136,18 @@ export const api = {
     return handleResponse(response);
   },
   
+  // Public POST - no CSRF token required (for public endpoints like smart search)
+  publicPost: async <T = any>(url: string, data?: any): Promise<T> => {
+    const fullUrl = buildApiUrl(url);
+    const response = await fetch(fullUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+    return handleResponse(response);
+  },
+  
   post: async <T = any>(url: string, data?: any): Promise<T> => {
     const response = await csrfFetch(url, {
       method: "POST",

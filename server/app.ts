@@ -283,9 +283,20 @@ const globalSessionMiddleware = getSessionMiddleware();
 app.use(globalSessionMiddleware);
 
 const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+// Public endpoints that should work without authentication (incognito mode, mobile, etc.)
+const CSRF_EXEMPT_PATHS = [
+  "/api/smart-search",  // Homepage AI search - must work for all public users
+];
+
 app.use((req, res, next) => {
   if (!CSRF_METHODS.has(req.method)) return next();
   if (req.method === "OPTIONS") return next();
+  
+  // Skip CSRF validation for public endpoints
+  if (CSRF_EXEMPT_PATHS.includes(req.path)) {
+    return next();
+  }
 
   const origin = req.headers.origin;
   const referer = req.headers.referer;
