@@ -47,20 +47,14 @@ const KEY_LABELS: Record<string, string> = {
   google_client_secret: "Google OAuth Client Secret",
   session_secret: "Session Secret",
   base_url: "Base URL",
+  csrf_allowed_origins: "CSRF Allowed Origins",
   // Supabase credentials removed - must be set via environment variables only
-  sendgrid_api_key: "SendGrid API Key",
-  sendgrid_from_email: "SendGrid From Email",
   smtp_host: "SMTP Host",
   smtp_port: "SMTP Port",
   smtp_secure: "SMTP Secure",
   smtp_user: "SMTP User",
   smtp_pass: "SMTP Password",
   smtp_from_email: "SMTP From Email",
-  sendpulse_api_id: "SendPulse API ID",
-  sendpulse_api_secret: "SendPulse API Secret",
-  sendpulse_sender_email: "SendPulse Sender Email",
-  sendpulse_sender_name: "SendPulse Sender Name",
-  sendpulse_enabled: "SendPulse Enabled",
   razorpay_key_id: "Razorpay Key ID",
   razorpay_key_secret: "Razorpay Key Secret",
   paypal_client_id: "PayPal Client ID",
@@ -69,6 +63,62 @@ const KEY_LABELS: Record<string, string> = {
   gemini_api_key: "Gemini API Key",
   deepseek_api_key: "DeepSeek API Key (for Smart Search)",
 };
+type SecretGroup = {
+  id: string;
+  title: string;
+  description?: string;
+  keys: string[];
+};
+
+const SECRET_GROUPS: SecretGroup[] = [
+  {
+    id: "auth",
+    title: "Login & Core Auth",
+    description: "Session, base URL, CSRF, and OAuth settings.",
+    keys: [
+      "session_secret",
+      "base_url",
+      "host",
+      "csrf_allowed_origins",
+      "google_client_id",
+      "google_client_secret",
+    ],
+  },
+  {
+    id: "email",
+    title: "Email",
+    description: "SMTP and email provider credentials.",
+    keys: [
+      "smtp_host",
+      "smtp_port",
+      "smtp_secure",
+      "smtp_user",
+      "smtp_pass",
+      "smtp_from_email",
+    ],
+  },
+  {
+    id: "payments",
+    title: "Payments",
+    description: "Payment gateway credentials.",
+    keys: [
+      "razorpay_key_id",
+      "razorpay_key_secret",
+      "paypal_client_id",
+      "paypal_client_secret",
+      "paypal_mode",
+    ],
+  },
+  {
+    id: "ai",
+    title: "AI & Search",
+    description: "AI features and search integrations.",
+    keys: [
+      "gemini_api_key",
+      "deepseek_api_key",
+    ],
+  },
+];
 
 export default function AdminAppSecrets() {
   const { toast } = useToast();
@@ -151,6 +201,83 @@ export default function AdminAppSecrets() {
     }
   };
 
+  const secretsByKey = new Map(secrets.map((s) => [s.key, s]));
+  const usedKeys = new Set<string>();
+  const groupedSecrets = SECRET_GROUPS.map((group) => {
+    const items = group.keys
+      .map((key) => secretsByKey.get(key))
+      .filter((item): item is SecretItem => Boolean(item));
+    items.forEach((item) => usedKeys.add(item.key));
+    return { ...group, items };
+  });
+  const otherItems = secrets.filter((s) => !usedKeys.has(s.key));
+
+  if (otherItems.length) {
+    groupedSecrets.push({
+      id: "other",
+      title: "Other",
+      description: "Additional app secrets.",
+      keys: [],
+      items: otherItems,
+    } as SecretGroup & { items: SecretItem[] });
+  }
+
+  const renderSecret = (s: SecretItem) => {
+    const isHighRisk = HIGH_RISK_KEYS.includes(s.key);
+    return (
+      <div key={s.key} className="flex flex-col gap-2 pb-4 border-b last:border-b-0">
+        <Label htmlFor={s.key}>{KEY_LABELS[s.key] || s.key}</Label>
+
+        {isHighRisk && (
+          <Alert variant="destructive" className="mb-2">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Warning:</strong> Changing this may log out users or break authentication. {HIGH_RISK_WARNINGS[s.key]}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex gap-2">
+          <Input
+            id={s.key}
+            type="password"
+            placeholder={s.hasValue ? "•••••••• (set)" : "Enter value"}
+            value={editValues[s.key] ?? ""}
+            onChange={(e) =>
+              setEditValues((prev) => ({ ...prev, [s.key]: e.target.value }))
+            }
+            className="flex-1"
+          />
+          <Button
+            size="sm"
+            onClick={() => handleSave(s.key)}
+            disabled={saving === s.key || !(editValues[s.key]?.trim())}
+          >
+            {saving === s.key ? "Saving..." : "Save"}
+          </Button>
+        </div>
+
+        {isHighRisk && editValues[s.key]?.trim() && (
+          <div className="flex items-center space-x-2 mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded">
+            <Checkbox
+              id={`confirm-${s.key}`}
+              checked={!!confirmations[s.key]}
+              onCheckedChange={(checked) =>
+                setConfirmations((prev) => ({ ...prev, [s.key]: Boolean(checked) }))
+              }
+            />
+            <Label
+              htmlFor={`confirm-${s.key}`}
+              className="text-sm font-medium cursor-pointer"
+            >
+              I understand this change will affect authentication and require server restart
+            </Label>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Show loading state while checking authentication
   if (isLoadingUser) {
     return null;
@@ -198,62 +325,22 @@ export default function AdminAppSecrets() {
               </AlertDescription>
             </Alert>
 
-            <div className="space-y-6">
-              {secrets.map((s) => {
-                const isHighRisk = HIGH_RISK_KEYS.includes(s.key);
-                return (
-                  <div key={s.key} className="flex flex-col gap-2 pb-4 border-b last:border-b-0">
-                    <Label htmlFor={s.key}>{KEY_LABELS[s.key] || s.key}</Label>
-                    
-                    {isHighRisk && (
-                      <Alert variant="destructive" className="mb-2">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertDescription>
-                          <strong>Warning:</strong> Changing this may log out users or break authentication. {HIGH_RISK_WARNINGS[s.key]}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    
-                    <div className="flex gap-2">
-                      <Input
-                        id={s.key}
-                        type="password"
-                        placeholder={s.hasValue ? "•••••••• (set)" : "Enter value"}
-                        value={editValues[s.key] ?? ""}
-                        onChange={(e) =>
-                          setEditValues((prev) => ({ ...prev, [s.key]: e.target.value }))
-                        }
-                        className="flex-1"
-                      />
-                      <Button
-                        size="sm"
-                        onClick={() => handleSave(s.key)}
-                        disabled={saving === s.key || !(editValues[s.key]?.trim())}
-                      >
-                        {saving === s.key ? "Saving..." : "Save"}
-                      </Button>
+            <div className="space-y-10">
+              {groupedSecrets
+                .filter((group) => group.items && group.items.length > 0)
+                .map((group) => (
+                  <div key={group.id} className="space-y-4">
+                    <div>
+                      <h3 className="text-lg font-semibold">{group.title}</h3>
+                      {group.description && (
+                        <p className="text-sm text-muted-foreground">{group.description}</p>
+                      )}
                     </div>
-                    
-                    {isHighRisk && editValues[s.key]?.trim() && (
-                      <div className="flex items-center space-x-2 mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                        <Checkbox
-                          id={`confirm-${s.key}`}
-                          checked={confirmations[s.key] || false}
-                          onCheckedChange={(checked) =>
-                            setConfirmations((prev) => ({ ...prev, [s.key]: checked === true }))
-                          }
-                        />
-                        <Label
-                          htmlFor={`confirm-${s.key}`}
-                          className="text-sm font-medium cursor-pointer"
-                        >
-                          I understand this change will affect authentication and require server restart
-                        </Label>
-                      </div>
-                    )}
+                    <div className="space-y-6">
+                      {group.items.map(renderSecret)}
+                    </div>
                   </div>
-                );
-              })}
+                ))}
             </div>
           </CardContent>
         </Card>

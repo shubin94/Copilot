@@ -5,7 +5,7 @@ import { createServer, type Server } from "http";
 import rateLimit from "express-rate-limit";
 import { storage } from "./storage.ts";
 import { sendClaimApprovedEmail } from "./email.ts";
-import { sendpulseEmail, EMAIL_TEMPLATES } from "./services/sendpulseEmail.ts";
+import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.ts";
 import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.ts";
 import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
@@ -562,11 +562,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { firstName, lastName, email, message } = parsed.data;
-      const result = await sendpulseEmail.sendTransactionalEmail(
+      const result = await smtpEmailService.sendTransactionalEmail(
         "contact@askdetectives.com",
-        EMAIL_TEMPLATES.CONTACT_FORM,
-        { firstName, lastName, email, message },
-        "Contact Form Submission"
+        EMAIL_TEMPLATE_KEYS.CONTACT_FORM,
+        { firstName, lastName, email, message }
       );
 
       if (!result.success) {
@@ -620,12 +619,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           // Send welcome email (non-blocking)
-          sendpulseEmail.sendTransactionalEmail(
+          smtpEmailService.sendTransactionalEmail(
             user.email,
-            EMAIL_TEMPLATES.WELCOME_USER,
+            EMAIL_TEMPLATE_KEYS.WELCOME_USER,
             {
               userName: user.name,
               email: user.email,
+              loginUrl: "https://askdetectives.com/login",
               supportEmail: "support@askdetectives.com",
             }
           ).catch(e => console.error("[Email] Failed to send welcome email:", e));
@@ -1391,9 +1391,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const SECRET_KEYS = [
     "host", "google_client_id", "google_client_secret", "session_secret", "base_url",
     // Supabase credentials removed - must be set via environment variables only
-    "sendgrid_api_key", "sendgrid_from_email",
     "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass", "smtp_from_email",
-    "sendpulse_api_id", "sendpulse_api_secret", "sendpulse_sender_email", "sendpulse_sender_name", "sendpulse_enabled",
     "razorpay_key_id", "razorpay_key_secret", "paypal_client_id", "paypal_client_secret", "paypal_mode",
     "gemini_api_key", "deepseek_api_key",
   ];
@@ -1914,9 +1912,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(req.session.userId!);
       if (user && packageToActivate) {
         const expiryDate = calculateExpiryDate(new Date(), billingCycle);
-        sendpulseEmail.sendTransactionalEmail(
+        smtpEmailService.sendTransactionalEmail(
           user.email,
-          EMAIL_TEMPLATES.PAYMENT_SUCCESS,
+          EMAIL_TEMPLATE_KEYS.PAYMENT_SUCCESS,
           {
             detectiveName: updatedDetective.businessName || user.name,
             email: user.email,
@@ -1930,8 +1928,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ).catch(err => console.error("[Email] Failed to send payment success email:", err));
 
         // Send admin notification (non-blocking)
-        sendpulseEmail.sendAdminEmail(
-          EMAIL_TEMPLATES.ADMIN_NEW_PAYMENT,
+        smtpEmailService.sendAdminEmail(
+          EMAIL_TEMPLATE_KEYS.ADMIN_NEW_PAYMENT,
           {
             detectiveName: updatedDetective.businessName || user.name,
             email: user.email,
@@ -2217,9 +2215,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user && packageToActivate) {
         if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
           // Send Blue Tick success email
-          sendpulseEmail.sendTransactionalEmail(
+          smtpEmailService.sendTransactionalEmail(
             user.email,
-            EMAIL_TEMPLATES.BLUE_TICK_PURCHASE_SUCCESS,
+            EMAIL_TEMPLATE_KEYS.BLUE_TICK_PURCHASE_SUCCESS,
             {
               detectiveName: updatedDetective.businessName || user.name,
               email: user.email,
@@ -2229,9 +2227,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           // Send regular subscription success email
           const expiryDate = calculateExpiryDate(new Date(), billingCycle);
-          sendpulseEmail.sendTransactionalEmail(
+          smtpEmailService.sendTransactionalEmail(
             user.email,
-            EMAIL_TEMPLATES.PAYMENT_SUCCESS,
+            EMAIL_TEMPLATE_KEYS.PAYMENT_SUCCESS,
             {
               detectiveName: updatedDetective.businessName || user.name,
               email: user.email,
@@ -2245,8 +2243,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ).catch(err => console.error("[Email] Failed to send payment success email:", err));
 
           // Send admin notification (non-blocking)
-          sendpulseEmail.sendAdminEmail(
-            EMAIL_TEMPLATES.ADMIN_NEW_PAYMENT,
+          smtpEmailService.sendAdminEmail(
+            EMAIL_TEMPLATE_KEYS.ADMIN_NEW_PAYMENT,
             {
               detectiveName: updatedDetective.businessName || user.name,
               email: user.email,
@@ -2594,9 +2592,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send blue tick purchase success email (non-blocking)
       const user = await storage.getUser(detective.userId);
       if (user) {
-        sendpulseEmail.sendTransactionalEmail(
+        smtpEmailService.sendTransactionalEmail(
           user.email,
-          EMAIL_TEMPLATES.BLUE_TICK_PURCHASE_SUCCESS,
+          EMAIL_TEMPLATE_KEYS.BLUE_TICK_PURCHASE_SUCCESS,
           {
             detectiveName: detective.businessName || user.name,
             email: user.email,
@@ -4185,9 +4183,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("📝 [Applications] Application created with ID:", application.id);
       
       // Send application confirmation email (non-blocking)
-      sendpulseEmail.sendTransactionalEmail(
+      smtpEmailService.sendTransactionalEmail(
         application.email,
-        EMAIL_TEMPLATES.DETECTIVE_APPLICATION_SUBMITTED,
+        EMAIL_TEMPLATE_KEYS.DETECTIVE_APPLICATION_SUBMITTED,
         {
           detectiveName: application.fullName,
           email: application.email,
@@ -4196,8 +4194,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ).catch(err => console.error("[Email] Failed to send application confirmation:", err));
 
       // Send admin notification (non-blocking)
-      sendpulseEmail.sendAdminEmail(
-        EMAIL_TEMPLATES.ADMIN_APPLICATION_RECEIVED,
+      smtpEmailService.sendAdminEmail(
+        EMAIL_TEMPLATE_KEYS.ADMIN_APPLICATION_RECEIVED,
         {
           detectiveName: application.fullName,
           email: application.email,
@@ -4464,9 +4462,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Send approval email (non-blocking)
         const application = await storage.getDetectiveApplication(req.params.id);
         if (application) {
-          sendpulseEmail.sendTransactionalEmail(
+          smtpEmailService.sendTransactionalEmail(
             application.email,
-            EMAIL_TEMPLATES.DETECTIVE_APPLICATION_APPROVED,
+            EMAIL_TEMPLATE_KEYS.DETECTIVE_APPLICATION_APPROVED,
             {
               detectiveName: application.fullName,
               email: application.email,
@@ -4500,9 +4498,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
                 // Build claim URL and send invitation email
                 const claimUrl = buildClaimUrl(token, config.baseUrl || "https://askdetectives.com");
-                sendpulseEmail.sendTransactionalEmail(
+                smtpEmailService.sendTransactionalEmail(
                   application.email,
-                  EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_INVITATION,
+                  EMAIL_TEMPLATE_KEYS.CLAIMABLE_ACCOUNT_INVITATION,
                   {
                     detectiveName: application.fullName,
                     claimLink: claimUrl,
@@ -4526,9 +4524,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Send rejection email (non-blocking)
         const application = await storage.getDetectiveApplication(req.params.id);
         if (application) {
-          sendpulseEmail.sendTransactionalEmail(
+          smtpEmailService.sendTransactionalEmail(
             application.email,
-            EMAIL_TEMPLATES.DETECTIVE_APPLICATION_REJECTED,
+            EMAIL_TEMPLATE_KEYS.DETECTIVE_APPLICATION_REJECTED,
             {
               detectiveName: application.fullName,
               email: application.email,
@@ -4639,11 +4637,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.error("[Email] Failed to send claim approval email:", emailError);
           }
 
-          // Send SendPulse email (non-blocking)
+          // Send email (non-blocking)
           if (result.wasNewUser && result.temporaryPassword) {
-            sendpulseEmail.sendTransactionalEmail(
+            smtpEmailService.sendTransactionalEmail(
               result.email,
-              EMAIL_TEMPLATES.PROFILE_CLAIM_TEMPORARY_PASSWORD,
+              EMAIL_TEMPLATE_KEYS.PROFILE_CLAIM_TEMPORARY_PASSWORD,
               {
                 detectiveName: claimedDetective?.businessName || "Detective",
                 email: result.email,
@@ -4652,9 +4650,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             ).catch(err => console.error("[Email] Failed to send temporary password email:", err));
           } else {
-            sendpulseEmail.sendTransactionalEmail(
+            smtpEmailService.sendTransactionalEmail(
               result.email,
-              EMAIL_TEMPLATES.PROFILE_CLAIM_APPROVED,
+              EMAIL_TEMPLATE_KEYS.PROFILE_CLAIM_APPROVED,
               {
                 detectiveName: claimedDetective?.businessName || "Detective",
                 email: result.email,
@@ -4887,11 +4885,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         console.log("[Claim] Credentials generated");
 
-        // Send temporary password email via SendPulse
+        // Send temporary password email
         const loginUrl = "https://askdetectives.com/login";
-        sendpulseEmail.sendTransactionalEmail(
+        smtpEmailService.sendTransactionalEmail(
           email,
-          EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_CREDENTIALS,
+          EMAIL_TEMPLATE_KEYS.CLAIMABLE_ACCOUNT_CREDENTIALS,
           {
             detectiveName: detective.businessName || "Detective",
             loginEmail: email,
@@ -5012,9 +5010,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Send finalization confirmation email
       const loginUrl = "https://askdetectives.com/login";
-      sendpulseEmail.sendTransactionalEmail(
+      smtpEmailService.sendTransactionalEmail(
         claimedEmail,
-        EMAIL_TEMPLATES.CLAIMABLE_ACCOUNT_FINALIZED,
+        EMAIL_TEMPLATE_KEYS.CLAIMABLE_ACCOUNT_FINALIZED,
         {
           detectiveName: detective.businessName || "Detective",
           loginEmail: claimedEmail,
@@ -5206,35 +5204,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
             );
           }
 
-          // Only send if template has a SendPulse template ID
-          if (template.sendpulseTemplateId) {
-            console.log(
-              `[Admin] Sending test email for template: ${template.key} (ID: ${template.sendpulseTemplateId})`
-            );
+          // Send test email using SMTP service
+          console.log(`[Admin] Sending test email for template: ${template.key}`);
 
-            const result = await sendpulseEmail.sendTransactionalEmail(
-              testEmail,
-              template.sendpulseTemplateId,
-              mockVariables
-            );
+          const result = await smtpEmailService.sendTransactionalEmail(
+            testEmail,
+            template.key,
+            mockVariables
+          );
 
-            if (result.success) {
-              results.success++;
-              console.log(`[Admin] ✓ Test email sent: ${template.key}`);
-            } else {
-              results.failed++;
-              results.failedTemplates.push({
-                key: template.key,
-                name: template.name,
-                error: result.error || "Unknown error",
-              });
-              console.error(
-                `[Admin] ✗ Failed to send test email: ${template.key} - ${result.error}`
-              );
-            }
+          if (result.success) {
+            results.success++;
+            console.log(`[Admin] ✓ Test email sent: ${template.key}`);
           } else {
-            console.warn(
-              `[Admin] Template ${template.key} has no SendPulse template ID - skipping test`
+            results.failed++;
+            results.failedTemplates.push({
+              key: template.key,
+              name: template.name,
+              error: result.error || "Unknown error",
+            });
+            console.error(
+              `[Admin] ✗ Failed to send test email: ${template.key} - ${result.error}`
             );
           }
         } catch (error) {

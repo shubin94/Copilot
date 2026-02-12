@@ -67,7 +67,7 @@ Database: PostgreSQL or MongoDB for secure, scalable data storage.
 
 Frontend: React/Vue with component-based architecture.
 
-Email: SMTP or services like SendGrid for automated notifications.
+Email: SMTP for automated notifications.
 
 Guidance for Development Workflow:
 

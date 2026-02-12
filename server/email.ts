@@ -8,44 +8,13 @@ type EmailContent = {
   html?: string;
 };
 
-async function sendViaSendGrid(to: string, content: EmailContent): Promise<void> {
-  const apiKey = config.email.sendgridApiKey;
-  const fromEmail = config.email.sendgridFromEmail;
-  if (!apiKey) throw new Error("SENDGRID_API_KEY not configured");
-  if (!fromEmail) throw new Error("SENDGRID_FROM_EMAIL not configured");
-
-  const payload = {
-    personalizations: [{ to: [{ email: to }], subject: content.subject }],
-    from: { email: fromEmail, name: "FindDetectives" },
-    content: [
-      content.html
-        ? { type: "text/html", value: content.html }
-        : { type: "text/plain", value: content.text },
-    ],
-  };
-
-  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`SendGrid error ${res.status}: ${body}`);
-  }
-}
-
 async function sendViaSMTP(to: string, content: EmailContent): Promise<void> {
   const host = config.email.smtpHost;
   const port = config.email.smtpPort ?? 587;
   const secure = config.email.smtpSecure || port === 465;
   const user = config.email.smtpUser;
   const pass = config.email.smtpPass;
-  const fromEmail = config.email.smtpFromEmail || config.email.sendgridFromEmail;
+  const fromEmail = config.email.smtpFromEmail;
 
   if (!host) throw new Error("SMTP_HOST not configured");
   if (!fromEmail) throw new Error("SMTP_FROM_EMAIL not configured");
@@ -74,9 +43,7 @@ async function sendFallback(to: string, content: EmailContent): Promise<void> {
 
 export async function sendEmail(to: string, content: EmailContent): Promise<void> {
   try {
-    if (config.email.sendgridApiKey) {
-      await sendViaSendGrid(to, content);
-    } else if (config.email.smtpHost) {
+    if (config.email.smtpHost) {
       await sendViaSMTP(to, content);
     } else {
       if (config.env.isProd) {
