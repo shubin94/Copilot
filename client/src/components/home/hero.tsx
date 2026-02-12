@@ -51,7 +51,8 @@ export function Hero() {
     setLoading(true);
     setResult(null);
     try {
-      const data = await api.post<SmartSearchResult>("/api/smart-search", { query: q });
+      // Use publicPost - no CSRF required, works in incognito mode
+      const data = await api.publicPost<SmartSearchResult>("/api/smart-search", { query: q });
       const kind = data?.kind;
       if (kind === "prohibited" || kind === "category_not_found" || kind === "need_location" || kind === "resolved") {
         setResult(data as SmartSearchResult);
