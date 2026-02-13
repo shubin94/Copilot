@@ -160,6 +160,10 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     phone: service.detective.phone || undefined,
     whatsapp: service.detective.whatsapp || undefined,
     contactEmail: service.detective.contactEmail || undefined,
+    detectiveCountry: service.detective.country,
+    detectiveState: service.detective.state,
+    detectiveCity: service.detective.city,
+    detectiveSlug: service.detective.slug,
   };
 }
 

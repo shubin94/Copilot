@@ -6,6 +6,7 @@
  */
 
 import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "./server/services/smtpEmailService";
+import { loadSecretsFromDatabase } from "./server/lib/secretsLoader";
 
 const TEST_EMAIL = process.env.TEST_EMAIL || "test@example.com";
 
@@ -13,6 +14,18 @@ async function testSMTPEmail() {
   console.log("🧪 Testing SMTP Email Service");
   console.log("=" .repeat(60));
   console.log("");
+
+  // Load secrets and templates so this standalone script uses DB config
+  try {
+    await loadSecretsFromDatabase();
+  } catch (e) {
+    // ignore - loadSecrets warns in dev if DB unreachable
+  }
+  try {
+    await smtpEmailService.reloadTemplates();
+  } catch (e) {
+    // ignore
+  }
 
   // Check status
   console.log("📊 Service Status:");

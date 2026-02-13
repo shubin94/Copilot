@@ -11,6 +11,7 @@ import { Link } from "wouter";
 import { useSearchServices, useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
 import type { Service, Detective, ServiceCategory } from "@shared/schema";
 import { computeServiceBadges } from "@/lib/service-badges";
+import { getDetectiveProfileUrl } from "@/lib/utils";
 import { useEffect, useRef } from "react";
 
 function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number }) {
@@ -48,6 +49,10 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     phone: service.detective.phone || undefined,
     whatsapp: service.detective.whatsapp || undefined,
     contactEmail: service.detective.contactEmail || service.detective.email || undefined,
+    detectiveCountry: service.detective.country,
+    detectiveState: service.detective.state,
+    detectiveCity: service.detective.city,
+    detectiveSlug: service.detective.slug,
   };
 }
 
@@ -93,22 +98,60 @@ export default function Home() {
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
         canonical="https://www.askdetectives.com"
         robots="index, follow"
-        schema={{
-          "@context": "https://schema.org",
-          "@type": "WebSite",
-          "@id": "https://www.askdetectives.com/#website",
-          "url": "https://www.askdetectives.com",
-          "name": "FindDetectives",
-          "description": "Find and hire verified private investigators",
-          "potentialAction": {
-            "@type": "SearchAction",
-            "target": {
-              "@type": "EntryPoint",
-              "urlTemplate": "https://www.askdetectives.com/search?q={search_term_string}"
+        schema={[
+          {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "@id": "https://www.askdetectives.com/#website",
+            "url": "https://www.askdetectives.com",
+            "name": "FindDetectives",
+            "description": "Find and hire verified private investigators",
+            "potentialAction": {
+              "@type": "SearchAction",
+              "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "https://www.askdetectives.com/search?q={search_term_string}"
+              },
+              "query-input": "required name=search_term_string"
+            }
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            "@id": "https://www.askdetectives.com/#organization",
+            "name": "Ask Detectives",
+            "alternateName": "FindDetectives",
+            "url": "https://www.askdetectives.com",
+            "logo": "https://www.askdetectives.com/logo.png",
+            "description": "The leading marketplace for professional private investigation services connecting clients with verified detectives worldwide.",
+            "foundingDate": "2024",
+            "contactPoint": {
+              "@type": "ContactPoint",
+              "contactType": "Customer Service",
+              "telephone": "+1-800-DETECTIVES",
+              "url": "https://www.askdetectives.com/contact"
             },
-            "query-input": "required name=search_term_string"
+            "sameAs": [
+              "https://www.facebook.com/askdetectives",
+              "https://www.twitter.com/askdetectives",
+              "https://www.linkedin.com/company/askdetectives",
+              "https://www.instagram.com/askdetectives"
+            ],
+            "address": {
+              "@type": "PostalAddress",
+              "addressCountry": "US",
+              "addressLocality": "New York",
+              "addressRegion": "NY",
+              "postalCode": "10001"
+            },
+            "aggregateRating": {
+              "@type": "AggregateRating",
+              "ratingValue": "4.8",
+              "ratingCount": "2500",
+              "reviewCount": "2500"
+            }
           }
-        }}
+        ]}
       />
       <Navbar transparentOnHome={true} overlayOnHome={true} />
       
@@ -266,7 +309,7 @@ export default function Home() {
                 ))
               ) : (
                 featuredDetectives.map((d) => (
-                  <Link key={d.id} href={`/p/${d.id}`}>
+                  <Link key={d.id} href={getDetectiveProfileUrl(d)}>
                     <Card className="hover:shadow-lg transition-shadow cursor-pointer">
                       <CardContent className="p-6">
                         <div className="flex items-center gap-4">

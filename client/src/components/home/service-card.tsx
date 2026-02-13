@@ -7,10 +7,15 @@ import { useState, memo } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ServiceActionButton } from "@/components/home/service-action-button";
 import type { ServiceBadgeState } from "@/lib/service-badges";
+import { getDetectiveProfileUrl } from "@/lib/utils";
 
 interface ServiceCardProps {
   id: string;
   detectiveId?: string;
+  detectiveSlug?: string;
+  detectiveCountry?: string;
+  detectiveState?: string;
+  detectiveCity?: string;
   images?: string[];
   image?: string; // Backward compatibility
   avatar: string;
@@ -38,7 +43,7 @@ import { Button } from "@/components/ui/button";
 
 import { useToast } from "@/hooks/use-toast";
 
-const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) => {
+const ServiceCardComponent = ({ id, detectiveId, detectiveSlug, detectiveCountry, detectiveState, detectiveCity, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) => {
   const [, setLocation] = useLocation();
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -166,13 +171,29 @@ const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, le
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (detectiveId) setLocation(`/p/${detectiveId}`);
+                if (detectiveId) {
+                  setLocation(getDetectiveProfileUrl({
+                    id: detectiveId,
+                    slug: detectiveSlug,
+                    country: detectiveCountry,
+                    state: detectiveState,
+                    city: detectiveCity
+                  }));
+                }
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (detectiveId) setLocation(`/p/${detectiveId}`);
+                  if (detectiveId) {
+                    setLocation(getDetectiveProfileUrl({
+                      id: detectiveId,
+                      slug: detectiveSlug,
+                      country: detectiveCountry,
+                      state: detectiveState,
+                      city: detectiveCity
+                    }));
+                  }
                 }
               }}
             >

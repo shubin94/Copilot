@@ -5,6 +5,7 @@ import { computeServiceBadges } from "@/lib/service-badges";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
+import { getDetectiveProfileUrl } from "@/lib/utils";
 
 interface DetectiveSnippetGridProps {
   snippetId?: string;
@@ -43,6 +44,11 @@ type AutocompleteSuggestion = {
   label: string;
   value: string;
   meta?: string;
+  // Detective location fields for direct URL building
+  slug?: string;
+  country?: string;
+  state?: string;
+  city?: string;
 };
 
 export function DetectiveSnippetGrid({
@@ -222,7 +228,8 @@ export function DetectiveSnippetGrid({
 
   const applySuggestion = (suggestion: AutocompleteSuggestion | null) => {
     if (suggestion?.type === "detective") {
-      setLocation(`/p/${suggestion.value}`);
+      // Navigate to detective profile using slug (no server redirect needed)
+      setLocation(getDetectiveProfileUrl({ id: suggestion.value, slug: suggestion.slug, country: suggestion.country, state: suggestion.state, city: suggestion.city }));
       return;
     }
     if (suggestion?.type === "location" && suggestion.value.startsWith("country:")) {
@@ -291,6 +298,10 @@ export function DetectiveSnippetGrid({
       phone: item.phone,
       whatsapp: item.whatsapp,
       contactEmail: item.contactEmail,
+      detectiveCountry: item.country || displayCountry,
+      detectiveState: resolvedState,
+      detectiveCity: resolvedCity,
+      detectiveSlug: item.id,
     };
   });
 

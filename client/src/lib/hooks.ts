@@ -74,6 +74,21 @@ export function useDetective(id: string | null | undefined) {
   });
 }
 
+export function useDetectiveBySlug(
+  country: string | null | undefined, 
+  state: string | null | undefined, 
+  city: string | null | undefined, 
+  slug: string | null | undefined
+) {
+  return useQuery({
+    queryKey: ["detectives", "slug", country, state, city, slug],
+    queryFn: () => api.detectives.getBySlug(country!, state!, city!, slug!),
+    enabled: !!(country && state && city && slug),
+    staleTime: 60 * 1000, // 60 seconds - public detective profiles cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
+  });
+}
+
 export function useCurrentDetective() {
   return useQuery({
     queryKey: ["detectives", "current"],

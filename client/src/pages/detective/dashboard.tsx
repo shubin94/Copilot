@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LocationWizardModal } from "@/components/modals/LocationWizardModal";
 
 export default function DetectiveDashboard() {
   const [, navigate] = useLocation();
@@ -44,10 +45,14 @@ export default function DetectiveDashboard() {
   const [entry, setEntry] = useState<{ category: string; basePrice: string; offerPrice?: string; title: string; description: string; images: string[] }>({ category: "", basePrice: "", offerPrice: "", title: "", description: "", images: [] });
   const [savingServices, setSavingServices] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [showLocationWizard, setShowLocationWizard] = useState(false);
   const getPlanLimits = (plan: string) => {
     const max = subscription?.serviceLimit ?? 2;
     return { min: 1, max };
   };
+
+  // Check if location update is required
+  const requireLocationUpdate = detective && (!detective.countryId || !detective.stateId || !detective.cityId);
 
   const handleSetPassword = async () => {
     if (!newPassword || !confirmPassword) {
@@ -503,6 +508,13 @@ export default function DetectiveDashboard() {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Location Wizard Modal */}
+        <LocationWizardModal 
+          open={showLocationWizard} 
+          onOpenChange={setShowLocationWizard}
+        />
+
         {/* Status Banners */}
         {accountStatus === 'pending' && (
           <Alert className="bg-yellow-50 border-yellow-200 text-yellow-800">
@@ -520,6 +532,26 @@ export default function DetectiveDashboard() {
             <AlertTitle>Account Suspended</AlertTitle>
             <AlertDescription>
               Your account has been suspended. Please contact support@detectiveportal.com for assistance.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Location Update Required Banner */}
+        {requireLocationUpdate && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Action Required: Complete Your Location</AlertTitle>
+            <AlertDescription className="flex items-center justify-between">
+              <span>
+                Your profile is missing location data and is hidden from search results. Complete your location to become visible to potential clients.
+              </span>
+              <Button 
+                onClick={() => setShowLocationWizard(true)}
+                className="ml-4 bg-white text-red-600 hover:bg-gray-100 border border-red-200"
+                size="sm"
+              >
+                Complete Profile
+              </Button>
             </AlertDescription>
           </Alert>
         )}

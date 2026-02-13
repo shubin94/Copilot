@@ -8,7 +8,7 @@ interface SEOProps {
   keywords?: string[];
   canonical?: string;
   robots?: string;
-  schema?: Record<string, any>;
+  schema?: Record<string, any> | Record<string, any>[];
   breadcrumbs?: Array<{ name: string; url: string }>;
   author?: {
     name: string;
@@ -161,68 +161,73 @@ export function SEO({
     };
     allSchemas.push(organizationSchema);
     
-    // Main schema (if provided)
+    // Main schema(s) (if provided)
     if (schema) {
-      // Enhance service schema with additional data
-      if (structuredData?.service) {
-        const enhanced = {
-          ...schema,
-          "@context": "https://schema.org",
-          "@type": "ProfessionalService"
-        };
-        
-        // Add offers with proper price structure
-        if (structuredData.service.isOnEnquiry) {
-          enhanced.offers = {
-            "@type": "Offer",
-            "availability": "https://schema.org/InStock",
-            "priceSpecification": {
-              "@type": "PriceSpecification",
-              "price": "Contact for pricing"
-            }
+      // Handle both single object and array of objects
+      const schemas = Array.isArray(schema) ? schema : [schema];
+      
+      schemas.forEach(schemaItem => {
+        // Enhance service schema with additional data
+        if (structuredData?.service) {
+          const enhanced = {
+            ...schemaItem,
+            "@context": "https://schema.org",
+            "@type": "ProfessionalService"
           };
-        } else if (structuredData.service.price) {
-          enhanced.offers = {
-            "@type": "Offer",
-            "price": structuredData.service.offerPrice || structuredData.service.price,
-            "priceCurrency": "INR",
-            "availability": "https://schema.org/InStock"
-          };
+          
+          // Add offers with proper price structure
+          if (structuredData.service.isOnEnquiry) {
+            enhanced.offers = {
+              "@type": "Offer",
+              "availability": "https://schema.org/InStock",
+              "priceSpecification": {
+                "@type": "PriceSpecification",
+                "price": "Contact for pricing"
+              }
+            };
+          } else if (structuredData.service.price) {
+            enhanced.offers = {
+              "@type": "Offer",
+              "price": structuredData.service.offerPrice || structuredData.service.price,
+              "priceCurrency": "INR",
+              "availability": "https://schema.org/InStock"
+            };
+          }
+          
+          // Add provider information
+          if (structuredData.service.detectiveName) {
+            enhanced.provider = {
+              "@type": "Organization",
+              "name": structuredData.service.detectiveName,
+              "logo": structuredData.service.detectiveLogo
+            };
+            enhanced.brand = {
+              "@type": "Brand",
+              "name": structuredData.service.detectiveName
+            };
+          }
+          
+          // Add service type and area served
+          if (structuredData.service.category) {
+            enhanced.serviceType = structuredData.service.category;
+          }
+          
+          if (structuredData.service.city || structuredData.service.country) {
+            enhanced.areaServed = {
+              "@type": "Place",
+              "address": {
+                "@type": "PostalAddress",
+                ...(structuredData.service.city && { "addressLocality": structuredData.service.city }),
+                ...(structuredData.service.country && { "addressCountry": structuredData.service.country })
+              }
+            };
+          }
+          
+          allSchemas.push(enhanced);
+        } else {
+          allSchemas.push(schemaItem);
         }
-        
-        // Add provider information
-        if (structuredData.service.detectiveName) {
-          enhanced.provider = {
-            "@type": "Organization",
-            "name": structuredData.service.detectiveName,
-            "logo": structuredData.service.detectiveLogo
-          };
-          enhanced.brand = {
-            "@type": "Brand",
-            "name": structuredData.service.detectiveName
-          };
-        }
-        
-        // Add service type and area served
-        if (structuredData.service.category) {
-          enhanced.serviceType = structuredData.service.category;
-        }
-        
-        if (structuredData.service.city || structuredData.service.country) {
-          enhanced.areaServed = {
-            "@type": "Place",
-            "address": {
-              "@type": "PostalAddress",
-              ...(structuredData.service.city && { "addressLocality": structuredData.service.city }),
-              ...(structuredData.service.country && { "addressCountry": structuredData.service.country })
-            }
-          };
-        }
-        
-        allSchemas.push(enhanced);
-      } else {
-        allSchemas.push(schema);
-      }
+      });
     }
     
     // Breadcrumb schema

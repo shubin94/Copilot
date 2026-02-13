@@ -27,6 +27,7 @@ import { RelatedServices } from "@/components/related-services";
 import { format } from "date-fns";
 import type { Review, User } from "@shared/schema";
 import { computeServiceBadges } from "@/lib/service-badges";
+import { getDetectiveProfileUrl } from "@/lib/utils";
 
 export default function DetectiveProfile() {
   const [, params] = useRoute("/service/:id");
@@ -39,7 +40,7 @@ export default function DetectiveProfile() {
   const detectiveIdForServices = serviceData?.detective?.id;
   const { data: servicesByDetective } = useServicesByDetective(detectiveIdForServices);
   const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceId);
-  const { data: relatedServicesData } = useRelatedServices(serviceData?.service?.category, serviceId, 4);
+  const { data: relatedServicesData } = useRelatedServices(serviceData?.service?.category, serviceId, 2);
   
   const { selectedCountry, formatPriceFromTo } = useCurrency();
   const { user, isFavorite, toggleFavorite } = useUser();
@@ -391,7 +392,7 @@ export default function DetectiveProfile() {
               </Avatar>
               <div>
                 <div className="font-bold text-lg flex items-center gap-2 flex-wrap" data-testid="text-detective-name">
-                  <Link href={`/p/${detective.id}`}>
+                  <Link href={getDetectiveProfileUrl(detective)}>
                     <span className="hover:underline cursor-pointer">{detectiveName}</span>
                   </Link>
                   
@@ -603,7 +604,7 @@ export default function DetectiveProfile() {
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-2xl font-bold font-heading text-gray-900" data-testid="text-detective-name-heading">
-                      <Link href={`/p/${detective.id}`}>
+                      <Link href={getDetectiveProfileUrl(detective)}>
                         <span className="hover:underline cursor-pointer">{detectiveName}</span>
                       </Link>
                     </h3>

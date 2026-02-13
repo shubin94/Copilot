@@ -11,7 +11,8 @@
     "reset-auth": "cross-env NODE_ENV=development tsx scripts/reset-auth-and-bootstrap-admin.ts",
     "create-admin": "cross-env NODE_ENV=development tsx scripts/create-admin.ts",
     "db:audit": "cross-env NODE_ENV=development tsx scripts/db-audit.ts",
-    "seed-app-secrets": "cross-env NODE_ENV=development tsx scripts/seed-app-secrets.ts"
+    "seed-app-secrets": "cross-env NODE_ENV=development tsx scripts/seed-app-secrets.ts",
+    "batch-index": "cross-env NODE_ENV=production tsx scripts/batch-index-all.ts"
   },
   "dependencies": {
     "@paypal/checkout-server-sdk": "^1.0.3",
@@ -69,6 +70,8 @@
     "express-rate-limit": "^8.2.1",
     "express-session": "^1.17.3",
     "framer-motion": "^12.27.2",
+    "google-auth-library": "^9.15.1",
+    "googleapis": "^132.0.0",
     "helmet": "^8.1.0",
     "lucide-react": "^0.562.0",
     "nanoid": "^5.1.6",

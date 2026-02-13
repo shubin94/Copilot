@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { api } from "@/lib/api";
+import { getDetectiveProfileUrl } from "@/lib/utils";
 
 type Result = { name: string; ok: boolean; detail?: string };
 
@@ -47,7 +48,7 @@ export function SmokeTester() {
         const res = await api.detectives.search({ status: "active", limit: 1 });
         const det = Array.isArray((res as any)?.detectives) ? (res as any).detectives[0] : null;
         if (det?.id) {
-          setLocation(`/p/${det.id}`);
+          setLocation(getDetectiveProfileUrl(det));
           await new Promise((res2) => setTimeout(res2, 800));
           const name = document.querySelector('[data-testid="text-detective-name"]');
           add({ name: "Detective Page", ok: !!name });

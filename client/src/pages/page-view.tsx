@@ -50,8 +50,6 @@ export default function PageView() {
   const [matchLegacyCategory, paramsLegacyCategory] = useRoute("/pages/:category/:slug");
   const [matchLegacy, paramsLegacy] = useRoute("/pages/:slug");
 
-  if (!matchNested && !matchNew && !matchLegacyNested && !matchLegacyCategory && !matchLegacy) return null;
-
   const slug = (
     matchNested
       ? paramsNested?.slug
@@ -87,7 +85,7 @@ export default function PageView() {
       }
       return res.json();
     },
-    enabled: !!slug,
+    enabled: !!slug && (matchNested || matchNew || matchLegacyNested || matchLegacyCategory || matchLegacy),
   });
 
   // Move useEffect before conditional returns to comply with React hooks rules
@@ -96,6 +94,9 @@ export default function PageView() {
       setLocation(`/${data.page.category.slug}/${data.page.slug}`);
     }
   }, [matchLegacy, matchLegacyCategory, data?.page?.category?.slug, data?.page?.slug, setLocation]);
+
+  // Early return AFTER all hooks
+  if (!matchNested && !matchNew && !matchLegacyNested && !matchLegacyCategory && !matchLegacy) return null;
 
   if (isError) return <NotFound />;
   if (isLoading)

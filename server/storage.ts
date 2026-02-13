@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { 
   users, detectives, services, servicePackages, reviews, orders, favorites, 
   detectiveApplications, profileClaims, billingHistory, serviceCategories,
+  countries, states, cities,
   type User, type InsertUser,
   type Detective, type InsertDetective,
   type Service, type InsertService,
@@ -25,6 +26,17 @@ import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan.ts";
 
 const SALT_ROUNDS = 10;
 
+// Helper: Generate URL-safe slug from text
+function generateSlug(text: string): string {
+  return text
+    .toString()
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
@@ -40,6 +52,7 @@ export interface IStorage {
   createDetective(detective: InsertDetective): Promise<Detective>;
   updateDetective(id: string, updates: Partial<Detective>): Promise<Detective | undefined>;
   updateDetectiveAdmin(id: string, updates: Partial<Detective>): Promise<Detective | undefined>;
+  updateDetectiveLocation(id: string, data: { countryId: string, stateId: string, cityId: string }): Promise<Detective | undefined>;
   resetDetectivePassword(userId: string, newPassword: string): Promise<User | undefined>;
   setUserPassword(userId: string, newPassword: string, mustChangePassword?: boolean): Promise<User | undefined>;
   getAllDetectives(limit?: number, offset?: number): Promise<Detective[]>;
@@ -242,7 +255,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Detective operations
-  async getDetective(id: string): Promise<(Detective & { email?: string; subscriptionPackage?: any }) | undefined> {
+  async getDetective(id: string): Promise<(Detective & { 
+    email?: string; 
+    subscriptionPackage?: any;
+    requireLocationUpdate?: boolean;
+  }) | undefined> {
     const [result] = await db.select({
       detective: detectives,
       email: users.email,
@@ -256,6 +273,20 @@ export class DatabaseStorage implements IStorage {
     
     if (!result) return undefined;
     
+    // AUTO-REPAIR: Generate slug if missing
+    if (!result.detective.slug && result.detective.businessName) {
+      const newSlug = generateSlug(result.detective.businessName);
+      console.log(`[AUTO-REPAIR] Detective ${id} missing slug, generating: ${newSlug}`);
+      try {
+        await db.update(detectives)
+          .set({ slug: newSlug })
+          .where(eq(detectives.id, id));
+        result.detective.slug = newSlug;
+      } catch (error) {
+        console.error(`[AUTO-REPAIR] Failed to save slug for detective ${id}:`, error);
+      }
+    }
+    
     // RUNTIME SAFETY: Ensure detective has subscription
     if (!result.detective.subscriptionPackageId) {
       console.warn('[SUBSCRIPTION_SAFETY] Detective has NULL subscription, auto-fixing:', id);
@@ -267,14 +298,23 @@ export class DatabaseStorage implements IStorage {
       result.package = pkg || null;
     }
     
+    // VALIDATION: Flag if location is incomplete
+    const requireLocationUpdate = !result.detective.cityId;
+    
     return {
       ...result.detective,
       email: result.email || undefined,
       subscriptionPackage: result.package || undefined,
+      requireLocationUpdate,
     };
   }
 
-  async getDetectiveByUserId(userId: string): Promise<(Detective & { email?: string; subscriptionPackage?: any; pendingPackage?: any }) | undefined> {
+  async getDetectiveByUserId(userId: string): Promise<(Detective & { 
+    email?: string; 
+    subscriptionPackage?: any; 
+    pendingPackage?: any;
+    requireLocationUpdate?: boolean;
+  }) | undefined> {
     const [result] = await db.select({
       detective: detectives,
       email: users.email,
@@ -287,6 +327,21 @@ export class DatabaseStorage implements IStorage {
     .limit(1);
     
     if (!result) return undefined;
+    
+    // AUTO-REPAIR: Generate slug if missing
+    if (!result.detective.slug && result.detective.business_name) {
+      const newSlug = generateSlug(result.detective.business_name);
+      console.log(`[AUTO-REPAIR] Detective ${result.detective.id} missing slug, generating: ${newSlug}`);
+      
+      try {
+        await db.update(detectives)
+          .set({ slug: newSlug })
+          .where(eq(detectives.id, result.detective.id));
+        result.detective.slug = newSlug;
+      } catch (error) {
+        console.error(`[AUTO-REPAIR] Failed to save slug for detective ${result.detective.id}:`, error);
+      }
+    }
     
     // RUNTIME SAFETY: Ensure detective has subscription
     if (!result.detective.subscriptionPackageId) {
@@ -309,11 +364,15 @@ export class DatabaseStorage implements IStorage {
       pendingPackage = pending || null;
     }
     
+    // VALIDATION: Flag if location is incomplete
+    const requireLocationUpdate = !result.detective.city_id;
+    
     return {
       ...result.detective,
       email: result.email || undefined,
       subscriptionPackage: result.package || undefined,
       pendingPackage: pendingPackage || undefined,
+      requireLocationUpdate,
     };
   }
 
@@ -493,6 +552,80 @@ export class DatabaseStorage implements IStorage {
       .where(eq(detectives.id, id))
       .returning();
     return detective;
+  }
+
+  // Update detective location with ID validation and auto-slug generation
+  async updateDetectiveLocation(id: string, data: { countryId: string, stateId: string, cityId: string }): Promise<Detective | undefined> {
+    // Step 1: Fetch detective for slug check
+    const [detective] = await db.select().from(detectives).where(eq(detectives.id, id)).limit(1);
+    if (!detective) {
+      throw new Error("Detective not found");
+    }
+
+    // Step 2: Validate and fetch location names
+    const [country] = await db.select().from(countries).where(eq(countries.id, data.countryId)).limit(1);
+    if (!country) {
+      throw new Error("Invalid country selection");
+    }
+
+    const [state] = await db.select().from(states).where(and(
+      eq(states.id, data.stateId),
+      eq(states.countryId, data.countryId)
+    )).limit(1);
+    if (!state) {
+      throw new Error("Invalid state selection");
+    }
+
+    const [city] = await db.select().from(cities).where(and(
+      eq(cities.id, data.cityId),
+      eq(cities.stateId, data.stateId)
+    )).limit(1);
+    if (!city) {
+      throw new Error("Invalid city selection");
+    }
+
+    // Step 3: Auto-generate slug if missing
+    let slug = detective.slug;
+    if (!slug && detective.businessName) {
+      slug = generateSlug(detective.businessName);
+      // Ensure uniqueness
+      let counter = 1;
+      let uniqueSlug = slug;
+      while (true) {
+        const [existing] = await db.select().from(detectives)
+          .where(and(
+            eq(detectives.slug, uniqueSlug),
+            ne(detectives.id, id)
+          ))
+          .limit(1);
+        if (!existing) break;
+        uniqueSlug = `${slug}-${counter}`;
+        counter++;
+      }
+      slug = uniqueSlug;
+    }
+
+    // Step 4: Update detective with IDs, names, and slug
+    const updates: Partial<Detective> = {
+      countryId: data.countryId,
+      country: country.name,
+      stateId: data.stateId,
+      state: state.name,
+      cityId: data.cityId,
+      city: city.name,
+      updatedAt: new Date()
+    };
+
+    if (slug) {
+      updates.slug = slug;
+    }
+
+    const [updated] = await db.update(detectives)
+      .set(updates)
+      .where(eq(detectives.id, id))
+      .returning();
+    
+    return updated;
   }
 
   // Admin-only detective update - allows changing status, verification, etc.

@@ -14,12 +14,17 @@ import { initializeAuthSession } from "./lib/authSessionManager";
 import { AdminRoute } from "@/components/admin-route";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { NetworkErrorHandler } from "@/components/network-error-handler";
+import { PerformanceMonitor } from "@/lib/performance-monitor";
 
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
 const Home = lazy(() => import("@/pages/home"));
 const DetectiveProfile = lazy(() => import("@/pages/detective-profile"));
 const DetectivePublicPage = lazy(() => import("@/pages/detective"));
+const CityDetectivesPage = lazy(() => import("@/pages/city-detectives"));
+const ArticlePage = lazy(() => import("@/pages/news"));
 const ClaimProfile = lazy(() => import("@/pages/claim-profile"));
 const ClaimAccount = lazy(() => import("@/pages/claim-account"));
 const Login = lazy(() => import("@/pages/auth/login"));
@@ -210,7 +215,20 @@ function Router() {
           <Route path="/detective/subscription" component={DetectiveSubscription} />
           <Route path="/detective/billing" component={DetectiveBilling} />
           <Route path="/detective/settings" component={DetectiveSettings} />
-          <Route path="/p/:id" component={DetectivePublicPage} />
+          <Route path="/detectives/:country/:state/:city/:slug" component={DetectivePublicPage} />
+          <Route path="/detectives/:country/:state/:city" component={CityDetectivesPage} />
+          <Route path="/detectives/:country/:state" component={CityDetectivesPage} />
+          <Route path="/detectives/:country" component={CityDetectivesPage} />
+          <Route path="/news/:slug" component={ArticlePage} />
+          {/* Legacy detective URL - redirect to server for proper redirect */}
+          <Route path="/p/:id">
+            {(params) => {
+              // Force server-side redirect by doing a full page reload
+              window.location.href = `/p/${params.id}`;
+              return null;
+            }}
+          </Route>
+          {/* Legacy URL support - server redirects /p/:id to /detectives/{country}/{state}/{city}/{slug} */}
 
           {/* User Routes - MUST come before catch-all CMS routes */}
           <Route path="/user/dashboard" component={UserDashboard} />
@@ -247,21 +265,42 @@ function App() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <UserProvider>
-        <CurrencyProvider>
-          <TooltipProvider>
-            <Toaster />
-            <SmokeTester />
-            <SpeedInsights />
-            <Analytics />
-            <Router />
-            <Analytics />
-            <SpeedInsights />
-          </TooltipProvider>
-        </CurrencyProvider>
-      </UserProvider>
-    </QueryClientProvider>
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        // Log error with context for debugging
+        console.error('[ErrorBoundary] Caught error:', error);
+        console.error('[ErrorBoundary] Component stack:', errorInfo.componentStack);
+        
+        // Optionally send to error reporting service (e.g., Sentry)
+        // Sentry.captureException(error, { contexts: { react: errorInfo } });
+      }}
+    >
+      <QueryClientProvider client={queryClient}>
+        <UserProvider>
+          <CurrencyProvider>
+            <TooltipProvider>
+              <Toaster />
+              <SmokeTester />
+              <SpeedInsights />
+              <Analytics />
+              
+              {/* Network Error Handler: Auto-detects offline/connectivity issues */}
+              <NetworkErrorHandler
+                onRetry={() => {
+                  // Refetch queries when connection is restored
+                  queryClient.refetchQueries();
+                }}
+                dismissable={true}
+              />
+              
+              <Router />
+              <Analytics />
+              <SpeedInsights />
+            </TooltipProvider>
+          </CurrencyProvider>
+        </UserProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

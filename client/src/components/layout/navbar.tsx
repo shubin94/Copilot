@@ -18,12 +18,18 @@ import { useCurrency, COUNTRIES } from "@/lib/currency-context";
 import { useUserSafe } from "@/lib/user-context";
 import { useSiteSettings, useCurrentDetective } from "@/lib/hooks";
 import { api } from "@/lib/api";
+import { getDetectiveProfileUrl } from "@/lib/utils";
 
 type AutocompleteSuggestion = {
   type: "category" | "detective" | "location";
   label: string;
   value: string;
   meta?: string;
+  // Detective location fields for direct URL building
+  slug?: string;
+  country?: string;
+  state?: string;
+  city?: string;
 };
 
 export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { transparentOnHome?: boolean; overlayOnHome?: boolean }) {
@@ -91,8 +97,8 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
     if (e.key === 'Enter' && searchQuery.trim()) {
       const selected = activeIdx >= 0 && suggestions[activeIdx] ? suggestions[activeIdx] : null;
       if (selected?.type === "detective") {
-        // Navigate to detective public page
-        setLocation(`/p/${selected.value}`);
+        // Navigate to detective profile using slug (no server redirect needed)
+        setLocation(getDetectiveProfileUrl({ id: selected.value, slug: selected.slug, country: selected.country, state: selected.state, city: selected.city }));
       } else if (selected?.type === "location" && selected.value.startsWith("country:")) {
         const countryCode = selected.value.replace("country:", "");
         setLocation(`/search?country=${countryCode}`);
@@ -216,8 +222,8 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                 if (searchQuery.trim()) {
                   const selected = activeIdx >= 0 && suggestions[activeIdx] ? suggestions[activeIdx] : null;
                   if (selected?.type === "detective") {
-                    // Navigate to detective public page
-                    setLocation(`/p/${selected.value}`);
+                    // Navigate to detective profile using slug (no server redirect needed)
+                    setLocation(getDetectiveProfileUrl({ id: selected.value, slug: selected.slug, country: selected.country, state: selected.state, city: selected.city }));
                   } else if (selected?.type === "location" && selected.value.startsWith("country:")) {
                     const countryCode = selected.value.replace("country:", "");
                     setLocation(`/search?country=${countryCode}`);
@@ -245,8 +251,8 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                       key={`${s.type}-${s.value}`}
                       onMouseDown={() => {
                         if (s.type === "detective") {
-                          // Navigate to detective public page
-                          setLocation(`/p/${s.value}`);
+                          // Navigate to detective profile using slug (no server redirect needed)
+                          setLocation(getDetectiveProfileUrl({ id: s.value, slug: s.slug, country: s.country, state: s.state, city: s.city }));
                         } else if (s.type === "location" && s.value.startsWith("country:")) {
                           const countryCode = s.value.replace("country:", "");
                           setLocation(`/search?country=${countryCode}`);

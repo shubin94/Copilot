@@ -40,8 +40,12 @@ export const detectives = pgTable("detectives", {
   defaultServiceBanner: text("default_service_banner"),
   location: text("location").notNull().default("Not specified"),
   country: text("country").notNull(),
+  countryId: varchar("country_id"),
   state: text("state").notNull().default("Not specified"),
+  stateId: varchar("state_id"),
   city: text("city").notNull().default("Not specified"),
+  cityId: varchar("city_id"),
+  slug: text("slug").unique(),
   address: text("address"),
   pincode: text("pincode"),
   phone: text("phone"),
@@ -94,6 +98,28 @@ export const detectives = pgTable("detectives", {
   statusIdx: index("detectives_status_idx").on(table.status),
   claimCompletedAtIdx: index("detectives_claim_completed_at_idx").on(table.claimCompletedAt),
   phoneUniqueIdx: uniqueIndex("detectives_phone_unique").on(table.phone),
+}));
+
+export const caseStudies = pgTable("case_studies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  content: text("content").notNull(),
+  excerptHtml: text("excerpt_html"),
+  detectiveId: varchar("detective_id").references(() => detectives.id, { onDelete: "cascade" }),
+  category: text("category").notNull().default("Investigation"),
+  featured: boolean("featured").notNull().default(false),
+  thumbnail: text("thumbnail"),
+  viewCount: integer("view_count").notNull().default(0),
+  publishedAt: timestamp("published_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  slugIdx: uniqueIndex("case_studies_slug_unique").on(table.slug),
+  detectiveIdIdx: index("case_studies_detective_id_idx").on(table.detectiveId),
+  categoryIdx: index("case_studies_category_idx").on(table.category),
+  publishedAtIdx: index("case_studies_published_at_idx").on(table.publishedAt),
+  featuredIdx: index("case_studies_featured_idx").on(table.featured),
 }));
 
 export const serviceCategories = pgTable("service_categories", {
@@ -282,6 +308,45 @@ export const siteSettings = pgTable("site_settings", {
   copyrightText: text("copyright_text"), // Copyright/credit text
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// Countries table (for SEO slugs and lookups)
+export const countries = pgTable("countries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: varchar("code", { length: 10 }).notNull(),
+  name: text("name").notNull(),
+  slug: varchar("slug", { length: 255 }).notNull().default(''),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  codeIdx: index("countries_code_idx").on(table.code),
+  slugUq: uniqueIndex("countries_slug_uq").on(table.slug),
+}));
+
+// States table
+export const states = pgTable("states", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  countryId: varchar("country_id").notNull().references(() => countries.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  slug: varchar("slug", { length: 255 }).notNull().default(''),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  countryIdx: index("states_country_id_idx").on(table.countryId),
+  countrySlugUq: uniqueIndex("states_country_slug_uq").on(table.countryId, table.slug),
+}));
+
+// Cities table
+export const cities = pgTable("cities", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  stateId: varchar("state_id").notNull().references(() => states.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  slug: varchar("slug", { length: 255 }).notNull().default(''),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  stateIdx: index("cities_state_id_idx").on(table.stateId),
+  stateSlugUq: uniqueIndex("cities_state_slug_uq").on(table.stateId, table.slug),
+}));
 
 export const searchStats = pgTable("search_stats", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -627,6 +692,26 @@ export type InsertClaimToken = typeof claimTokens.$inferInsert;
 
 export const insertClaimTokenSchema = createInsertSchema(claimTokens);
 export const selectClaimTokenSchema = createSelectSchema(claimTokens);
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  userIdIdx: index("password_reset_tokens_user_id_idx").on(table.userId),
+  expiresAtIdx: index("password_reset_tokens_expires_at_idx").on(table.expiresAt),
+  usedAtIdx: index("password_reset_tokens_used_at_idx").on(table.usedAt),
+}));
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type InsertPasswordResetToken = typeof passwordResetTokens.$inferInsert;
+
+export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens);
+export const selectPasswordResetTokenSchema = createSelectSchema(passwordResetTokens);
 
 // Email Template Management System
 // Centralized storage for all email templates

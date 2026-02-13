@@ -6,7 +6,8 @@
  */
 
 import { config } from "./server/config";
-import { sendpulseEmail } from "./server/services/sendpulseEmail";
+import { smtpEmailService } from "./server/services/smtpEmailService";
+import { loadSecretsFromDatabase } from "./server/lib/secretsLoader";
 import { db } from "./db/index";
 import { appSecrets } from "./shared/schema";
 import { inArray } from "drizzle-orm";
@@ -25,38 +26,28 @@ async function checkEmailConfig() {
   console.log("=" .repeat(60));
   console.log("");
 
-  // 1. Check SendPulse API Configuration (from environment)
-  console.log("📧 SendPulse API Configuration (Environment Variables):");
+  // 1. Check SMTP service status
+  console.log("📤 SMTP Email Service Status:");
   console.log("-".repeat(60));
-  
-  const hasApiId = !!process.env.SENDPULSE_API_ID && process.env.SENDPULSE_API_ID !== "your-api-id";
-  const hasApiSecret = !!process.env.SENDPULSE_API_SECRET && process.env.SENDPULSE_API_SECRET !== "your-api-secret";
-  const isEnabled = process.env.SENDPULSE_ENABLED === "true";
-
-  console.log(`  SENDPULSE_API_ID:      ${hasApiId ? "✅ Configured" : "❌ NOT SET"}`);
-  console.log(`  SENDPULSE_API_SECRET:  ${hasApiSecret ? "✅ Configured" : "❌ NOT SET"}`);
-  console.log(`  SENDPULSE_ENABLED:     ${isEnabled ? "✅ true" : "❌ false"}`);
-  console.log(`  SENDPULSE_SENDER_EMAIL: ${process.env.SENDPULSE_SENDER_EMAIL || "❌ NOT SET"}`);
-  console.log(`  SENDPULSE_SENDER_NAME:  ${process.env.SENDPULSE_SENDER_NAME || "❌ NOT SET"}`);
-  console.log("");
-
-  const sendPulseConfigured = hasApiId && hasApiSecret && isEnabled;
-  if (sendPulseConfigured) {
-    console.log("✅ SendPulse API is CONFIGURED and ENABLED");
-  } else {
-    console.log("🚫 SendPulse API is NOT CONFIGURED");
-    console.log("   ⚠️  All emails will be MOCKED (not actually sent)!");
+  // Ensure this diagnostic process loads secrets and templates from DB
+  try {
+    await loadSecretsFromDatabase();
+  } catch (e) {
+    // ignore - loadSecretsFromDatabase will warn in dev if DB unreachable
   }
-  console.log("");
 
-  // 2. Check SendPulse Service Status
-  console.log("📤 SendPulse Service Status:");
-  console.log("-".repeat(60));
-  const status = sendpulseEmail.getStatus();
-  console.log(`  Enabled:       ${status.enabled ? "✅ Yes" : "❌ No"}`);
-  console.log(`  Is Production: ${status.isProduction ? "✅ Yes" : "⚠️  No (dev mode)"}`);
-  console.log(`  Sender Email:  ${status.senderEmail}`);
-  console.log(`  Sender Name:   ${status.senderName}`);
+  // Attempt to load templates into the SMTP service so status is accurate
+  try {
+    await smtpEmailService.reloadTemplates();
+  } catch (e) {
+    // ignore template load errors for diagnostic
+  }
+
+  const status = smtpEmailService.getStatus();
+  console.log(`  Configured:    ${status.configured ? "✅ Yes" : "❌ No"}`);
+  console.log(`  Templates:     ${status.templatesLoaded} loaded`);
+  console.log(`  SMTP Host:     ${status.smtpHost || "NOT SET"}`);
+  console.log(`  From Email:    ${status.fromEmail || "NOT SET"}`);
   console.log("");
 
   // 3. Check SMTP Configuration (from database)
@@ -85,37 +76,33 @@ async function checkEmailConfig() {
   }
   console.log("");
 
-  // 4. Final Status
+  // 4. Final Status (use SMTP readiness)
   console.log("=".repeat(60));
   console.log("🎯 FINAL STATUS:");
   console.log("=".repeat(60));
 
-  if (sendPulseConfigured) {
-    console.log("✅ EMAIL SYSTEM IS READY");
-    console.log("   Emails will be sent via SendPulse API");
+  const runtimeReady = status.configured && status.templatesLoaded > 0;
+  if (runtimeReady) {
+    console.log("✅ EMAIL SYSTEM IS READY FOR PRODUCTION");
+    console.log("   Emails will be sent via SMTP using configured templates.");
   } else {
     console.log("🚫 EMAIL SYSTEM IS NOT READY FOR PRODUCTION");
     console.log("");
-    console.log("⚠️  CRITICAL ISSUE:");
-    console.log("   - Application code uses sendpulseEmail.sendTransactionalEmail()");
-    console.log("   - This requires SendPulse API credentials");
-    console.log("   - Credentials are NOT configured in environment");
-    console.log("   - Result: NO EMAILS WILL BE SENT (mocked only)");
-    console.log("");
-    console.log("🔧 TO FIX:");
-    console.log("   1. Get your SendPulse API credentials:");
-    console.log("      → Log into SendPulse dashboard");
-    console.log("      → Go to Settings > API");
-    console.log("      → Copy API ID and API Secret");
-    console.log("");
-    console.log("   2. Add to your .env file:");
-    console.log("      SENDPULSE_API_ID=your-api-id-here");
-    console.log("      SENDPULSE_API_SECRET=your-api-secret-here");
-    console.log("      SENDPULSE_SENDER_EMAIL=contact@askdetectives.com");
-    console.log("      SENDPULSE_SENDER_NAME=Ask Detectives");
-    console.log("      SENDPULSE_ENABLED=true");
-    console.log("");
-    console.log("   3. Restart the server");
+    if (!status.configured) {
+      console.log("⚠️  SMTP not loaded by application (runtime):");
+      console.log("   - Ensure the app loads SMTP secrets from the database at startup");
+      console.log("   - Confirm `server/lib/secretsLoader.ts` is wired into startup");
+      console.log("");
+    }
+    if (status.templatesLoaded === 0) {
+      console.log("⚠️  No email templates loaded:");
+      console.log("   - Seed `email_templates` table or ensure DB connection is available");
+      console.log("");
+    }
+    console.log("🔧 QUICK FIX:");
+    console.log("   1. Apply DB migrations (create tables)");
+    console.log("   2. Ensure `app_secrets` contains smtp_host and smtp_from_email");
+    console.log("   3. Restart the server so secretsLoader reads DB secrets");
     console.log("   4. Run this script again to verify");
   }
   console.log("");
@@ -128,7 +115,7 @@ async function checkEmailConfig() {
     console.log("");
   }
 
-  process.exit(sendPulseConfigured ? 0 : 1);
+  process.exit(runtimeReady ? 0 : 1);
 }
 
 checkEmailConfig().catch(error => {
