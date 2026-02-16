@@ -329,6 +329,19 @@ export default function DetectivePublicPage() {
                 </div>
               )}
 
+              {/* Member Since Section */}
+              {(detective.memberSince || detective.createdAt) && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Member Since</h3>
+                  <p className="text-gray-700 text-sm">
+                    {new Date(detective.memberSince || detective.createdAt).toLocaleDateString('en-US', {
+                      month: 'long',
+                      year: 'numeric'
+                    })}
+                  </p>
+                </div>
+              )}
+
               {/* Bio Section - Speakable for Voice Assistants & AI Agents */}
               {detective.bio && (
                 <div className="mt-6 pt-6 border-t border-gray-200 detective-bio detective-summary detective-about" id="detective-about">

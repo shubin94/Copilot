@@ -3351,20 +3351,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         detective: {
           id: detective.id,
           businessName: detective.businessName,
+          bio: detective.bio,
+          logo: detective.logo,
+          location: detective.location,
           country: detective.country,
           state: detective.state,
           city: detective.city,
           slug: detective.slug,
-          description: detective.description,
-          rating: detective.rating,
-          reviewCount: detective.reviewCount,
-          logo: detective.logo,
-          banner: detective.banner,
-          detailsJSON: maskSensitiveFields(detailsJSON),
-          badge: detective.badge,
+          phone: detective.phone,
+          whatsapp: detective.whatsapp,
+          contactEmail: detective.contactEmail,
+          languages: detective.languages,
+          yearsExperience: detective.yearsExperience,
+          businessWebsite: detective.businessWebsite,
+          recognitions: detective.recognitions,
+          memberSince: detective.memberSince,
           isVerified: detective.isVerified,
+          level: detective.level,
+          hasBlueTick: detective.hasBlueTick,
+          blueTickAddon: detective.blueTickAddon,
+          status: detective.status,
           createdAt: detective.createdAt,
           updatedAt: detective.updatedAt,
+          effectiveBadges: {
+            blueTick: detective.hasBlueTick || detective.blueTickAddon,
+            pro: detective.level === 'pro',
+            recommended: false
+          }
         }
       };
 
