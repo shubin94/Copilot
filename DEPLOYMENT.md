@@ -107,7 +107,7 @@ Your database is already configured. Verify these settings:
 
 ### Connection String
 ```
-postgresql://postgres.gjgrwxxtkyggwfrydpdb:AKshubin123@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
+postgresql://postgres.<project-ref>:<password>@aws-<region>.pooler.supabase.com:6543/postgres
 ```
 
 ### SSL Configuration

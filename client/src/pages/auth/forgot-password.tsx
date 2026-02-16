@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { api } from "@/lib/api";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -14,19 +15,10 @@ export default function ForgotPassword() {
     setStatus(null);
 
     try {
-      const res = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      if (res.ok) {
-        setStatus("If an account exists we sent reset instructions to that email.");
-      } else {
-        const body = await res.json();
-        setStatus(body.error || "Failed to send reset email");
-      }
-    } catch (err) {
-      setStatus("Failed to send reset email");
+      await api.post("/api/auth/forgot-password", { email });
+      setStatus("If an account exists we sent reset instructions to that email.");
+    } catch (err: any) {
+      setStatus(err?.message || "Failed to send reset email");
     } finally {
       setLoading(false);
     }

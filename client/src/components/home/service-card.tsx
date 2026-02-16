@@ -98,6 +98,20 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
     toggleFavorite(id);
   };
 
+  const handleDetectiveClick = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (detectiveId) {
+      setLocation(getDetectiveProfileUrl({
+        id: detectiveId,
+        slug: detectiveSlug,
+        country: detectiveCountry,
+        state: detectiveState,
+        city: detectiveCity
+      }));
+    }
+  };
+
   return (
     <Link href={profileLink} className="block h-full relative group/card">
         <Card 
@@ -176,40 +190,18 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
             {/* Author Row */}
             <div
               className="flex items-center gap-3 mb-3"
-              role="link"
+              role="button"
               tabIndex={0}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (detectiveId) {
-                  setLocation(getDetectiveProfileUrl({
-                    id: detectiveId,
-                    slug: detectiveSlug,
-                    country: detectiveCountry,
-                    state: detectiveState,
-                    city: detectiveCity
-                  }));
-                }
-              }}
+              onClick={handleDetectiveClick}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (detectiveId) {
-                    setLocation(getDetectiveProfileUrl({
-                      id: detectiveId,
-                      slug: detectiveSlug,
-                      country: detectiveCountry,
-                      state: detectiveState,
-                      city: detectiveCity
-                    }));
-                  }
+                  handleDetectiveClick(e);
                 }
               }}
             >
               <Avatar className="h-8 w-8 border border-gray-100">
                 {avatar && <AvatarImage src={avatar} alt={`${name} - Professional Private Investigator`} />}
-                <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{name[0]}</AvatarFallback>
+                <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{name?.[0] || "?"}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col overflow-hidden">
                 <div className="flex items-start gap-2 flex-wrap">
@@ -279,13 +271,13 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
             <div className="flex items-center gap-1 text-sm mt-auto">
               {isUnclaimed ? (
                 <span className="text-gray-400 text-xs italic">No reviews yet</span>
-              ) : (
+              ) : reviews > 0 ? (
                 <>
                   <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                   <span className="font-bold text-gray-900">{typeof rating === 'number' && !isNaN(rating) ? rating : 0}</span>
                   <span className="text-gray-400">({typeof reviews === 'number' && !isNaN(reviews) ? reviews : 0})</span>
                 </>
-              )}
+              ) : null}
             </div>
           </CardContent>
 
@@ -340,6 +332,8 @@ export const ServiceCard = memo(ServiceCardComponent, (prevProps, nextProps) => 
     prevProps.rating === nextProps.rating &&
     prevProps.reviews === nextProps.reviews &&
     prevProps.countryCode === nextProps.countryCode &&
-    prevProps.isUnclaimed === nextProps.isUnclaimed
+    prevProps.isUnclaimed === nextProps.isUnclaimed &&
+    prevProps.images === nextProps.images &&
+    prevProps.badgeState === nextProps.badgeState
   );
 });

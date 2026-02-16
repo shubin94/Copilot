@@ -146,6 +146,12 @@ export default function DetectiveProfile() {
   if (serviceError || !serviceData) {
     return (
       <div className="min-h-screen bg-white font-sans text-gray-900">
+        <SEO
+          title="Service Not Found | Ask Detectives"
+          description="The requested service was not found."
+          robots="noindex, follow"
+          canonical={`https://www.askdetectives.com${window.location.pathname}`}
+        />
         <Navbar />
         <main className="container mx-auto px-6 md:px-12 lg:px-24 py-8">
           <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -165,6 +171,12 @@ export default function DetectiveProfile() {
   if (!detective) {
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
+        <SEO
+          title="Detective Not Available | Ask Detectives"
+          description="The requested detective profile is not available."
+          robots="noindex, follow"
+          canonical={`https://www.askdetectives.com${window.location.pathname}`}
+        />
         <Navbar />
         <main className="flex-grow container mx-auto px-4 py-8">
           <div className="max-w-4xl mx-auto text-center">

@@ -61,8 +61,7 @@ export function LocationWizardModal({ open, onOpenChange }: LocationWizardModalP
   const loadCountries = async () => {
     setLoadingCountries(true);
     try {
-      const response = await fetch("/api/locations/countries");
-      const data = await response.json();
+      const data = await api.get<{ countries?: Country[] }>("/api/locations/countries");
       setCountries(data.countries || []);
     } catch (error) {
       console.error("Failed to load countries:", error);
@@ -84,8 +83,7 @@ export function LocationWizardModal({ open, onOpenChange }: LocationWizardModalP
     setSelectedCityId("");
     
     try {
-      const response = await fetch(`/api/locations/states/${countryId}`);
-      const data = await response.json();
+      const data = await api.get<{ states?: State[] }>(`/api/locations/states/${countryId}`);
       setStates(data.states || []);
     } catch (error) {
       console.error("Failed to load states:", error);
@@ -105,8 +103,7 @@ export function LocationWizardModal({ open, onOpenChange }: LocationWizardModalP
     setSelectedCityId("");
     
     try {
-      const response = await fetch(`/api/locations/cities/${stateId}`);
-      const data = await response.json();
+      const data = await api.get<{ cities?: City[] }>(`/api/locations/cities/${stateId}`);
       setCities(data.cities || []);
     } catch (error) {
       console.error("Failed to load cities:", error);
@@ -146,23 +143,11 @@ export function LocationWizardModal({ open, onOpenChange }: LocationWizardModalP
 
     setSaving(true);
     try {
-      const response = await fetch("/api/detectives/me/location", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          countryId: selectedCountryId,
-          stateId: selectedStateId,
-          cityId: selectedCityId
-        }),
-        credentials: "include"
+      await api.patch("/api/detectives/me/location", {
+        countryId: selectedCountryId,
+        stateId: selectedStateId,
+        cityId: selectedCityId,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to update location");
-      }
 
       toast({
         title: "Location Updated",

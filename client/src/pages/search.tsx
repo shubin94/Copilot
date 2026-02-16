@@ -30,6 +30,7 @@ import { useCurrency } from "@/lib/currency-context";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import type { Service, Detective } from "@shared/schema";
 import { computeServiceBadges } from "@/lib/service-badges";
+import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
 
 // Consolidated filter state using reducer
 type FilterState = {
@@ -134,6 +135,18 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
   });
 
   const detectiveName = service.detective.businessName || "Unknown Detective";
+  const serviceSlug = service.slug || generateSlug(service.title || "service");
+  const servicePath = buildServiceUrl(
+    {
+      country: service.detective.country,
+      state: service.detective.state,
+      city: service.detective.city,
+      slug: service.detective.slug,
+      businessName: service.detective.businessName,
+    },
+    { slug: serviceSlug }
+  );
+  const canonicalUrl = `https://www.askdetectives.com${servicePath}`;
 
   // Use actual database images - NO MOCK DATA
   const images = service.images && service.images.length > 0 ? service.images : undefined;
@@ -143,6 +156,7 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
   return {
     id: service.id,
     slug: service.slug,
+    canonicalUrl,
     detectiveId: service.detective.id,
     images,
     image: serviceImage,
@@ -667,13 +681,30 @@ export default function SearchPage() {
     ? `Private Investigators in ${filters.country}${filters.city ? `, ${filters.city}` : ''}`
     : 'Find Professional Private Investigators';
   
-  // SEO: Clean canonical URL (strip offset, utm params)
+  // SEO: Clean canonical URL (keep only primary landing dimensions)
   const canonicalParams = new URLSearchParams();
   if (filters.category) canonicalParams.set('category', filters.category);
   if (filters.country) canonicalParams.set('country', filters.country);
+  if (filters.state) canonicalParams.set('state', filters.state);
   if (filters.city) canonicalParams.set('city', filters.city);
-  if (filters.sortBy && filters.sortBy !== 'popular') canonicalParams.set('sortBy', filters.sortBy);
   const canonicalUrl = `https://www.askdetectives.com/search${canonicalParams.toString() ? `?${canonicalParams.toString()}` : ''}`;
+
+  // SEO: Prevent faceted/filter combinations from bloating the index.
+  const currentSearchParams = new URLSearchParams(window.location.search);
+  const hasFreeTextQuery = Boolean(currentSearchParams.get("q")?.trim());
+  const hasFacetedFilters =
+    filters.minRating !== undefined ||
+    filters.minPrice !== undefined ||
+    filters.maxPrice !== undefined ||
+    filters.proOnly ||
+    filters.agencyOnly ||
+    filters.level1Only ||
+    filters.level2Only ||
+    filters.sortBy !== "popular";
+  const isPaginated = filters.offset > 0;
+  const searchRobots = !hasFreeTextQuery && !hasFacetedFilters && !isPaginated
+    ? "index, follow"
+    : "noindex, follow";
 
   // SEO: ItemList schema for search results
   const itemListSchema = resultServicesComputed.length > 0 ? {
@@ -685,9 +716,9 @@ export default function SearchPage() {
       "position": index + 1,
       "item": {
         "@type": "Service",
-        "@id": `https://www.askdetectives.com/service/${service.id}`,
+        "@id": service.canonicalUrl,
         "name": service.title,
-        "url": `https://www.askdetectives.com/service/${service.id}`,
+        "url": service.canonicalUrl,
         "provider": {
           "@type": "Organization",
           "name": service.name
@@ -729,7 +760,7 @@ export default function SearchPage() {
         title={seoTitle}
         description={seoDescription}
         canonical={canonicalUrl}
-        robots="index, follow"
+        robots={searchRobots}
         schema={itemListSchema}
         keywords={[
           filters.category || 'private investigator',
@@ -871,4 +902,3 @@ export default function SearchPage() {
     </div>
   );
 }
-

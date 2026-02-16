@@ -12,6 +12,21 @@ router.get("/:parent/:slug/pages", async (req: Request, res: Response) => {
     }
 
     const tagSlug = `${parent}/${slug}`;
+    const tagLookup = await pool.query(
+      `SELECT id, name, slug FROM tags WHERE slug = $1 AND status = 'published' LIMIT 1`,
+      [tagSlug]
+    );
+
+    if (tagLookup.rows.length === 0) {
+      return res.status(404).json({ error: "Tag not found" });
+    }
+
+    const tag = {
+      id: tagLookup.rows[0].id,
+      name: tagLookup.rows[0].name,
+      slug: tagLookup.rows[0].slug,
+    };
+
     const result = await pool.query(
       `SELECT 
         p.id,
@@ -52,10 +67,6 @@ router.get("/:parent/:slug/pages", async (req: Request, res: Response) => {
       tags: (row.tags || []).filter((t: any) => t?.id),
     }));
 
-    const tag = result.rows[0]
-      ? { id: result.rows[0].tag_id, name: result.rows[0].tag_name, slug: result.rows[0].tag_slug }
-      : null;
-
     res.json({ tag, pages });
   } catch (error) {
     console.error("[public-tags] Get tag pages error:", error);
@@ -70,6 +81,21 @@ router.get("/:slug/pages", async (req: Request, res: Response) => {
     if (!slug) {
       return res.status(400).json({ error: "Tag slug is required" });
     }
+
+    const tagLookup = await pool.query(
+      `SELECT id, name, slug FROM tags WHERE slug = $1 AND status = 'published' LIMIT 1`,
+      [slug]
+    );
+
+    if (tagLookup.rows.length === 0) {
+      return res.status(404).json({ error: "Tag not found" });
+    }
+
+    const tag = {
+      id: tagLookup.rows[0].id,
+      name: tagLookup.rows[0].name,
+      slug: tagLookup.rows[0].slug,
+    };
 
     const result = await pool.query(
       `SELECT 
@@ -110,10 +136,6 @@ router.get("/:slug/pages", async (req: Request, res: Response) => {
         : null,
       tags: (row.tags || []).filter((t: any) => t?.id),
     }));
-
-    const tag = result.rows[0]
-      ? { id: result.rows[0].tag_id, name: result.rows[0].tag_name, slug: result.rows[0].tag_slug }
-      : null;
 
     res.json({ tag, pages });
   } catch (error) {

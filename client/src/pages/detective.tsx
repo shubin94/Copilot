@@ -80,11 +80,16 @@ export default function DetectivePublicPage() {
     ? `${detective.city}, ${detective.country}`
     : detective?.location || detective?.country || '';
   
-  const seoTitle = location
+  const isMissingDetective = !detectiveLoading && !detective;
+  const seoTitle = isMissingDetective
+    ? "Detective Not Found | Ask Detectives"
+    : location
     ? `${detectiveName} - Private Detective in ${location} | Ask Detectives`
     : `${detectiveName} - Professional Detective Services | Ask Detectives`;
   
-  const seoDescription = detective
+  const seoDescription = isMissingDetective
+    ? "The detective profile you requested was not found."
+    : detective
     ? `Find contact details, reviews, and services for ${detectiveName}${location ? ` in ${location}` : ''}. Professional private investigation services. ${(detective as any).phone ? 'Call or WhatsApp for inquiry.' : ''}`
     : 'View detective profile on Ask Detectives';
   
@@ -100,6 +105,9 @@ export default function DetectivePublicPage() {
   const countrySlug = countryName ? createSlug(countryName) : "";
   const stateSlug = detective?.state ? createSlug(detective.state) : "";
   const citySlug = detective?.city ? createSlug(detective.city) : "";
+  const canonicalUrl = detective 
+    ? `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`
+    : `https://www.askdetectives.com${window.location.pathname}`;
   
   const breadcrumbs = [
     { name: "Home", url: "/" },
@@ -108,32 +116,28 @@ export default function DetectivePublicPage() {
   if (countryName && countrySlug) {
     breadcrumbs.push({
       name: countryName,
-      url: `/search?country=${encodeURIComponent(countrySlug)}`,
+      url: `/detectives/${countrySlug}/`,
     });
   }
   
   if (detective?.state && stateSlug && countrySlug) {
     breadcrumbs.push({
       name: detective.state,
-      url: `/search?country=${encodeURIComponent(countrySlug)}&state=${encodeURIComponent(stateSlug)}`,
+      url: `/detectives/${countrySlug}/${stateSlug}/`,
     });
   }
   
   if (detective?.city && citySlug && stateSlug && countrySlug) {
     breadcrumbs.push({
       name: detective.city,
-      url: `/search?country=${encodeURIComponent(countrySlug)}&state=${encodeURIComponent(stateSlug)}&city=${encodeURIComponent(citySlug)}`,
+      url: `/detectives/${countrySlug}/${stateSlug}/${citySlug}/`,
     });
   }
   
   breadcrumbs.push({
     name: detectiveName,
-    url: "#",
+    url: canonicalUrl,
   });
-  // SEO: Canonical URL
-  const canonicalUrl = detective 
-    ? `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`
-    : window.location.href;
   
   // SEO: Generate comprehensive JSON-LD schemas
   // Includes LocalBusiness, AggregateRating, BreadcrumbList, and Speakable for AI/voice assistants
@@ -154,7 +158,7 @@ export default function DetectivePublicPage() {
         title={seoTitle}
         description={seoDescription}
         canonical={canonicalUrl}
-        robots="index, follow"
+        robots={isMissingDetective ? "noindex, follow" : "index, follow"}
         image={detective?.logo || ""}
         schema={detectiveSchemas}
         breadcrumbs={breadcrumbs}

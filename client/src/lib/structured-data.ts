@@ -165,7 +165,7 @@ export function generateLocalBusinessSchema(
     schema.certifications = {
       "@type": "Organization",
       "name": "Ask Detectives - Verified Professional",
-      "logo": "https://www.askdetectives.com/verified-badge.png",
+      "logo": "https://www.askdetectives.com/blue-tick.png",
       "url": "https://www.askdetectives.com"
     };
   }
@@ -312,7 +312,7 @@ export function generateOrganizationSchema(): Record<string, any> {
     "@id": "https://www.askdetectives.com/#organization",
     "name": "Ask Detectives",
     "url": "https://www.askdetectives.com",
-    "logo": "https://www.askdetectives.com/logo.png",
+    "logo": "https://www.askdetectives.com/favicon.png",
     "description": "The leading vetted directory of licensed private investigators and detectives worldwide",
     "sameAs": [
       "https://www.linkedin.com/company/ask-detectives",

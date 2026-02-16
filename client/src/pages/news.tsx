@@ -126,11 +126,12 @@ export default function ArticlePage() {
   const seoDescription = article.excerptHtml 
     ? article.excerptHtml.replace(/<[^>]*>/g, "").substring(0, 160)
     : `Case study: ${article.title}. Professional private investigation and detective services.`;
+  const canonicalUrl = `https://www.askdetectives.com/news/${article.slug}`;
 
   const breadcrumbs = [
     { name: "Home", url: "https://www.askdetectives.com/" },
     { name: "News & Cases", url: "https://www.askdetectives.com/news/" },
-    { name: article.title, url: window.location.href },
+    { name: article.title, url: canonicalUrl },
   ];
 
   // Article Schema (NewsArticle or BlogPosting)
@@ -139,7 +140,7 @@ export default function ArticlePage() {
     "@type": "NewsArticle",
     "headline": article.title,
     "description": seoDescription,
-    "image": article.thumbnail || "https://www.askdetectives.com/logo.png",
+    "image": article.thumbnail || "https://www.askdetectives.com/favicon.png",
     "datePublished": article.publishedAt,
     "dateModified": article.updatedAt,
     "author": article.detective
@@ -157,7 +158,7 @@ export default function ArticlePage() {
       "name": "Ask Detectives",
       "logo": {
         "@type": "ImageObject",
-        "url": "https://www.askdetectives.com/logo.png",
+        "url": "https://www.askdetectives.com/favicon.png",
       },
     },
     "mainEntity": {
@@ -179,7 +180,7 @@ export default function ArticlePage() {
       <SEO 
         title={seoTitle}
         description={seoDescription}
-        canonical={window.location.href}
+        canonical={canonicalUrl}
         robots="index, follow"
         image={article.thumbnail || ""}
         schema={articleSchema}

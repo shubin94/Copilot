@@ -1,4 +1,4 @@
-# Allow all crawlers
+# Primary crawl policy
 User-agent: *
 Allow: /
 Disallow: /admin/
@@ -10,9 +10,28 @@ Disallow: /claim-account
 Disallow: /claim-profile
 Disallow: /application-under-review
 
+# Crawl-budget controls for low-value faceted URLs
+Disallow: /search?*q=
+Disallow: /search?*minRating=
+Disallow: /search?*minPrice=
+Disallow: /search?*maxPrice=
+Disallow: /search?*sortBy=
+Disallow: /search?*proOnly=1
+Disallow: /search?*agencyOnly=1
+Disallow: /search?*lvl1=1
+Disallow: /search?*lvl2=1
+Disallow: /search?*offset=
+
+# Tracking parameter cleanup
+Disallow: /*?*utm_
+Disallow: /*?*gclid=
+Disallow: /*?*fbclid=
+Disallow: /*?*msclkid=
+Disallow: /*?*ref=
+
 Sitemap: https://www.askdetectives.com/sitemap.xml
 
-# Explicitly allow AI crawlers and chatbots for discovery
+# Explicit allow-list for AI crawlers and chatbots
 User-agent: GPTBot
 User-agent: ClaudeBot
 User-agent: PerplexityBot
@@ -27,3 +46,9 @@ Disallow: /user/
 Disallow: /detective/dashboard
 Disallow: /login
 Disallow: /signup
+Disallow: /search?*q=
+Disallow: /search?*minRating=
+Disallow: /search?*minPrice=
+Disallow: /search?*maxPrice=
+Disallow: /search?*sortBy=
+Disallow: /search?*offset=

@@ -948,7 +948,9 @@ export class DatabaseStorage implements IStorage {
       detectiveLevel: detectives.level,
       detectiveLogo: detectives.logo,
       detectiveCountry: detectives.country,
+      detectiveState: detectives.state,
       detectiveCity: detectives.city,
+      detectiveSlug: detectives.slug,
       detectivePhone: detectives.phone,
       detectiveWhatsapp: detectives.whatsapp,
       detectiveContactEmail: detectives.contactEmail,
@@ -987,31 +989,52 @@ export class DatabaseStorage implements IStorage {
     const results = await query.limit(cappedLimit).offset(offset);
     
     console.log('[searchServices] FINAL services count:', results.length, 'sortBy:', sortBy);
-    
-    return results.map((r: any) => ({
-      id: r.serviceId,
-      title: r.serviceTitle,
-      category: r.serviceCategory,
-      basePrice: r.serviceBasePrice,
-      offerPrice: r.serviceOfferPrice,
-      isOnEnquiry: r.serviceIsOnEnquiry,
-      images: r.serviceMainImage ? [r.serviceMainImage] : [],
-      orderCount: r.serviceOrderCount,
-      detective: {
-        id: r.detectiveId,
-        businessName: r.detectiveBusinessName,
-        level: r.detectiveLevel,
-        logo: r.detectiveLogo,
-        country: r.detectiveCountry,
-        city: r.detectiveCity,
-        phone: r.detectivePhone,
-        whatsapp: r.detectiveWhatsapp,
-        contactEmail: r.detectiveContactEmail,
-        isVerified: r.detectiveIsVerified,
-      },
-      avgRating: Number(r.avgRating),
-      reviewCount: Number(r.reviewCount),
-    }));
+
+    const mapped: Array<Service & { detective: Detective; avgRating: number; reviewCount: number; planName?: string }> = [];
+    for (const r of results as any[]) {
+      let detectiveSlug = r.detectiveSlug as string | null | undefined;
+      if (!detectiveSlug && r.detectiveBusinessName) {
+        const newSlug = generateSlug(r.detectiveBusinessName);
+        console.log(`[AUTO-REPAIR] Detective ${r.detectiveId} missing slug in searchServices, generating: ${newSlug}`);
+        try {
+          await db.update(detectives)
+            .set({ slug: newSlug })
+            .where(eq(detectives.id, r.detectiveId));
+          detectiveSlug = newSlug;
+        } catch (error) {
+          console.error(`[AUTO-REPAIR] Failed to save slug for detective ${r.detectiveId}:`, error);
+        }
+      }
+
+      mapped.push({
+        id: r.serviceId,
+        title: r.serviceTitle,
+        category: r.serviceCategory,
+        basePrice: r.serviceBasePrice,
+        offerPrice: r.serviceOfferPrice,
+        isOnEnquiry: r.serviceIsOnEnquiry,
+        images: r.serviceMainImage ? [r.serviceMainImage] : [],
+        orderCount: r.serviceOrderCount,
+        detective: {
+          id: r.detectiveId,
+          businessName: r.detectiveBusinessName,
+          level: r.detectiveLevel,
+          logo: r.detectiveLogo,
+          country: r.detectiveCountry,
+          state: r.detectiveState,
+          city: r.detectiveCity,
+          slug: detectiveSlug,
+          phone: r.detectivePhone,
+          whatsapp: r.detectiveWhatsapp,
+          contactEmail: r.detectiveContactEmail,
+          isVerified: r.detectiveIsVerified,
+        },
+        avgRating: Number(r.avgRating),
+        reviewCount: Number(r.reviewCount),
+      } as any);
+    }
+
+    return mapped;
   }
 
   async getReviewsByDetective(detectiveId: string): Promise<Array<Review & { serviceTitle: string }>> {

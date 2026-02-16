@@ -20,7 +20,14 @@ interface PerformanceMetrics {
     size?: number;
   }[];
   customMetrics?: Record<string, number>;
+  budgetBreaches?: Record<string, boolean>;
 }
+
+const CWV_BUDGETS = {
+  lcp: 2500,
+  fid: 100,
+  cls: 0.1,
+};
 
 export class PerformanceMonitor {
   private static instance: PerformanceMonitor;
@@ -28,6 +35,20 @@ export class PerformanceMonitor {
   private apiLatencies: Map<string, number[]> = new Map();
   private startTime: number = Date.now();
   private observers: Map<string, PerformanceObserver> = new Map();
+
+  private updateBudgetStatus(metric: keyof typeof CWV_BUDGETS, value: number) {
+    if (!this.metrics.budgetBreaches) {
+      this.metrics.budgetBreaches = {};
+    }
+
+    const breached = value > CWV_BUDGETS[metric];
+    this.metrics.budgetBreaches[metric] = breached;
+
+    if (breached) {
+      this.trackCustomMetric(`budgetBreach.${metric}`, value);
+      console.warn(`[Performance Monitor] CWV budget breach: ${metric.toUpperCase()}=${value}`);
+    }
+  }
 
   private constructor() {
     this.initializeMetrics();
@@ -58,6 +79,10 @@ export class PerformanceMonitor {
             ...this.metrics.coreWebVitals,
             lcp: lastEntry.renderTime || lastEntry.loadTime,
           };
+          const lcpValue = this.metrics.coreWebVitals.lcp;
+          if (typeof lcpValue === "number") {
+            this.updateBudgetStatus("lcp", lcpValue);
+          }
         });
 
         try {
@@ -77,6 +102,10 @@ export class PerformanceMonitor {
             ...this.metrics.coreWebVitals,
             fid: firstEntry.processingDuration,
           };
+          const fidValue = this.metrics.coreWebVitals.fid;
+          if (typeof fidValue === "number") {
+            this.updateBudgetStatus("fid", fidValue);
+          }
         });
 
         try {
@@ -99,6 +128,10 @@ export class PerformanceMonitor {
             ...this.metrics.coreWebVitals,
             cls: clsValue,
           };
+          const clsMetric = this.metrics.coreWebVitals.cls;
+          if (typeof clsMetric === "number") {
+            this.updateBudgetStatus("cls", clsMetric);
+          }
         });
 
         try {
@@ -213,6 +246,8 @@ export class PerformanceMonitor {
       slowestEndpoint: slowest?.endpoint,
       slowestEndpointLatency: slowest?.avgLatency,
       coreWebVitals: this.metrics.coreWebVitals,
+      cwvBudgets: CWV_BUDGETS,
+      cwvBudgetBreaches: this.metrics.budgetBreaches,
       totalAPITracked: this.apiLatencies.size,
       sessionDuration: Date.now() - this.startTime,
     };

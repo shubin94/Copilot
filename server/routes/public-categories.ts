@@ -15,6 +15,21 @@ router.get("/:parent/:slug/pages", async (req: Request, res: Response) => {
     }
 
     const categorySlug = `${parent}/${slug}`;
+    const categoryLookup = await pool.query(
+      `SELECT id, name, slug FROM categories WHERE slug = $1 AND status = 'published' LIMIT 1`,
+      [categorySlug]
+    );
+
+    if (categoryLookup.rows.length === 0) {
+      return res.status(404).json({ error: "Category not found" });
+    }
+
+    const category = {
+      id: categoryLookup.rows[0].id,
+      name: categoryLookup.rows[0].name,
+      slug: categoryLookup.rows[0].slug,
+    };
+
     const result = await pool.query(
       `SELECT 
         p.id,
@@ -52,8 +67,6 @@ router.get("/:parent/:slug/pages", async (req: Request, res: Response) => {
       tags: (row.tags || []).filter((t: any) => t?.id),
     }));
 
-    const category = pages[0]?.category || null;
-
     res.json({ category, pages });
   } catch (error) {
     console.error("[public-categories] Get category pages error:", error);
@@ -68,6 +81,21 @@ router.get("/:slug/pages", async (req: Request, res: Response) => {
     if (!slug) {
       return res.status(400).json({ error: "Category slug is required" });
     }
+
+    const categoryLookup = await pool.query(
+      `SELECT id, name, slug FROM categories WHERE slug = $1 AND status = 'published' LIMIT 1`,
+      [slug]
+    );
+
+    if (categoryLookup.rows.length === 0) {
+      return res.status(404).json({ error: "Category not found" });
+    }
+
+    const category = {
+      id: categoryLookup.rows[0].id,
+      name: categoryLookup.rows[0].name,
+      slug: categoryLookup.rows[0].slug,
+    };
 
     const result = await pool.query(
       `SELECT 
@@ -105,8 +133,6 @@ router.get("/:slug/pages", async (req: Request, res: Response) => {
       },
       tags: (row.tags || []).filter((t: any) => t?.id),
     }));
-
-    const category = pages[0]?.category || null;
 
     res.json({ category, pages });
   } catch (error) {

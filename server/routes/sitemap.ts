@@ -3,6 +3,17 @@ import { pool } from "../../db/index.ts";
 
 const router = Router();
 
+function toSlug(value: string | null | undefined): string {
+  if (!value) return "";
+  return value
+    .toString()
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 // Generate dynamic sitemap.xml from database
 router.get("/", async (req: Request, res: Response) => {
   try {
@@ -39,14 +50,6 @@ router.get("/", async (req: Request, res: Response) => {
     <priority>0.8</priority>
   </url>
 
-  <!-- Blog -->
-  <url>
-    <loc>https://www.askdetectives.com/blog</loc>
-    <lastmod>${today}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-
   <!-- Static Pages -->
   <url>
     <loc>https://www.askdetectives.com/about</loc>
@@ -78,13 +81,6 @@ router.get("/", async (req: Request, res: Response) => {
     <changefreq>yearly</changefreq>
     <priority>0.4</priority>
   </url>
-  <url>
-    <loc>https://www.askdetectives.com/detective-signup</loc>
-    <lastmod>${today}</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-
 `;
 
     // Get all published CMS pages with categories
@@ -117,10 +113,12 @@ router.get("/", async (req: Request, res: Response) => {
 
     // Get all published blog categories
     const categoriesResult = await pool.query(`
-      SELECT slug, updated_at
-      FROM categories
-      WHERE status = 'published'
-      ORDER BY name ASC
+      SELECT c.slug, MAX(p.updated_at) as updated_at
+      FROM categories c
+      INNER JOIN pages p ON p.category_id = c.id AND p.status = 'published'
+      WHERE c.status = 'published'
+      GROUP BY c.slug
+      ORDER BY c.slug ASC
     `);
 
     xml += `\n  <!-- Blog Categories -->\n`;
@@ -137,10 +135,13 @@ router.get("/", async (req: Request, res: Response) => {
 
     // Get all published blog tags
     const tagsResult = await pool.query(`
-      SELECT slug, updated_at
-      FROM tags
-      WHERE status = 'published'
-      ORDER BY name ASC
+      SELECT t.slug, MAX(p.updated_at) as updated_at
+      FROM tags t
+      INNER JOIN page_tags pt ON pt.tag_id = t.id
+      INNER JOIN pages p ON p.id = pt.page_id AND p.status = 'published'
+      WHERE t.status = 'published'
+      GROUP BY t.slug
+      ORDER BY t.slug ASC
     `);
 
     xml += `\n  <!-- Blog Tags -->\n`;
@@ -273,27 +274,17 @@ router.get("/", async (req: Request, res: Response) => {
 `;
     }
 
-    xml += `\n  <!-- Legacy Detective Profiles (UUID-Based) -->
-`;
-    // Keep legacy URLs for backwards compatibility/transition
-    const detectivesResult = await pool.query(`
-      SELECT id, updated_at
-      FROM detectives
-      WHERE status = 'active'
-      ORDER BY updated_at DESC
-    `);
-
     // Get all active services
-    // UPDATED: Fetch location slugs for SEO-friendly URLs
     const servicesResult = await pool.query(`
-      SELECT s.id, s.updated_at
       SELECT 
-        s.id, 
-        s.slug, 
+        s.id,
+        s.slug,
         s.updated_at,
         c.slug as country_slug,
         st.slug as state_slug,
-        ci.slug as city_slug
+        ci.slug as city_slug,
+        d.slug as detective_slug,
+        d.business_name as detective_business_name
       FROM services s
       INNER JOIN detectives d ON s.detective_id = d.id
       INNER JOIN countries c ON d.country = c.code
@@ -307,23 +298,18 @@ router.get("/", async (req: Request, res: Response) => {
 `;
     for (const service of servicesResult.rows) {
       const lastmod = service.updated_at ? new Date(service.updated_at).toISOString().split('T')[0] : today;
-      
-      // Default to ID if slug is missing, otherwise use SEO URL
-      let url = `https://www.askdetectives.com/service/${service.id}`;
-      
-      if (service.slug && service.country_slug) {
-         url = `https://www.askdetectives.com/services/${service.country_slug}/`;
-         if (service.state_slug) {
-           url += `${service.state_slug}/`;
-           if (service.city_slug) {
-             url += `${service.city_slug}/`;
-           }
-         }
-         url += `${service.slug}`;
+
+      if (!service.slug || !service.country_slug) {
+        continue;
       }
 
+      const detectiveSlug =
+        service.detective_slug || toSlug(service.detective_business_name) || "detective";
+      const stateSlug = service.state_slug || "region";
+      const citySlug = service.city_slug || "area";
+      const url = `https://www.askdetectives.com/service/${service.country_slug}/${stateSlug}/${citySlug}/${detectiveSlug}/${service.slug}`;
+
       xml += `  <url>
-    <loc>https://www.askdetectives.com/service/${service.id}</loc>
     <loc>${url}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>weekly</changefreq>
@@ -361,7 +347,7 @@ router.get("/", async (req: Request, res: Response) => {
     res.header("Content-Type", "application/xml");
     res.send(xml);
 
-    const totalUrls = pagesResult.rows.length + categoriesResult.rows.length + tagsResult.rows.length + detectivesResult.rows.length + servicesResult.rows.length + countriesResult.rows.length + statesResult.rows.length + citiesResult.rows.length + detectiveProfilesResult.rows.length + caseStudiesResult.rows.length;
+    const totalUrls = pagesResult.rows.length + categoriesResult.rows.length + tagsResult.rows.length + servicesResult.rows.length + countriesResult.rows.length + statesResult.rows.length + citiesResult.rows.length + detectiveProfilesResult.rows.length + caseStudiesResult.rows.length;
     console.log(`[Sitemap] Generated ${totalUrls} URLs including:
   - ${pagesResult.rows.length} CMS pages
   - ${categoriesResult.rows.length} blog categories
@@ -370,7 +356,6 @@ router.get("/", async (req: Request, res: Response) => {
   - ${statesResult.rows.length} state directories
   - ${citiesResult.rows.length} city directories
   - ${detectiveProfilesResult.rows.length} detective profiles (slugs)
-  - ${detectivesResult.rows.length} detective profiles (legacy)
   - ${servicesResult.rows.length} services
   - ${caseStudiesResult.rows.length} case studies / news articles`);
   } catch (error) {

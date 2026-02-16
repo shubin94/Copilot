@@ -40,17 +40,38 @@ export default function PageCategory() {
     ? `${paramsNested?.parent}/${paramsNested?.slug}`
     : (params?.slug as string);
 
-  const { data, isLoading, isError } = useQuery<CategoryResponse>({
+  const { data, isLoading, isError, error } = useQuery<CategoryResponse, any>({
     queryKey: ["page-category", slug],
     queryFn: async () => {
       const res = await fetch(`/api/public/categories/${slug}/pages`);
       if (!res.ok) {
-        throw new Error("Failed to load category");
+        const fetchError: any = new Error(res.status === 404 ? "Category not found" : "Failed to load category");
+        fetchError.status = res.status;
+        throw fetchError;
       }
       return res.json();
     },
     enabled: !!slug,
   });
+
+  if (isError && error?.status === 404) {
+    return (
+      <div className="min-h-screen flex flex-col bg-white">
+        <SEO
+          title="Category Not Found"
+          description="The requested category does not exist."
+          robots="noindex, follow"
+          canonical={`https://www.askdetectives.com${window.location.pathname}`}
+        />
+        <Navbar />
+        <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
+          <h1 className="text-3xl font-bold text-gray-900 mb-3">Category Not Found</h1>
+          <p className="text-gray-600">This category does not exist or was removed.</p>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   if (isError) {
     return (
@@ -59,11 +80,13 @@ export default function PageCategory() {
   }
 
   const categoryName = data?.category?.name || "Category";
+  const canonicalUrl = `https://www.askdetectives.com${window.location.pathname}`;
+  const archiveRobots = (data?.pages?.length || 0) > 0 ? "index, follow" : "noindex, follow";
 
   const breadcrumbs = [
     { name: "Home", url: "/" },
     { name: "Blog", url: "/blog" },
-    { name: categoryName, url: window.location.pathname }
+    { name: categoryName, url: canonicalUrl }
   ];
 
   return (
@@ -71,6 +94,8 @@ export default function PageCategory() {
       <SEO 
         title={`${categoryName} | Pages`} 
         description={`Pages in ${categoryName}`}
+        canonical={canonicalUrl}
+        robots={archiveRobots}
         breadcrumbs={breadcrumbs}
       />
       <Navbar />

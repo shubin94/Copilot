@@ -109,16 +109,17 @@ export default function PageView() {
   if (!data?.page) return <NotFound />;
 
   const page = data.page;
+  const canonicalUrl = `https://www.askdetectives.com${window.location.pathname}`;
   
   const breadcrumbs = page.category
     ? [
         { name: "Home", url: "/" },
         { name: page.category.name, url: `/blog/category/${page.category.slug}` },
-        { name: page.title, url: window.location.pathname }
+        { name: page.title, url: canonicalUrl }
       ]
     : [
         { name: "Home", url: "/" },
-        { name: page.title, url: window.location.pathname }
+        { name: page.title, url: canonicalUrl }
       ];
 
   return (
@@ -126,6 +127,7 @@ export default function PageView() {
       <SEO 
         title={page.metaTitle || page.title} 
         description={page.metaDescription}
+        canonical={canonicalUrl}
         breadcrumbs={breadcrumbs}
         publishedTime={page.createdAt}
         modifiedTime={page.updatedAt}

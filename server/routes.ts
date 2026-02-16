@@ -155,76 +155,6 @@ async function getRazorpayClient() {
     key_id: gateway.config.keyId || config.razorpay.keyId,
     key_secret: gateway.config.keySecret || config.razorpay.keySecret,
   });
-
-  // Forgot password - generate reset token and send email (public)
-  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
-    try {
-      const { email } = req.body as { email: string };
-      if (!email) return res.status(400).json({ error: "Email is required" });
-
-      const user = await storage.getUserByEmail((email || "").toLowerCase().trim());
-
-      // Always respond success to avoid user enumeration
-      if (!user) {
-        return res.json({ success: true });
-      }
-
-      const token = randomBytes(32).toString("hex");
-      const tokenHash = createHash("sha256").update(token).digest("hex");
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-      await db.insert(passwordResetTokens).values({
-        userId: user.id,
-        tokenHash: tokenHash,
-        expiresAt: expiresAt,
-      }).returning();
-
-      const resetLink = `${config.baseUrl || "http://localhost:5000"}/auth/reset-password?token=${token}`;
-
-      smtpEmailService.sendTransactionalEmail(
-        user.email,
-        EMAIL_TEMPLATE_KEYS.PASSWORD_RESET,
-        {
-          userName: user.name,
-          resetLink,
-        }
-      ).catch(e => console.error("[Email] Failed to send password reset email:", e));
-
-      return res.json({ success: true });
-    } catch (error) {
-      console.error("[auth] Forgot password error:", error);
-      return res.status(500).json({ error: "Failed to process request" });
-    }
-  });
-
-  // Reset password - consume token and set new password
-  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
-    try {
-      const { token, newPassword } = req.body as { token: string; newPassword: string };
-      if (!token || !newPassword) return res.status(400).json({ error: "Token and newPassword are required" });
-      if (newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
-
-      const tokenHash = createHash("sha256").update(token).digest("hex");
-
-      const rows = await db.select().from(passwordResetTokens).where(eq(passwordResetTokens.tokenHash, tokenHash)).limit(1);
-      if (rows.length === 0) return res.status(400).json({ error: "Invalid or expired token" });
-
-      const pr = rows[0] as any;
-      if (pr.usedAt) return res.status(400).json({ error: "Token already used" });
-      if (new Date(pr.expiresAt) < new Date()) return res.status(400).json({ error: "Token expired" });
-
-      // Update user password
-      await storage.setUserPassword(pr.userId, newPassword, false);
-
-      // Mark token used
-      await db.update(passwordResetTokens).set({ usedAt: new Date(), updatedAt: new Date() }).where(eq(passwordResetTokens.id, pr.id));
-
-      return res.json({ success: true });
-    } catch (error) {
-      console.error("[auth] Reset password error:", error);
-      return res.status(500).json({ error: "Failed to reset password" });
-    }
-  });
   
   console.log(`[Razorpay] Using ${gateway.is_test_mode ? 'TEST' : 'LIVE'} mode from database`);
   return dbClient;
@@ -237,6 +167,8 @@ declare module "express-session" {
     userRole: string;
     csrfToken?: string;
     csrfTokenGeneratedAt?: number;
+    oauthState?: string;
+    oauthStateGeneratedAt?: number;
   }
 }
 
@@ -719,6 +651,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== AUTHENTICATION ROUTES ==============
   
+  // Forgot password - generate reset token and send email (public)
+  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body as { email: string };
+      if (!email) return res.status(400).json({ error: "Email is required" });
+
+      const user = await storage.getUserByEmail((email || "").toLowerCase().trim());
+
+      // Always respond success to avoid user enumeration
+      if (!user) {
+        return res.json({ success: true });
+      }
+
+      const token = randomBytes(32).toString("hex");
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      await db.insert(passwordResetTokens).values({
+        userId: user.id,
+        tokenHash: tokenHash,
+        expiresAt: expiresAt,
+      }).returning();
+
+      const resetLink = `${config.baseUrl || "http://localhost:5000"}/auth/reset-password?token=${token}`;
+
+      smtpEmailService.sendTransactionalEmail(
+        user.email,
+        EMAIL_TEMPLATE_KEYS.PASSWORD_RESET,
+        {
+          userName: user.name,
+          resetLink,
+        }
+      ).catch(e => console.error("[Email] Failed to send password reset email:", e));
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[auth] Forgot password error:", error);
+      return res.status(500).json({ error: "Failed to process request" });
+    }
+  });
+
+  // Reset password - consume token and set new password
+  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
+    try {
+      const { token, newPassword } = req.body as { token: string; newPassword: string };
+      if (!token || !newPassword) return res.status(400).json({ error: "Token and newPassword are required" });
+      if (newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+
+      const rows = await db.select().from(passwordResetTokens).where(eq(passwordResetTokens.tokenHash, tokenHash)).limit(1);
+      if (rows.length === 0) return res.status(400).json({ error: "Invalid or expired token" });
+
+      const pr = rows[0] as any;
+      if (pr.usedAt) return res.status(400).json({ error: "Token already used" });
+      if (new Date(pr.expiresAt) < new Date()) return res.status(400).json({ error: "Token expired" });
+
+      // Update user password
+      await storage.setUserPassword(pr.userId, newPassword, false);
+
+      // Mark token used
+      await db.update(passwordResetTokens).set({ usedAt: new Date(), updatedAt: new Date() }).where(eq(passwordResetTokens.id, pr.id));
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[auth] Reset password error:", error);
+      return res.status(500).json({ error: "Failed to reset password" });
+    }
+  });
+  
   // Register new user
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     try {
@@ -861,6 +863,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
+      if (user.isActive === false) {
+        console.warn("[auth] Login blocked: inactive account", { userId: user.id, email });
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
       let validPassword = false;
       try {
         if (typeof user.password === "string" && user.password.startsWith("$2")) {
@@ -933,10 +940,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!clientId || !baseUrl) {
       return res.status(503).json({ error: "Google sign-in is not configured" });
     }
+    const oauthState = randomBytes(32).toString("hex");
+    req.session.oauthState = oauthState;
+    req.session.oauthStateGeneratedAt = Date.now();
+
     const redirectUri = `${baseUrl}/api/auth/google/callback`;
     const scope = "openid email profile";
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}`;
-    res.redirect(302, url);
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${encodeURIComponent(oauthState)}`;
+    req.session.save((err) => {
+      if (err) {
+        console.warn("[auth] Failed to persist OAuth state");
+        return res.status(500).json({ error: "Failed to start Google sign-in" });
+      }
+      res.redirect(302, url);
+    });
   });
 
   // Google OAuth: callback — exchange code, get user, create/link session, redirect
@@ -948,6 +965,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!clientId || !clientSecret || !baseUrl) {
       return res.redirect(`${frontOrigin}/login?error=google_not_configured`);
     }
+
+    const state = req.query.state as string | undefined;
+    const sessionState = req.session.oauthState;
+    const sessionStateGeneratedAt = req.session.oauthStateGeneratedAt;
+    req.session.oauthState = undefined;
+    req.session.oauthStateGeneratedAt = undefined;
+
+    if (!state || !sessionState || state !== sessionState) {
+      return res.redirect(`${frontOrigin}/login?error=google_state_invalid`);
+    }
+
+    if (
+      sessionStateGeneratedAt &&
+      Date.now() - sessionStateGeneratedAt > 10 * 60 * 1000
+    ) {
+      return res.redirect(`${frontOrigin}/login?error=google_state_expired`);
+    }
+
     const code = req.query.code as string | undefined;
     if (!code) {
       return res.redirect(`${frontOrigin}/login?error=google_no_code`);
@@ -999,6 +1034,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (!user) {
         return res.redirect(`${frontOrigin}/login?error=google_login_failed`);
+      }
+      if (user.isActive === false) {
+        return res.redirect(`${frontOrigin}/login?error=account_disabled`);
       }
       req.session.regenerate((err) => {
         if (err) {
@@ -4026,47 +4064,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get service by slug (public) - simple slug lookup
-  // Helper function to convert country codes to full names
-  const getCountryName = (code: string): string => {
-    const countryCodeMap: Record<string, string> = {
-      'IN': 'India',
-      'US': 'United States',
-      'UK': 'United Kingdom',
-      'GB': 'United Kingdom',
-      'CA': 'Canada',
-      'AU': 'Australia',
-      'DE': 'Germany',
-      'FR': 'France',
-      'IT': 'Italy',
-      'ES': 'Spain',
-      'NZ': 'New Zealand',
-      'IE': 'Ireland',
-      'SG': 'Singapore',
-      'MY': 'Malaysia',
-      'PH': 'Philippines',
-      'TH': 'Thailand',
-      'VN': 'Vietnam',
-      'PK': 'Pakistan',
-      'BD': 'Bangladesh',
-      'ZA': 'South Africa',
-      'AE': 'United Arab Emirates',
-      'KW': 'Kuwait',
-      'SA': 'Saudi Arabia',
-      'QA': 'Qatar',
-      'OM': 'Oman',
-      'JP': 'Japan',
-      'CN': 'China',
-      'HK': 'Hong Kong',
-      'MX': 'Mexico',
-      'BR': 'Brazil',
-      'AR': 'Argentina',
-      'CL': 'Chile',
-    };
-    if (!code) return '';
-    return countryCodeMap[code.toUpperCase()] || code;
-  };
-
+  // Get service by slug (public)
   app.get("/api/services/by-slug/:slug", async (req: Request, res: Response) => {
     try {
       const slug = req.params.slug;
@@ -4084,67 +4082,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .replace(/^-+|-+$/g, "");
       };
 
-      // Format location part for URL slugs (lowercase, replace spaces with hyphens)
-      const formatLocationPart = (part: string | undefined): string => {
-        if (!part) return '';
-        return part
-          .toLowerCase()
-          .trim()
-          .replace(/\s+/g, '-')
-          .replace(/[^\w-]/g, '');
-      };
-
-      // Fetch services and find by matching generated slug from title
-      // This works whether or not the slug column exists in the database
-      const potentialMatches = await db
+      // Resolve by indexed slug (services.slug is unique)
+      const rows = await db
         .select({
-          serviceId: services.id,
-          serviceTitle: services.title,
-          serviceCategory: services.category,
-          serviceDescription: services.description,
-          serviceImages: services.images,
-          serviceIsActive: services.isActive,
-          serviceIsOnEnquiry: services.isOnEnquiry,
-          serviceBasePrice: services.basePrice,
-          detectiveId: services.detectiveId,
-          detective: detectives
+          service: services,
+          detective: detectives,
         })
         .from(services)
         .innerJoin(detectives, eq(services.detectiveId, detectives.id))
-        .limit(1000); // Limit to prevent loading too much data
+        .where(eq(services.slug, slug))
+        .limit(1);
 
-      const matchedRow = potentialMatches.find(row => {
-        const serviceSlug = generateSlug(row.serviceTitle);
-        
-        // Match by service slug
-        if (serviceSlug !== slug) return false;
-        
-        // If detective slug provided, also match by detective slug or businessName
-        if (detectiveSlug) {
-          const detSlug = row.detective.slug || generateSlug(row.detective.businessName || '');
-          if (detSlug !== detectiveSlug) return false;
-        }
-        
-        return true;
-      });
-
-      if (!matchedRow) {
+      if (rows.length === 0) {
         return res.status(404).json({ error: "Service not found" });
       }
 
-      // Reconstruct the service object with all properties
-      const service = {
-        id: matchedRow.serviceId,
-        title: matchedRow.serviceTitle,
-        category: matchedRow.serviceCategory,
-        description: matchedRow.serviceDescription,
-        images: matchedRow.serviceImages,
-        isActive: matchedRow.serviceIsActive,
-        isOnEnquiry: matchedRow.serviceIsOnEnquiry,
-        basePrice: matchedRow.serviceBasePrice,
-        detectiveId: matchedRow.detectiveId,
-      } as any;
-      const rawDetective = matchedRow.detective;
+      const { service, detective: rawDetective } = rows[0];
+
+      // Optional canonical guard: if detective slug is provided in URL, ensure it matches.
+      if (detectiveSlug) {
+        const detSlug = rawDetective.slug || generateSlug(rawDetective.businessName || '');
+        if (detSlug !== detectiveSlug) {
+          return res.status(404).json({ error: "Service not found" });
+        }
+      }
 
       // Check access permissions
       if (preview) {
@@ -6145,6 +6106,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { countrySlug, stateSlug, citySlug } = req.params as { countrySlug: string; stateSlug?: string; citySlug?: string };
 
+      // City-level URLs must include a state segment.
+      if (citySlug && !stateSlug) {
+        return res.status(400).json({
+          error: "State is required when city is provided",
+          code: "INVALID_LOCATION_PATH",
+          meta: { country: countrySlug, state: stateSlug, city: citySlug }
+        });
+      }
+
       // Resolve country by slug
       const countryRows = await db
         .select({ id: countries.id, code: countries.code, name: countries.name })
@@ -6170,11 +6140,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(and(eq(states.countryId, countryRow.id), eq(states.slug, stateSlug)));
         
         if (!stateRows || stateRows.length === 0) {
-          // Return country-level results if state not found (graceful fallback)
-          console.warn(`[Location API] State not found: ${stateSlug}, returning country-level results`);
-        } else {
-          stateRow = stateRows[0];
+          return res.status(404).json({
+            error: 'State not found',
+            code: 'STATE_NOT_FOUND',
+            meta: { country: countrySlug, state: stateSlug, city: citySlug }
+          });
         }
+
+        stateRow = stateRows[0];
       }
 
       // Optional city
@@ -6186,11 +6159,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(and(eq(cities.stateId, stateRow.id), eq(cities.slug, citySlug)));
         
         if (!cityRows || cityRows.length === 0) {
-          // Return state-level results if city not found (graceful fallback)
-          console.warn(`[Location API] City not found: ${citySlug}, returning state-level results`);
-        } else {
-          cityRow = cityRows[0];
+          return res.status(404).json({
+            error: 'City not found',
+            code: 'CITY_NOT_FOUND',
+            meta: { country: countrySlug, state: stateSlug, city: citySlug }
+          });
         }
+
+        cityRow = cityRows[0];
       }
 
       // Use existing ranking helper to fetch base list (by country code)

@@ -124,7 +124,7 @@ export default function Home() {
             "name": "Ask Detectives",
             "alternateName": "FindDetectives",
             "url": "https://www.askdetectives.com",
-            "logo": "https://www.askdetectives.com/logo.png",
+            "logo": "https://www.askdetectives.com/favicon.png",
             "description": "The leading marketplace for professional private investigation services connecting clients with verified detectives worldwide.",
             "foundingDate": "2024",
             "contactPoint": {

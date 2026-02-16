@@ -67,6 +67,14 @@ export function SEO({
   pagination
 }: SEOProps) {
   useEffect(() => {
+    const toAbsoluteUrl = (value: string): string => {
+      if (!value) return `${window.location.origin}${window.location.pathname}`;
+      if (/^https?:\/\//i.test(value)) return value;
+      if (value.startsWith("//")) return `${window.location.protocol}${value}`;
+      if (value.startsWith("/")) return `${window.location.origin}${value}`;
+      return `${window.location.origin}/${value.replace(/^\/+/, "")}`;
+    };
+
     // Update title
     const fullTitle = title.includes('|') ? title : `${title} | FindDetectives`;
     document.title = fullTitle;
@@ -118,19 +126,19 @@ export function SEO({
     }
 
     // Canonical - strip query params
-    const cleanCanonical = canonical || window.location.origin + window.location.pathname;
+    const cleanCanonical = toAbsoluteUrl(canonical || window.location.pathname);
     updateLink('canonical', cleanCanonical);
 
     // Pagination links for SEO on archives
     if (pagination?.prevUrl) {
-      updateLink('prev', pagination.prevUrl);
+      updateLink('prev', toAbsoluteUrl(pagination.prevUrl));
     } else {
       const prevLink = document.querySelector('link[rel="prev"]');
       if (prevLink) prevLink.remove();
     }
 
     if (pagination?.nextUrl) {
-      updateLink('next', pagination.nextUrl);
+      updateLink('next', toAbsoluteUrl(pagination.nextUrl));
     } else {
       const nextLink = document.querySelector('link[rel="next"]');
       if (nextLink) nextLink.remove();
@@ -146,7 +154,7 @@ export function SEO({
       "@id": "https://www.askdetectives.com/#organization",
       "name": "FindDetectives",
       "url": "https://www.askdetectives.com",
-      "logo": "https://www.askdetectives.com/logo.png",
+      "logo": "https://www.askdetectives.com/favicon.png",
       "description": "The leading marketplace for professional private investigation services",
       "contactPoint": {
         "@type": "ContactPoint",
@@ -160,6 +168,20 @@ export function SEO({
       ]
     };
     allSchemas.push(organizationSchema);
+
+    const websiteSchema = {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "@id": "https://www.askdetectives.com/#website",
+      "url": "https://www.askdetectives.com",
+      "name": "FindDetectives",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://www.askdetectives.com/search?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    };
+    allSchemas.push(websiteSchema);
     
     // Main schema(s) (if provided)
     if (schema) {
@@ -239,7 +261,7 @@ export function SEO({
           "@type": "ListItem",
           "position": index + 1,
           "name": crumb.name,
-          "item": crumb.url
+          "item": toAbsoluteUrl(crumb.url)
         }))
       };
       allSchemas.push(breadcrumbSchema);
@@ -301,7 +323,7 @@ export function SEO({
           "name": "FindDetectives",
           "logo": {
             "@type": "ImageObject",
-            "url": "https://www.askdetectives.com/logo.png"
+            "url": "https://www.askdetectives.com/favicon.png"
           }
         },
         ...(structuredData.article.image && {
@@ -331,10 +353,10 @@ export function SEO({
     updateMeta('og:type', type, true);
     updateMeta('og:url', cleanCanonical, true);
     updateMeta('og:site_name', 'FindDetectives', true);
-    updateMeta('og:locale', 'en_IN', true);
+    updateMeta('og:locale', 'en_US', true);
     
     // Default OG image fallback
-    const ogImage = image || 'https://www.askdetectives.com/og-default.png';
+    const ogImage = image || 'https://www.askdetectives.com/favicon.png';
     updateMeta('og:image', ogImage, true);
     updateMeta('og:image:width', '1200', true);
     updateMeta('og:image:height', '630', true);

@@ -110,6 +110,24 @@ export default function CityDetectivesPage() {
   const countrySlug = matchedParams?.country || "";
   const stateSlug = matchedParams?.state || "";
   const citySlug = matchedParams?.city || "";
+  const isCountryLevel = !!countrySlug && !stateSlug;
+  const isStateLevel = !!countrySlug && !!stateSlug && !citySlug;
+  const isCityLevel = !!countrySlug && !!stateSlug && !!citySlug;
+
+  const canonicalPath = isCityLevel
+    ? `/detectives/${countrySlug}/${stateSlug}/${citySlug}/`
+    : isStateLevel
+    ? `/detectives/${countrySlug}/${stateSlug}/`
+    : `/detectives/${countrySlug}/`;
+  const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+  const locationApiPath = `/api/detectives/location/${[countrySlug, stateSlug, citySlug]
+    .filter((segment) => !!segment)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")}`;
+  const stateApiPath = `/api/detectives/location/${[countrySlug, stateSlug]
+    .filter((segment) => !!segment)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")}`;
 
   useEffect(() => {
     const fetchLocationDetectives = async () => {
@@ -118,13 +136,11 @@ export default function CityDetectivesPage() {
         setError(null);
 
         // Fetch detectives for this location
-        const response = await fetch(
-          `/api/detectives/location/${countrySlug}/${stateSlug}/${citySlug}`
-        );
+        const response = await fetch(locationApiPath);
 
         if (!response.ok) {
           if (response.status === 404) {
-            setError(`Location not found: ${citySlug}, ${stateSlug}, ${countrySlug}`);
+            setError(`Location not found: ${[citySlug, stateSlug, countrySlug].filter(Boolean).join(", ")}`);
           } else {
             setError("Failed to load detectives for this location");
           }
@@ -139,9 +155,7 @@ export default function CityDetectivesPage() {
         // Fetch related cities in the same state for cross-linking
         if (stateSlug) {
           try {
-            const citiesResponse = await fetch(
-              `/api/detectives/location/${countrySlug}/${stateSlug}`
-            );
+            const citiesResponse = await fetch(stateApiPath);
             if (citiesResponse.ok) {
               const citiesData = await citiesResponse.json();
               setRelatedCities([]);
@@ -158,27 +172,54 @@ export default function CityDetectivesPage() {
       }
     };
 
-    if (countrySlug && stateSlug && citySlug) {
+    if (countrySlug) {
       fetchLocationDetectives();
     }
-  }, [countrySlug, stateSlug, citySlug]);
+  }, [countrySlug, stateSlug, citySlug, locationApiPath, stateApiPath]);
 
   // SEO Metadata
   const cityName = locationMeta?.city || citySlug?.replace(/-/g, " ") || "";
   const stateName = locationMeta?.state || stateSlug?.replace(/-/g, " ") || "";
   const countryName = locationMeta?.country || countrySlug?.replace(/-/g, " ") || "";
+  const locationLabel = isCityLevel
+    ? `${cityName}, ${stateName}`
+    : isStateLevel
+    ? `${stateName}, ${countryName}`
+    : countryName;
   
   // Enhanced SEO Title and Description with current year
   const currentYear = new Date().getFullYear();
-  const seoTitle = `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${currentYear})`;
-  const seoDescription = `Browse the most trusted detective agencies in ${cityName}. Compare ratings, services, and contact vetted professionals in ${stateName} today. ${detectives.length} licensed detectives available.`;
+  const seoTitle = isCityLevel
+    ? `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${currentYear})`
+    : isStateLevel
+    ? `Top Private Detectives in ${stateName}, ${countryName} (${currentYear})`
+    : `Top Private Detectives in ${countryName} (${currentYear})`;
+  const seoDescription = `Browse trusted detective agencies in ${locationLabel}. Compare ratings, services, and contact vetted professionals today. ${detectives.length} licensed detectives available.`;
+  const h1Text = isCityLevel
+    ? `Best Private Detectives in ${cityName}, ${stateName}`
+    : isStateLevel
+    ? `Best Private Detectives in ${stateName}, ${countryName}`
+    : `Best Private Detectives in ${countryName}`;
 
-  const breadcrumbs = [
-    { name: "Home", url: "https://www.askdetectives.com/" },
-    { name: countryName, url: `https://www.askdetectives.com/detectives/${countrySlug}/` },
-    { name: stateName, url: `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/` },
-    { name: cityName, url: window.location.href },
-  ];
+  const breadcrumbs = [{ name: "Home", url: "https://www.askdetectives.com/" }];
+  if (countryName && countrySlug) {
+    breadcrumbs.push({
+      name: countryName,
+      url: `https://www.askdetectives.com/detectives/${countrySlug}/`,
+    });
+  }
+  if (stateName && stateSlug) {
+    breadcrumbs.push({
+      name: stateName,
+      url: `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/`,
+    });
+  }
+  if (cityName && citySlug) {
+    breadcrumbs.push({
+      name: cityName,
+      url: canonicalUrl,
+    });
+  }
 
   // Get unique specialties from detectives in this city
   const topSpecialties = getTopSpecialties(detectives, 3);
@@ -191,19 +232,33 @@ export default function CityDetectivesPage() {
     "@type": "SearchResultsPage",
     "name": seoTitle,
     "description": seoDescription,
-    "url": window.location.href,
-    "mainEntity": {
-      "@type": "Place",
-      "name": cityName,
-      "containedInPlace": {
-        "@type": "State",
-        "name": stateName,
-        "containedInPlace": {
+    "url": canonicalUrl,
+    "mainEntity": isCityLevel
+      ? {
+          "@type": "Place",
+          "name": cityName,
+          "containedInPlace": {
+            "@type": "State",
+            "name": stateName,
+            "containedInPlace": {
+              "@type": "Country",
+              "name": countryName,
+            },
+          },
+        }
+      : isStateLevel
+      ? {
+          "@type": "State",
+          "name": stateName,
+          "containedInPlace": {
+            "@type": "Country",
+            "name": countryName,
+          },
+        }
+      : {
           "@type": "Country",
           "name": countryName,
         },
-      },
-    },
     "itemListElement": detectives.slice(0, 10).map((detective, index) => ({
       "@type": "ListItem",
       "position": index + 1,
@@ -266,7 +321,7 @@ export default function CityDetectivesPage() {
       <SEO 
         title={seoTitle}
         description={seoDescription}
-        canonical={window.location.href}
+        canonical={canonicalUrl}
         robots="index, follow"
         schema={allSchemas}
         breadcrumbs={breadcrumbs}
@@ -301,11 +356,9 @@ export default function CityDetectivesPage() {
 
         {/* Hero Section */}
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">
-            Best Private Detectives in {cityName}, {stateName}
-          </h1>
+          <h1 className="text-4xl font-bold mb-2">{h1Text}</h1>
           <p className="text-lg text-gray-600 mb-2">
-            Find experienced, licensed private investigators and detective services in {cityName}.
+            Find experienced, licensed private investigators and detective services in {locationLabel}.
           </p>
           <p className="text-sm text-gray-500">
             {loading ? "Loading..." : `${detectives.length} detectives available`}
@@ -409,17 +462,19 @@ export default function CityDetectivesPage() {
         ) : (
           <div className="bg-gray-50 rounded-lg p-8 mb-12 text-center">
             <h2 className="text-xl font-semibold mb-2 text-gray-900">
-              No detectives found in {cityName} yet
+              No detectives found in {locationLabel} yet
             </h2>
             <p className="text-gray-600 mb-4">
-              Browse other cities in {stateName} or search across all detectives.
+              Browse other locations or search across all detectives.
             </p>
             <div className="flex gap-4 justify-center flex-wrap">
-              <Button asChild variant="outline">
-                <a href={`/detectives/${countrySlug}/${stateSlug}/`}>
-                  Browse {stateName}
-                </a>
-              </Button>
+              {stateSlug ? (
+                <Button asChild variant="outline">
+                  <a href={`/detectives/${countrySlug}/${stateSlug}/`}>
+                    Browse {stateName}
+                  </a>
+                </Button>
+              ) : null}
               <Button asChild>
                 <a href="/search">Search All Detectives</a>
               </Button>
@@ -428,7 +483,7 @@ export default function CityDetectivesPage() {
         )}
 
         {/* Related Cities Section */}
-        {stateSlug && detectives.length > 0 && (
+        {isCityLevel && detectives.length > 0 && (
           <div className="mt-12 pt-8 border-t border-gray-200">
             <h2 className="text-2xl font-bold mb-6">
               Other Cities in {stateName}
@@ -467,9 +522,6 @@ export default function CityDetectivesPage() {
         {/* FAQ Section with JSON-LD Schema */}
         {!loading && detectives.length > 0 && (
           <>
-            {/* Hidden FAQ Schema - rendered in SEO component via script tag */}
-            <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
-            
             <div className="mt-12 pt-8 border-t border-gray-200">
               <h2 className="text-2xl font-bold mb-2">
                 Frequently Asked Questions

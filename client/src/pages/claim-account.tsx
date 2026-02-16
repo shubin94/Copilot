@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2, AlertCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
-import { buildApiUrl, getOrFetchCsrfToken } from "@/lib/api";
+import { api } from "@/lib/api";
 import { Footer } from "@/components/layout/footer";
 import { SEO } from "@/components/seo";
 
@@ -41,23 +41,7 @@ export default function ClaimAccount() {
 
     const verifyToken = async () => {
       try {
-        const csrfToken = await getOrFetchCsrfToken();
-        const response = await fetch(buildApiUrl("/api/claim-account/verify"), {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "X-CSRF-Token": csrfToken,
-          },
-          credentials: "include",
-          body: JSON.stringify({ token }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || "Invalid claim token");
-        }
-
-        const data: VerificationResponse = await response.json();
+        const data = await api.post<VerificationResponse>("/api/claim-account/verify", { token });
         setVerificationStatus("valid");
         setDetectiveInfo(data.detective);
         // Pre-fill email if available
@@ -75,23 +59,7 @@ export default function ClaimAccount() {
 
   const claimAccount = useMutation({
     mutationFn: async (claimData: { token: string; email: string }) => {
-      const csrfToken = await getOrFetchCsrfToken();
-      const response = await fetch(buildApiUrl("/api/claim-account"), {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-        },
-        credentials: "include",
-        body: JSON.stringify(claimData),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to claim account");
-      }
-
-      return response.json();
+      return api.post("/api/claim-account", claimData);
     },
     onSuccess: () => {
       setTimeout(() => {

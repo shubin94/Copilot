@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { useRouter } from "next/router";
+import { api } from "@/lib/api";
 
 export default function ResetPassword() {
   const [token, setToken] = useState("");
@@ -28,19 +28,10 @@ export default function ResetPassword() {
     setStatus(null);
 
     try {
-      const res = await fetch("/api/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, newPassword }),
-      });
-      if (res.ok) {
-        setStatus("Password reset successfully. You can now log in.");
-      } else {
-        const body = await res.json();
-        setStatus(body.error || "Failed to reset password");
-      }
-    } catch (err) {
-      setStatus("Failed to reset password");
+      await api.post("/api/auth/reset-password", { token, newPassword });
+      setStatus("Password reset successfully. You can now log in.");
+    } catch (err: any) {
+      setStatus(err?.message || "Failed to reset password");
     } finally {
       setLoading(false);
     }
