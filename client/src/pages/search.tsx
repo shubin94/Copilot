@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { Search, MapPin, Filter, ChevronDown, Star, Check, Globe, Loader2, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect, useRef, useReducer } from "react";
@@ -141,6 +142,7 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
   
   return {
     id: service.id,
+    slug: service.slug,
     detectiveId: service.detective.id,
     images,
     image: serviceImage,
@@ -164,10 +166,12 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     detectiveState: service.detective.state,
     detectiveCity: service.detective.city,
     detectiveSlug: service.detective.slug,
+    detectiveBusinessName: service.detective.businessName,
   };
 }
 
 export default function SearchPage() {
+  console.log("[search-page] Component initializing...");
   const [location, setLocation] = useLocation();
   
   // Initialize filter state from URL params
@@ -226,7 +230,9 @@ export default function SearchPage() {
   const citySearchRef = useRef<HTMLInputElement>(null);
   const [openSections, setOpenSections] = useState<string[]>(["category", "location"]);
 
-  const { selectedCountry, convertPriceFromTo } = useCurrency();
+  const currencyContext = useCurrency();
+  const selectedCountry = currencyContext?.selectedCountry;
+  const convertPriceFromTo = currencyContext?.convertPriceFromTo;
 
   // Determine plan filter for backend (pro or agency)
   const planName = filters.proOnly ? "pro" : filters.agencyOnly ? "agency" : undefined;
@@ -284,6 +290,7 @@ export default function SearchPage() {
   const finalResults = results.filter((s) => {
     // If price filters set, check converted prices
     if (filters.minPrice === undefined && filters.maxPrice === undefined) return true;
+    if (!selectedCountry || !convertPriceFromTo) return true;
     const converted = convertPriceFromTo(s.price, s.countryCode, selectedCountry.code);
     if (filters.minPrice !== undefined && converted < filters.minPrice) return false;
     if (filters.maxPrice !== undefined && converted > filters.maxPrice) return false;
@@ -550,12 +557,12 @@ export default function SearchPage() {
            <div className="space-y-3">
              <div className="grid grid-cols-2 gap-2">
                <div className="space-y-1">
-                 <Label className="text-xs text-gray-500">MIN ({selectedCountry.currencySymbol})</Label>
-                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-min-price" value={filters.minPriceInput} onChange={(e) => dispatch({ type: 'SET_MIN_PRICE_INPUT', payload: e.target.value })} />
+                 <Label className="text-xs text-gray-500">MIN ({selectedCountry?.currencySymbol || "$"})</Label>
+                 <Input type="number" placeholder={selectedCountry?.currencySymbol || "$"} className="h-8 text-sm" data-testid="input-min-price" value={filters.minPriceInput} onChange={(e) => dispatch({ type: 'SET_MIN_PRICE_INPUT', payload: e.target.value })} />
                </div>
                <div className="space-y-1">
-                 <Label className="text-xs text-gray-500">MAX ({selectedCountry.currencySymbol})</Label>
-                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-max-price" value={filters.maxPriceInput} onChange={(e) => dispatch({ type: 'SET_MAX_PRICE_INPUT', payload: e.target.value })} />
+                 <Label className="text-xs text-gray-500">MAX ({selectedCountry?.currencySymbol || "$"})</Label>
+                 <Input type="number" placeholder={selectedCountry?.currencySymbol || "$"} className="h-8 text-sm" data-testid="input-max-price" value={filters.maxPriceInput} onChange={(e) => dispatch({ type: 'SET_MAX_PRICE_INPUT', payload: e.target.value })} />
                </div>
              </div>
              <div className="flex gap-2">
@@ -703,6 +710,19 @@ export default function SearchPage() {
     }))
   } : undefined;
 
+  // Breadcrumb navigation
+  const breadcrumbs = [
+    { name: "Home", url: "/" },
+    { name: "Search", url: "/search" }
+  ];
+  
+  if (filters.category) {
+    breadcrumbs.push({
+      name: filters.category,
+      url: `/search?category=${encodeURIComponent(filters.category)}`
+    });
+  }
+
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900 bg-white">
       <SEO 
@@ -744,6 +764,9 @@ export default function SearchPage() {
         </div>
 
         <div className="container mx-auto px-6 md:px-12 lg:px-16 py-8">
+          {/* Breadcrumb Navigation */}
+          <Breadcrumb items={breadcrumbs} />
+          
           <div className="flex flex-col lg:flex-row gap-8">
             <div className="lg:hidden mb-2">
               <Sheet>

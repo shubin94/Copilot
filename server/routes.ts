@@ -74,6 +74,67 @@ import llmsTxtRouter from "./routes/llms-txt.ts";
 import featuredHomeServicesRouter from "./routes/featured-home-services.ts";
 import { googleIndexing } from "./services/google-indexing-service.ts";
 
+// Country code to name mapping for URL handling
+const COUNTRY_CODE_MAP: Record<string, string> = {
+  'IN': 'India',
+  'US': 'United States',
+  'UK': 'United Kingdom',
+  'GB': 'United Kingdom',
+  'CA': 'Canada',
+  'AU': 'Australia',
+  'DE': 'Germany',
+  'FR': 'France',
+  'IT': 'Italy',
+  'ES': 'Spain',
+  'NZ': 'New Zealand',
+  'IE': 'Ireland',
+  'SG': 'Singapore',
+  'MY': 'Malaysia',
+  'PH': 'Philippines',
+  'TH': 'Thailand',
+  'VN': 'Vietnam',
+  'PK': 'Pakistan',
+  'BD': 'Bangladesh',
+  'ZA': 'South Africa',
+  'AE': 'United Arab Emirates',
+  'KW': 'Kuwait',
+  'SA': 'Saudi Arabia',
+  'QA': 'Qatar',
+  'OM': 'Oman',
+  'JP': 'Japan',
+  'CN': 'China',
+  'HK': 'Hong Kong',
+  'MX': 'Mexico',
+  'BR': 'Brazil',
+  'AR': 'Argentina',
+  'CL': 'Chile',
+};
+
+/**
+ * Convert country name or slug back to country code
+ * Handles: "India" -> "IN", "india" -> "IN", "united-states" -> "US"
+ */
+function getCountryCode(countryNameOrSlug: string): string {
+  if (!countryNameOrSlug) return '';
+  
+  // Normalize: convert slug to title case (e.g., "united-states" -> "United States")
+  const normalized = countryNameOrSlug
+    .toLowerCase()
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+  
+  // Find the country code by looking up the value
+  for (const [code, name] of Object.entries(COUNTRY_CODE_MAP)) {
+    if (name.toLowerCase() === normalized.toLowerCase()) {
+      return code;
+    }
+  }
+  
+  // If not found, assume it's already a country code
+  return countryNameOrSlug.toUpperCase();
+}
+
 // Initialize Razorpay with env fallback (will be overridden by DB config)
 let razorpayClient = new Razorpay({
   key_id: config.razorpay.keyId || "dummy",
@@ -3215,6 +3276,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { country, state, city, slug } = req.params;
 
+      // Convert country name/slug to country code (e.g., "india" -> "IN")
+      const countryCode = getCountryCode(country);
+
       // Find detective by slug + location (text-based matching since location tables don't exist)
       const detectiveRows = await db
         .select()
@@ -3222,7 +3286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(detectives.slug, slug),
-            eq(detectives.country, country.toUpperCase()), // country is stored as code (IN, US, etc)
+            eq(detectives.country, countryCode), // country is stored as code (IN, US, etc)
             ilike(detectives.state, state), // case-insensitive state match
             ilike(detectives.city, city)    // case-insensitive city match
           )
@@ -3256,6 +3320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           description: detective.description,
           rating: detective.rating,
           reviewCount: detective.reviewCount,
+          logo: detective.logo,
           banner: detective.banner,
           detailsJSON: maskSensitiveFields(detailsJSON),
           badge: detective.badge,
@@ -3910,6 +3975,228 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============== GET Service by Slug (Country/State/City/Slug) ==============
+  app.get("/api/services/:country/:state/:city/:slug", async (req: Request, res: Response) => {
+    try {
+      const { country, state, city, slug } = req.params;
+
+      // Convert country name/slug to country code (e.g., "india" -> "IN")
+      const countryCode = getCountryCode(country);
+
+      // Find service by slug + detective location
+      // We join services with detectives to verify the location matches
+      const rows = await db
+        .select({
+          service: services,
+          detective: detectives
+        })
+        .from(services)
+        .innerJoin(detectives, eq(services.detectiveId, detectives.id))
+        .where(
+          and(
+            eq(services.slug, slug),
+            eq(detectives.country, countryCode),
+            ilike(detectives.state, state),
+            ilike(detectives.city, city)
+          )
+        )
+        .limit(1);
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Service not found" });
+      }
+
+      const { service, detective } = rows[0];
+
+      // Increment view count
+      await storage.incrementServiceViews(service.id);
+
+      const maskedDetective = await maskDetectiveContactsPublic(detective);
+      const effectiveBadges = computeEffectiveBadges(maskedDetective, (maskedDetective as any).subscriptionPackage);
+
+      res.json({
+        service,
+        detective: { ...maskedDetective, effectiveBadges },
+        avgRating: 0, // You can fetch real stats if needed
+        reviewCount: 0
+      });
+    } catch (error) {
+      console.error("[GET /api/services/:country/:state/:city/:slug] Error:", error);
+      res.status(500).json({ error: "Failed to retrieve service" });
+    }
+  });
+
+  // Get service by slug (public) - simple slug lookup
+  // Helper function to convert country codes to full names
+  const getCountryName = (code: string): string => {
+    const countryCodeMap: Record<string, string> = {
+      'IN': 'India',
+      'US': 'United States',
+      'UK': 'United Kingdom',
+      'GB': 'United Kingdom',
+      'CA': 'Canada',
+      'AU': 'Australia',
+      'DE': 'Germany',
+      'FR': 'France',
+      'IT': 'Italy',
+      'ES': 'Spain',
+      'NZ': 'New Zealand',
+      'IE': 'Ireland',
+      'SG': 'Singapore',
+      'MY': 'Malaysia',
+      'PH': 'Philippines',
+      'TH': 'Thailand',
+      'VN': 'Vietnam',
+      'PK': 'Pakistan',
+      'BD': 'Bangladesh',
+      'ZA': 'South Africa',
+      'AE': 'United Arab Emirates',
+      'KW': 'Kuwait',
+      'SA': 'Saudi Arabia',
+      'QA': 'Qatar',
+      'OM': 'Oman',
+      'JP': 'Japan',
+      'CN': 'China',
+      'HK': 'Hong Kong',
+      'MX': 'Mexico',
+      'BR': 'Brazil',
+      'AR': 'Argentina',
+      'CL': 'Chile',
+    };
+    if (!code) return '';
+    return countryCodeMap[code.toUpperCase()] || code;
+  };
+
+  app.get("/api/services/by-slug/:slug", async (req: Request, res: Response) => {
+    try {
+      const slug = req.params.slug;
+      const detectiveSlug = req.query.detectiveSlug as string | undefined;
+      const preview = (req.query.preview === '1' || req.query.preview === 'true');
+
+      // Helper function to generate slug from text (same as client)
+      const generateSlug = (text: string): string => {
+        return text
+          .toString()
+          .normalize("NFKD")
+          .toLowerCase()
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+      };
+
+      // Format location part for URL slugs (lowercase, replace spaces with hyphens)
+      const formatLocationPart = (part: string | undefined): string => {
+        if (!part) return '';
+        return part
+          .toLowerCase()
+          .trim()
+          .replace(/\s+/g, '-')
+          .replace(/[^\w-]/g, '');
+      };
+
+      // Fetch services and find by matching generated slug from title
+      // This works whether or not the slug column exists in the database
+      const potentialMatches = await db
+        .select({
+          serviceId: services.id,
+          serviceTitle: services.title,
+          serviceCategory: services.category,
+          serviceDescription: services.description,
+          serviceImages: services.images,
+          serviceIsActive: services.isActive,
+          serviceIsOnEnquiry: services.isOnEnquiry,
+          serviceBasePrice: services.basePrice,
+          detectiveId: services.detectiveId,
+          detective: detectives
+        })
+        .from(services)
+        .innerJoin(detectives, eq(services.detectiveId, detectives.id))
+        .limit(1000); // Limit to prevent loading too much data
+
+      const matchedRow = potentialMatches.find(row => {
+        const serviceSlug = generateSlug(row.serviceTitle);
+        
+        // Match by service slug
+        if (serviceSlug !== slug) return false;
+        
+        // If detective slug provided, also match by detective slug or businessName
+        if (detectiveSlug) {
+          const detSlug = row.detective.slug || generateSlug(row.detective.businessName || '');
+          if (detSlug !== detectiveSlug) return false;
+        }
+        
+        return true;
+      });
+
+      if (!matchedRow) {
+        return res.status(404).json({ error: "Service not found" });
+      }
+
+      // Reconstruct the service object with all properties
+      const service = {
+        id: matchedRow.serviceId,
+        title: matchedRow.serviceTitle,
+        category: matchedRow.serviceCategory,
+        description: matchedRow.serviceDescription,
+        images: matchedRow.serviceImages,
+        isActive: matchedRow.serviceIsActive,
+        isOnEnquiry: matchedRow.serviceIsOnEnquiry,
+        basePrice: matchedRow.serviceBasePrice,
+        detectiveId: matchedRow.detectiveId,
+      } as any;
+      const rawDetective = matchedRow.detective;
+
+      // Check access permissions
+      if (preview) {
+        const isOwner = req.session.userId && rawDetective.userId === req.session.userId;
+        const isAdmin = req.session.userRole === 'admin';
+        if (!isOwner && !isAdmin) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+      } else {
+        // Only allow public access if service is complete and active
+        const hasImages = Array.isArray(service.images) && service.images.length > 0;
+        const hasRequiredContent = service.isOnEnquiry 
+          ? (!!service.title && !!service.description && !!service.category)
+          : (hasImages && !!service.title && !!service.description && !!service.category);
+        
+        const isComplete = service.isActive === true && hasRequiredContent && (service.isOnEnquiry || !!service.basePrice);
+        if (!isComplete) {
+          return res.status(404).json({ error: "Service not available" });
+        }
+      }
+
+      // Increment view count
+      await storage.incrementServiceViews(service.id);
+
+      // Get detective and stats
+      const maskedDetective = await maskDetectiveContactsPublic(rawDetective);
+      const effectiveBadges = computeEffectiveBadges(maskedDetective, (maskedDetective as any).subscriptionPackage);
+
+      // Get rating stats
+      const ratingRows = await db
+        .select({
+          avgRating: avg(reviews.rating),
+          reviewCount: count(reviews.id)
+        })
+        .from(reviews)
+        .where(and(eq(reviews.serviceId, service.id), eq(reviews.isPublished, true)));
+
+      const avgRating = ratingRows[0]?.avgRating ? parseFloat(ratingRows[0].avgRating as any) : 0;
+      const reviewCount = ratingRows[0]?.reviewCount ? Number(ratingRows[0].reviewCount) : 0;
+
+      res.json({
+        service,
+        detective: { ...maskedDetective, effectiveBadges },
+        avgRating,
+        reviewCount
+      });
+    } catch (error) {
+      console.error("[GET /api/services/by-slug/:slug] Error:", error);
+      res.status(500).json({ error: "Failed to retrieve service" });
+    }
+  });
+
   // Get service by ID (public)
   app.get("/api/services/:id", async (req: Request, res: Response) => {
     try {
@@ -4050,7 +4337,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get services by detective (public)
   app.get("/api/services/detective/:id", async (req: Request, res: Response) => {
     try {
+      console.log("[DEBUG] Fetching services for detective:", req.params.id);
       const services = await storage.getServicesByDetective(req.params.id);
+      console.log("[DEBUG] Services retrieved:", services.length, "total");
+      if (services.length > 0) {
+        console.log("[DEBUG] First service:", { id: services[0].id, title: services[0].title, isActive: services[0].isActive });
+      }
       // Disable caching for detective dashboard - always fetch fresh data
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.set("Pragma", "no-cache");

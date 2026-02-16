@@ -8,11 +8,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ServiceActionButton } from "@/components/home/service-action-button";
 import type { ServiceBadgeState } from "@/lib/service-badges";
 import { getDetectiveProfileUrl } from "@/lib/utils";
+import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
 
 interface ServiceCardProps {
   id: string;
+  slug?: string;
   detectiveId?: string;
   detectiveSlug?: string;
+  detectiveBusinessName?: string;
   detectiveCountry?: string;
   detectiveState?: string;
   detectiveCity?: string;
@@ -43,7 +46,7 @@ import { Button } from "@/components/ui/button";
 
 import { useToast } from "@/hooks/use-toast";
 
-const ServiceCardComponent = ({ id, detectiveId, detectiveSlug, detectiveCountry, detectiveState, detectiveCity, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) => {
+const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveBusinessName, detectiveCountry, detectiveState, detectiveCity, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) => {
   const [, setLocation] = useLocation();
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -56,9 +59,16 @@ const ServiceCardComponent = ({ id, detectiveId, detectiveSlug, detectiveCountry
   const showPro = !!badgeState?.showPro;
   const showRecommended = !!badgeState?.showRecommended;
 
-  // Always route to the public service profile page
-  // The unclaimed query param will trigger the "Claim this profile" banner
-  const profileLink = `/service/${id}${isUnclaimed ? '?unclaimed=true' : ''}`;
+  // Build service URL using location and slug if available
+  // Generate slug from title as fallback if not provided
+  const serviceSlug = slug || generateSlug(title);
+  
+  const profileLink = serviceSlug && detectiveCountry
+    ? buildServiceUrl(
+        { country: detectiveCountry, state: detectiveState, city: detectiveCity, slug: detectiveSlug, businessName: detectiveBusinessName },
+        { slug: serviceSlug }
+      ) + (isUnclaimed ? '?unclaimed=true' : '')
+    : `/service/${id}${isUnclaimed ? '?unclaimed=true' : ''}`;
 
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault();

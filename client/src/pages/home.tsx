@@ -29,6 +29,7 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
   
   return {
     id: service.id,
+    slug: service.slug,
     detectiveId: service.detective.id,
     images,
     image: serviceImage,
@@ -53,6 +54,7 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     detectiveState: service.detective.state,
     detectiveCity: service.detective.city,
     detectiveSlug: service.detective.slug,
+    detectiveBusinessName: service.detective.businessName,
   };
 }
 

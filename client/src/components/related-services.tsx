@@ -3,9 +3,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Star, MapPin } from "lucide-react";
 import { useCurrency } from "@/lib/currency-context";
+import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
 
 interface RelatedService {
   id: string;
+  slug?: string;
   title: string;
   category?: string;
   basePrice: number;
@@ -14,7 +16,9 @@ interface RelatedService {
   images: string[];
   detective?: {
     businessName?: string;
+    slug?: string;
     city?: string;
+    state?: string;
     country?: string;
   };
   avgRating?: number;
@@ -38,8 +42,23 @@ export function RelatedServices({ services, currentServiceTitle }: RelatedServic
         {services.map((service) => {
           const displayPrice = service.offerPrice || service.basePrice;
           
+          // Build URL using slug if available, otherwise generate from title
+          const serviceSlug = service.slug || generateSlug(service.title);
+          const serviceUrl = serviceSlug && service.detective?.country
+            ? buildServiceUrl(
+                { 
+                  country: service.detective.country, 
+                  state: service.detective.state, 
+                  city: service.detective.city,
+                  slug: service.detective.slug,
+                  businessName: service.detective.businessName
+                },
+                { slug: serviceSlug }
+              )
+            : `/service/${service.id}`;
+          
           return (
-            <Link key={service.id} href={`/service/${service.id}`}>
+            <Link key={service.id} href={serviceUrl}>
               <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer overflow-hidden">
                 {/* Service Image */}
                 <div className="aspect-video w-full bg-gray-100 overflow-hidden">

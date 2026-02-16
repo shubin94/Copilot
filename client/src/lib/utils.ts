@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { getCountryName } from "./slug-utils"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -37,7 +38,9 @@ export function getDetectiveProfileUrl(detective: DetectiveProfileData): string 
     return `/p/${detective.id}`;
   }
 
-  const countrySlug = generateSlug(detective.country);
+  // Convert country code to full name, then slugify
+  const countryName = getCountryName(detective.country);
+  const countrySlug = generateSlug(countryName);
   const stateSlug = detective.state ? generateSlug(detective.state) : '';
   const citySlug = detective.city ? generateSlug(detective.city) : '';
   const detectiveSlug = detective.slug;

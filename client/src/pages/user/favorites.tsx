@@ -119,6 +119,7 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
   return (
     <ServiceCard
       id={svc.id}
+      slug={svc.slug}
       detectiveId={svc.detective.id}
       images={images}
       avatar={avatar}

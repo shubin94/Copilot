@@ -284,6 +284,16 @@ export function useService(id: string | null | undefined, preview?: boolean) {
   });
 }
 
+export function useServiceBySlug(serviceSlug: string | null | undefined, detectiveSlug?: string | null, preview?: boolean) {
+  return useQuery({
+    queryKey: ["services", "by-slug", detectiveSlug, serviceSlug, preview ? "preview" : "public"],
+    queryFn: () => api.services.getBySlug(serviceSlug!, detectiveSlug, { preview }),
+    enabled: !!serviceSlug,
+    staleTime: 60 * 1000, // 60 seconds - public service pages cached for better UX
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
+  });
+}
+
 export function usePublicServiceCount(detectiveId: string | null | undefined) {
   return useQuery({
     queryKey: ["detectives", detectiveId, "public-service-count"],

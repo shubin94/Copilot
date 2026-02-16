@@ -12,12 +12,14 @@ import { MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { 
   generateCompleteDetectiveSchema,
   generateBreadcrumbListSchema 
 } from "@/lib/structured-data";
 import { getDetectiveProfileUrl } from "@/lib/utils";
+import { getCountryName } from "@/lib/slug-utils";
 import { useState, useEffect } from "react";
 
 export default function DetectivePublicPage() {
@@ -93,38 +95,40 @@ export default function DetectivePublicPage() {
   // Breadcrumb navigation for SEO and user context
   // Format: Home > Country > State > City > Detective Name
   // Use slug-based URLs for directory pages
-  const countrySlug = detective?.country ? createSlug(detective.country) : "";
+  // Convert country code to full name before creating slug
+  const countryName = detective?.country ? getCountryName(detective.country) : "";
+  const countrySlug = countryName ? createSlug(countryName) : "";
   const stateSlug = detective?.state ? createSlug(detective.state) : "";
   const citySlug = detective?.city ? createSlug(detective.city) : "";
   
   const breadcrumbs = [
-    { name: "Home", url: "https://www.askdetectives.com/" },
+    { name: "Home", url: "/" },
   ];
   
-  if (detective?.country && countrySlug) {
+  if (countryName && countrySlug) {
     breadcrumbs.push({
-      name: detective.country,
-      url: `https://www.askdetectives.com/detectives/${countrySlug}/`,
+      name: countryName,
+      url: `/search?country=${encodeURIComponent(countrySlug)}`,
     });
   }
   
   if (detective?.state && stateSlug && countrySlug) {
     breadcrumbs.push({
       name: detective.state,
-      url: `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/`,
+      url: `/search?country=${encodeURIComponent(countrySlug)}&state=${encodeURIComponent(stateSlug)}`,
     });
   }
   
   if (detective?.city && citySlug && stateSlug && countrySlug) {
     breadcrumbs.push({
       name: detective.city,
-      url: `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/`,
+      url: `/search?country=${encodeURIComponent(countrySlug)}&state=${encodeURIComponent(stateSlug)}&city=${encodeURIComponent(citySlug)}`,
     });
   }
   
   breadcrumbs.push({
     name: detectiveName,
-    url: window.location.href,
+    url: "#",
   });
   // SEO: Canonical URL
   const canonicalUrl = detective 
@@ -176,6 +180,9 @@ export default function DetectivePublicPage() {
           />
         ) : (
           <>
+            {/* Breadcrumb Navigation */}
+            <Breadcrumb items={breadcrumbs} />
+            
             <h1 className="text-3xl font-bold mb-6" data-testid="heading-detective-name">{h1Text}</h1>
             
             {/* Machine-Readable Summary for AI Agents (Hidden but Present in First 500 Bytes) */}
@@ -352,8 +359,10 @@ export default function DetectivePublicPage() {
                   <ServiceCard
                     key={service.id}
                     id={service.id}
+                    slug={service.slug}
                     detectiveId={detective?.id!}
                     detectiveSlug={detective?.slug}
+                    detectiveBusinessName={detective?.businessName}
                     detectiveCountry={detective?.country?.toUpperCase()}
                     detectiveState={detective?.state}
                     detectiveCity={detective?.city}

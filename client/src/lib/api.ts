@@ -541,6 +541,17 @@ export const api = {
       return handleResponse(response);
     },
 
+    getBySlug: async (serviceSlug: string, detectiveSlug?: string | null, options?: { preview?: boolean }): Promise<{ service: Service; detective: Detective; avgRating: number; reviewCount: number }> => {
+      const params = new URLSearchParams();
+      if (options?.preview) params.set("preview", "1");
+      if (detectiveSlug) params.set("detectiveSlug", detectiveSlug);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const response = await csrfFetch(`/api/services/by-slug/${serviceSlug}${qs}`, {
+        credentials: "include",
+      });
+      return handleResponse(response);
+    },
+
     getByDetective: async (detectiveId: string): Promise<{ services: Service[] }> => {
       const response = await csrfFetch(`/api/services/detective/${detectiveId}`, {
         credentials: "include",

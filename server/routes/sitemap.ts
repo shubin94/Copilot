@@ -157,35 +157,80 @@ router.get("/", async (req: Request, res: Response) => {
 
     xml += `\n  <!-- Location-Based Detective Directories -->
 `;
-    // Get all active location combinations (country/state/city) with detectives
-    const locationsResult = await pool.query(`
+    
+    // 1. Country Level Pages
+    const countriesResult = await pool.query(`
+      SELECT DISTINCT 
+        c.slug as country_slug,
+        MAX(d.updated_at) as last_mod
+      FROM countries c
+      INNER JOIN detectives d ON d.country = c.code
+      WHERE d.status = 'active'
+      GROUP BY c.slug
+      ORDER BY c.slug
+    `);
+
+    for (const row of countriesResult.rows) {
+      const lastmod = row.last_mod ? new Date(row.last_mod).toISOString().split('T')[0] : today;
+      xml += `  <url>
+    <loc>https://www.askdetectives.com/detectives/${row.country_slug}/</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+`;
+    }
+
+    // 2. State Level Pages
+    const statesResult = await pool.query(`
+      SELECT DISTINCT 
+        c.slug as country_slug,
+        s.slug as state_slug,
+        MAX(d.updated_at) as last_mod
+      FROM states s
+      INNER JOIN countries c ON s.country_id = c.id
+      INNER JOIN detectives d ON d.country = c.code AND d.state = s.name
+      WHERE d.status = 'active'
+      GROUP BY c.slug, s.slug
+      ORDER BY c.slug, s.slug
+    `);
+
+    for (const row of statesResult.rows) {
+      const lastmod = row.last_mod ? new Date(row.last_mod).toISOString().split('T')[0] : today;
+      xml += `  <url>
+    <loc>https://www.askdetectives.com/detectives/${row.country_slug}/${row.state_slug}/</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+`;
+    }
+
+    // 3. City Level Pages
+    const citiesResult = await pool.query(`
       SELECT DISTINCT 
         c.slug as country_slug,
         s.slug as state_slug,
         ci.slug as city_slug,
-        ci.updated_at,
-        COUNT(d.id) as detective_count
+        MAX(d.updated_at) as last_mod
       FROM cities ci
       INNER JOIN states s ON ci.state_id = s.id
       INNER JOIN countries c ON s.country_id = c.id
-      LEFT JOIN detectives d ON d.country = c.code AND d.state = s.name AND d.city = ci.name
+      INNER JOIN detectives d ON d.country = c.code AND d.state = s.name AND d.city = ci.name
       WHERE d.status = 'active'
-      GROUP BY c.slug, s.slug, ci.slug, ci.updated_at, c.id, s.id
+      GROUP BY c.slug, s.slug, ci.slug
       ORDER BY c.slug, s.slug, ci.slug
     `);
     
-    for (const location of locationsResult.rows) {
-      const lastmod = location.updated_at ? new Date(location.updated_at).toISOString().split('T')[0] : today;
-      // Only include city pages with detectives
-      if (location.detective_count > 0) {
-        xml += `  <url>
-    <loc>https://www.askdetectives.com/detectives/${location.country_slug}/${location.state_slug}/${location.city_slug}/</loc>
+    for (const row of citiesResult.rows) {
+      const lastmod = row.last_mod ? new Date(row.last_mod).toISOString().split('T')[0] : today;
+      xml += `  <url>
+    <loc>https://www.askdetectives.com/detectives/${row.country_slug}/${row.state_slug}/${row.city_slug}/</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
 `;
-      }
     }
 
     xml += `\n  <!-- Detective Profiles (Slug-Based) -->
@@ -197,17 +242,28 @@ router.get("/", async (req: Request, res: Response) => {
         d.slug,
         d.updated_at,
         c.slug as country_slug,
-        s.slug as state_slug
+        s.slug as state_slug,
+        ci.slug as city_slug
       FROM detectives d
       INNER JOIN countries c ON d.country = c.code
       LEFT JOIN states s ON d.state = s.name AND s.country_id = c.id
+      LEFT JOIN cities ci ON d.city = ci.name AND ci.state_id = s.id
       WHERE d.status = 'active' AND d.slug IS NOT NULL AND d.slug != ''
       ORDER BY d.updated_at DESC
     `);
     
     for (const profile of detectiveProfilesResult.rows) {
       const lastmod = profile.updated_at ? new Date(profile.updated_at).toISOString().split('T')[0] : today;
-      const url = `https://www.askdetectives.com/detectives/${profile.country_slug}/${profile.state_slug}/${profile.slug}/`;
+      
+      let url = `https://www.askdetectives.com/detectives/${profile.country_slug}/`;
+      if (profile.state_slug) {
+        url += `${profile.state_slug}/`;
+        if (profile.city_slug) {
+          url += `${profile.city_slug}/`;
+        }
+      }
+      url += `${profile.slug}/`;
+
       xml += `  <url>
     <loc>${url}</loc>
     <lastmod>${lastmod}</lastmod>
@@ -228,10 +284,21 @@ router.get("/", async (req: Request, res: Response) => {
     `);
 
     // Get all active services
+    // UPDATED: Fetch location slugs for SEO-friendly URLs
     const servicesResult = await pool.query(`
       SELECT s.id, s.updated_at
+      SELECT 
+        s.id, 
+        s.slug, 
+        s.updated_at,
+        c.slug as country_slug,
+        st.slug as state_slug,
+        ci.slug as city_slug
       FROM services s
       INNER JOIN detectives d ON s.detective_id = d.id
+      INNER JOIN countries c ON d.country = c.code
+      LEFT JOIN states st ON d.state = st.name AND st.country_id = c.id
+      LEFT JOIN cities ci ON d.city = ci.name AND ci.state_id = st.id
       WHERE s.is_active = true AND d.status = 'active'
       ORDER BY s.updated_at DESC
     `);
@@ -240,8 +307,24 @@ router.get("/", async (req: Request, res: Response) => {
 `;
     for (const service of servicesResult.rows) {
       const lastmod = service.updated_at ? new Date(service.updated_at).toISOString().split('T')[0] : today;
+      
+      // Default to ID if slug is missing, otherwise use SEO URL
+      let url = `https://www.askdetectives.com/service/${service.id}`;
+      
+      if (service.slug && service.country_slug) {
+         url = `https://www.askdetectives.com/services/${service.country_slug}/`;
+         if (service.state_slug) {
+           url += `${service.state_slug}/`;
+           if (service.city_slug) {
+             url += `${service.city_slug}/`;
+           }
+         }
+         url += `${service.slug}`;
+      }
+
       xml += `  <url>
     <loc>https://www.askdetectives.com/service/${service.id}</loc>
+    <loc>${url}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -278,12 +361,14 @@ router.get("/", async (req: Request, res: Response) => {
     res.header("Content-Type", "application/xml");
     res.send(xml);
 
-    const totalUrls = pagesResult.rows.length + categoriesResult.rows.length + tagsResult.rows.length + detectivesResult.rows.length + servicesResult.rows.length + locationsResult.rows.length + detectiveProfilesResult.rows.length + caseStudiesResult.rows.length;
+    const totalUrls = pagesResult.rows.length + categoriesResult.rows.length + tagsResult.rows.length + detectivesResult.rows.length + servicesResult.rows.length + countriesResult.rows.length + statesResult.rows.length + citiesResult.rows.length + detectiveProfilesResult.rows.length + caseStudiesResult.rows.length;
     console.log(`[Sitemap] Generated ${totalUrls} URLs including:
   - ${pagesResult.rows.length} CMS pages
   - ${categoriesResult.rows.length} blog categories
   - ${tagsResult.rows.length} blog tags
-  - ${locationsResult.rows.length} location directories
+  - ${countriesResult.rows.length} country directories
+  - ${statesResult.rows.length} state directories
+  - ${citiesResult.rows.length} city directories
   - ${detectiveProfilesResult.rows.length} detective profiles (slugs)
   - ${detectivesResult.rows.length} detective profiles (legacy)
   - ${servicesResult.rows.length} services

@@ -10,32 +10,20 @@ Disallow: /claim-account
 Disallow: /claim-profile
 Disallow: /application-under-review
 
-Crawl-delay: 1
-
 Sitemap: https://www.askdetectives.com/sitemap.xml
 
 # Explicitly allow AI crawlers and chatbots for discovery
 User-agent: GPTBot
-Allow: /detectives/
-Allow: /news/
-Allow: /llms.txt
-
 User-agent: ClaudeBot
-Allow: /detectives/
-Allow: /news/
-Allow: /llms.txt
-
 User-agent: PerplexityBot
-Allow: /detectives/
-Allow: /news/
-Allow: /llms.txt
-
 User-agent: CCBot
-Allow: /detectives/
-Allow: /news/
-Allow: /llms.txt
-
 User-agent: OmniBot
+User-agent: Google-Extended
 Allow: /detectives/
 Allow: /news/
 Allow: /llms.txt
+Disallow: /admin/
+Disallow: /user/
+Disallow: /detective/dashboard
+Disallow: /login
+Disallow: /signup

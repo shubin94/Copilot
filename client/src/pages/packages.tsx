@@ -7,7 +7,18 @@ import { Link } from "wouter";
 import { useCurrency } from "@/lib/currency-context";
 
 export default function PackagesPage() {
-  const { formatPrice } = useCurrency();
+  let formatPrice = null;
+  try {
+    const currencyContext = useCurrency();
+    formatPrice = currencyContext?.formatPrice || null;
+  } catch (err) {
+    console.warn("[packages-page] Error accessing currency context:", err);
+  }
+  
+  const formatPriceFallback = (price: number) => {
+    if (formatPrice) return formatPrice(price);
+    return `$${price}`;
+  };
   
   const offers = [
     {
@@ -77,7 +88,7 @@ export default function PackagesPage() {
           <div className="border border-gray-200 rounded-2xl p-8 flex flex-col">
             <h3 className="text-2xl font-bold mb-2">Free</h3>
             <p className="text-gray-500 mb-6">For new detectives just starting out.</p>
-            <div className="text-4xl font-bold mb-6">{formatPrice(0)}<span className="text-lg text-gray-500 font-normal">/mo</span></div>
+            <div className="text-4xl font-bold mb-6">{formatPriceFallback(0)}<span className="text-lg text-gray-500 font-normal">/mo</span></div>
             <ul className="space-y-3 mb-8 flex-1">
               <li className="flex items-center gap-2"><Check className="h-5 w-5 text-green-500" /> Basic Profile</li>
               <li className="flex items-center gap-2"><Check className="h-5 w-5 text-green-500" /> 1 Service Listing</li>
@@ -95,7 +106,7 @@ export default function PackagesPage() {
             </div>
             <h3 className="text-2xl font-bold mb-2">Pro</h3>
             <p className="text-gray-500 mb-6">For professional investigators growing their business.</p>
-            <div className="text-4xl font-bold mb-6">{formatPrice(49)}<span className="text-lg text-gray-500 font-normal">/mo</span></div>
+            <div className="text-4xl font-bold mb-6">{formatPriceFallback(49)}<span className="text-lg text-gray-500 font-normal">/mo</span></div>
             <ul className="space-y-3 mb-8 flex-1">
               <li className="flex items-center gap-2"><Check className="h-5 w-5 text-green-500" /> Verified Badge</li>
               <li className="flex items-center gap-2"><Check className="h-5 w-5 text-green-500" /> Unlimited Service Listings</li>
@@ -111,7 +122,7 @@ export default function PackagesPage() {
           <div className="border border-gray-200 rounded-2xl p-8 flex flex-col">
             <h3 className="text-2xl font-bold mb-2">Agency</h3>
             <p className="text-gray-500 mb-6">For established agencies with multiple agents.</p>
-            <div className="text-4xl font-bold mb-6">{formatPrice(199)}<span className="text-lg text-gray-500 font-normal">/mo</span></div>
+            <div className="text-4xl font-bold mb-6">{formatPriceFallback(199)}<span className="text-lg text-gray-500 font-normal">/mo</span></div>
             <ul className="space-y-3 mb-8 flex-1">
               <li className="flex items-center gap-2"><Check className="h-5 w-5 text-green-500" /> Everything in Pro</li>
               <li className="flex items-center gap-2"><Check className="h-5 w-5 text-green-500" /> Multiple Team Members</li>

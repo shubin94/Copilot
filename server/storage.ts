@@ -20,7 +20,7 @@ import {
   appPolicies,
   subscriptionPlans
 } from "../shared/schema.ts";
-import { eq, and, desc, sql, count, avg, or, ilike, inArray, isNotNull, ne } from "drizzle-orm";
+import { eq, and, desc, sql, count, avg, or, ilike, inArray, isNotNull, ne, asc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan.ts";
 
@@ -757,7 +757,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getServicesByDetective(detectiveId: string): Promise<Service[]> {
-    return await db.select()
+    return await db.select({
+      id: services.id,
+      detectiveId: services.detectiveId,
+      title: services.title,
+      description: services.description,
+      category: services.category,
+      basePrice: services.basePrice,
+      offerPrice: services.offerPrice,
+      isOnEnquiry: services.isOnEnquiry,
+      images: services.images,
+      isActive: services.isActive,
+      viewCount: services.viewCount,
+      orderCount: services.orderCount,
+      createdAt: services.createdAt,
+      updatedAt: services.updatedAt,
+    })
       .from(services)
       .where(and(
         eq(services.detectiveId, detectiveId),
@@ -767,7 +782,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllServicesByDetective(detectiveId: string): Promise<Service[]> {
-    return await db.select()
+    return await db.select({
+      id: services.id,
+      detectiveId: services.detectiveId,
+      title: services.title,
+      description: services.description,
+      category: services.category,
+      basePrice: services.basePrice,
+      offerPrice: services.offerPrice,
+      isOnEnquiry: services.isOnEnquiry,
+      images: services.images,
+      isActive: services.isActive,
+      viewCount: services.viewCount,
+      orderCount: services.orderCount,
+      createdAt: services.createdAt,
+      updatedAt: services.updatedAt,
+    })
       .from(services)
       .where(eq(services.detectiveId, detectiveId))
       .orderBy(desc(services.createdAt));
@@ -1101,8 +1131,60 @@ export class DatabaseStorage implements IStorage {
     serviceLimit: number;
     isActive: boolean;
   }>): Promise<any> {
-    const [plan] = await db.update(subscriptionPlans).set(updates as any).where(eq(subscriptionPlans.id, id)).returning();
-    return plan;
+    // Get the current plan to check if serviceLimit is being reduced
+    const [currentPlan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, id)).limit(1);
+    
+    // Update the plan
+    const [newPlan] = await db.update(subscriptionPlans).set(updates as any).where(eq(subscriptionPlans.id, id)).returning();
+    
+    // If serviceLimit was reduced, handle service deactivation
+    if (currentPlan && updates.serviceLimit !== undefined && updates.serviceLimit < currentPlan.serviceLimit) {
+      await this.handleServiceLimitReduction(id, updates.serviceLimit);
+    }
+    
+    return newPlan;
+  }
+
+  private async handleServiceLimitReduction(planId: string, newServiceLimit: number): Promise<void> {
+    try {
+      // Find all detectives with this subscription plan
+      const affectedDetectives = await db.select({ id: detectives.id, businessName: detectives.businessName })
+        .from(detectives)
+        .where(eq(detectives.subscriptionPackageId, planId));
+
+      // For each detective, deactivate services beyond the new limit
+      for (const detective of affectedDetectives) {
+        // Get all active services for this detective, ordered by viewCount ASC (least views first)
+        const allServices = await db.select()
+          .from(services)
+          .where(and(
+            eq(services.detectiveId, detective.id),
+            eq(services.isActive, true)
+          ))
+          .orderBy(asc(services.viewCount));
+
+        // If they have more than the new limit, deactivate the extras
+        if (allServices.length > newServiceLimit) {
+          const servicesToDeactivate = allServices.slice(newServiceLimit); // Keep first newServiceLimit, deactivate rest
+          
+          for (const service of servicesToDeactivate) {
+            await db.update(services)
+              .set({ isActive: false })
+              .where(eq(services.id, service.id));
+          }
+
+          // Log the action for audit purposes
+          console.log(
+            `[SERVICE_LIMIT_REDUCTION] Detective: ${detective.businessName} (${detective.id}), ` +
+            `Deactivated ${servicesToDeactivate.length} services. ` +
+            `Kept ${newServiceLimit} services with least views active.`
+          );
+        }
+      }
+    } catch (error) {
+      console.error("[SERVICE_LIMIT_REDUCTION] Error handling service limit reduction:", error);
+      // Don't throw - we want the plan update to succeed even if notification fails
+    }
   }
 
   async deleteSubscriptionPlan(id: string): Promise<boolean> {

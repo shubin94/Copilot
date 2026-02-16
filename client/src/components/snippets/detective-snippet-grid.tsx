@@ -25,6 +25,9 @@ interface SnippetService {
   isVerified: boolean;
   location: string;
   country?: string;
+  state?: string;
+  city?: string;
+  slug?: string;
   phone?: string;
   whatsapp?: string;
   contactEmail?: string;
@@ -280,6 +283,7 @@ export function DetectiveSnippetGrid({
     });
     return {
       id: item.serviceId,
+      slug: item.slug,
       detectiveId: item.id,
       images: item.serviceImages && item.serviceImages.length > 0 ? item.serviceImages : undefined,
       avatar: item.profilePhoto || "",
@@ -299,8 +303,8 @@ export function DetectiveSnippetGrid({
       whatsapp: item.whatsapp,
       contactEmail: item.contactEmail,
       detectiveCountry: item.country || displayCountry,
-      detectiveState: resolvedState,
-      detectiveCity: resolvedCity,
+      detectiveState: item.state || resolvedState,
+      detectiveCity: item.city || resolvedCity,
       detectiveSlug: item.id,
     };
   });

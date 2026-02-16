@@ -151,7 +151,7 @@ function Router() {
         <Switch>
           {/* Public Routes */}
           <Route path="/" component={Home} />
-          <Route path="/service/:id" component={DetectiveProfile} />
+          <Route path="/service/:country/:state/:city/:detectiveSlug/:serviceSlug" component={DetectiveProfile} />
           <Route path="/claim-profile/:id" component={ClaimProfile} />
           <Route path="/claim-account" component={ClaimAccount} />
           <Route path="/login" component={Login} />

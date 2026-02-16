@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/user-context";
-import { useService, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
+import { useService, useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { ServiceFAQ, getServiceFAQs } from "@/components/service-faq";
+import { buildServiceUrl } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
 import { format } from "date-fns";
 import type { Review, User } from "@shared/schema";
@@ -30,19 +31,31 @@ import { computeServiceBadges } from "@/lib/service-badges";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 
 export default function DetectiveProfile() {
-  const [, params] = useRoute("/service/:id");
-  const serviceId = params?.id;
+  const [, params] = useRoute("/service/:country/:state/:city/:detectiveSlug/:serviceSlug");
+  const serviceSlug = params?.serviceSlug;
+  const detectiveSlug = params?.detectiveSlug;
   
   const searchParams = new URLSearchParams(window.location.search);
   const previewParam = searchParams.get("preview");
   const isPreview = previewParam === "1" || previewParam === "true";
-  const { data: serviceData, isLoading: isLoadingService, error: serviceError } = useService(serviceId, isPreview);
+  const { data: serviceData, isLoading: isLoadingService, error: serviceError } = useServiceBySlug(serviceSlug, detectiveSlug, isPreview);
   const detectiveIdForServices = serviceData?.detective?.id;
   const { data: servicesByDetective } = useServicesByDetective(detectiveIdForServices);
-  const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceId);
-  const { data: relatedServicesData } = useRelatedServices(serviceData?.service?.category, serviceId, 2);
+  const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceData?.service?.id);
+  const { data: relatedServicesData } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 2);
   
-  const { selectedCountry, formatPriceFromTo } = useCurrency();
+  let selectedCountry = null;
+  let formatPriceFromTo = null;
+  try {
+    const currencyContext = useCurrency();
+    selectedCountry = currencyContext?.selectedCountry || null;
+    formatPriceFromTo = currencyContext?.formatPriceFromTo || null;
+  } catch (err) {
+    console.warn("[detective-profile] Error accessing currency context:", err);
+  }
+  
+  // Fallback country code if selectedCountry is not available
+  const selectedCountryCode = selectedCountry?.code || 'USD';
   const { user, isFavorite, toggleFavorite } = useUser();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -208,14 +221,15 @@ export default function DetectiveProfile() {
   ].filter(Boolean);
   
   // SEO: Breadcrumbs for navigation and schema
+  const serviceUrl = buildServiceUrl(detective, service);
   const breadcrumbs = [
-    { name: "Home", url: "https://www.askdetectives.com/" },
-    { name: service.category || "Services", url: `https://www.askdetectives.com/search?category=${encodeURIComponent(service.category || "")}` },
-    { name: service.title, url: `https://www.askdetectives.com/service/${service.id}` }
+    { name: "Home", url: "/" },
+    { name: service.category || "Services", url: `/search?category=${encodeURIComponent(service.category || "")}` },
+    { name: service.title, url: serviceUrl }
   ];
   
   // SEO: Canonical URL (always use production domain, strip query params)
-  const canonicalUrl = `https://www.askdetectives.com/service/${service.id}`;
+  const canonicalUrl = `https://www.askdetectives.com${serviceUrl}`;
 
   // Parse prices properly - handle decimal strings from database
   const basePrice = (() => {
@@ -254,7 +268,7 @@ export default function DetectiveProfile() {
       whatsapp: detective.whatsapp,
       contactEmail: detective.contactEmail
     },
-    (price) => formatPriceFromTo(price, detective.country, selectedCountry.code)
+    (price) => formatPriceFromTo && formatPriceFromTo(price, detective.country, selectedCountryCode) || String(price)
   );
   const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   
@@ -504,11 +518,11 @@ export default function DetectiveProfile() {
                             <>
                               {offerPrice && offerPrice > 0 ? (
                                 <>
-                                  <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price-mobile">{formatPriceFromTo(offerPrice, detective.country, selectedCountry.code)}</span>
-                                  <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price-mobile">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                                  <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price-mobile">{formatPriceFromTo && formatPriceFromTo(offerPrice, detective.country, selectedCountryCode) || String(offerPrice)}</span>
+                                  <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price-mobile">{formatPriceFromTo && formatPriceFromTo(basePrice, detective.country, selectedCountryCode) || String(basePrice)}</span>
                                 </>
                               ) : (
-                                <span className="text-2xl font-bold text-gray-900" data-testid="text-price-mobile">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                                <span className="text-2xl font-bold text-gray-900" data-testid="text-price-mobile">{formatPriceFromTo && formatPriceFromTo(basePrice, detective.country, selectedCountryCode) || String(basePrice)}</span>
                               )}
                             </>
                           )}
@@ -585,7 +599,7 @@ export default function DetectiveProfile() {
                 whatsapp: detective.whatsapp,
                 contactEmail: detective.contactEmail
               }}
-              formatPrice={(price) => formatPriceFromTo(price, detective.country, selectedCountry.code)}
+              formatPrice={(price) => formatPriceFromTo && formatPriceFromTo(price, detective.country, selectedCountryCode) || String(price)}
             />
             
             <Separator className="my-8" />
@@ -843,11 +857,11 @@ export default function DetectiveProfile() {
                         <>
                           {offerPrice && offerPrice > 0 ? (
                             <>
-                              <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price">{formatPriceFromTo(offerPrice, detective.country, selectedCountry.code)}</span>
-                              <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                              <span className="text-2xl font-bold text-green-600" data-testid="text-offer-price">{formatPriceFromTo && formatPriceFromTo(offerPrice, detective.country, selectedCountryCode) || String(offerPrice)}</span>
+                              <span className="text-sm text-gray-400 line-through ml-2" data-testid="text-base-price">{formatPriceFromTo && formatPriceFromTo(basePrice, detective.country, selectedCountryCode) || String(basePrice)}</span>
                             </>
                           ) : (
-                            <span className="text-2xl font-bold text-gray-900" data-testid="text-price">{formatPriceFromTo(basePrice, detective.country, selectedCountry.code)}</span>
+                            <span className="text-2xl font-bold text-gray-900" data-testid="text-price">{formatPriceFromTo && formatPriceFromTo(basePrice, detective.country, selectedCountryCode) || String(basePrice)}</span>
                           )}
                         </>
                       )}

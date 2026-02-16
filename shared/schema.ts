@@ -139,6 +139,7 @@ export const services = pgTable("services", {
   detectiveId: varchar("detective_id").notNull().references(() => detectives.id, { onDelete: "cascade" }),
   category: text("category").notNull(),
   title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
   description: text("description").notNull(),
   images: text("images").array().default(sql`ARRAY[]::text[]`),
   basePrice: decimal("base_price", { precision: 10, scale: 2 }),
@@ -154,6 +155,7 @@ export const services = pgTable("services", {
   categoryIdx: index("services_category_idx").on(table.category),
   activeIdx: index("services_active_idx").on(table.isActive),
   orderCountIdx: index("services_order_count_idx").on(table.orderCount),
+  slugIdx: uniqueIndex("services_slug_unique").on(table.slug),
 }));
 
 export const servicePackages = pgTable("service_packages", {
