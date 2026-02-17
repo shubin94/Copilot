@@ -15,6 +15,7 @@ import { loadSecretsFromDatabase } from "./lib/secretsLoader";
 import { validateDatabase } from "./startup";
 import { initializeEnv } from "./lib/loadEnv";
 import { getEnvironmentBadge } from "../db/validateDatabase";
+import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest";
 
 const viteLogger = createLogger();
 
@@ -43,8 +44,19 @@ export async function setupVite(app: Express, server: Server) {
 
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
+    const requestPath = req.path;
+
+    // Let API routes through - they're already registered via registerRoutes()
+    // Only handle SPA routes here
+    if (requestPath.startsWith("/api/")) {
+      return next();
+    }
 
     try {
+      if (isStaticAssetPath(requestPath)) {
+        return res.status(404).end();
+      }
+
       const clientTemplate = path.resolve(
         import.meta.dirname,
         "..",
@@ -59,7 +71,12 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
       const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+
+      if (isKnownSpaPath(requestPath)) {
+        return res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      }
+
+      return res.status(404).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);

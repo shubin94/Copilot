@@ -14,6 +14,7 @@ import { loadSecretsFromDatabase } from "./lib/secretsLoader.ts";
 import { validateDatabase } from "./startup.ts";
 import { initializeEnv } from "./lib/loadEnv.ts";
 import { getEnvironmentBadge } from "../db/validateDatabase.ts";
+import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.ts";
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 
@@ -36,10 +37,31 @@ export async function serveStatic(app: Express, server: Server) {
     }
   }));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  const fallback404File = path.resolve(distPath, "404.html");
+
+  // Route-aware SPA fallback: unknown routes return true HTTP 404
+  app.use("*", (req, res) => {
+    const requestPath = req.path;
+
+    if (requestPath.startsWith("/api/")) {
+      return res.status(404).json({ error: "Not Found" });
+    }
+
+    if (isStaticAssetPath(requestPath)) {
+      return res.status(404).end();
+    }
+
     res.setHeader("Cache-Control", "no-store");
-    res.sendFile(path.resolve(distPath, "index.html"));
+
+    if (isKnownSpaPath(requestPath)) {
+      return res.status(200).sendFile(path.resolve(distPath, "index.html"));
+    }
+
+    if (fs.existsSync(fallback404File)) {
+      return res.status(404).sendFile(fallback404File);
+    }
+
+    return res.status(404).type("text/plain").send("404 Not Found");
   });
 }
 

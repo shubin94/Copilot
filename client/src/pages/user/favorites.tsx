@@ -119,6 +119,7 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
   return (
     <ServiceCard
       id={svc.id}
+      slug={svc.slug}
       detectiveId={svc.detective.id}
       images={images}
       avatar={avatar}
@@ -136,6 +137,10 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
       whatsapp={svc.detective.whatsapp || undefined}
       contactEmail={svc.detective.contactEmail}
       countryCode={svc.detective.country || undefined}
+      detectiveCountry={svc.detective.country}
+      detectiveState={svc.detective.state}
+      detectiveCity={svc.detective.city}
+      detectiveSlug={svc.detective.slug}
     />
   );
 }

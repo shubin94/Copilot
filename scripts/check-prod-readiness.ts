@@ -10,13 +10,8 @@ const REQUIRED_SECRET_KEYS = [
 
 const OPTIONAL_PROVIDER_KEYS = [
   // Note: supabase_url and supabase_service_role_key removed - Supabase credentials must come from environment variables only
-  "sendgrid_api_key",
-  "sendgrid_from_email",
   "smtp_host",
   "smtp_from_email",
-  "sendpulse_api_id",
-  "sendpulse_api_secret",
-  "sendpulse_sender_email",
   "paypal_client_id",
   "paypal_client_secret",
   "razorpay_key_id",

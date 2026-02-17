@@ -50,8 +50,6 @@ export default function PageView() {
   const [matchLegacyCategory, paramsLegacyCategory] = useRoute("/pages/:category/:slug");
   const [matchLegacy, paramsLegacy] = useRoute("/pages/:slug");
 
-  if (!matchNested && !matchNew && !matchLegacyNested && !matchLegacyCategory && !matchLegacy) return null;
-
   const slug = (
     matchNested
       ? paramsNested?.slug
@@ -87,7 +85,7 @@ export default function PageView() {
       }
       return res.json();
     },
-    enabled: !!slug,
+    enabled: !!slug && (matchNested || matchNew || matchLegacyNested || matchLegacyCategory || matchLegacy),
   });
 
   // Move useEffect before conditional returns to comply with React hooks rules
@@ -96,6 +94,9 @@ export default function PageView() {
       setLocation(`/${data.page.category.slug}/${data.page.slug}`);
     }
   }, [matchLegacy, matchLegacyCategory, data?.page?.category?.slug, data?.page?.slug, setLocation]);
+
+  // Early return AFTER all hooks
+  if (!matchNested && !matchNew && !matchLegacyNested && !matchLegacyCategory && !matchLegacy) return null;
 
   if (isError) return <NotFound />;
   if (isLoading)
@@ -108,16 +109,17 @@ export default function PageView() {
   if (!data?.page) return <NotFound />;
 
   const page = data.page;
+  const canonicalUrl = `https://www.askdetectives.com${window.location.pathname}`;
   
   const breadcrumbs = page.category
     ? [
         { name: "Home", url: "/" },
         { name: page.category.name, url: `/blog/category/${page.category.slug}` },
-        { name: page.title, url: window.location.pathname }
+        { name: page.title, url: canonicalUrl }
       ]
     : [
         { name: "Home", url: "/" },
-        { name: page.title, url: window.location.pathname }
+        { name: page.title, url: canonicalUrl }
       ];
 
   return (
@@ -125,6 +127,7 @@ export default function PageView() {
       <SEO 
         title={page.metaTitle || page.title} 
         description={page.metaDescription}
+        canonical={canonicalUrl}
         breadcrumbs={breadcrumbs}
         publishedTime={page.createdAt}
         modifiedTime={page.updatedAt}

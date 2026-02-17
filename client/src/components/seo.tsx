@@ -8,7 +8,7 @@ interface SEOProps {
   keywords?: string[];
   canonical?: string;
   robots?: string;
-  schema?: Record<string, any>;
+  schema?: Record<string, any> | Record<string, any>[];
   breadcrumbs?: Array<{ name: string; url: string }>;
   author?: {
     name: string;
@@ -67,6 +67,14 @@ export function SEO({
   pagination
 }: SEOProps) {
   useEffect(() => {
+    const toAbsoluteUrl = (value: string): string => {
+      if (!value) return `${window.location.origin}${window.location.pathname}`;
+      if (/^https?:\/\//i.test(value)) return value;
+      if (value.startsWith("//")) return `${window.location.protocol}${value}`;
+      if (value.startsWith("/")) return `${window.location.origin}${value}`;
+      return `${window.location.origin}/${value.replace(/^\/+/, "")}`;
+    };
+
     // Update title
     const fullTitle = title.includes('|') ? title : `${title} | FindDetectives`;
     document.title = fullTitle;
@@ -118,19 +126,19 @@ export function SEO({
     }
 
     // Canonical - strip query params
-    const cleanCanonical = canonical || window.location.origin + window.location.pathname;
+    const cleanCanonical = toAbsoluteUrl(canonical || window.location.pathname);
     updateLink('canonical', cleanCanonical);
 
     // Pagination links for SEO on archives
     if (pagination?.prevUrl) {
-      updateLink('prev', pagination.prevUrl);
+      updateLink('prev', toAbsoluteUrl(pagination.prevUrl));
     } else {
       const prevLink = document.querySelector('link[rel="prev"]');
       if (prevLink) prevLink.remove();
     }
 
     if (pagination?.nextUrl) {
-      updateLink('next', pagination.nextUrl);
+      updateLink('next', toAbsoluteUrl(pagination.nextUrl));
     } else {
       const nextLink = document.querySelector('link[rel="next"]');
       if (nextLink) nextLink.remove();
@@ -146,7 +154,7 @@ export function SEO({
       "@id": "https://www.askdetectives.com/#organization",
       "name": "FindDetectives",
       "url": "https://www.askdetectives.com",
-      "logo": "https://www.askdetectives.com/logo.png",
+      "logo": "https://www.askdetectives.com/favicon.png",
       "description": "The leading marketplace for professional private investigation services",
       "contactPoint": {
         "@type": "ContactPoint",
@@ -160,69 +168,88 @@ export function SEO({
       ]
     };
     allSchemas.push(organizationSchema);
-    
-    // Main schema (if provided)
-    if (schema) {
-      // Enhance service schema with additional data
-      if (structuredData?.service) {
-        const enhanced = {
-          ...schema,
-          "@context": "https://schema.org",
-          "@type": "ProfessionalService"
-        };
-        
-        // Add offers with proper price structure
-        if (structuredData.service.isOnEnquiry) {
-          enhanced.offers = {
-            "@type": "Offer",
-            "availability": "https://schema.org/InStock",
-            "priceSpecification": {
-              "@type": "PriceSpecification",
-              "price": "Contact for pricing"
-            }
-          };
-        } else if (structuredData.service.price) {
-          enhanced.offers = {
-            "@type": "Offer",
-            "price": structuredData.service.offerPrice || structuredData.service.price,
-            "priceCurrency": "INR",
-            "availability": "https://schema.org/InStock"
-          };
-        }
-        
-        // Add provider information
-        if (structuredData.service.detectiveName) {
-          enhanced.provider = {
-            "@type": "Organization",
-            "name": structuredData.service.detectiveName,
-            "logo": structuredData.service.detectiveLogo
-          };
-          enhanced.brand = {
-            "@type": "Brand",
-            "name": structuredData.service.detectiveName
-          };
-        }
-        
-        // Add service type and area served
-        if (structuredData.service.category) {
-          enhanced.serviceType = structuredData.service.category;
-        }
-        
-        if (structuredData.service.city || structuredData.service.country) {
-          enhanced.areaServed = {
-            "@type": "Place",
-            "address": {
-              "@type": "PostalAddress",
-              ...(structuredData.service.city && { "addressLocality": structuredData.service.city }),
-              ...(structuredData.service.country && { "addressCountry": structuredData.service.country })
-            }
-          };
-        }
-        
-        allSchemas.push(enhanced);
-      } else {
-        allSchemas.push(schema);
+
+    const websiteSchema = {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "@id": "https://www.askdetectives.com/#website",
+      "url": "https://www.askdetectives.com",
+      "name": "FindDetectives",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://www.askdetectives.com/search?q={search_term_string}",
+        "query-input": "required name=search_term_string"
       }
+    };
+    allSchemas.push(websiteSchema);
+    
+    // Main schema(s) (if provided)
+    if (schema) {
+      // Handle both single object and array of objects
+      const schemas = Array.isArray(schema) ? schema : [schema];
+      
+      schemas.forEach(schemaItem => {
+        // Enhance service schema with additional data
+        if (structuredData?.service) {
+          const enhanced = {
+            ...schemaItem,
+            "@context": "https://schema.org",
+            "@type": "ProfessionalService"
+          };
+          
+          // Add offers with proper price structure
+          if (structuredData.service.isOnEnquiry) {
+            enhanced.offers = {
+              "@type": "Offer",
+              "availability": "https://schema.org/InStock",
+              "priceSpecification": {
+                "@type": "PriceSpecification",
+                "price": "Contact for pricing"
+              }
+            };
+          } else if (structuredData.service.price) {
+            enhanced.offers = {
+              "@type": "Offer",
+              "price": structuredData.service.offerPrice || structuredData.service.price,
+              "priceCurrency": "INR",
+              "availability": "https://schema.org/InStock"
+            };
+          }
+          
+          // Add provider information
+          if (structuredData.service.detectiveName) {
+            enhanced.provider = {
+              "@type": "Organization",
+              "name": structuredData.service.detectiveName,
+              "logo": structuredData.service.detectiveLogo
+            };
+            enhanced.brand = {
+              "@type": "Brand",
+              "name": structuredData.service.detectiveName
+            };
+          }
+          
+          // Add service type and area served
+          if (structuredData.service.category) {
+            enhanced.serviceType = structuredData.service.category;
+          }
+          
+          if (structuredData.service.city || structuredData.service.country) {
+            enhanced.areaServed = {
+              "@type": "Place",
+              "address": {
+                "@type": "PostalAddress",
+                ...(structuredData.service.city && { "addressLocality": structuredData.service.city }),
+                ...(structuredData.service.country && { "addressCountry": structuredData.service.country })
+              }
+            };
+          }
+          
+          allSchemas.push(enhanced);
+        } else {
+          allSchemas.push(schemaItem);
+        }
+      });
     }
     
     // Breadcrumb schema
@@ -234,7 +261,7 @@ export function SEO({
           "@type": "ListItem",
           "position": index + 1,
           "name": crumb.name,
-          "item": crumb.url
+          "item": toAbsoluteUrl(crumb.url)
         }))
       };
       allSchemas.push(breadcrumbSchema);
@@ -296,7 +323,7 @@ export function SEO({
           "name": "FindDetectives",
           "logo": {
             "@type": "ImageObject",
-            "url": "https://www.askdetectives.com/logo.png"
+            "url": "https://www.askdetectives.com/favicon.png"
           }
         },
         ...(structuredData.article.image && {
@@ -326,10 +353,10 @@ export function SEO({
     updateMeta('og:type', type, true);
     updateMeta('og:url', cleanCanonical, true);
     updateMeta('og:site_name', 'FindDetectives', true);
-    updateMeta('og:locale', 'en_IN', true);
+    updateMeta('og:locale', 'en_US', true);
     
     // Default OG image fallback
-    const ogImage = image || 'https://www.askdetectives.com/og-default.png';
+    const ogImage = image || 'https://www.askdetectives.com/favicon.png';
     updateMeta('og:image', ogImage, true);
     updateMeta('og:image:width', '1200', true);
     updateMeta('og:image:height', '630', true);

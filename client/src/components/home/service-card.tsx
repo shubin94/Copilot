@@ -7,10 +7,18 @@ import { useState, memo } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ServiceActionButton } from "@/components/home/service-action-button";
 import type { ServiceBadgeState } from "@/lib/service-badges";
+import { getDetectiveProfileUrl } from "@/lib/utils";
+import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
 
 interface ServiceCardProps {
   id: string;
+  slug?: string;
   detectiveId?: string;
+  detectiveSlug?: string;
+  detectiveBusinessName?: string;
+  detectiveCountry?: string;
+  detectiveState?: string;
+  detectiveCity?: string;
   images?: string[];
   image?: string; // Backward compatibility
   avatar: string;
@@ -38,7 +46,7 @@ import { Button } from "@/components/ui/button";
 
 import { useToast } from "@/hooks/use-toast";
 
-const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) => {
+const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveBusinessName, detectiveCountry, detectiveState, detectiveCity, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) => {
   const [, setLocation] = useLocation();
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -51,9 +59,16 @@ const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, le
   const showPro = !!badgeState?.showPro;
   const showRecommended = !!badgeState?.showRecommended;
 
-  // Always route to the public service profile page
-  // The unclaimed query param will trigger the "Claim this profile" banner
-  const profileLink = `/service/${id}${isUnclaimed ? '?unclaimed=true' : ''}`;
+  // Build service URL using location and slug if available
+  // Generate slug from title as fallback if not provided
+  const serviceSlug = slug || generateSlug(title);
+  
+  const profileLink = serviceSlug && detectiveCountry
+    ? buildServiceUrl(
+        { country: detectiveCountry, state: detectiveState, city: detectiveCity, slug: detectiveSlug, businessName: detectiveBusinessName },
+        { slug: serviceSlug }
+      ) + (isUnclaimed ? '?unclaimed=true' : '')
+    : `/service/${id}${isUnclaimed ? '?unclaimed=true' : ''}`;
 
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -81,6 +96,20 @@ const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, le
     }
     
     toggleFavorite(id);
+  };
+
+  const handleDetectiveClick = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (detectiveId) {
+      setLocation(getDetectiveProfileUrl({
+        id: detectiveId,
+        slug: detectiveSlug,
+        country: detectiveCountry,
+        state: detectiveState,
+        city: detectiveCity
+      }));
+    }
   };
 
   return (
@@ -161,24 +190,18 @@ const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, le
             {/* Author Row */}
             <div
               className="flex items-center gap-3 mb-3"
-              role="link"
+              role="button"
               tabIndex={0}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (detectiveId) setLocation(`/p/${detectiveId}`);
-              }}
+              onClick={handleDetectiveClick}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (detectiveId) setLocation(`/p/${detectiveId}`);
+                  handleDetectiveClick(e);
                 }
               }}
             >
               <Avatar className="h-8 w-8 border border-gray-100">
                 {avatar && <AvatarImage src={avatar} alt={`${name} - Professional Private Investigator`} />}
-                <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{name[0]}</AvatarFallback>
+                <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{name?.[0] || "?"}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col overflow-hidden">
                 <div className="flex items-start gap-2 flex-wrap">
@@ -248,13 +271,13 @@ const ServiceCardComponent = ({ id, detectiveId, images, image, avatar, name, le
             <div className="flex items-center gap-1 text-sm mt-auto">
               {isUnclaimed ? (
                 <span className="text-gray-400 text-xs italic">No reviews yet</span>
-              ) : (
+              ) : reviews > 0 ? (
                 <>
                   <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                   <span className="font-bold text-gray-900">{typeof rating === 'number' && !isNaN(rating) ? rating : 0}</span>
                   <span className="text-gray-400">({typeof reviews === 'number' && !isNaN(reviews) ? reviews : 0})</span>
                 </>
-              )}
+              ) : null}
             </div>
           </CardContent>
 
@@ -309,6 +332,8 @@ export const ServiceCard = memo(ServiceCardComponent, (prevProps, nextProps) => 
     prevProps.rating === nextProps.rating &&
     prevProps.reviews === nextProps.reviews &&
     prevProps.countryCode === nextProps.countryCode &&
-    prevProps.isUnclaimed === nextProps.isUnclaimed
+    prevProps.isUnclaimed === nextProps.isUnclaimed &&
+    prevProps.images === nextProps.images &&
+    prevProps.badgeState === nextProps.badgeState
   );
 });

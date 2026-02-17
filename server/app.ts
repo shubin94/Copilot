@@ -72,13 +72,28 @@ export const bodyParsers = {
 
 // CORS/CSRF configuration - define origins once to prevent drift
 const configuredOrigins = config.csrf.allowedOrigins;
-const allowedOrigins = [
-  ...configuredOrigins,
+const localDevOrigins = [
   "http://localhost:5173",
   "http://localhost:5000",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:5000",
 ];
+
+function isLocalhostOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    return u.hostname === "localhost" || u.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+const allowedOrigins = Array.from(new Set(
+  (config.env.isProd
+    ? configuredOrigins.filter((origin) => !isLocalhostOrigin(origin))
+    : [...configuredOrigins, ...localDevOrigins]
+  ).map((origin) => origin.replace(/\/$/, ""))
+));
 
 // CORS configuration object - used for all CORS middleware
 const corsConfig = {

@@ -36,7 +36,7 @@ import {
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, getOrFetchCsrfToken } from "@/lib/api";
+import { api } from "@/lib/api";
 import { 
   AlertDialog,
   AlertDialogAction,
@@ -733,16 +733,7 @@ export default function ViewDetective() {
                                   size="sm"
                                   onClick={async () => {
                                     try {
-                                      const csrfToken = await getOrFetchCsrfToken();
-                                      await fetch(`/api/admin/services/${service.id}/reassign`, {
-                                        method: "POST",
-                                        headers: { 
-                                          "Content-Type": "application/json",
-                                          "X-CSRF-Token": csrfToken,
-                                        },
-                                        credentials: "include",
-                                        body: JSON.stringify({ detectiveId: detective.id }),
-                                      });
+                                      await api.post(`/api/admin/services/${service.id}/reassign`, { detectiveId: detective.id });
                                       toast({ title: "Service reassigned", description: "Service is now owned by this detective." });
                                       queryClient.invalidateQueries({ queryKey: ["services", "detective", detective.id] });
                                     } catch (e: any) {

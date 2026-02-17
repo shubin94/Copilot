@@ -326,6 +326,13 @@ export const api = {
       return handleResponse(response);
     },
 
+    getBySlug: async (country: string, state: string, city: string, slug: string): Promise<{ detective: Detective }> => {
+      const response = await csrfFetch(`/api/detectives/${country}/${state}/${city}/${slug}`, {
+        credentials: "include",
+      });
+      return handleResponse(response);
+    },
+
     getByCountry: async (country: string): Promise<{ detectives: Detective[] }> => {
       const response = await csrfFetch(`/api/detectives?country=${encodeURIComponent(country)}`, {
         credentials: "include",
@@ -529,6 +536,17 @@ export const api = {
     getById: async (id: string, options?: { preview?: boolean }): Promise<{ service: Service; detective: Detective; avgRating: number; reviewCount: number }> => {
       const qs = options?.preview ? "?preview=1" : "";
       const response = await csrfFetch(`/api/services/${id}${qs}`, {
+        credentials: "include",
+      });
+      return handleResponse(response);
+    },
+
+    getBySlug: async (serviceSlug: string, detectiveSlug?: string | null, options?: { preview?: boolean }): Promise<{ service: Service; detective: Detective; avgRating: number; reviewCount: number }> => {
+      const params = new URLSearchParams();
+      if (options?.preview) params.set("preview", "1");
+      if (detectiveSlug) params.set("detectiveSlug", detectiveSlug);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const response = await csrfFetch(`/api/services/by-slug/${serviceSlug}${qs}`, {
         credentials: "include",
       });
       return handleResponse(response);

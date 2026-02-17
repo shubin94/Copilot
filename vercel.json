@@ -12,14 +12,95 @@
       }
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/api/:path*",
-      "destination": "https://copilot-06s5.onrender.com/api/:path*"
+      "src": "^/sitemap\\.xml$",
+      "dest": "https://copilot-06s5.onrender.com/sitemap.xml"
     },
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "src": "^/rss\\.xml$",
+      "dest": "https://copilot-06s5.onrender.com/rss.xml"
+    },
+    {
+      "src": "^/llms\\.txt$",
+      "dest": "https://copilot-06s5.onrender.com/llms.txt"
+    },
+    {
+      "src": "^/api/(.*)$",
+      "dest": "https://copilot-06s5.onrender.com/api/$1"
+    },
+    {
+      "src": "^/$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/(about|privacy|terms|packages|blog|support|contact|search|categories|signup|login|claim-account|detective-signup|application-under-review)/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/category/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/service/[^/]+/[^/]+/[^/]+/[^/]+/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/claim-profile/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/(admin|detective|user)(?:/.*)?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/detectives/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/detectives/[^/]+/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/detectives/[^/]+/[^/]+/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/detectives/[^/]+/[^/]+/[^/]+/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/news/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/p/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/pages/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/pages/[^/]+/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/pages/[^/]+/[^/]+/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/[^/]+/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/[^/]+/[^/]+/[^/]+/?$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^(.*)$",
+      "status": 404,
+      "dest": "/404.html"
     }
   ],
   "headers": [
@@ -55,4 +136,3 @@
     }
   ]
 }
-

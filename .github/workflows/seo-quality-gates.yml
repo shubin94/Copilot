@@ -1,0 +1,58 @@
+name: SEO Quality Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  seo-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build app (includes prerender)
+        run: npm run build
+
+      - name: Enforce performance budgets
+        run: npm run perf:budget
+
+      - name: Enforce internal-link graph budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/vite-preview.log 2>&1 &
+          PREVIEW_PID=$!
+
+          cleanup() {
+            kill "$PREVIEW_PID" || true
+          }
+          trap cleanup EXIT
+
+          for i in {1..30}; do
+            if curl -sf http://127.0.0.1:4173/ > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          SEO_AUDIT_BASE_URL="http://127.0.0.1:4173" \
+          SEO_AUDIT_SITEMAP_URL="http://127.0.0.1:4173/nonexistent-sitemap.xml" \
+          SEO_AUDIT_MAX_URLS="25" \
+          SEO_AUDIT_MIN_AVG_LINKS="5" \
+          SEO_AUDIT_MAX_ORPHAN_RATE="0.2" \
+          npm run seo:link-graph

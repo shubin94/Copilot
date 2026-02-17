@@ -54,21 +54,12 @@ export const config = {
     cookieDomain: undefined, // CRITICAL: Never restrict domain - breaks cross-origin API calls with SameSite=None
   },
   email: {
-    sendgridApiKey: process.env.SENDGRID_API_KEY || "",
-    sendgridFromEmail: process.env.SENDGRID_FROM_EMAIL || "",
     smtpHost: process.env.SMTP_HOST || "",
     smtpPort: getNumber("SMTP_PORT", undefined),
     smtpSecure: process.env.SMTP_SECURE === "true",
     smtpUser: process.env.SMTP_USER || "",
     smtpPass: process.env.SMTP_PASS || "",
     smtpFromEmail: process.env.SMTP_FROM_EMAIL || "",
-  },
-  sendpulse: {
-    apiId: process.env.SENDPULSE_API_ID || "",
-    apiSecret: process.env.SENDPULSE_API_SECRET || "",
-    senderEmail: process.env.SENDPULSE_SENDER_EMAIL || "",
-    senderName: process.env.SENDPULSE_SENDER_NAME || "",
-    enabled: process.env.SENDPULSE_ENABLED === "true",
   },
   supabase: {
     url: isProd ? (process.env.SUPABASE_URL || "") : (process.env.SUPABASE_URL || ""),
@@ -147,12 +138,10 @@ export function validateConfig(secretsLoaded: boolean = true) {
     throw new Error("SESSION_USE_MEMORY cannot be true in production");
   }
 
-  // Email: require at least one provider configured fully
-  const hasSendgrid = !!config.email.sendgridApiKey && !!config.email.sendgridFromEmail;
+  // Email: require SMTP configured
   const hasSmtp = !!config.email.smtpHost && !!config.email.smtpFromEmail;
-  const hasSendpulse = !!config.sendpulse.apiId && !!config.sendpulse.apiSecret && !!config.sendpulse.senderEmail;
-  if (!hasSendgrid && !hasSmtp && !hasSendpulse) {
-    throw new Error("Email not configured: set SENDGRID_API_KEY + SENDGRID_FROM_EMAIL or SMTP_HOST + SMTP_FROM_EMAIL or SENDPULSE_API_ID + SENDPULSE_API_SECRET + SENDPULSE_SENDER_EMAIL (environment variables or app_secrets)");
+  if (!hasSmtp) {
+    throw new Error("Email not configured: set SMTP_HOST + SMTP_FROM_EMAIL (environment variables or app_secrets)");
   }
 
   // Supabase required for asset storage (environment variables only, never from database)

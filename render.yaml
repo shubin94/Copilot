@@ -10,7 +10,8 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        value: postgresql://postgres.gjgrwxxtkyggwfrydpdb:AKshubin123@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
+        sync: false
+        # IMPORTANT: Set this in Render dashboard (do NOT commit credentials)
       - key: PORT
         value: 10000
       - key: HOST

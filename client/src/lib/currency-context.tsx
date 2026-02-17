@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { useUser } from "./user-context";
 import { WORLD_COUNTRIES } from "./world-countries";
 import { getCurrencyForCountry, isCurrencySupported, getEffectiveCurrency, SUPPORTED_CURRENCIES } from "./country-currency-map";
-import { buildApiUrl, getOrFetchCsrfToken } from "./api";
+import { api, buildApiUrl } from "./api";
 
 export type CurrencyCode = "USD" | "GBP" | "INR" | "CAD" | "AUD" | "EUR";
 
@@ -212,18 +212,9 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated) return;
     
     try {
-      const csrfToken = await getOrFetchCsrfToken();
-      await fetch(buildApiUrl("/api/users/preferences"), {
-        method: "PATCH",
-        headers: { 
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          preferredCountry: country.code,
-          preferredCurrency: country.effectiveCurrency, // Use effectiveCurrency (USD fallback)
-        }),
+      await api.patch("/api/users/preferences", {
+        preferredCountry: country.code,
+        preferredCurrency: country.effectiveCurrency, // Use effectiveCurrency (USD fallback)
       });
     } catch (error) {
       console.warn("Failed to sync country to user profile:", error);
@@ -353,10 +344,38 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// Default currency context value for use outside providers
+const DEFAULT_CURRENCY_CONTEXT: CurrencyContextType = {
+  selectedCountry: COUNTRIES[0],
+  setCountry: () => {},
+  formatPrice: (priceInUSD: number) => `$${priceInUSD.toFixed(2)}`,
+  formatPriceForCountry: (priceInUSD: number) => `$${priceInUSD.toFixed(2)}`,
+  formatPriceExactForCountry: (amount: number) => amount.toFixed(2),
+  formatPriceFromTo: (amount: number) => amount.toFixed(2),
+  convertPriceFromTo: (amount: number) => amount,
+  convertPrice: (amount: number) => amount,
+  showCountrySelector: false,
+  setShowCountrySelector: () => {},
+  hasSeenCountrySelector: false,
+  exchangeRates: {
+    USD: 1,
+    GBP: 0.79,
+    INR: 83.5,
+    CAD: 1.35,
+    AUD: 1.52,
+    EUR: 0.92,
+  },
+  isRatesLoaded: false,
+  showUnsupportedCurrencyNotice: false,
+};
+
 export function useCurrency() {
   const context = useContext(CurrencyContext);
+  // Return default context if used outside provider to prevent crashes
+  // This allows graceful degradation instead of breaking the entire component tree
   if (context === undefined) {
-    throw new Error("useCurrency must be used within a CurrencyProvider");
+    console.warn("[useCurrency] Hook used outside of CurrencyProvider, returning defaults");
+    return DEFAULT_CURRENCY_CONTEXT;
   }
   return context;
 }

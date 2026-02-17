@@ -1,24 +1,34 @@
-import { Link } from "wouter";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Star, MapPin } from "lucide-react";
-import { useCurrency } from "@/lib/currency-context";
+import { ServiceCard } from "@/components/home/service-card";
+import { computeServiceBadges } from "@/lib/service-badges";
+import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
+import type { Detective, Service } from "@shared/schema";
 
 interface RelatedService {
   id: string;
+  slug?: string;
   title: string;
   category?: string;
   basePrice: number;
-  offerPrice?: number;
-  isOnEnquiry: boolean;
-  images: string[];
-  detective?: {
-    businessName?: string;
-    city?: string;
-    country?: string;
-  };
-  avgRating?: number;
-  reviewCount?: number;
+  offerPrice?: number | null;
+  isOnEnquiry?: boolean;
+  images?: string[];
+  avatar: string;
+  name: string;
+  level?: string;
+  rating: number;
+  reviews: number;
+  detectiveId?: string;
+  detectiveSlug?: string;
+  detectiveBusinessName?: string;
+  detectiveCountry?: string;
+  detectiveState?: string;
+  detectiveCity?: string;
+  badgeState?: any;
+  isUnclaimed?: boolean;
+  countryCode?: string;
+  phone?: string;
+  whatsapp?: string;
+  contactEmail?: string;
 }
 
 interface RelatedServicesProps {
@@ -26,106 +36,71 @@ interface RelatedServicesProps {
   currentServiceTitle?: string;
 }
 
-export function RelatedServices({ services, currentServiceTitle }: RelatedServicesProps) {
-  const { formatPriceFromTo, selectedCountry } = useCurrency();
+function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number; planName?: string }) {
+  const badgeState = computeServiceBadges({
+    isVerified: service.detective.isVerified,
+    effectiveBadges: service.detective.effectiveBadges,
+  });
 
+  const detectiveName = service.detective.businessName || "Unknown Detective";
+  const serviceSlug = service.slug || generateSlug(service.title || "service");
+  const servicePath = buildServiceUrl(
+    {
+      country: service.detective.country,
+      state: service.detective.state,
+      city: service.detective.city,
+      slug: service.detective.slug,
+      businessName: service.detective.businessName,
+    },
+    { slug: serviceSlug }
+  );
+  const canonicalUrl = `https://www.askdetectives.com${servicePath}`;
+
+  const images = service.images && service.images.length > 0 ? service.images : undefined;
+  const serviceImage = images ? images[0] : undefined;
+  const detectiveLogo = service.detective.logo || undefined;
+
+  return {
+    id: service.id,
+    slug: service.slug,
+    canonicalUrl,
+    detectiveId: service.detective.id,
+    images,
+    image: serviceImage,
+    avatar: detectiveLogo || "",
+    name: detectiveName,
+    level: service.detective.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1",
+    levelValue: (() => { const m = String(service.detective.level || "level1").match(/\d+/); return m ? parseInt(m[0], 10) : 1; })(),
+    category: service.category,
+    badgeState,
+    title: service.title,
+    rating: service.avgRating,
+    reviews: service.reviewCount,
+    price: Number(service.basePrice),
+    offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
+    isOnEnquiry: service.isOnEnquiry,
+    countryCode: service.detective.country,
+    phone: service.detective.phone || undefined,
+    whatsapp: service.detective.whatsapp || undefined,
+    contactEmail: service.detective.contactEmail || undefined,
+    detectiveCountry: service.detective.country,
+    detectiveState: service.detective.state,
+    detectiveCity: service.detective.city,
+    detectiveSlug: service.detective.slug,
+    detectiveBusinessName: service.detective.businessName,
+  };
+}
+
+export function RelatedServices({ services, currentServiceTitle }: RelatedServicesProps) {
   if (!services || services.length === 0) return null;
 
   return (
     <div className="mt-12 mb-8">
       <h2 className="text-2xl font-bold mb-6">Similar Services You May Like</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {services.map((service) => {
-          const displayPrice = service.offerPrice || service.basePrice;
-          
-          return (
-            <Link key={service.id} href={`/service/${service.id}`}>
-              <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer overflow-hidden">
-                {/* Service Image */}
-                <div className="aspect-video w-full bg-gray-100 overflow-hidden">
-                  {service.images && service.images.length > 0 ? (
-                    <img
-                      src={service.images[0]}
-                      alt={service.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      No Image
-                    </div>
-                  )}
-                </div>
-                
-                <CardContent className="p-4 space-y-3">
-                  {/* Category Badge */}
-                  {service.category && (
-                    <Badge variant="secondary" className="text-xs">
-                      {service.category}
-                    </Badge>
-                  )}
-                  
-                  {/* Service Title */}
-                  <h3 className="font-bold text-lg line-clamp-2 min-h-[3.5rem]">
-                    {service.title}
-                  </h3>
-                  
-                  {/* Detective & Location */}
-                  {service.detective && (
-                    <div className="space-y-1">
-                      <p className="text-sm text-gray-600 line-clamp-1">
-                        {service.detective.businessName || "Unknown Detective"}
-                      </p>
-                      {service.detective.city && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500">
-                          <MapPin className="h-3 w-3" />
-                          <span>
-                            {service.detective.city}
-                            {service.detective.country && `, ${service.detective.country}`}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Rating */}
-                  {service.reviewCount && service.reviewCount > 0 && (
-                    <div className="flex items-center gap-1 text-sm">
-                      <Star className="h-4 w-4 fill-yellow-500 text-yellow-500" />
-                      <span className="font-semibold">{service.avgRating?.toFixed(1)}</span>
-                      <span className="text-gray-500">({service.reviewCount})</span>
-                    </div>
-                  )}
-                  
-                  {/* Price */}
-                  <div className="pt-2 border-t border-gray-100">
-                    {service.isOnEnquiry ? (
-                      <span className="text-blue-600 font-semibold">On Enquiry</span>
-                    ) : (
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-lg font-bold text-gray-900">
-                          {formatPriceFromTo(
-                            displayPrice,
-                            service.detective?.country || "India",
-                            selectedCountry.code
-                          )}
-                        </span>
-                        {service.offerPrice && service.offerPrice < service.basePrice && (
-                          <span className="text-sm text-gray-400 line-through">
-                            {formatPriceFromTo(
-                              service.basePrice,
-                              service.detective?.country || "India",
-                              selectedCountry.code
-                            )}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          );
-        })}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {services.map((service) => (
+          <ServiceCard key={service.id} {...mapServiceToCard(service as any)} />
+        ))}
       </div>
     </div>
   );

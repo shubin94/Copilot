@@ -7,7 +7,11 @@ import { Badge } from "@/components/ui/badge";
 export default function BlogPage() {
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title="Blog" description="Latest news, tips, and insights from the world of private investigation." />
+      <SEO
+        title="Blog"
+        description="Latest news, tips, and insights from the world of private investigation."
+        robots="noindex, follow"
+      />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
         <h1 className="text-4xl font-bold font-heading mb-6">Latest Insights</h1>

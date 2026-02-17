@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { Search, MapPin, Filter, ChevronDown, Star, Check, Globe, Loader2, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect, useRef, useReducer } from "react";
@@ -29,6 +30,7 @@ import { useCurrency } from "@/lib/currency-context";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import type { Service, Detective } from "@shared/schema";
 import { computeServiceBadges } from "@/lib/service-badges";
+import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
 
 // Consolidated filter state using reducer
 type FilterState = {
@@ -133,6 +135,18 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
   });
 
   const detectiveName = service.detective.businessName || "Unknown Detective";
+  const serviceSlug = service.slug || generateSlug(service.title || "service");
+  const servicePath = buildServiceUrl(
+    {
+      country: service.detective.country,
+      state: service.detective.state,
+      city: service.detective.city,
+      slug: service.detective.slug,
+      businessName: service.detective.businessName,
+    },
+    { slug: serviceSlug }
+  );
+  const canonicalUrl = `https://www.askdetectives.com${servicePath}`;
 
   // Use actual database images - NO MOCK DATA
   const images = service.images && service.images.length > 0 ? service.images : undefined;
@@ -141,6 +155,8 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
   
   return {
     id: service.id,
+    slug: service.slug,
+    canonicalUrl,
     detectiveId: service.detective.id,
     images,
     image: serviceImage,
@@ -160,10 +176,16 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
     phone: service.detective.phone || undefined,
     whatsapp: service.detective.whatsapp || undefined,
     contactEmail: service.detective.contactEmail || undefined,
+    detectiveCountry: service.detective.country,
+    detectiveState: service.detective.state,
+    detectiveCity: service.detective.city,
+    detectiveSlug: service.detective.slug,
+    detectiveBusinessName: service.detective.businessName,
   };
 }
 
 export default function SearchPage() {
+  console.log("[search-page] Component initializing...");
   const [location, setLocation] = useLocation();
   
   // Initialize filter state from URL params
@@ -222,7 +244,9 @@ export default function SearchPage() {
   const citySearchRef = useRef<HTMLInputElement>(null);
   const [openSections, setOpenSections] = useState<string[]>(["category", "location"]);
 
-  const { selectedCountry, convertPriceFromTo } = useCurrency();
+  const currencyContext = useCurrency();
+  const selectedCountry = currencyContext?.selectedCountry;
+  const convertPriceFromTo = currencyContext?.convertPriceFromTo;
 
   // Determine plan filter for backend (pro or agency)
   const planName = filters.proOnly ? "pro" : filters.agencyOnly ? "agency" : undefined;
@@ -280,6 +304,7 @@ export default function SearchPage() {
   const finalResults = results.filter((s) => {
     // If price filters set, check converted prices
     if (filters.minPrice === undefined && filters.maxPrice === undefined) return true;
+    if (!selectedCountry || !convertPriceFromTo) return true;
     const converted = convertPriceFromTo(s.price, s.countryCode, selectedCountry.code);
     if (filters.minPrice !== undefined && converted < filters.minPrice) return false;
     if (filters.maxPrice !== undefined && converted > filters.maxPrice) return false;
@@ -546,12 +571,12 @@ export default function SearchPage() {
            <div className="space-y-3">
              <div className="grid grid-cols-2 gap-2">
                <div className="space-y-1">
-                 <Label className="text-xs text-gray-500">MIN ({selectedCountry.currencySymbol})</Label>
-                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-min-price" value={filters.minPriceInput} onChange={(e) => dispatch({ type: 'SET_MIN_PRICE_INPUT', payload: e.target.value })} />
+                 <Label className="text-xs text-gray-500">MIN ({selectedCountry?.currencySymbol || "$"})</Label>
+                 <Input type="number" placeholder={selectedCountry?.currencySymbol || "$"} className="h-8 text-sm" data-testid="input-min-price" value={filters.minPriceInput} onChange={(e) => dispatch({ type: 'SET_MIN_PRICE_INPUT', payload: e.target.value })} />
                </div>
                <div className="space-y-1">
-                 <Label className="text-xs text-gray-500">MAX ({selectedCountry.currencySymbol})</Label>
-                 <Input type="number" placeholder={selectedCountry.currencySymbol} className="h-8 text-sm" data-testid="input-max-price" value={filters.maxPriceInput} onChange={(e) => dispatch({ type: 'SET_MAX_PRICE_INPUT', payload: e.target.value })} />
+                 <Label className="text-xs text-gray-500">MAX ({selectedCountry?.currencySymbol || "$"})</Label>
+                 <Input type="number" placeholder={selectedCountry?.currencySymbol || "$"} className="h-8 text-sm" data-testid="input-max-price" value={filters.maxPriceInput} onChange={(e) => dispatch({ type: 'SET_MAX_PRICE_INPUT', payload: e.target.value })} />
                </div>
              </div>
              <div className="flex gap-2">
@@ -656,13 +681,30 @@ export default function SearchPage() {
     ? `Private Investigators in ${filters.country}${filters.city ? `, ${filters.city}` : ''}`
     : 'Find Professional Private Investigators';
   
-  // SEO: Clean canonical URL (strip offset, utm params)
+  // SEO: Clean canonical URL (keep only primary landing dimensions)
   const canonicalParams = new URLSearchParams();
   if (filters.category) canonicalParams.set('category', filters.category);
   if (filters.country) canonicalParams.set('country', filters.country);
+  if (filters.state) canonicalParams.set('state', filters.state);
   if (filters.city) canonicalParams.set('city', filters.city);
-  if (filters.sortBy && filters.sortBy !== 'popular') canonicalParams.set('sortBy', filters.sortBy);
   const canonicalUrl = `https://www.askdetectives.com/search${canonicalParams.toString() ? `?${canonicalParams.toString()}` : ''}`;
+
+  // SEO: Prevent faceted/filter combinations from bloating the index.
+  const currentSearchParams = new URLSearchParams(window.location.search);
+  const hasFreeTextQuery = Boolean(currentSearchParams.get("q")?.trim());
+  const hasFacetedFilters =
+    filters.minRating !== undefined ||
+    filters.minPrice !== undefined ||
+    filters.maxPrice !== undefined ||
+    filters.proOnly ||
+    filters.agencyOnly ||
+    filters.level1Only ||
+    filters.level2Only ||
+    filters.sortBy !== "popular";
+  const isPaginated = filters.offset > 0;
+  const searchRobots = !hasFreeTextQuery && !hasFacetedFilters && !isPaginated
+    ? "index, follow"
+    : "noindex, follow";
 
   // SEO: ItemList schema for search results
   const itemListSchema = resultServicesComputed.length > 0 ? {
@@ -674,9 +716,9 @@ export default function SearchPage() {
       "position": index + 1,
       "item": {
         "@type": "Service",
-        "@id": `https://www.askdetectives.com/service/${service.id}`,
+        "@id": service.canonicalUrl,
         "name": service.title,
-        "url": `https://www.askdetectives.com/service/${service.id}`,
+        "url": service.canonicalUrl,
         "provider": {
           "@type": "Organization",
           "name": service.name
@@ -699,13 +741,26 @@ export default function SearchPage() {
     }))
   } : undefined;
 
+  // Breadcrumb navigation
+  const breadcrumbs = [
+    { name: "Home", url: "/" },
+    { name: "Search", url: "/search" }
+  ];
+  
+  if (filters.category) {
+    breadcrumbs.push({
+      name: filters.category,
+      url: `/search?category=${encodeURIComponent(filters.category)}`
+    });
+  }
+
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900 bg-white">
       <SEO 
         title={seoTitle}
         description={seoDescription}
         canonical={canonicalUrl}
-        robots="index, follow"
+        robots={searchRobots}
         schema={itemListSchema}
         keywords={[
           filters.category || 'private investigator',
@@ -740,6 +795,9 @@ export default function SearchPage() {
         </div>
 
         <div className="container mx-auto px-6 md:px-12 lg:px-16 py-8">
+          {/* Breadcrumb Navigation */}
+          <Breadcrumb items={breadcrumbs} />
+          
           <div className="flex flex-col lg:flex-row gap-8">
             <div className="lg:hidden mb-2">
               <Sheet>
@@ -844,4 +902,3 @@ export default function SearchPage() {
     </div>
   );
 }
-

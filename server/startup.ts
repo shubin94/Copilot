@@ -94,11 +94,6 @@ async function validateRequiredSecretsProd(): Promise<void> {
   ] as const;
 
   const emailKeys = [
-    "sendpulse_api_id",
-    "sendpulse_api_secret",
-    "sendpulse_sender_email",
-    "sendgrid_api_key",
-    "sendgrid_from_email",
     "smtp_host",
     "smtp_from_email",
   ] as const;
@@ -116,12 +111,10 @@ async function validateRequiredSecretsProd(): Promise<void> {
     }
   }
 
-  const hasSendpulse = !!values.get("sendpulse_api_id") && !!values.get("sendpulse_api_secret") && !!values.get("sendpulse_sender_email");
-  const hasSendgrid = !!values.get("sendgrid_api_key") && !!values.get("sendgrid_from_email");
   const hasSmtp = !!values.get("smtp_host") && !!values.get("smtp_from_email");
 
-  if (!hasSendpulse && !hasSendgrid && !hasSmtp) {
-    throw new Error("At least one email provider must be configured in app_secrets (SendPulse, SendGrid, or SMTP).");
+  if (!hasSmtp) {
+    throw new Error("SMTP must be configured in app_secrets (smtp_host + smtp_from_email).");
   }
 }
 
