@@ -189,15 +189,6 @@ function Router() {
           <Route path="/detectives/:country/:state" component={CityDetectivesPage} />
           <Route path="/detectives/:country" component={CityDetectivesPage} />
           <Route path="/news/:slug" component={ArticlePage} />
-          {/* Legacy detective URL - redirect to server for proper redirect */}
-          <Route path="/p/:id">
-            {(params) => {
-              // Force server-side redirect by doing a full page reload
-              window.location.href = `/p/${params.id}`;
-              return null;
-            }}
-          </Route>
-          {/* Legacy URL support - server redirects /p/:id to /detectives/{country}/{state}/{city}/{slug} */}
 
           {/* User Routes - MUST come before catch-all CMS routes */}
           <Route path="/user/dashboard" component={UserDashboard} />
