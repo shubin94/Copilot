@@ -74,6 +74,18 @@ import llmsTxtRouter from "./routes/llms-txt.ts";
 import featuredHomeServicesRouter from "./routes/featured-home-services.ts";
 import { googleIndexing } from "./services/google-indexing-service.ts";
 
+// Utility function to generate URL-safe slugs from text
+const generateSlug = (text: string): string => {
+  if (!text) return "unknown";
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "") // Remove special chars
+    .replace(/\s+/g, "-") // Replace spaces with hyphens
+    .replace(/-+/g, "-") // Replace multiple hyphens with single
+    .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
+};
+
 // Country code to name mapping for URL handling
 const COUNTRY_CODE_MAP: Record<string, string> = {
   'IN': 'India',
@@ -3095,18 +3107,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to get detective dashboard" });
     }
   });
-
-  // Location Wizard API - Get all countries
+  // Location Wizard API - Get all countries (using library)
   app.get("/api/locations/countries", async (_req: Request, res: Response) => {
     try {
-      const allCountries = await db.select({
-        id: countries.id,
-        code: countries.code,
-        name: countries.name,
-        slug: countries.slug
-      })
-      .from(countries)
-      .orderBy(countries.name);
+      const allCountries = Country.getAllCountries()
+        .map(c => ({
+          id: c.isoCode,
+          code: c.isoCode,
+          name: c.name,
+          slug: generateSlug(c.name)
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
       
       res.json({ countries: allCountries });
     } catch (error) {
@@ -3115,20 +3126,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Location Wizard API - Get states for a country
+  // Location Wizard API - Get states for a country (using library)
   app.get("/api/locations/states/:countryId", async (req: Request, res: Response) => {
     try {
       const { countryId } = req.params;
       
-      const countryStates = await db.select({
-        id: states.id,
-        countryId: states.countryId,
-        name: states.name,
-        slug: states.slug
-      })
-      .from(states)
-      .where(eq(states.countryId, countryId))
-      .orderBy(states.name);
+      const countryStates = (State.getStatesOfCountry(countryId) || [])
+        .map(s => ({
+          id: s.isoCode,
+          countryId: countryId,
+          name: s.name,
+          slug: generateSlug(s.name)
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
       
       res.json({ states: countryStates });
     } catch (error) {
@@ -3137,20 +3147,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Location Wizard API - Get cities for a state
+  // Location Wizard API - Get cities for a state (using library)
   app.get("/api/locations/cities/:stateId", async (req: Request, res: Response) => {
     try {
       const { stateId } = req.params;
+      const { countryId } = req.query;
       
-      const stateCities = await db.select({
-        id: cities.id,
-        stateId: cities.stateId,
-        name: cities.name,
-        slug: cities.slug
-      })
-      .from(cities)
-      .where(eq(cities.stateId, stateId))
-      .orderBy(cities.name);
+      if (!countryId || typeof countryId !== 'string') {
+        return res.status(400).json({ error: "Country ID is required" });
+      }
+
+      const stateCities = (City.getCitiesOfState(countryId, stateId) || [])
+        .map(c => ({
+          id: c.name,
+          stateId: stateId,
+          name: c.name,
+          slug: generateSlug(c.name)
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
       
       res.json({ cities: stateCities });
     } catch (error) {
@@ -6049,66 +6063,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[SEO Redirect] error:', error);
       return next();
-    }
-  });
-
-  // Get all countries from authoritative library
-  app.get("/api/locations/countries", async (req: Request, res: Response) => {
-    try {
-      const countries = Country.getAllCountries()
-        .map(c => c.isoCode)
-        .sort();
-      res.json({ countries });
-    } catch (error) {
-      console.error("[locations/countries] ERROR:", error);
-      res.status(500).json({ error: "Failed to get countries" });
-    }
-  });
-
-  // Get states for a country from authoritative library
-  app.get("/api/locations/states", async (req: Request, res: Response) => {
-    try {
-      const { country } = req.query;
-      if (!country || typeof country !== 'string') {
-        return res.status(400).json({ error: "Country parameter required" });
-      }
-
-      const states = State.getStatesOfCountry(country)
-        .map(s => s.name)
-        .sort();
-      res.json({ states });
-    } catch (error) {
-      console.error("[locations/states] ERROR:", error);
-      res.status(500).json({ error: "Failed to get states" });
-    }
-  });
-
-  // Get cities for a country + state from authoritative library
-  app.get("/api/locations/cities", async (req: Request, res: Response) => {
-    try {
-      const { country, state } = req.query;
-      if (!country || typeof country !== 'string') {
-        return res.status(400).json({ error: "Country parameter required" });
-      }
-      if (!state || typeof state !== 'string') {
-        return res.status(400).json({ error: "State parameter required" });
-      }
-
-      // Get state isoCode from state name (library requires state code, not name)
-      const stateObj = State.getStatesOfCountry(country)
-        .find(s => s.name === state);
-      
-      if (!stateObj) {
-        return res.json({ cities: [] });
-      }
-
-      const cities = City.getCitiesOfState(country, stateObj.isoCode)
-        .map(c => c.name)
-        .sort();
-      res.json({ cities });
-    } catch (error) {
-      console.error("[locations/cities] ERROR:", error);
-      res.status(500).json({ error: "Failed to get cities" });
     }
   });
 
