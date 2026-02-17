@@ -415,8 +415,13 @@ export default async function runApp(
   setup: (app: Express, server: Server) => Promise<void>,
 ): Promise<Server> {
   // Dynamic import of routes to ensure environment is loaded BEFORE routes are imported
+  console.log('[DEBUG] Starting to import registerRoutes...');
   const { registerRoutes } = await import("./routes.ts");
+  console.log('[DEBUG] registerRoutes imported successfully');
+  
+  console.log('[DEBUG] Calling registerRoutes(app)...');
   const server = await registerRoutes(app);
+  console.log('[DEBUG] registerRoutes completed, server ready');
 
   // Global error handler - SECURITY: Never leak stack traces or sensitive data in production
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

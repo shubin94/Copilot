@@ -297,6 +297,8 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  console.log('[DEBUG] registerRoutes() called');
+  
   const setNoStore = (res: Response) => {
     // Private, no-store, no-cache for authenticated/sensitive user data
     res.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
@@ -7436,5 +7438,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
 
+  console.log('[DEBUG] registerRoutes() completing, about to return httpServer');
   return httpServer;
 }
