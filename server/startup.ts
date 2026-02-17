@@ -114,7 +114,7 @@ async function validateRequiredSecretsProd(): Promise<void> {
   const hasSmtp = !!values.get("smtp_host") && !!values.get("smtp_from_email");
 
   if (!hasSmtp) {
-    throw new Error("SMTP must be configured in app_secrets (smtp_host + smtp_from_email).");
+    console.warn("⚠️  Warning: SMTP not configured in app_secrets (smtp_host + smtp_from_email). Email features will be disabled until configured. You can add these secrets later via the Render dashboard.");
   }
 }
 
