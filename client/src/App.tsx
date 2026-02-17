@@ -198,12 +198,6 @@ function App() {
               <Toaster />
               <SmokeTester />
               
-              {/* Lazy-loaded analytics - not critical for initial render */}
-              <Suspense fallback={null}>
-                <SpeedInsights />
-                <Analytics />
-              </Suspense>
-              
               {/* Network Error Handler: Auto-detects offline/connectivity issues */}
               <NetworkErrorHandler
                 onRetry={() => {

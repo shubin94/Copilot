@@ -84,7 +84,7 @@ const AdminEmployeesRoute = withAdminRoute(AdminEmployees);
 export function AdminRoutes() {
   return (
     <Suspense fallback={<AdminSkeleton />}>
-      {/* Admin Routes */}
+      {/* Admin Routes - all lazy-loaded */}
       <Route path="/admin" component={AdminDashboardRoute} />
       <Route path="/admin/dashboard" component={AdminDashboardRoute} />
       <Route path="/admin/finance" component={AdminFinanceRoute} />
