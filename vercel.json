@@ -12,119 +12,77 @@
       }
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "^/sitemap\\.xml$",
-      "dest": "https://copilot-06s5.onrender.com/sitemap.xml"
+      "source": "/",
+      "destination": "/index.html"
     },
     {
-      "src": "^/rss\\.xml$",
-      "dest": "https://copilot-06s5.onrender.com/rss.xml"
+      "source": "/(about|privacy|terms|packages|blog|support|contact|search|categories|signup|login|claim-account|detective-signup|application-under-review)",
+      "destination": "/index.html"
     },
     {
-      "src": "^/llms\\.txt$",
-      "dest": "https://copilot-06s5.onrender.com/llms.txt"
+      "source": "/category/:slug",
+      "destination": "/index.html"
     },
     {
-      "src": "^/api/(.*)$",
-      "dest": "https://copilot-06s5.onrender.com/api/$1"
+      "source": "/service/:detective/:service/:type/:location/:id",
+      "destination": "/index.html"
     },
     {
-      "src": "^/$",
-      "dest": "/index.html"
+      "source": "/claim-profile/:slug",
+      "destination": "/index.html"
     },
     {
-      "src": "^/(about|privacy|terms|packages|blog|support|contact|search|categories|signup|login|claim-account|detective-signup|application-under-review)/?$",
-      "dest": "/index.html"
+      "source": "/(admin|detective|user)/:path*",
+      "destination": "/index.html"
     },
     {
-      "src": "^/category/[^/]+/?$",
-      "dest": "/index.html"
+      "source": "/detectives/:slug",
+      "destination": "/index.html"
     },
     {
-      "src": "^/service/[^/]+/[^/]+/[^/]+/[^/]+/[^/]+/?$",
-      "dest": "/index.html"
+      "source": "/detectives/:slug/:param1",
+      "destination": "/index.html"
     },
     {
-      "src": "^/claim-profile/[^/]+/?$",
-      "dest": "/index.html"
+      "source": "/detectives/:slug/:param1/:param2",
+      "destination": "/index.html"
     },
     {
-      "src": "^/(admin|detective|user)(?:/.*)?$",
-      "dest": "/index.html"
+      "source": "/detectives/:slug/:param1/:param2/:param3",
+      "destination": "/index.html"
     },
     {
-      "src": "^/detectives/[^/]+/?$",
-      "dest": "/index.html"
+      "source": "/news/:slug",
+      "destination": "/index.html"
     },
     {
-      "src": "^/detectives/[^/]+/[^/]+/?$",
-      "dest": "/index.html"
+      "source": "/p/:slug",
+      "destination": "/index.html"
     },
     {
-      "src": "^/detectives/[^/]+/[^/]+/[^/]+/?$",
-      "dest": "/index.html"
+      "source": "/pages/:slug",
+      "destination": "/index.html"
     },
     {
-      "src": "^/detectives/[^/]+/[^/]+/[^/]+/[^/]+/?$",
-      "dest": "/index.html"
+      "source": "/pages/:slug/:param1",
+      "destination": "/index.html"
     },
     {
-      "src": "^/news/[^/]+/?$",
-      "dest": "/index.html"
+      "source": "/pages/:slug/:param1/:param2",
+      "destination": "/index.html"
     },
     {
-      "src": "^/p/[^/]+/?$",
-      "dest": "/index.html"
+      "source": "/:param1/:param2",
+      "destination": "/index.html"
     },
     {
-      "src": "^/pages/[^/]+/?$",
-      "dest": "/index.html"
-    },
-    {
-      "src": "^/pages/[^/]+/[^/]+/?$",
-      "dest": "/index.html"
-    },
-    {
-      "src": "^/pages/[^/]+/[^/]+/[^/]+/?$",
-      "dest": "/index.html"
-    },
-    {
-      "src": "^/[^/]+/[^/]+/?$",
-      "dest": "/index.html"
-    },
-    {
-      "src": "^/[^/]+/[^/]+/[^/]+/?$",
-      "dest": "/index.html"
-    },
-    {
-      "src": "^(.*)$",
-      "status": 404,
-      "dest": "/404.html"
+      "source": "/:param1/:param2/:param3",
+      "destination": "/index.html"
     }
   ],
   "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Credentials",
-          "value": "true"
-        },
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "https://www.askdetectives.com"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, Cookie"
-        }
-      ]
-    },
     {
       "source": "/(.*)",
       "headers": [

@@ -1,20 +1,28 @@
--- NOTE: Removed drop statements to prevent destructive changes in diffs.
+drop trigger if exists "trg_generate_detective_slug" on "public"."detectives";
 
-alter table "public"."case_studies" alter column "detective_id" set data type character varying using "detective_id"::character varying;
+drop trigger if exists "service_categories_name_cascade" on "public"."service_categories";
 
-alter table "public"."case_studies" alter column "id" set data type character varying using "id"::character varying;
+drop function if exists "public"."generate_detective_slug"();
 
-alter table "public"."detectives" add column if not exists "city_id" integer;
+drop function if exists "public"."sync_service_category_name"();
 
-alter table "public"."detectives" add column if not exists "country_id" integer;
+drop index if exists "public"."detectives_slug_unique";
 
-alter table "public"."detectives" add column if not exists "state_id" integer;
+drop index if exists "public"."idx_detectives_status";
 
-CREATE INDEX IF NOT EXISTS idx_detectives_slug ON public.detectives USING btree (slug);
+drop index if exists "public"."idx_detectives_status_country";
 
-CREATE INDEX IF NOT EXISTS case_studies_published_at_idx ON public.case_studies USING btree (published_at);
+drop index if exists "public"."idx_detectives_status_country_state";
 
-CREATE INDEX IF NOT EXISTS idx_detective_slug ON public.detectives USING btree (slug);
+drop index if exists "public"."idx_detectives_status_country_state_city";
+
+drop index if exists "public"."idx_reviews_service_id_published";
+
+drop index if exists "public"."services_slug_unique";
+
+drop index if exists "public"."case_studies_published_at_idx";
+
+CREATE INDEX case_studies_published_at_idx ON public.case_studies USING btree (published_at);
 
 grant delete on table "public"."case_studies" to "postgres";
 
