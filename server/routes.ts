@@ -10,7 +10,7 @@ import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./servi
 import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
 import { db, pool } from "../db/index.ts";
-import { eq, and, desc, avg, count, min, ilike } from "drizzle-orm";
+import { eq, and, or, desc, avg, count, min, ilike } from "drizzle-orm";
 import {
   detectives,
   countries,
@@ -4121,16 +4121,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .replace(/^-+|-+$/g, "");
       };
 
-      // Resolve by indexed slug (services.slug is unique)
-      const rows = await db
-        .select({
-          service: services,
-          detective: detectives,
-        })
-        .from(services)
-        .innerJoin(detectives, eq(services.detectiveId, detectives.id))
-        .where(eq(services.slug, slug))
-        .limit(1);
+      let rows: Array<{ service: typeof services.$inferSelect; detective: typeof detectives.$inferSelect }> = [];
+
+      if (detectiveSlug) {
+        const detectiveRows = await db
+          .select({ detective: detectives })
+          .from(detectives)
+          .where(eq(detectives.slug, detectiveSlug))
+          .limit(1);
+
+        if (detectiveRows.length > 0) {
+          const detective = detectiveRows[0].detective;
+          const scopedRows = await db
+            .select({
+              service: services,
+              detective: detectives,
+            })
+            .from(services)
+            .innerJoin(detectives, eq(services.detectiveId, detectives.id))
+            .where(
+              and(
+                eq(services.detectiveId, detective.id),
+                or(eq(services.slug, slug), ilike(services.slug, `${slug}-%`))
+              )
+            )
+            .limit(10);
+
+          if (scopedRows.length > 0) {
+            const exact = scopedRows.find((row) => row.service.slug === slug);
+            if (exact) {
+              rows = [exact];
+            } else {
+              const withSuffix = scopedRows
+                .map((row) => ({
+                  row,
+                  suffix: row.service.slug.slice(slug.length + 1),
+                }))
+                .filter((item) => /^\d+$/.test(item.suffix))
+                .sort((a, b) => Number(a.suffix) - Number(b.suffix));
+
+              if (withSuffix.length > 0) {
+                rows = [withSuffix[0].row];
+              }
+            }
+          }
+        }
+      }
+
+      if (rows.length === 0) {
+        rows = await db
+          .select({
+            service: services,
+            detective: detectives,
+          })
+          .from(services)
+          .innerJoin(detectives, eq(services.detectiveId, detectives.id))
+          .where(eq(services.slug, slug))
+          .limit(1);
+      }
 
       if (rows.length === 0) {
         return res.status(404).json({ error: "Service not found" });
@@ -4140,7 +4188,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Optional canonical guard: if detective slug is provided in URL, ensure it matches.
       if (detectiveSlug) {
-        const detSlug = rawDetective.slug || generateSlug(rawDetective.businessName || '');
+        const detSlug = rawDetective.slug || generateSlug(rawDetective.businessName || "");
         if (detSlug !== detectiveSlug) {
           return res.status(404).json({ error: "Service not found" });
         }

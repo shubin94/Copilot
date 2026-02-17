@@ -288,13 +288,13 @@ export default function SearchPage() {
   const { data: citiesData } = useCities(filters.country, filters.state);
   
   const availableCountryCodes = countriesData?.countries || [];
-  const availableStates = statesData?.states || [];
-  const availableCities = citiesData?.cities || [];
+  const availableStates = (statesData?.states || []).map(s => s.name);
+  const availableCities = (citiesData?.cities || []).map(c => c.name);
   
   // Map country codes to names for display
-  const availableCountries = availableCountryCodes.map(code => {
-    const country = WORLD_COUNTRIES.find(c => c.code === code);
-    return { code, name: country?.name || code };
+  const availableCountries = availableCountryCodes.map(countryObj => {
+    const country = WORLD_COUNTRIES.find(c => c.code === countryObj.code);
+    return { code: countryObj.code, name: country?.name || countryObj.name };
   });
 
   // Backend now handles ALL filtering - no client-side filtering needed

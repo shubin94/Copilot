@@ -64,7 +64,7 @@ if (config.env.isDev && url) {
       `To fix this:\n` +
       `  1. Update SUPABASE_URL in .env.local to your LOCAL Supabase URL\n` +
       `     (e.g., http://127.0.0.1:54321)\n` +
-      `  2. Or set NODE_ENV=production if you intentionally want to use cloud Supabase\n\n` +
+      `  2. Or set NODE_ENV=production if deploying to production\n\n` +
       `This safety check prevents accidentally modifying production data during development.`
     );
   }
