@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { Country, State, City } from "country-state-city";
 
 interface LocationWizardModalProps {
   open: boolean;
@@ -58,16 +59,23 @@ export function LocationWizardModal({ open, onOpenChange }: LocationWizardModalP
     }
   }, [open]);
 
-  const loadCountries = async () => {
+  const loadCountries = () => {
     setLoadingCountries(true);
     try {
-      const data = await api.get<{ countries?: Country[] }>("/api/locations/countries");
-      setCountries(data.countries || []);
+      const allCountries = Country.getAllCountries()
+        .map(c => ({
+          id: c.isoCode,
+          code: c.isoCode,
+          name: c.name,
+          slug: c.isoCode.toLowerCase()
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setCountries(allCountries);
     } catch (error) {
       console.error("Failed to load countries:", error);
       toast({
         title: "Error",
-        description: "Failed to load countries. Please try again.",
+        description: "Failed to load countries.",
         variant: "destructive"
       });
     } finally {
@@ -75,7 +83,7 @@ export function LocationWizardModal({ open, onOpenChange }: LocationWizardModalP
     }
   };
 
-  const loadStates = async (countryId: string) => {
+  const loadStates = (countryId: string) => {
     setLoadingStates(true);
     setStates([]);
     setCities([]);
@@ -83,13 +91,20 @@ export function LocationWizardModal({ open, onOpenChange }: LocationWizardModalP
     setSelectedCityId("");
     
     try {
-      const data = await api.get<{ states?: State[] }>(`/api/locations/states/${countryId}`);
-      setStates(data.states || []);
+      const allStates = State.getStatesOfCountry(countryId)
+        .map(s => ({
+          id: s.isoCode,
+          countryId: countryId,
+          name: s.name,
+          slug: s.isoCode.toLowerCase()
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setStates(allStates);
     } catch (error) {
       console.error("Failed to load states:", error);
       toast({
         title: "Error",
-        description: "Failed to load states. Please try again.",
+        description: "Failed to load states.",
         variant: "destructive"
       });
     } finally {
@@ -97,19 +112,26 @@ export function LocationWizardModal({ open, onOpenChange }: LocationWizardModalP
     }
   };
 
-  const loadCities = async (stateId: string) => {
+  const loadCities = (stateId: string, countryId: string) => {
     setLoadingCities(true);
     setCities([]);
     setSelectedCityId("");
     
     try {
-      const data = await api.get<{ cities?: City[] }>(`/api/locations/cities/${stateId}`);
-      setCities(data.cities || []);
+      const allCities = City.getCitiesOfState(countryId, stateId)
+        .map(c => ({
+          id: c.name,
+          stateId: stateId,
+          name: c.name,
+          slug: c.name.toLowerCase().replace(/\s+/g, "-")
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setCities(allCities);
     } catch (error) {
       console.error("Failed to load cities:", error);
       toast({
         title: "Error",
-        description: "Failed to load cities. Please try again.",
+        description: "Failed to load cities.",
         variant: "destructive"
       });
     } finally {
@@ -124,7 +146,7 @@ export function LocationWizardModal({ open, onOpenChange }: LocationWizardModalP
 
   const handleStateChange = (stateId: string) => {
     setSelectedStateId(stateId);
-    loadCities(stateId);
+    loadCities(stateId, selectedCountryId);
   };
 
   const handleCityChange = (cityId: string) => {
