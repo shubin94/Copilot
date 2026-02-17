@@ -909,10 +909,10 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                         />
                       </div>
                       {countriesData?.countries
-                        .filter((countryCode) => (COUNTRY_CODE_TO_NAME[countryCode] || countryCode).toLowerCase().includes(countryQuery.toLowerCase()))
-                        .map((countryCode) => (
-                          <SelectItem key={countryCode} value={countryCode}>
-                            {COUNTRY_CODE_TO_NAME[countryCode] || countryCode}
+                        .filter((country) => country.name.toLowerCase().includes(countryQuery.toLowerCase()))
+                        .map((country) => (
+                          <SelectItem key={country.code} value={country.code}>
+                            {country.name}
                           </SelectItem>
                         ))}
                       {countriesLoading && <div className="px-2 py-2 text-xs text-gray-500">Loading countries...</div>}
@@ -943,10 +943,10 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                         </div>
                       )}
                       {statesData?.states
-                        .filter((s) => s.toLowerCase().includes(stateQuery.toLowerCase()))
+                        .filter((state) => state.name.toLowerCase().includes(stateQuery.toLowerCase()))
                         .map((state) => (
-                          <SelectItem key={state} value={state}>
-                            {state}
+                          <SelectItem key={state.id} value={state.id}>
+                            {state.name}
                           </SelectItem>
                         ))}
                       {statesLoading && <div className="px-2 py-2 text-xs text-gray-500">Loading states...</div>}
@@ -968,8 +968,8 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                   <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
                     {citiesData?.cities && citiesData.cities.length > 0 ? (
                       citiesData.cities.map((city) => (
-                        <SelectItem key={city} value={city}>
-                          {city}
+                        <SelectItem key={city.id} value={city.id}>
+                          {city.name}
                         </SelectItem>
                       ))
                     ) : null}
@@ -1006,8 +1006,8 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
                     </SelectTrigger>
                     <SelectContent>
                       {countriesData?.countries.map((country) => (
-                        <SelectItem key={country} value={COMMON_PHONE_CODES[country] || "+1"}>
-                          {COMMON_PHONE_CODES[country] || "+1"} {country}
+                        <SelectItem key={country.code} value={COMMON_PHONE_CODES[country.code] || "+1"}>
+                          {COMMON_PHONE_CODES[country.code] || "+1"} {country.code}
                         </SelectItem>
                       ))}
                     </SelectContent>
