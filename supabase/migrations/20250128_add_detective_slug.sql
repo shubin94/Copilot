@@ -9,20 +9,20 @@ DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns 
-    WHERE table_name = 'detectives' AND column_name = 'slug'
+    WHERE table_schema = 'public' AND table_name = 'detectives' AND column_name = 'slug'
   ) THEN
-    ALTER TABLE detectives ADD COLUMN slug VARCHAR(255);
-    COMMENT ON COLUMN detectives.slug IS 'URL-friendly slug generated from businessName + city. Used for SEO-friendly detective profile URLs.';
+    ALTER TABLE public.detectives ADD COLUMN slug VARCHAR(255);
+    COMMENT ON COLUMN public.detectives.slug IS 'URL-friendly slug generated from businessName + city. Used for SEO-friendly detective profile URLs.';
   END IF;
 END $$;
 
 -- Create unique index on slug (if doesn't exist)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_detective_slug ON detectives(slug);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_detective_slug ON public.detectives(slug);
 
 -- Create composite index for location-based detective lookups
 -- Query pattern: detectives in country X, state Y, with given slug
 CREATE INDEX IF NOT EXISTS idx_detective_location_slug 
-ON detectives(country, state, city, slug);
+ON public.detectives(country, state, city, slug);
 
 -- Add trigger to auto-generate/regenerate slug when businessName or city changes
 -- This ensures slug stays in sync with profile edits
@@ -57,11 +57,11 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Drop trigger if it exists (to allow re-running migration without errors)
-DROP TRIGGER IF EXISTS trg_generate_detective_slug ON detectives;
+DROP TRIGGER IF EXISTS trg_generate_detective_slug ON public.detectives;
 
 -- Create trigger
 CREATE TRIGGER trg_generate_detective_slug
-BEFORE INSERT OR UPDATE ON detectives
+BEFORE INSERT OR UPDATE ON public.detectives
 FOR EACH ROW
 EXECUTE FUNCTION generate_detective_slug();
 
