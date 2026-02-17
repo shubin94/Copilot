@@ -27,7 +27,7 @@ export async function serveStatic(app: Express, server: Server) {
     );
   }
 
-  app.use(express.static(distPath, {
+  console.log('[DEBUG] Setting up express.static middleware for:', distPath);
     maxAge: "1y",
     immutable: true,
     setHeaders: (res, filePath) => {
@@ -185,7 +185,9 @@ async function main() {
     await validateDatabase();
 
     console.log('⚙️  Starting Express app...');
+    console.log('[DEBUG] About to call runApp(serveStatic)...');
     await runApp(serveStatic);
+    console.log('[DEBUG] runApp completed successfully');
     
     console.log('✅ Server started successfully');
     console.log("✅ Production ready: DB-backed secrets loaded, validations passed");
