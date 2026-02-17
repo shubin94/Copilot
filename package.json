@@ -102,8 +102,8 @@
   "overrides": {
     "tar@<=7.5.3": "7.5.3"
   },
-  "optionalDependencies": {
+  "dependencies": {
     "bufferutil": "4.1.0",
-    "utf-8-validate": "^6.0.4"
+    "utf-8-validate": "6.0.6"
   }
 }
