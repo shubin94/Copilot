@@ -14,71 +14,71 @@
   ],
   "rewrites": [
     {
-      "source": "^/$",
+      "source": "/",
       "destination": "/index.html"
     },
     {
-      "source": "^/(about|privacy|terms|packages|blog|support|contact|search|categories|signup|login|claim-account|detective-signup|application-under-review)/?$",
+      "source": "/(about|privacy|terms|packages|blog|support|contact|search|categories|signup|login|claim-account|detective-signup|application-under-review)",
       "destination": "/index.html"
     },
     {
-      "source": "^/category/[^/]+/?$",
+      "source": "/category/:slug",
       "destination": "/index.html"
     },
     {
-      "source": "^/service/[^/]+/[^/]+/[^/]+/[^/]+/[^/]+/?$",
+      "source": "/service/:detective/:service/:type/:location/:id",
       "destination": "/index.html"
     },
     {
-      "source": "^/claim-profile/[^/]+/?$",
+      "source": "/claim-profile/:slug",
       "destination": "/index.html"
     },
     {
-      "source": "^/(admin|detective|user)(?:/.*)?$",
+      "source": "/(admin|detective|user)/:path*",
       "destination": "/index.html"
     },
     {
-      "source": "^/detectives/[^/]+/?$",
+      "source": "/detectives/:slug",
       "destination": "/index.html"
     },
     {
-      "source": "^/detectives/[^/]+/[^/]+/?$",
+      "source": "/detectives/:slug/:param1",
       "destination": "/index.html"
     },
     {
-      "source": "^/detectives/[^/]+/[^/]+/[^/]+/?$",
+      "source": "/detectives/:slug/:param1/:param2",
       "destination": "/index.html"
     },
     {
-      "source": "^/detectives/[^/]+/[^/]+/[^/]+/[^/]+/?$",
+      "source": "/detectives/:slug/:param1/:param2/:param3",
       "destination": "/index.html"
     },
     {
-      "source": "^/news/[^/]+/?$",
+      "source": "/news/:slug",
       "destination": "/index.html"
     },
     {
-      "source": "^/p/[^/]+/?$",
+      "source": "/p/:slug",
       "destination": "/index.html"
     },
     {
-      "source": "^/pages/[^/]+/?$",
+      "source": "/pages/:slug",
       "destination": "/index.html"
     },
     {
-      "source": "^/pages/[^/]+/[^/]+/?$",
+      "source": "/pages/:slug/:param1",
       "destination": "/index.html"
     },
     {
-      "source": "^/pages/[^/]+/[^/]+/[^/]+/?$",
+      "source": "/pages/:slug/:param1/:param2",
       "destination": "/index.html"
     },
     {
-      "source": "^/[^/]+/[^/]+/?$",
+      "source": "/:param1/:param2",
       "destination": "/index.html"
     },
     {
-      "source": "^/[^/]+/[^/]+/[^/]+/?$",
+      "source": "/:param1/:param2/:param3",
       "destination": "/index.html"
     }
   ],
