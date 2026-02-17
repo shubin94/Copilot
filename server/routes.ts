@@ -1447,82 +1447,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(1);
 
       if (detectiveRows.length === 0) {
-        // Detective not found - let client-side routing handle it
         return res.status(404).json({ error: "Detective not found" });
       }
 
       const detective = detectiveRows[0];
 
-      // Fetch country slug and ID
-      const countryRows = await db
-        .select({ id: countries.id, slug: countries.slug })
-        .from(countries)
-        .where(eq(countries.code, detective.country))
-        .limit(1);
-
-      if (countryRows.length === 0) {
-        // Country not found - keep old URL
-        return res.status(404).json({ error: "Detective location not found" });
-      }
-
-      const countryId = countryRows[0].id;
-      const countrySlug = countryRows[0].slug;
-
-      // Fetch state slug (if state exists)
-      let stateSlug = "";
-      let stateRowId = "";
-      if (detective.state) {
-        const stateRows = await db
-          .select({ id: states.id, slug: states.slug })
-          .from(states)
-          .where(and(eq(states.countryId, countryId), eq(states.name, detective.state)))
-          .limit(1);
-
-        if (stateRows.length > 0) {
-          stateSlug = stateRows[0].slug;
-          stateRowId = stateRows[0].id;
-        } else {
-          // State slug not found - redirect to country-level profile
-          const newUrl = `/detectives/${countrySlug}/`;
-          console.log(`[301-redirect] /p/${detectiveId} → ${newUrl} (state not found)`);
-          return res.redirect(301, newUrl);
-        }
-      }
-
-      // Fetch city slug (if city exists)
-      let citySlug = "";
-      if (detective.city && stateRowId) {
-        const cityRows = await db
-          .select({ slug: cities.slug })
-          .from(cities)
-          .where(and(eq(cities.stateId, stateRowId), eq(cities.name, detective.city)))
-          .limit(1);
-
-        if (cityRows.length > 0) {
-          citySlug = cityRows[0].slug;
-        } else {
-          // City slug not found - redirect to state-level profile
-          const newUrl = `/detectives/${countrySlug}/${stateSlug}/`;
-          console.log(`[301-redirect] /p/${detectiveId} → ${newUrl} (city not found)`);
-          return res.redirect(301, newUrl);
-        }
-      }
-
-      // Build new canonical URL with slug (country/state/city/detective-slug)
-      // detective.slug should be populated from migration
-      // Inline slug generator for fallback (detective.slug should exist from migration)
-      const generateSlug = (text: string): string => {
-        return text.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+      // Helper function to generate URL-safe slugs
+      const createSlug = (text: string): string => {
+        return text
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9\s-]/g, "")
+          .replace(/\s+/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-+|-+$/g, "");
       };
-      const businessSlug = detective.slug || generateSlug(`${detective.businessName} ${detective.city}`);
+
+      // Convert country code (e.g., "IN" → "india") to slug format
+      const countryCodeMap: Record<string, string> = {
+        IN: "india",
+        US: "united-states",
+        GB: "united-kingdom",
+        CA: "canada",
+        AU: "australia",
+        NZ: "new-zealand",
+        SG: "singapore",
+        AE: "united-arab-emirates",
+      };
+
+      const countrySlug = countryCodeMap[detective.country?.toUpperCase() || ""] || createSlug(detective.country || "");
+      const stateSlug = detective.state ? createSlug(detective.state) : "";
+      const citySlug = detective.city ? createSlug(detective.city) : "";
+      const businessSlug = detective.slug || createSlug(`${detective.businessName || "detective"} ${detective.city || ""}`);
+
+      // Build new canonical URL with slug: /detectives/{country}/{state}/{city}/{business-slug}/
       const newUrl = `/detectives/${countrySlug}/${stateSlug}/${citySlug}/${businessSlug}/`;
 
-      console.log(`[301-redirect] /p/${detectiveId} → ${newUrl}`);
+      console.log(`[✅ SEO 301-redirect] /p/${detectiveId} → ${newUrl}`);
       return res.redirect(301, newUrl);
     } catch (error) {
-      console.error("[301-redirect] Error:", error);
-      // On error, return 404 to prevent redirect loops
-      res.status(404).json({ error: "Failed to process redirect" });
+      console.error("[❌ SEO 301-redirect Error] Failed to redirect:", error);
+      res.status(404).json({ error: "Detective not found" });
     }
   });
 
