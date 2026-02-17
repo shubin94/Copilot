@@ -954,16 +954,16 @@ export const api = {
     },
   },
   locations: {
-    getCountries: async (): Promise<{ countries: string[] }> => {
+    getCountries: async (): Promise<{ countries: Array<{ id: string; code: string; name: string; slug: string }> }> => {
       const response = await csrfFetch(`/api/locations/countries`, { credentials: "include" });
       return handleResponse(response);
     },
-    getStates: async (country: string): Promise<{ states: string[] }> => {
-      const response = await csrfFetch(`/api/locations/states?country=${encodeURIComponent(country)}`, { credentials: "include" });
+    getStates: async (country: string): Promise<{ states: Array<{ id: string; countryId: string; name: string; slug: string }> }> => {
+      const response = await csrfFetch(`/api/locations/states/${encodeURIComponent(country)}`, { credentials: "include" });
       return handleResponse(response);
     },
-    getCities: async (country: string, state: string): Promise<{ cities: string[] }> => {
-      const response = await csrfFetch(`/api/locations/cities?country=${encodeURIComponent(country)}&state=${encodeURIComponent(state)}`, { credentials: "include" });
+    getCities: async (country: string, state: string): Promise<{ cities: Array<{ id: string; stateId: string; name: string; slug: string }> }> => {
+      const response = await csrfFetch(`/api/locations/cities/${encodeURIComponent(state)}?countryId=${encodeURIComponent(country)}`, { credentials: "include" });
       return handleResponse(response);
     },
   },
