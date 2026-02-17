@@ -138,10 +138,10 @@ export function validateConfig(secretsLoaded: boolean = true) {
     throw new Error("SESSION_USE_MEMORY cannot be true in production");
   }
 
-  // Email: require SMTP configured
+  // Email: warn if SMTP not configured, but allow startup
   const hasSmtp = !!config.email.smtpHost && !!config.email.smtpFromEmail;
   if (!hasSmtp) {
-    throw new Error("Email not configured: set SMTP_HOST + SMTP_FROM_EMAIL (environment variables or app_secrets)");
+    console.warn("⚠️  Warning: Email not configured (SMTP_HOST + SMTP_FROM_EMAIL). Email features will be disabled until configured. Set these in environment variables or app_secrets.");
   }
 
   // Supabase required for asset storage (environment variables only, never from database)
