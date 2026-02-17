@@ -28,6 +28,7 @@ export async function serveStatic(app: Express, server: Server) {
   }
 
   console.log('[DEBUG] Setting up express.static middleware for:', distPath);
+  app.use(express.static(distPath, {
     maxAge: "1y",
     immutable: true,
     setHeaders: (res, filePath) => {
