@@ -916,9 +916,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Preserve CSRF token across regeneration (do NOT regenerate it)
       const csrfToken = req.session.csrfToken;
       const csrfTokenGeneratedAt = (req.session as any).csrfTokenGeneratedAt;
+      
+      if (!user.id) {
+        console.error("[auth] User object missing id after validation", { email });
+        return res.status(500).json({ error: "Failed to log in" });
+      }
+      
       req.session.regenerate((err) => {
         if (err) {
-          console.warn("[auth] Session error during login", { userId: user.id, email });
+          console.error("[auth] Session regenerate error during login", { userId: user.id, email, err: err?.message });
           return res.status(500).json({ error: "Failed to log in" });
         }
         req.session.userId = user.id;
@@ -931,16 +937,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Explicitly save session to ensure CSRF token and user data are persisted
         req.session.save((saveErr) => {
           if (saveErr) {
-            console.error("[auth] Failed to save session during login", { userId: user.id, err: saveErr });
+            console.error("[auth] Failed to save session during login", { userId: user.id, err: saveErr?.message });
             return res.status(500).json({ error: "Failed to log in" });
           }
 
-          const { password: _p, ...userWithoutPassword } = user;
-          res.json({ user: userWithoutPassword });
+          try {
+            const { password: _p, ...userWithoutPassword } = user;
+            console.info("[auth] Login successful", { userId: user.id, email, role: user.role });
+            return res.json({ user: userWithoutPassword });
+          } catch (resErr) {
+            console.error("[auth] Error sending login response", { userId: user.id, err: resErr?.message });
+            return res.status(500).json({ error: "Failed to log in" });
+          }
         });
       });
     } catch (_error) {
-      console.warn("[auth] Login failed");
+      console.error("[auth] Login failed with exception:", _error);
       res.status(500).json({ error: "Failed to log in" });
     }
   });
