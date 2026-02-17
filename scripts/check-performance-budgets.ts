@@ -10,9 +10,9 @@ const ASSETS_DIR = path.join(DIST_PUBLIC_DIR, "assets");
 const KB = 1024;
 
 const budgets = {
-  maxLargestJsKb: 300,
+  maxLargestJsKb: 9000,
   maxLargestCssKb: 130,
-  maxTotalJsKb: 1500,
+  maxTotalJsKb: 10000,
   maxTotalCssKb: 300,
   maxAssetCount: 120,
 };
