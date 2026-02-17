@@ -11,6 +11,22 @@ import { Calendar, MapPin, ArrowRight } from "lucide-react";
 import { computeServiceBadges } from "@/lib/service-badges";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 
+// Simple HTML sanitization: removes dangerous content while preserving safe HTML
+function sanitizeHtml(html: string): string {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = html;
+  let sanitized = textarea.value;
+  
+  // Remove script tags and event handlers
+  sanitized = sanitized
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\bon\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\bon\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/\bon\w+\s*=\s*[^\s>]*/gi, '');
+  
+  return sanitized;
+}
+
 interface CaseStudy {
   id: string;
   title: string;
@@ -253,7 +269,7 @@ export default function ArticlePage() {
           <div className="lg:col-span-2">
             <div
               className="prose prose-sm max-w-none mb-8 text-gray-700"
-              dangerouslySetInnerHTML={{ __html: article.content }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(article.content) }}
             />
           </div>
 
