@@ -12,8 +12,6 @@ import { SmokeTester } from "@/components/dev/smoke-tester";
 import CountrySelectorPopup from "@/components/modals/country-selector-popup";
 import { initializeAuthSession } from "./lib/authSessionManager";
 import { AdminRoute } from "@/components/admin-route";
-import { SpeedInsights } from "@vercel/speed-insights/react";
-import { Analytics } from "@vercel/analytics/react";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { NetworkErrorHandler } from "@/components/network-error-handler";
 import { PerformanceMonitor } from "@/lib/performance-monitor";
@@ -33,34 +31,8 @@ const ApplicationUnderReview = lazy(() => import("@/pages/application-under-revi
 const SearchPage = lazy(() => import("@/pages/search"));
 const CategoriesPage = lazy(() => import("@/pages/categories"));
 
-const AdminDashboard = lazy(() => import("@/pages/admin/dashboard"));
-const AdminFinance = lazy(() => import("@/pages/admin/finance"));
-const AdminSignups = lazy(() => import("@/pages/admin/signups"));
-const AdminDetectives = lazy(() => import("@/pages/admin/detectives"));
-const AdminServices = lazy(() => import("@/pages/admin/services"));
-const AdminServiceCategories = lazy(() => import("@/pages/admin/service-categories"));
-const AdminSignupDetails = lazy(() => import("@/pages/admin/signup-details"));
-const AdminSubscriptions = lazy(() => import("@/pages/admin/subscriptions"));
-const AdminAddDetective = lazy(() => import("@/pages/admin/add-detective"));
-const AdminClaims = lazy(() => import("@/pages/admin/claims"));
-const AdminViewDetective = lazy(() => import("@/pages/admin/view-detective"));
-const AdminSettings = lazy(() => import("@/pages/admin/settings"));
-const AdminPaymentGateways = lazy(() => import("@/pages/admin/payment-gateways"));
-const AdminBranding = lazy(() => import("@/pages/admin/branding"));
-const AdminPages = lazy(() => import("@/pages/admin/pages"));
-const AdminRankingVisibility = lazy(() => import("@/pages/admin/ranking-visibility"));
-const AdminEmailTemplates = lazy(() => import("@/pages/admin/email-templates"));
-const AdminSnippets = lazy(() => import("@/pages/admin/snippets"));
-const AdminAppSecrets = lazy(() => import("@/pages/admin/app-secrets"));
-
-// CMS Admin Routes
-const AdminDashboardCMS = lazy(() => import("@/pages/admin/index"));
-const AdminCategories = lazy(() => import("@/pages/admin/categories"));
-const AdminTags = lazy(() => import("@/pages/admin/tags"));
-const AdminPagesEdit = lazy(() => import("@/pages/admin/pages-edit"));
-const PageEdit = lazy(() => import("@/pages/admin/page-edit"));
-// Employee Management
-const AdminEmployees = lazy(() => import("@/pages/admin/employees"));
+// Lazy load Admin Routes module as a completely separate chunk
+const AdminRoutes = lazy(() => import("@/routes/admin-routes").then(m => ({ default: m.AdminRoutes })));
 
 // CMS Public Routes
 const PageView = lazy(() => import("@/pages/page-view"));
@@ -87,6 +59,12 @@ const BlogPage = lazy(() => import("@/pages/blog"));
 const SupportPage = lazy(() => import("@/pages/support"));
 const ContactPage = lazy(() => import("@/pages/contact"));
 
+const withAdminRoute = (Component: ComponentType<any>) => (props: any) => (
+  <AdminRoute>
+    <Component {...props} />
+  </AdminRoute>
+);
+
 function PageSkeleton() {
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -108,39 +86,6 @@ function PageSkeleton() {
     </div>
   );
 }
-
-const withAdminRoute = (Component: ComponentType<any>) => (props: any) => (
-  <AdminRoute>
-    <Component {...props} />
-  </AdminRoute>
-);
-
-// Create admin route components at module scope to avoid recreation on each render
-const AdminDashboardRoute = withAdminRoute(AdminDashboard);
-const AdminFinanceRoute = withAdminRoute(AdminFinance);
-const AdminSignupsRoute = withAdminRoute(AdminSignups);
-const AdminDetectivesRoute = withAdminRoute(AdminDetectives);
-const AdminServicesRoute = withAdminRoute(AdminServices);
-const AdminServiceCategoriesRoute = withAdminRoute(AdminServiceCategories);
-const AdminSignupDetailsRoute = withAdminRoute(AdminSignupDetails);
-const AdminSubscriptionsRoute = withAdminRoute(AdminSubscriptions);
-const AdminAddDetectiveRoute = withAdminRoute(AdminAddDetective);
-const AdminClaimsRoute = withAdminRoute(AdminClaims);
-const AdminViewDetectiveRoute = withAdminRoute(AdminViewDetective);
-const AdminSettingsRoute = withAdminRoute(AdminSettings);
-const AdminPaymentGatewaysRoute = withAdminRoute(AdminPaymentGateways);
-const AdminBrandingRoute = withAdminRoute(AdminBranding);
-const AdminPagesRoute = withAdminRoute(AdminPages);
-const AdminRankingVisibilityRoute = withAdminRoute(AdminRankingVisibility);
-const AdminEmailTemplatesRoute = withAdminRoute(AdminEmailTemplates);
-const AdminSnippetsRoute = withAdminRoute(AdminSnippets);
-const AdminAppSecretsRoute = withAdminRoute(AdminAppSecrets);
-const AdminDashboardCMSRoute = withAdminRoute(AdminDashboardCMS);
-const AdminCategoriesRoute = withAdminRoute(AdminCategories);
-const AdminTagsRoute = withAdminRoute(AdminTags);
-const AdminPagesEditRoute = withAdminRoute(AdminPagesEdit);
-const PageEditRoute = withAdminRoute(PageEdit);
-const AdminEmployeesRoute = withAdminRoute(AdminEmployees);
 
 function Router() {
   return (
@@ -175,37 +120,8 @@ function Router() {
           <Route path="/support" component={SupportPage} />
           <Route path="/contact" component={ContactPage} />
           
-          {/* Admin Routes */}
-          <Route path="/admin" component={AdminDashboardRoute} />
-          <Route path="/admin/dashboard" component={AdminDashboardRoute} />
-          <Route path="/admin/finance" component={AdminFinanceRoute} />
-          <Route path="/admin/signups" component={AdminSignupsRoute} />
-          <Route path="/admin/signups/:id" component={AdminSignupDetailsRoute} />
-          <Route path="/admin/detectives/add" component={AdminAddDetectiveRoute} />
-          <Route path="/admin/detective/:id/view" component={AdminViewDetectiveRoute} />
-          <Route path="/admin/detectives" component={AdminDetectivesRoute} />
-          <Route path="/admin/claims" component={AdminClaimsRoute} />
-          <Route path="/admin/services" component={AdminServicesRoute} />
-          <Route path="/admin/service-categories" component={AdminServiceCategoriesRoute} />
-          <Route path="/admin/subscriptions" component={AdminSubscriptionsRoute} />
-          <Route path="/admin/pages" component={AdminPagesRoute} />
-          <Route path="/admin/settings" component={AdminSettingsRoute} />
-          <Route path="/admin/payment-gateways" component={AdminPaymentGatewaysRoute} />
-          <Route path="/admin/app-secrets" component={AdminAppSecretsRoute} />
-          <Route path="/admin/branding" component={AdminBrandingRoute} />
-          <Route path="/admin/ranking-visibility" component={AdminRankingVisibilityRoute} />
-          <Route path="/admin/email-templates" component={AdminEmailTemplatesRoute} />
-          <Route path="/admin/snippets" component={AdminSnippetsRoute} />
-
-          {/* CMS Admin Routes */}
-          <Route path="/admin/cms" component={AdminDashboardCMSRoute} />
-          <Route path="/admin/cms/categories" component={AdminCategoriesRoute} />
-          <Route path="/admin/cms/tags" component={AdminTagsRoute} />
-          <Route path="/admin/cms/pages" component={AdminPagesEditRoute} />
-          <Route path="/admin/cms/pages/:id/edit" component={PageEditRoute} />
-          
-          {/* Employee Management Routes */}
-          <Route path="/admin/employees" component={AdminEmployeesRoute} />
+          {/* Admin Routes - lazily loaded to reduce main bundle size */}
+          <AdminRoutes />
           
           {/* Detective Routes - MUST come before catch-all CMS routes */}
           <Route path="/detective/dashboard" component={DetectiveDashboard} />
@@ -281,8 +197,12 @@ function App() {
             <TooltipProvider>
               <Toaster />
               <SmokeTester />
-              <SpeedInsights />
-              <Analytics />
+              
+              {/* Lazy-loaded analytics - not critical for initial render */}
+              <Suspense fallback={null}>
+                <SpeedInsights />
+                <Analytics />
+              </Suspense>
               
               {/* Network Error Handler: Auto-detects offline/connectivity issues */}
               <NetworkErrorHandler
@@ -294,8 +214,6 @@ function App() {
               />
               
               <Router />
-              <Analytics />
-              <SpeedInsights />
             </TooltipProvider>
           </CurrencyProvider>
         </UserProvider>
