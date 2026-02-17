@@ -4,10 +4,6 @@ create sequence "public"."countries_id_seq";
 
 create sequence "public"."states_id_seq";
 
-drop trigger if exists "trg_generate_detective_slug" on "public"."detectives";
-
-drop function if exists "public"."generate_detective_slug"();
-
 
   create table "public"."cities" (
     "id" integer not null default nextval('public.cities_id_seq'::regclass),
