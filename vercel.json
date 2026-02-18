@@ -3,7 +3,6 @@
   "outputDirectory": "dist/public",
   "installCommand": "npm ci --production=false",
   "framework": null,
-  "ignore": ["server", "server/**", "db", "db/**", "scripts", "test", "tsconfig.server.json", "drizzle.config.ts", "jest.config.js"],
   "env": {
     "NODE_ENV": "production"
   },
