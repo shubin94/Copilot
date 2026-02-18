@@ -319,6 +319,14 @@ export default function DetectiveProfile() {
     "name": detectiveName,
     "image": serviceImage || detectiveLogo || "",
     "description": service.description,
+    "url": canonicalUrl,
+    "serviceType": service.category || "Private Investigation",
+    "areaServed": locationText ? { "@type": "Place", "name": locationText } : undefined,
+    "provider": {
+      "@type": "Organization",
+      "name": detectiveName,
+      "url": `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`,
+    },
     "address": {
       "@type": "PostalAddress",
       "addressLocality": detective.location,
@@ -335,8 +343,8 @@ export default function DetectiveProfile() {
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900">
       <SEO 
-        title={`${service.title} by ${detectiveName}`}
-        description={service.description.slice(0, 155)}
+        title={`${service.title} in ${locationText} | Ask Detectives`}
+        description={`${service.title} in ${locationText}. ${service.description.slice(0, 140)}`}
         image={serviceImage || detectiveLogo || ""}
         type="profile"
         keywords={seoKeywords}
