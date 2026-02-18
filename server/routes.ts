@@ -3581,6 +3581,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateUserRole(req.session.userId!, "detective");
       req.session.userRole = "detective";
 
+      // Lazy-populate country code in background (non-blocking)
+      if (validatedData.country) {
+        const { ensureCountryCode } = await import("../utils/countryCodeMapper.ts");
+        ensureCountryCode(validatedData.country).catch(err => {
+          console.error("[Country Mapper] Failed to populate code:", err);
+        });
+      }
+
       res.status(201).json({ detective });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -3671,6 +3679,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       const updatedDetective = await storage.updateDetective(req.params.id, validatedData);
+      
+      // Lazy-populate country code in background (non-blocking)
+      if (validatedData.country && updatedDetective) {
+        const { ensureCountryCode } = await import("../utils/countryCodeMapper.ts");
+        ensureCountryCode(updatedDetective.country).catch(err => {
+          console.error("[Country Mapper] Failed to populate code:", err);
+        });
+      }
       
       // Trigger Google Indexing API for updated detective profile
       if (updatedDetective && updatedDetective.slug && updatedDetective.country && updatedDetective.state && updatedDetective.city) {
