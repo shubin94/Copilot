@@ -153,10 +153,6 @@ export async function runSmartSearch(query: string, deps: SmartSearchDeps): Prom
   const params = new URLSearchParams();
   params.set("category", category);
   params.set("sortBy", "popular");
-  if (location?.country) {
-    params.set("country", location.country);
-    if (location.state) params.set("state", location.state);
-  }
   const searchUrl = `/search?${params.toString()}`;
   console.log("[smart-search] Final searchUrl:", searchUrl);
   
