@@ -49,6 +49,8 @@ if (!url || !key) {
 }
 
 // Development safety guard: prevent accidental cloud Supabase usage in dev
+// DISABLED: User is explicitly using live Supabase for development
+/*
 if (config.env.isDev && url) {
   const isLocalSupabase = 
     url.includes("localhost") || 
@@ -69,6 +71,7 @@ if (config.env.isDev && url) {
     );
   }
 }
+*/
 
 export const supabase = (url && key) ? createClient(url, key) : null as any;
 const isLocalDev = !config.env.isProd && ((config.baseUrl || "").includes("localhost") || (config.baseUrl || "").includes("127.0.0.1"));
