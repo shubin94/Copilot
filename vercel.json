@@ -14,10 +14,6 @@
       "destination": "https://copilot-06s5.onrender.com/api/:path*"
     },
     {
-      "source": "/sitemap.xml",
-      "destination": "https://copilot-06s5.onrender.com/sitemap.xml"
-    },
-    {
       "source": "/rss.xml",
       "destination": "https://copilot-06s5.onrender.com/rss.xml"
     },
