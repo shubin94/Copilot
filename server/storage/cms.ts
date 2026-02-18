@@ -625,5 +625,5 @@ export async function updatePage(
 
 export async function deletePage(id: string): Promise<boolean> {
   const result = await pool.query("DELETE FROM pages WHERE id = $1", [id]);
-  return result.rowCount > 0;
+  return (result.rowCount ?? 0) > 0;
 }

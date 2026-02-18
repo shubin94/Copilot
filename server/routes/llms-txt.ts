@@ -59,10 +59,10 @@ router.get("/", async (req: Request, res: Response) => {
         }
       }),
       
-      // Top 5 featured case studies by views
+      // Top 5 featured case studies by view count
       db.query.caseStudies.findMany({
         limit: 5,
-        orderBy: [desc(caseStudies.views)],
+        orderBy: [desc(caseStudies.viewCount)],
       }),
       
       // Total active detectives count
@@ -277,11 +277,11 @@ Top-rated detectives by client reviews and investigation outcomes:
           }
         });
 
-        if (topStatesInCountry.length > 0) {
+        if (topStatesInCountry && Array.isArray(topStatesInCountry) && topStatesInCountry.length > 0) {
           markdown += `**Top Regions:**\n`;
           for (const state of topStatesInCountry) {
             markdown += `- [\`${state.name}\`](/detectives/${countrySlug}/${state.slug}/) `;
-            if (state.cities && state.cities.length > 0) {
+            if (state.cities && Array.isArray(state.cities) && state.cities.length > 0) {
               const cityLinks = state.cities
                 .map((c: any) => `[\`${c.name}\`](/detectives/${countrySlug}/${state.slug}/${c.slug}/)`)
                 .join(", ");
