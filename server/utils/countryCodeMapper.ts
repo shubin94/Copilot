@@ -7,7 +7,7 @@
 import { pool } from "../../db/index.ts";
 
 // Complete ISO 3166-1 alpha-2 country code mapping
-const COUNTRY_CODE_MAP: Record<string, string> = {
+export const COUNTRY_CODE_MAP: Record<string, string> = {
   // A
   "Afghanistan": "AF",
   "Albania": "AL",
