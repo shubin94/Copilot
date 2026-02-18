@@ -24,6 +24,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Debug vite install
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "node: $(node -v)"
+          echo "npm: $(npm -v)"
+          echo "NODE_ENV: ${NODE_ENV:-<unset>}"
+          echo "Listing vite binary (if present)"
+          ls -l node_modules/.bin/vite || true
+          echo "Vite in npm tree"
+          npm ls vite || true
+
       - name: Build app (includes prerender)
         run: npm run build
 
