@@ -160,17 +160,23 @@ router.get("/", async (req: Request, res: Response) => {
 `;
     
     // 1. Country Level Pages
-    const countriesResult = await pool.query(`
-      SELECT DISTINCT 
-        c.name as country_name,
-        c.slug as country_slug,
-        MAX(d.updated_at) as last_mod
-      FROM countries c
-      INNER JOIN detectives d ON d.country = c.code
-      WHERE d.status = 'active'
-      GROUP BY c.name, c.slug
-      ORDER BY c.name
-    `);
+    let countriesResult;
+    try {
+      countriesResult = await pool.query(`
+        SELECT DISTINCT 
+          c.name as country_name,
+          c.slug as country_slug,
+          MAX(d.updated_at) as last_mod
+        FROM countries c
+        INNER JOIN detectives d ON d.country = c.code
+        WHERE d.status = 'active'
+        GROUP BY c.name, c.slug
+        ORDER BY c.name
+      `);
+    } catch (err: any) {
+      console.error("[Sitemap] Countries query error:", err.message);
+      countriesResult = { rows: [] };
+    }
 
     for (const row of countriesResult.rows) {
       const lastmod = row.last_mod ? new Date(row.last_mod).toISOString().split('T')[0] : today;
@@ -196,7 +202,7 @@ router.get("/", async (req: Request, res: Response) => {
       WHERE d.status = 'active' AND d.state IS NOT NULL AND d.state != ''
       GROUP BY c.name, c.slug, d.state
       ORDER BY c.name, d.state
-    `);
+    `);;
 
     for (const row of statesResult.rows) {
       const lastmod = row.last_mod ? new Date(row.last_mod).toISOString().split('T')[0] : today;
@@ -224,7 +230,7 @@ router.get("/", async (req: Request, res: Response) => {
       WHERE d.status = 'active' AND d.city IS NOT NULL AND d.city != ''
       GROUP BY c.name, c.slug, d.state, d.city
       ORDER BY c.name, d.state, d.city
-    `);
+    `);;
     
     for (const row of citiesResult.rows) {
       const lastmod = row.last_mod ? new Date(row.last_mod).toISOString().split('T')[0] : today;
@@ -256,7 +262,7 @@ router.get("/", async (req: Request, res: Response) => {
       INNER JOIN countries c ON d.country = c.code
       WHERE d.status = 'active' AND d.slug IS NOT NULL AND d.slug != ''
       ORDER BY d.updated_at DESC
-    `);
+    `);;
     
     for (const profile of detectiveProfilesResult.rows) {
       const lastmod = profile.updated_at ? new Date(profile.updated_at).toISOString().split('T')[0] : today;
