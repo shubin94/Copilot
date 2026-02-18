@@ -188,6 +188,7 @@ function Router() {
           <Route path="/detectives/:country/:state/:city" component={CityDetectivesPage} />
           <Route path="/detectives/:country/:state" component={CityDetectivesPage} />
           <Route path="/detectives/:country" component={CityDetectivesPage} />
+          <Route path="/service/:country/:state/:city/:detectiveSlug/:serviceSlug" component={DetectiveProfile} />
           <Route path="/news/:slug" component={ArticlePage} />
 
           {/* User Routes - MUST come before catch-all CMS routes */}
