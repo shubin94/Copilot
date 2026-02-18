@@ -15,7 +15,7 @@
     "seed-app-secrets": "cross-env NODE_ENV=development tsx scripts/seed-app-secrets.ts",
     "batch-index": "cross-env NODE_ENV=production tsx scripts/batch-index-all.ts",
     "perf:budget": "tsx scripts/check-performance-budgets.ts",
-    "seo:link-graph": "tsx scripts/audit-internal-link-graph.ts",
+    "seo:link-graph": "NODE_ENV=production tsx scripts/audit-internal-link-graph.ts",
     "quality:seo": "npm run perf:budget && npm run seo:link-graph"
   },
   "dependencies": {

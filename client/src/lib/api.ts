@@ -48,7 +48,7 @@ async function checkProxyHealth(): Promise<void> {
   try {
     console.log('[API Health] Testing Vercel proxy...');
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout for slow networks
     
     const response = await fetch('/api/health', { 
       method: 'HEAD',

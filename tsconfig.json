@@ -19,7 +19,8 @@
     "paths": {
       "@/*": ["./client/src/*"],
       "@shared/*": ["./shared/*"],
-      "@db": ["./db"]
+      "@db": ["./db"],
+      "@assets/*": ["./attached_assets/*"]
     }
   }
 }
