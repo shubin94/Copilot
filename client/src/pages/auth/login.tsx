@@ -136,8 +136,8 @@ export default function Login() {
   return (
     <>
       <SEO 
-        title={isSignup ? "Sign Up | FindDetectives" : "Sign In | FindDetectives"}
-        description={isSignup ? "Create a free FindDetectives account to find private investigators and manage your cases." : "Sign in to your FindDetectives account to access your dashboard and manage investigations."}
+        title={isSignup ? "Sign Up | Ask Detectives" : "Sign In | Ask Detectives"}
+        description={isSignup ? "Create a free Ask Detectives account to find private investigators and manage your cases." : "Sign in to your Ask Detectives account to access your dashboard and manage investigations."}
         robots="noindex, follow"
       />
       <div className="min-h-screen flex bg-white">
@@ -156,7 +156,7 @@ export default function Login() {
         </picture>
         <div className="relative z-10 p-12 text-white max-w-xl">
           <h1 className="text-5xl font-bold font-heading mb-6">
-            {isSignup ? "Join FindDetectives." : "Welcome Back."}
+            {isSignup ? "Join Ask Detectives." : "Welcome Back."}
           </h1>
           <p className="text-xl text-gray-200">
             {isSignup
@@ -171,7 +171,7 @@ export default function Login() {
         <div className="w-full max-w-md space-y-8">
           <div className="text-center lg:text-left">
             <h2 className="text-3xl font-bold text-gray-900 font-heading">
-              {isSignup ? "Create your account" : "Sign in to FindDetectives"}
+              {isSignup ? "Create your account" : "Sign in to Ask Detectives"}
             </h2>
             <p className="mt-2 text-gray-600">
               {isSignup ? (

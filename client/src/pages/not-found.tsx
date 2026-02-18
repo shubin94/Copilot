@@ -6,7 +6,7 @@ export default function NotFound() {
   return (
     <>
       <SEO 
-        title="404 - Page Not Found | FindDetectives"
+        title="404 - Page Not Found | Ask Detectives"
         description="The page you are looking for could not be found."
         robots="noindex, follow"
       />

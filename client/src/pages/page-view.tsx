@@ -139,7 +139,7 @@ export default function PageView() {
         structuredData={{
           article: {
             headline: page.title,
-            author: page.author?.name || "FindDetectives",
+            author: page.author?.name || "Ask Detectives",
             datePublished: page.createdAt,
             dateModified: page.updatedAt,
             image: page.bannerImage,

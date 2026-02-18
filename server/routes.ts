@@ -2552,11 +2552,150 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/categories", publicCategoriesRouter);
   app.use("/api/public/tags", publicTagsRouter);
 
-  // Sitemap.xml - dynamic generation from database
-  app.use("/sitemap.xml", sitemapRouter);
+  // Sitemap Routes - dynamic generation from database with multiple XML files
+  // Import the service functions
+  const {
+    generateSitemapIndex,
+    generateStaticSitemap,
+    generateCountriesSitemap,
+    generateStatesSitemap,
+    generateCitiesSitemap,
+    generateDetectivesSitemap,
+    generateServicesSitemap,
+    getServiceSitemapCount,
+    CACHE_MAX_AGE,
+  } = await import("./services/sitemapService.ts");
+  const { gzipSync } = await import("zlib");
 
-  // RSS Feed - blog content syndication
-  app.use("/rss.xml", rssRouter);
+  // Helper to send XML with proper headers and compression
+  const sendSitemap = async (
+    res: Response,
+    xmlGenerator: () => Promise<string>
+  ) => {
+    try {
+      const xml = await xmlGenerator();
+      const compressed = gzipSync(xml);
+
+      res.header("Content-Type", "application/xml");
+      res.header("Content-Encoding", "gzip");
+      res.header("Cache-Control", `public, max-age=${CACHE_MAX_AGE}`);
+      res.header(
+        "ETag",
+        `"${Buffer.from(xml).toString("base64").slice(0, 32)}"`
+      );
+
+      res.send(compressed);
+      console.log(
+        `[Sitemap] Served ${compressed.length} bytes (gzipped) for ${xml.length} bytes (uncompressed)`
+      );
+    } catch (error) {
+      console.error("[Sitemap] Error generating sitemap:", error);
+      res.status(500).json({ error: "Failed to generate sitemap" });
+    }
+  };
+
+  // Main sitemap index - /sitemap.xml
+  app.get(/\/sitemap\.xml$/, async (req: Request, res: Response) => {
+    console.log(`[Sitemap] Handling sitemap index request`);
+    await sendSitemap(res, generateSitemapIndex);
+  });
+
+  // Static pages sitemap - /sitemap-static.xml
+  app.get(/\/sitemap-static\.xml$/, async (req: Request, res: Response) => {
+    console.log(`[Sitemap] Serving static sitemap`);
+    await sendSitemap(res, generateStaticSitemap);
+  });
+
+  // Countries sitemap - /sitemap-countries.xml
+  app.get(/\/sitemap-countries\.xml$/, async (req: Request, res: Response) => {
+    console.log(`[Sitemap] Serving countries sitemap`);
+    await sendSitemap(res, generateCountriesSitemap);
+  });
+
+  // States sitemap - /sitemap-states.xml
+  app.get(/\/sitemap-states\.xml$/, async (req: Request, res: Response) => {
+    console.log(`[Sitemap] Serving states sitemap`);
+    await sendSitemap(res, generateStatesSitemap);
+  });
+
+  // Cities sitemap - /sitemap-cities.xml
+  app.get(/\/sitemap-cities\.xml$/, async (req: Request, res: Response) => {
+    console.log(`[Sitemap] Serving cities sitemap`);
+    await sendSitemap(res, generateCitiesSitemap);
+  });
+
+  // Detectives sitemap - /sitemap-detectives.xml
+  app.get(/\/sitemap-detectives\.xml$/, async (req: Request, res: Response) => {
+    console.log(`[Sitemap] Serving detectives sitemap`);
+    await sendSitemap(res, generateDetectivesSitemap);
+  });
+
+  // Services sitemaps (paginated) - /sitemap-services-1.xml, /sitemap-services-2.xml, etc.
+  app.get(/\/sitemap-services-(\d+)\.xml$/, async (req: Request, res: Response) => {
+    const match = req.path.match(/\/sitemap-services-(\d+)\.xml$/);
+    const page = match ? parseInt(match[1]) : 1;
+
+    console.log(`[Sitemap] Serving services sitemap page ${page}`);
+
+    if (page < 1 || page > 1000) {
+      return res.status(400).json({ error: "Invalid page number" });
+    }
+
+    try {
+      const totalPages = await getServiceSitemapCount();
+      if (page > totalPages) {
+        return res
+          .status(404)
+          .json({ error: `Page ${page} does not exist` });
+      }
+
+      await sendSitemap(res, () => generateServicesSitemap(page));
+    } catch (error) {
+      console.error("[Sitemap] Error with services page:", error);
+      res.status(500).json({ error: "Failed to generate services sitemap" });
+    }
+  });
+
+  // Status endpoint - /sitemap-status.json
+  app.get(/\/sitemap-status\.json$/, async (req: Request, res: Response) => {
+    try {
+      const r = await pool.query(`
+        SELECT COUNT(*) as count FROM services s
+        INNER JOIN detectives d ON s.detective_id = d.id
+        WHERE s.is_active = true AND d.status = 'active'
+      `);
+      const totalServices = r.rows[0].count;
+      const servicePages = Math.ceil(totalServices / 5000);
+
+      res.json({
+        status: "ok",
+        cache: {
+          maxAge: CACHE_MAX_AGE,
+          maxAgeHours: Math.round(CACHE_MAX_AGE / 3600),
+        },
+        sitemaps: {
+          index: "/sitemap.xml",
+          static: "/sitemap-static.xml",
+          countries: "/sitemap-countries.xml",
+          states: "/sitemap-states.xml",
+          cities: "/sitemap-cities.xml",
+          detectives: "/sitemap-detectives.xml",
+          services: `${servicePages} pages at /sitemap-services-:page.xml`,
+        },
+        stats: {
+          totalServices,
+          servicePages,
+          totalSitemaps: 6 + servicePages,
+        },
+      });
+    } catch (error) {
+      console.error("[Sitemap] Error getting status:", error);
+      res.status(500).json({ error: "Failed to get sitemap status" });
+    }
+  });
+
+  // Keep the router mounted at /sitemap/ for backward compatibility if needed, but routes are handled above
+  // app.use("/sitemap", sitemapRouter);
 
   // llms.txt - AI agent discovery guide
   app.use("/llms.txt", llmsTxtRouter);
@@ -3442,6 +3581,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateUserRole(req.session.userId!, "detective");
       req.session.userRole = "detective";
 
+      // Lazy-populate country code in background (non-blocking)
+      if (validatedData.country) {
+        const { ensureCountryCode } = await import("../utils/countryCodeMapper.ts");
+        ensureCountryCode(validatedData.country).catch(err => {
+          console.error("[Country Mapper] Failed to populate code:", err);
+        });
+      }
+
       res.status(201).json({ detective });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -3532,6 +3679,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       const updatedDetective = await storage.updateDetective(req.params.id, validatedData);
+      
+      // Lazy-populate country code in background (non-blocking)
+      if (validatedData.country && updatedDetective) {
+        const { ensureCountryCode } = await import("../utils/countryCodeMapper.ts");
+        ensureCountryCode(updatedDetective.country).catch(err => {
+          console.error("[Country Mapper] Failed to populate code:", err);
+        });
+      }
       
       // Trigger Google Indexing API for updated detective profile
       if (updatedDetective && updatedDetective.slug && updatedDetective.country && updatedDetective.state && updatedDetective.city) {

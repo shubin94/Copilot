@@ -23,7 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { ServiceFAQ, getServiceFAQs } from "@/components/service-faq";
-import { buildServiceUrl } from "@/lib/slug-utils";
+import { buildServiceUrl, getCountryName } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
 import { format } from "date-fns";
 import type { Review, User } from "@shared/schema";
@@ -216,17 +216,19 @@ export default function DetectiveProfile() {
   
   const memberSince = format(new Date(detective.memberSince), "MMMM yyyy");
   
+  const displayCountryName = detective.country ? getCountryName(detective.country) : "India";
+
   // SEO: Generate keywords from service data
-  const locationText = detective.city && detective.country 
-    ? `${detective.city}, ${detective.country}` 
-    : detective.country || "India";
+  const locationText = detective.city && displayCountryName 
+    ? `${detective.city}, ${displayCountryName}` 
+    : displayCountryName || "India";
   
   const seoKeywords = [
     service.category || "detective services",
     service.title,
     detectiveName,
     detective.city || "",
-    detective.country || "India",
+    displayCountryName || "India",
     "private investigator",
     "investigation services",
     detective.isVerified ? "verified detective" : ""
@@ -260,7 +262,7 @@ export default function DetectiveProfile() {
   
   // SEO: Enhanced H1 with location for better ranking
   const seoH1 = detective.city 
-    ? `${service.title} in ${detective.city}, ${detective.country || "India"} - ${detectiveName}`
+    ? `${service.title} in ${detective.city}, ${displayCountryName || "India"} - ${detectiveName}`
     : `${service.title} by ${detectiveName}`;
   
   // SEO: Generate FAQs for schema
@@ -275,7 +277,7 @@ export default function DetectiveProfile() {
     {
       businessName: detectiveName,
       city: detective.city,
-      country: detective.country,
+      country: displayCountryName,
       phone: detective.phone,
       whatsapp: detective.whatsapp,
       contactEmail: detective.contactEmail
@@ -319,10 +321,19 @@ export default function DetectiveProfile() {
     "name": detectiveName,
     "image": serviceImage || detectiveLogo || "",
     "description": service.description,
+    "url": canonicalUrl,
+    "serviceType": service.category || "Private Investigation",
+    "areaServed": locationText ? { "@type": "Place", "name": locationText } : undefined,
+    "provider": {
+      "@type": "Organization",
+      "name": detectiveName,
+      "url": `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`,
+    },
     "address": {
       "@type": "PostalAddress",
-      "addressLocality": detective.location,
-      "addressCountry": detective.country
+      ...(detective.city ? { "addressLocality": detective.city } : {}),
+      ...(detective.state ? { "addressRegion": detective.state } : {}),
+      ...(displayCountryName ? { "addressCountry": displayCountryName } : {})
     },
     "aggregateRating": reviewCount > 0 ? {
       "@type": "AggregateRating",
@@ -335,8 +346,8 @@ export default function DetectiveProfile() {
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900">
       <SEO 
-        title={`${service.title} by ${detectiveName}`}
-        description={service.description.slice(0, 155)}
+        title={`${service.title} in ${locationText} | Ask Detectives`}
+        description={`${service.title} in ${locationText}. ${service.description.slice(0, 140)}`}
         image={serviceImage || detectiveLogo || ""}
         type="profile"
         keywords={seoKeywords}

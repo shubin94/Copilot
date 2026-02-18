@@ -30,7 +30,7 @@ import { useCurrency } from "@/lib/currency-context";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import type { Service, Detective } from "@shared/schema";
 import { computeServiceBadges } from "@/lib/service-badges";
-import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
+import { buildServiceUrl, generateSlug, getCountryName } from "@/lib/slug-utils";
 
 // Consolidated filter state using reducer
 type FilterState = {
@@ -666,19 +666,21 @@ export default function SearchPage() {
      </Accordion>
   );
 
+  const displayCountryName = filters.country ? getCountryName(filters.country) : "";
+
   // SEO: Dynamic title and H1 based on filters
   const seoTitle = filters.category 
-    ? `${filters.category}${filters.country ? ` in ${filters.country}` : ''}${filters.city ? `, ${filters.city}` : ''} | FindDetectives`
-    : `Find Professional Private Investigators${filters.country ? ` in ${filters.country}` : ''} | FindDetectives`;
+    ? `${filters.category}${displayCountryName ? ` in ${displayCountryName}` : ''}${filters.city ? `, ${filters.city}` : ''} | Ask Detectives`
+    : `Find Professional Private Investigators${displayCountryName ? ` in ${displayCountryName}` : ''} | Ask Detectives`;
   
   const seoDescription = filters.category
-    ? `Browse ${resultServicesComputed.length || 'verified'} ${filters.category} services${filters.country ? ` in ${filters.country}` : ''}${filters.city ? `, ${filters.city}` : ''}. Compare prices, reviews, and ratings from top private investigators.`
-    : `Find and hire verified private investigators${filters.country ? ` in ${filters.country}` : ''}. Browse services, compare prices, and read reviews from professional detectives.`;
+    ? `Browse ${resultServicesComputed.length || 'verified'} ${filters.category} services${displayCountryName ? ` in ${displayCountryName}` : ''}${filters.city ? `, ${filters.city}` : ''}. Compare prices, reviews, and ratings from top private investigators.`
+    : `Find and hire verified private investigators${displayCountryName ? ` in ${displayCountryName}` : ''}. Browse services, compare prices, and read reviews from professional detectives.`;
   
   const h1Text = filters.category
-    ? `${filters.category} Detectives${filters.country ? ` in ${filters.country}` : ''}${filters.city ? `, ${filters.city}` : ''}`
-    : filters.country
-    ? `Private Investigators in ${filters.country}${filters.city ? `, ${filters.city}` : ''}`
+    ? `${filters.category} Detectives${displayCountryName ? ` in ${displayCountryName}` : ''}${filters.city ? `, ${filters.city}` : ''}`
+    : displayCountryName
+    ? `Private Investigators in ${displayCountryName}${filters.city ? `, ${filters.city}` : ''}`
     : 'Find Professional Private Investigators';
   
   // SEO: Clean canonical URL (keep only primary landing dimensions)
@@ -764,7 +766,7 @@ export default function SearchPage() {
         schema={itemListSchema}
         keywords={[
           filters.category || 'private investigator',
-          filters.country || '',
+          displayCountryName || '',
           filters.city || '',
           'detective services',
           'investigation',
@@ -829,7 +831,7 @@ export default function SearchPage() {
                   <p className="text-gray-600 text-sm">
                     Showing {resultServicesComputed.length} verified service{resultServicesComputed.length !== 1 ? 's' : ''}
                     {filters.category && ` in ${filters.category}`}
-                    {filters.country && ` • ${filters.country}`}
+                    {displayCountryName && ` • ${displayCountryName}`}
                     {filters.city && ` • ${filters.city}`}
                   </p>
                 )}

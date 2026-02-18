@@ -76,9 +76,10 @@ export default function DetectivePublicPage() {
 
   // SEO: Generate optimal title and description
   const detectiveName = detective?.businessName || `${(detective as any)?.firstName || ''} ${(detective as any)?.lastName || ''}`.trim() || 'Detective';
-  const location = detective?.city && detective?.country 
-    ? `${detective.city}, ${detective.country}`
-    : detective?.location || detective?.country || '';
+  const countryNameForDisplay = detective?.country ? getCountryName(detective.country) : detective?.country || '';
+  const location = detective?.city && countryNameForDisplay 
+    ? `${detective.city}, ${countryNameForDisplay}`
+    : detective?.location || countryNameForDisplay || '';
   
   const isMissingDetective = !detectiveLoading && !detective;
   const seoTitle = isMissingDetective
@@ -167,7 +168,7 @@ export default function DetectivePublicPage() {
           'private investigator',
           'detective services',
           detective?.city || "",
-          detective?.country || "",
+          countryNameForDisplay || "",
           'detective services',
           ...(services.map((s: any) => s.category).filter(Boolean).slice(0, 5))
         ].filter(Boolean)}
@@ -194,7 +195,7 @@ export default function DetectivePublicPage() {
               <dt>Business Name</dt>
               <dd>{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</dd>
               <dt>Location</dt>
-              <dd>{detective.city}, {detective.state}, {detective.country}</dd>
+              <dd>{detective.city}, {detective.state}, {countryNameForDisplay}</dd>
               <dt>Verification Status</dt>
               <dd>{detective.isVerified ? 'Verified' : 'Unverified'}</dd>
               <dt>Primary Specialty</dt>
