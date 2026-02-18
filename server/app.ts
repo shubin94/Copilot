@@ -95,79 +95,90 @@ const allowedOrigins = Array.from(new Set(
   ).map((origin) => origin.replace(/\/$/, ""))
 ));
 
-// CORS configuration object - used for all CORS middleware
+// CORS configuration object - CRITICAL for Vercel proxy fallback support
+// Must handle both Vercel rewrite proxying AND direct backend fallback requests
 const corsConfig = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
     // Allow requests with no origin (mobile apps, Postman, curl, etc.)
     if (!origin) {
-      console.log("[CORS] No origin header - allowing (likely mobile/postman)");
+      console.log("[CORS] ✅ No origin header - allowing (mobile/postman/internal)");
       return callback(null, true);
     }
     
     // Normalize origin by removing trailing slashes
     const normalizedOrigin = origin.replace(/\/$/, '');
     
-    console.log(`[CORS] Incoming origin: ${normalizedOrigin}`);
-    console.log(`[CORS] Allowed origins: ${allowedOrigins.join(", ")}`);
-    
-    // Check for exact match or hostname suffix match (for subdomains)
+    // Check for exact match
     let isAllowed = false;
     
+    // 1. Try exact match first
     for (const allowed of allowedOrigins) {
       const normalizedAllowed = allowed.replace(/\/$/, '');
-      
       if (normalizedOrigin === normalizedAllowed) {
         isAllowed = true;
+        console.log(`[CORS] ✅ Exact match: ${normalizedOrigin}`);
         break;
       }
-      
-      // Parse both URLs to compare hostnames
+    }
+    
+    // 2. Try hostname match (for subdomains and variants)
+    if (!isAllowed) {
       try {
         const originUrl = new URL(normalizedOrigin);
-        const allowedUrl = new URL(normalizedAllowed);
         const originHostname = originUrl.hostname;
-        const allowedHostname = allowedUrl.hostname;
         
-        // Allow if hostname matches exactly or if origin hostname ends with ".{allowedHostname}"
-        if (originHostname === allowedHostname || 
-            originHostname.endsWith('.' + allowedHostname)) {
-          isAllowed = true;
-          break;
+        for (const allowed of allowedOrigins) {
+          const allowedUrl = new URL(allowed.replace(/\/$/, ''));
+          const allowedHostname = allowedUrl.hostname;
+          
+          // Allow if hostname matches exactly or if origin hostname ends with ".{allowedHostname}"
+          if (originHostname === allowedHostname || 
+              originHostname.endsWith('.' + allowedHostname)) {
+            isAllowed = true;
+            console.log(`[CORS] ✅ Hostname match: ${originHostname} ≈ ${allowedHostname}`);
+            break;
+          }
         }
       } catch (e) {
-        // Invalid URL, skip this allowed origin
+        // Invalid URL, will check Vercel preview below
       }
     }
 
-    // Allow all Vercel preview deployments for askdetectives1-*.vercel.app
-    const vercelPreviewRegex = /^https:\/\/askdetectives1-[a-z0-9-]+\.vercel\.app$/i;
-    const isVercelPreview = vercelPreviewRegex.test(normalizedOrigin);
+    // 3. Allow all Vercel preview deployments: askdetectives1-*.vercel.app
+    if (!isAllowed) {
+      const vercelPreviewRegex = /^https:\/\/askdetectives1-[a-z0-9-]+\.vercel\.app$/i;
+      if (vercelPreviewRegex.test(normalizedOrigin)) {
+        isAllowed = true;
+        console.log(`[CORS] ✅ Vercel preview: ${normalizedOrigin}`);
+      }
+    }
 
-    isAllowed = isAllowed || isVercelPreview;
-
-    if (isAllowed) {
-      console.log(`[CORS] ✅ Origin allowed: ${normalizedOrigin}` + (isVercelPreview ? ' (Vercel preview)' : ''));
+    if (!isAllowed) {
+      console.warn(`[CORS] ❌ REJECTED origin: ${normalizedOrigin}`);
+      console.warn(`[CORS] Allowed: ${allowedOrigins.join(" | ")} (+ Vercel previews)`);
     }
     
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.warn(`[CORS] ❌ CORS BLOCKED origin: ${normalizedOrigin}`);
-      console.warn(`[CORS] Available origins: ${allowedOrigins.join(" | ")}`);
-      // Even on rejection, allow the request but without CORS headers
-      // This prevents confusing Status 0 errors
-      callback(null, false);
-    }
+    // Return true to allow (CORS headers will be sent), false to block
+    callback(null, isAllowed);
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Requested-With", "Accept", "cache-control"],
-  exposedHeaders: ["Set-Cookie", "X-CSRF-Token"],
-  maxAge: 86400,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-CSRF-Token",
+    "X-Requested-With",
+    "Accept",
+    "Cache-Control",
+    "X-API-Version",
+  ],
+  exposedHeaders: ["Set-Cookie", "X-CSRF-Token", "X-RateLimit-Remaining"],
+  maxAge: 86400, // 24 hours - cache preflight responses
 };
 
 // Apply CORS middleware FIRST - before any other middleware
 app.use(cors(corsConfig));
+
 
 // Explicit preflight handler for OPTIONS
 app.options('*', cors(corsConfig));

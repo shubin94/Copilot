@@ -70,18 +70,22 @@ export const config = {
       "CSRF_ALLOWED_ORIGINS",
       isProd
         ? [
+            // Production domains - all variations for Vercel fallback support
             "https://askdetectives.com",
             "https://www.askdetectives.com",
             "https://askdetectives1.vercel.app",
             "https://copilot-06s5.onrender.com",
-            // Note: Vercel preview deployments are matched by server-side regex,
+            // Note: Vercel preview deployments (askdetectives1-*.vercel.app) are matched by regex below
             // do NOT store ephemeral preview URLs here.
           ]
         : [
+            // Development - all localhost variations for cross-origin API testing
             "http://localhost:5000",
             "http://127.0.0.1:5000",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
           ],
     ),
   },
