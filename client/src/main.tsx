@@ -3,6 +3,21 @@ import App from "./App";
 import "./index.css";
 import { PerformanceMonitor } from "./lib/performance-monitor";
 
+// Global error handlers for unhandled async errors
+if (typeof window !== "undefined") {
+  // Handle unhandled promise rejections (async errors not caught)
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error('[Unhandled Promise Rejection]', event.reason);
+    // Prevent default browser error handling
+    event.preventDefault();
+  });
+
+  // Handle global synchronous errors
+  window.addEventListener("error", (event) => {
+    console.error('[Global Error]', event.error);
+  });
+}
+
 // Log startup information
 console.log('[App Startup] Application initializing...');
 console.log('[App Startup] Environment:', import.meta.env.MODE);
