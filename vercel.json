@@ -21,71 +21,7 @@
       "destination": "https://copilot-06s5.onrender.com/llms.txt"
     },
     {
-      "source": "/",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/(about|privacy|terms|packages|blog|support|contact|search|categories|signup|login|claim-account|detective-signup|application-under-review)",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/category/:slug",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/service/:detective/:service/:type/:location/:id",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/claim-profile/:slug",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/(admin|detective|user)/:path*",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/detectives/:slug",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/detectives/:slug/:param1",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/detectives/:slug/:param1/:param2",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/detectives/:slug/:param1/:param2/:param3",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/news/:slug",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/p/:slug",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/pages/:slug",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/pages/:slug/:param1",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/pages/:slug/:param1/:param2",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/:param1/:param2",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/:param1/:param2/:param3",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
