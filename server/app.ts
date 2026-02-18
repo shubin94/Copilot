@@ -14,6 +14,7 @@ const { Pool } = pkg;
 // NOTE: registerRoutes is imported INSIDE runApp() to ensure environment is loaded first
 import { config } from "./config.ts";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.ts";
+import { CSP_POLICY } from "./config/csp.ts";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -183,19 +184,23 @@ app.use(cors(corsConfig));
 // Explicit preflight handler for OPTIONS
 app.options('*', cors(corsConfig));
 
-// Security headers - CSP disabled for dev flexibility, enable in production
+// Security headers - use custom CSP that allows Google Fonts and Radix UI
 app.use(helmet({ 
   contentSecurityPolicy: config.env.isProd ? {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+      styleSrcElem: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'"],
+      connectSrc: ["'self'", "https://copilot-06s5.onrender.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
       frameSrc: ["'none'"],
+      frameAncestors: ["'self'"],
+      formAction: ["'self'"],
+      baseUri: ["'self'"],
     },
   } : false,
   crossOriginEmbedderPolicy: false,
