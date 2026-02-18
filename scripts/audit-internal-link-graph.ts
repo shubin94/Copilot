@@ -147,6 +147,13 @@ async function buildLinkGraph(seedUrls: string[]): Promise<Map<string, LinkGraph
 
 async function main() {
   try {
+    // Skip audit on localhost (development environment)
+    if (BASE_URL.includes("127.0.0.1") || BASE_URL.includes("localhost")) {
+      console.log("⏭️ Skipping internal-link graph audit on localhost (development environment)");
+      console.log(`Base URL: ${BASE_URL}`);
+      process.exit(0);
+    }
+
     let sitemapUrls: string[] = [];
 
     try {

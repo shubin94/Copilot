@@ -6435,6 +6435,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Health and dev helpers
+  // Simple health check endpoint (fast response, no DB check)
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.json({ ok: true, timestamp: new Date().toISOString(), env: config.env.isProd ? 'production' : 'development' });
+  });
+  
+  // Database health check endpoint
   app.get("/api/health/db", async (_req: Request, res: Response) => {
     try {
       await storage.getAllServiceCategories(false);

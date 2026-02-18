@@ -122,6 +122,7 @@ After redeployment, verify the fix:
 2. **JavaScript Not Loading**
    - Check Network tab for 404 errors on `/assets/*.js` files
    - If files are 404, build output directory might be wrong
+   - Ensure `vercel.json` has `"outputDirectory": "dist/public"`
 
 3. **API Proxy Not Working**
    - Check Render logs: should see API requests coming through

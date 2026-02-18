@@ -5,35 +5,94 @@ const DEFAULT_DEV_API_BASE_URL = typeof window !== "undefined"
   ? `${window.location.protocol}//${window.location.hostname}:5000`
   : "http://127.0.0.1:5000";
 
-// Determine API base URL with clear priority:
-// 1. Environment variable (VITE_API_URL)
-// 2. Production: Use relative paths (empty string) so Vercel proxy handles requests
-// 3. Development: localhost backend
-const determineApiBaseUrl = () => {
-  // Check for environment variable first (for direct backend access if needed)
+// Fallback backend URL for production (used if proxy fails)
+const PRODUCTION_BACKEND_URL = "https://copilot-06s5.onrender.com";
+
+// Runtime API URL (can be updated if proxy detection fails)
+let runtimeApiBaseUrl: string | null = null;
+
+// Determine API base URL with robust fallback:
+// 1. Environment variable (VITE_API_URL) - highest priority
+// 2. Production: Relative paths for Vercel proxy (preferred)
+// 3. Production fallback: Direct Render URL (if proxy unavailable)
+// 4. Development: localhost backend
+const determineApiBaseUrl = (): string => {
+  // Priority 1: Environment variable (most reliable, set in Vercel dashboard)
   if (import.meta.env.VITE_API_URL) {
-    console.log('[API Config] Using VITE_API_URL:', import.meta.env.VITE_API_URL);
+    console.log('[API Config] ✅ Using VITE_API_URL:', import.meta.env.VITE_API_URL);
     return import.meta.env.VITE_API_URL;
   }
   
-  // In production, use relative paths so Vercel proxy handles the requests
-  // Vercel will proxy /api/* to the backend via vercel.json rewrites
+  // Priority 2: Production mode - use Vercel proxy (relative paths)
   if (import.meta.env.PROD) {
-    console.log('[API Config] Production mode - using Vercel proxy (relative paths)');
+    console.log('[API Config] 🌐 Production mode - using Vercel proxy (relative paths)');
+    console.log('[API Config] 🔄 Fallback available:', PRODUCTION_BACKEND_URL);
+    
+    // Schedule proxy health check (runs after initial render)
+    if (typeof window !== "undefined") {
+      setTimeout(() => checkProxyHealth(), 2000);
+    }
+    
     return ""; // Empty string = relative paths like /api/user
   }
   
-  // Default to local development backend
-  console.log('[API Config] Development mode, using local backend:', DEFAULT_DEV_API_BASE_URL);
+  // Priority 3: Development mode - local backend
+  console.log('[API Config] 🛠️ Development mode - using local backend:', DEFAULT_DEV_API_BASE_URL);
   return DEFAULT_DEV_API_BASE_URL;
 };
+
+// Test if Vercel proxy is working (runs in background)
+async function checkProxyHealth(): Promise<void> {
+  if (!import.meta.env.PROD || runtimeApiBaseUrl) return;
+  
+  try {
+    console.log('[API Health] Testing Vercel proxy...');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    const response = await fetch('/api/health', { 
+      method: 'HEAD',
+      signal: controller.signal,
+      cache: 'no-store'
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (response.ok) {
+      console.log('[API Health] ✅ Vercel proxy is working');
+    } else {
+      console.warn('[API Health] ⚠️ Proxy returned non-OK status:', response.status);
+      activateFallbackUrl();
+    }
+  } catch (error) {
+    console.error('[API Health] ❌ Proxy health check failed:', error);
+    console.warn('[API Health] 🔄 Activating fallback to direct Render URL');
+    activateFallbackUrl();
+  }
+}
+
+// Activate fallback to direct Render URL
+function activateFallbackUrl(): void {
+  runtimeApiBaseUrl = PRODUCTION_BACKEND_URL;
+  console.log('[API Config] 🔄 Switched to fallback URL:', PRODUCTION_BACKEND_URL);
+  console.log('[API Config] ℹ️ To use proxy, set VITE_API_URL="" in Vercel env vars');
+}
+
+// Get current API base URL (checks for runtime override)
+export function getApiBaseUrl(): string {
+  return runtimeApiBaseUrl ?? API_BASE_URL;
+}
 
 export const API_BASE_URL = determineApiBaseUrl();
 
 export function buildApiUrl(path: string): string {
   if (path.startsWith("http")) return path;
-  if (!path.startsWith("/")) return `${API_BASE_URL}/${path}`;
-  return `${API_BASE_URL}${path}`;
+  
+  // Use runtime API base URL (allows dynamic switching if proxy fails)
+  const currentBaseUrl = getApiBaseUrl();
+  
+  if (!path.startsWith("/")) return `${currentBaseUrl}/${path}`;
+  return `${currentBaseUrl}${path}`;
 }
 
 class ApiError extends Error {
@@ -79,10 +138,27 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
     return response;
   } catch (error: any) {
     clearTimeout(timeoutId);
+    
+    // Handle timeout errors
     if (error.name === 'AbortError') {
       console.error(`[API Error] Request timeout: ${url}`);
       throw new ApiError(408, `Request timeout after ${timeout/1000} seconds. The file might be too large.`);
     }
+    
+    // Handle network errors (offline, CORS, connection refused)
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      console.error(`[API Error] Network error for ${url}:`, error);
+      
+      // In production, if using relative paths and network fails, try fallback
+      if (import.meta.env.PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
+        console.warn('[API Error] 🔄 Proxy may be unavailable, activating fallback on next request');
+        // Activate fallback but don't retry this request (avoid infinite loop)
+        activateFallbackUrl();
+      }
+      
+      throw new ApiError(503, 'Network error. Please check your internet connection.');
+    }
+    
     console.error(`[API Error] ${url}:`, error);
     throw error;
   }
