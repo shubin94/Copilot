@@ -162,19 +162,21 @@ router.get("/", async (req: Request, res: Response) => {
     // 1. Country Level Pages
     const countriesResult = await pool.query(`
       SELECT DISTINCT 
+        c.name as country_name,
         c.slug as country_slug,
         MAX(d.updated_at) as last_mod
       FROM countries c
-      INNER JOIN detectives d ON d.country = c.code
+      INNER JOIN detectives d ON d.country = c.iso_code
       WHERE d.status = 'active'
-      GROUP BY c.slug
-      ORDER BY c.slug
+      GROUP BY c.name, c.slug
+      ORDER BY c.name
     `);
 
     for (const row of countriesResult.rows) {
       const lastmod = row.last_mod ? new Date(row.last_mod).toISOString().split('T')[0] : today;
+      const countrySlug = toSlug(row.country_name || row.country_slug);
       xml += `  <url>
-    <loc>https://www.askdetectives.com/detectives/${row.country_slug}/</loc>
+    <loc>https://www.askdetectives.com/detectives/${countrySlug}/</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -185,21 +187,25 @@ router.get("/", async (req: Request, res: Response) => {
     // 2. State Level Pages
     const statesResult = await pool.query(`
       SELECT DISTINCT 
+        c.name as country_name,
         c.slug as country_slug,
+        s.name as state_name,
         s.slug as state_slug,
         MAX(d.updated_at) as last_mod
       FROM states s
       INNER JOIN countries c ON s.country_id = c.id
-      INNER JOIN detectives d ON d.country = c.code AND d.state = s.name
+      INNER JOIN detectives d ON d.country = c.iso_code AND d.state = s.name
       WHERE d.status = 'active'
-      GROUP BY c.slug, s.slug
-      ORDER BY c.slug, s.slug
+      GROUP BY c.name, c.slug, s.name, s.slug
+      ORDER BY c.name, s.name
     `);
 
     for (const row of statesResult.rows) {
       const lastmod = row.last_mod ? new Date(row.last_mod).toISOString().split('T')[0] : today;
+      const countrySlug = toSlug(row.country_name || row.country_slug);
+      const stateSlug = toSlug(row.state_name || row.state_slug);
       xml += `  <url>
-    <loc>https://www.askdetectives.com/detectives/${row.country_slug}/${row.state_slug}/</loc>
+    <loc>https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.75</priority>
@@ -210,23 +216,29 @@ router.get("/", async (req: Request, res: Response) => {
     // 3. City Level Pages
     const citiesResult = await pool.query(`
       SELECT DISTINCT 
+        c.name as country_name,
         c.slug as country_slug,
+        s.name as state_name,
         s.slug as state_slug,
+        ci.name as city_name,
         ci.slug as city_slug,
         MAX(d.updated_at) as last_mod
       FROM cities ci
       INNER JOIN states s ON ci.state_id = s.id
       INNER JOIN countries c ON s.country_id = c.id
-      INNER JOIN detectives d ON d.country = c.code AND d.state = s.name AND d.city = ci.name
+      INNER JOIN detectives d ON d.country = c.iso_code AND d.state = s.name AND d.city = ci.name
       WHERE d.status = 'active'
-      GROUP BY c.slug, s.slug, ci.slug
-      ORDER BY c.slug, s.slug, ci.slug
+      GROUP BY c.name, c.slug, s.name, s.slug, ci.name, ci.slug
+      ORDER BY c.name, s.name, ci.name
     `);
     
     for (const row of citiesResult.rows) {
       const lastmod = row.last_mod ? new Date(row.last_mod).toISOString().split('T')[0] : today;
+      const countrySlug = toSlug(row.country_name || row.country_slug);
+      const stateSlug = toSlug(row.state_name || row.state_slug);
+      const citySlug = toSlug(row.city_name || row.city_slug);
       xml += `  <url>
-    <loc>https://www.askdetectives.com/detectives/${row.country_slug}/${row.state_slug}/${row.city_slug}/</loc>
+    <loc>https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -242,11 +254,14 @@ router.get("/", async (req: Request, res: Response) => {
         d.id,
         d.slug,
         d.updated_at,
+        c.name as country_name,
         c.slug as country_slug,
+        s.name as state_name,
         s.slug as state_slug,
+        ci.name as city_name,
         ci.slug as city_slug
       FROM detectives d
-      INNER JOIN countries c ON d.country = c.code
+      INNER JOIN countries c ON d.country = c.iso_code
       LEFT JOIN states s ON d.state = s.name AND s.country_id = c.id
       LEFT JOIN cities ci ON d.city = ci.name AND ci.state_id = s.id
       WHERE d.status = 'active' AND d.slug IS NOT NULL AND d.slug != ''
@@ -255,12 +270,15 @@ router.get("/", async (req: Request, res: Response) => {
     
     for (const profile of detectiveProfilesResult.rows) {
       const lastmod = profile.updated_at ? new Date(profile.updated_at).toISOString().split('T')[0] : today;
-      
-      let url = `https://www.askdetectives.com/detectives/${profile.country_slug}/`;
-      if (profile.state_slug) {
-        url += `${profile.state_slug}/`;
-        if (profile.city_slug) {
-          url += `${profile.city_slug}/`;
+      const countrySlug = toSlug(profile.country_name || profile.country_slug);
+      const stateSlug = profile.state_name || profile.state_slug ? toSlug(profile.state_name || profile.state_slug) : '';
+      const citySlug = profile.city_name || profile.city_slug ? toSlug(profile.city_name || profile.city_slug) : '';
+
+      let url = `https://www.askdetectives.com/detectives/${countrySlug}/`;
+      if (stateSlug) {
+        url += `${stateSlug}/`;
+        if (citySlug) {
+          url += `${citySlug}/`;
         }
       }
       url += `${profile.slug}/`;
@@ -280,14 +298,17 @@ router.get("/", async (req: Request, res: Response) => {
         s.id,
         s.slug,
         s.updated_at,
+        c.name as country_name,
         c.slug as country_slug,
+        st.name as state_name,
         st.slug as state_slug,
+        ci.name as city_name,
         ci.slug as city_slug,
         d.slug as detective_slug,
         d.business_name as detective_business_name
       FROM services s
       INNER JOIN detectives d ON s.detective_id = d.id
-      INNER JOIN countries c ON d.country = c.code
+      INNER JOIN countries c ON d.country = c.iso_code
       LEFT JOIN states st ON d.state = st.name AND st.country_id = c.id
       LEFT JOIN cities ci ON d.city = ci.name AND ci.state_id = st.id
       WHERE s.is_active = true AND d.status = 'active'
@@ -305,9 +326,14 @@ router.get("/", async (req: Request, res: Response) => {
 
       const detectiveSlug =
         service.detective_slug || toSlug(service.detective_business_name) || "detective";
-      const stateSlug = service.state_slug || "region";
-      const citySlug = service.city_slug || "area";
-      const url = `https://www.askdetectives.com/service/${service.country_slug}/${stateSlug}/${citySlug}/${detectiveSlug}/${service.slug}`;
+      const countrySlug = toSlug(service.country_name || service.country_slug);
+      const stateSlug = service.state_name || service.state_slug
+        ? toSlug(service.state_name || service.state_slug)
+        : "region";
+      const citySlug = service.city_name || service.city_slug
+        ? toSlug(service.city_name || service.city_slug)
+        : "area";
+      const url = `https://www.askdetectives.com/service/${countrySlug}/${stateSlug}/${citySlug}/${detectiveSlug}/${service.slug}`;
 
       xml += `  <url>
     <loc>${url}</loc>
