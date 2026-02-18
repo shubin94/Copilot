@@ -16,8 +16,23 @@ jobs:
         with:
           node-version: 20
 
+      - name: Debug npm config before install
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "node: $(node -v)"
+          echo "npm: $(npm -v)"
+          echo "NODE_ENV: ${NODE_ENV:-<unset>}"
+          echo "npm_config_production: ${npm_config_production:-<unset>}"
+          echo "npm_config_ignore_scripts: ${npm_config_ignore_scripts:-<unset>}"
+          npm config get production || true
+          npm config get ignore-scripts || true
+
       - name: Install dependencies
         run: npm install
+        env:
+          npm_config_production: "false"
+          npm_config_ignore_scripts: "false"
 
       - name: Run audit
         env:
