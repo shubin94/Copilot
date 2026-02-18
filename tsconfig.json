@@ -39,7 +39,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./client/src/*"],
-      "@shared/*": ["./shared/*"]
+      "@shared/*": ["./shared/*"],
+      "@assets/*": ["./attached_assets/*"]
     },
     "types": ["vite/client", "react", "react-dom"]
   }

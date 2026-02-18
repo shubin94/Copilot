@@ -59,19 +59,7 @@ export default defineConfig({
             
             // Split Radix into smaller chunks - this is 274 KB total!
             if (id.includes('node_modules/@radix-ui')) {
-              if (id.includes('dialog') || id.includes('tooltip') || id.includes('popover') || id.includes('alert-dialog') || id.includes('hover-card')) {
-                return 'radix-overlays';
-              }
-              if (id.includes('dropdown') || id.includes('select') || id.includes('menubar') || id.includes('navigation-menu')) {
-                return 'radix-selects';
-              }
-              if (id.includes('accordion') || id.includes('tabs') || id.includes('collapsible') || id.includes('toggle-group')) {
-                return 'radix-menus';
-              }
-              if (id.includes('context-menu') || id.includes('toggle') || id.includes('slider')) {
-                return 'radix-interactive';
-              }
-              return 'radix-other';
+              return 'radix-ui';
             }
             
             // Icon library
