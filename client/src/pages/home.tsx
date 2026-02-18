@@ -95,65 +95,11 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900">
       <SEO 
-        title="FindDetectives - Hire Top Private Investigators" 
+        title="Ask Detectives - Hire Top Private Investigators" 
         description="The leading marketplace for professional private investigation services. Find verified detectives for surveillance, background checks, and more."
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
         canonical="https://www.askdetectives.com"
         robots="index, follow"
-        schema={[
-          {
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            "@id": "https://www.askdetectives.com/#website",
-            "url": "https://www.askdetectives.com",
-            "name": "FindDetectives",
-            "description": "Find and hire verified private investigators",
-            "potentialAction": {
-              "@type": "SearchAction",
-              "target": {
-                "@type": "EntryPoint",
-                "urlTemplate": "https://www.askdetectives.com/search?q={search_term_string}"
-              },
-              "query-input": "required name=search_term_string"
-            }
-          },
-          {
-            "@context": "https://schema.org",
-            "@type": "Organization",
-            "@id": "https://www.askdetectives.com/#organization",
-            "name": "Ask Detectives",
-            "alternateName": "FindDetectives",
-            "url": "https://www.askdetectives.com",
-            "logo": "https://www.askdetectives.com/favicon.png",
-            "description": "The leading marketplace for professional private investigation services connecting clients with verified detectives worldwide.",
-            "foundingDate": "2024",
-            "contactPoint": {
-              "@type": "ContactPoint",
-              "contactType": "Customer Service",
-              "telephone": "+1-800-DETECTIVES",
-              "url": "https://www.askdetectives.com/contact"
-            },
-            "sameAs": [
-              "https://www.facebook.com/askdetectives",
-              "https://www.twitter.com/askdetectives",
-              "https://www.linkedin.com/company/askdetectives",
-              "https://www.instagram.com/askdetectives"
-            ],
-            "address": {
-              "@type": "PostalAddress",
-              "addressCountry": "US",
-              "addressLocality": "New York",
-              "addressRegion": "NY",
-              "postalCode": "10001"
-            },
-            "aggregateRating": {
-              "@type": "AggregateRating",
-              "ratingValue": "4.8",
-              "ratingCount": "2500",
-              "reviewCount": "2500"
-            }
-          }
-        ]}
       />
       <Navbar transparentOnHome={true} overlayOnHome={true} />
       

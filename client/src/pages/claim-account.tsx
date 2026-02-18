@@ -88,7 +88,7 @@ export default function ClaimAccount() {
     return (
       <>
         <SEO 
-          title="Claim Your Detective Account | FindDetectives"
+          title="Claim Your Detective Account | Ask Detectives"
           description="Claim ownership of your detective profile to manage your business and access premium features."
           robots="noindex, follow"
         />
@@ -118,7 +118,7 @@ export default function ClaimAccount() {
     return (
       <>
         <SEO 
-          title="Claim Your Detective Account | FindDetectives"
+          title="Claim Your Detective Account | Ask Detectives"
           description="Claim ownership of your detective profile to manage your business and access premium features."
           robots="noindex, follow"
         />
@@ -157,7 +157,7 @@ export default function ClaimAccount() {
     return (
       <>
         <SEO 
-          title="Claim Your Detective Account | FindDetectives"
+          title="Claim Your Detective Account | Ask Detectives"
           description="Claim ownership of your detective profile to manage your business and access premium features."
           robots="noindex, follow"
         />
@@ -193,7 +193,7 @@ export default function ClaimAccount() {
   return (
     <>
       <SEO 
-        title="Claim Your Detective Account | FindDetectives"
+        title="Claim Your Detective Account | Ask Detectives"
         description="Claim ownership of your detective profile to manage your business and access premium features."
         robots="noindex, follow"
       />

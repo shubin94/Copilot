@@ -76,7 +76,7 @@ export function SEO({
     };
 
     // Update title
-    const fullTitle = title.includes('|') ? title : `${title} | FindDetectives`;
+    const fullTitle = title.includes('|') ? title : `${title} | Ask Detectives`;
     document.title = fullTitle;
 
     // Helper to update or create meta tag
@@ -152,7 +152,7 @@ export function SEO({
       "@context": "https://schema.org",
       "@type": "Organization",
       "@id": "https://www.askdetectives.com/#organization",
-      "name": "FindDetectives",
+      "name": "Ask Detectives",
       "url": "https://www.askdetectives.com",
       "logo": "https://www.askdetectives.com/favicon.png",
       "description": "The leading marketplace for professional private investigation services",
@@ -174,7 +174,7 @@ export function SEO({
       "@type": "WebSite",
       "@id": "https://www.askdetectives.com/#website",
       "url": "https://www.askdetectives.com",
-      "name": "FindDetectives",
+      "name": "Ask Detectives",
       "potentialAction": {
         "@type": "SearchAction",
         "target": "https://www.askdetectives.com/search?q={search_term_string}",
@@ -352,7 +352,7 @@ export function SEO({
     updateMeta('og:description', description, true);
     updateMeta('og:type', type, true);
     updateMeta('og:url', cleanCanonical, true);
-    updateMeta('og:site_name', 'FindDetectives', true);
+    updateMeta('og:site_name', 'Ask Detectives', true);
     updateMeta('og:locale', 'en_US', true);
     
     // Default OG image fallback
@@ -372,7 +372,7 @@ export function SEO({
 
     // Twitter
     updateMeta('twitter:card', 'summary_large_image');
-    updateMeta('twitter:site', '@FindDetectives');
+    updateMeta('twitter:site', '@AskDetectives');
     updateMeta('twitter:title', fullTitle);
     updateMeta('twitter:description', description);
     updateMeta('twitter:image', ogImage);

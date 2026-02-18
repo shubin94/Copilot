@@ -95,6 +95,13 @@ export function buildApiUrl(path: string): string {
   return `${currentBaseUrl}${path}`;
 }
 
+// Always use same-origin proxy for auth/CSRF to keep cookies first-party.
+function buildProxyUrl(path: string): string {
+  if (path.startsWith("http")) return path;
+  if (!path.startsWith("/")) return `/${path}`;
+  return path;
+}
+
 class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -193,7 +200,7 @@ export function clearCsrfToken() {
 
 export async function getOrFetchCsrfToken(): Promise<string> {
   if (csrfToken) return csrfToken;
-  const url = buildApiUrl("/api/csrf-token");
+  const url = buildProxyUrl("/api/csrf-token");
   try {
     const r = await fetch(url, {
       method: "GET",
@@ -217,7 +224,8 @@ export async function getOrFetchCsrfToken(): Promise<string> {
 
 // Central fetch wrapper that adds CSRF headers for mutation methods
 async function csrfFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const fullUrl = buildApiUrl(url);
+  const opts = options as RequestInit & { forceProxy?: boolean };
+  const fullUrl = opts.forceProxy ? buildProxyUrl(url) : buildApiUrl(url);
   
   const method = (options.method || "GET").toUpperCase();
   const requiresCSRF = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
@@ -231,7 +239,10 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
   options.headers = headers;
 
   try {
-    return await fetch(fullUrl, options);
+    if (opts.forceProxy) {
+      delete (opts as { forceProxy?: boolean }).forceProxy;
+    }
+    return await fetch(fullUrl, opts);
   } catch (error: any) {
     // Improve error message for network failures (e.g., server not running)
     const errorMsg = error?.message || String(error);
@@ -335,6 +346,7 @@ export const api = {
           credentials: "include",
           keepalive: true,
           signal: controller.signal,
+          forceProxy: true,
         });
         const data = await handleResponse(response);
         // CSRF token is generated once by /api/csrf-token and reused for entire session
@@ -351,10 +363,11 @@ export const api = {
     },
 
     logout: async (): Promise<{ message: string }> => {
-      const response = await csrfFetch(buildApiUrl("/api/auth/logout"), {
+      const response = await csrfFetch("/api/auth/logout", {
         method: "POST",
         headers: { "X-Requested-With": "XMLHttpRequest" },
         credentials: "include",
+        forceProxy: true,
       });
       const result = await handleResponse(response);
       clearCsrfToken();
@@ -363,8 +376,9 @@ export const api = {
 
     me: async (): Promise<{ user?: User | null }> => {
       try {
-        const response = await csrfFetch(buildApiUrl("/api/auth/me"), {
+        const response = await csrfFetch("/api/auth/me", {
           credentials: "include",
+          forceProxy: true,
         });
         if (response.status === 401 || response.status === 403) {
           return { user: null } as any;

@@ -45,7 +45,7 @@ export default function ContactPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title="Contact Us" description="Get in touch with the FindDetectives team." />
+      <SEO title="Contact Us" description="Get in touch with the Ask Detectives team." />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12">

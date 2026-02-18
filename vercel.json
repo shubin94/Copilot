@@ -2,6 +2,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
   "installCommand": "npm ci --production=false",
+  "cleanUrls": true,
+  "trailingSlash": false,
   "framework": null,
   "env": {
     "NODE_ENV": "production"
@@ -18,10 +20,6 @@
     {
       "source": "/rss.xml",
       "destination": "https://copilot-06s5.onrender.com/rss.xml"
-    },
-    {
-      "source": "/llms.txt",
-      "destination": "https://copilot-06s5.onrender.com/llms.txt"
     },
     {
       "source": "/(.*)",

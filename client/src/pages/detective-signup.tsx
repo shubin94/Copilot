@@ -14,8 +14,8 @@ export default function DetectiveSignup() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <SEO 
-        title="Become a Detective | FindDetectives"
-        description="Apply to join FindDetectives as a professional private investigator. Show your expertise and connect with clients."
+        title="Become a Detective | Ask Detectives"
+        description="Apply to join Ask Detectives as a professional private investigator. Show your expertise and connect with clients."
         robots="noindex, follow"
       />
       <Navbar />

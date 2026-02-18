@@ -10,7 +10,7 @@ export default function ApplicationUnderReview() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <SEO 
-        title="Application Status | FindDetectives"
+        title="Application Status | Ask Detectives"
         description="Your detective application is being reviewed. You will be notified once approved."
         robots="noindex, follow"
       />
