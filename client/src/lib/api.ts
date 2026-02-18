@@ -145,18 +145,35 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
       throw new ApiError(408, `Request timeout after ${timeout/1000} seconds. The file might be too large.`);
     }
     
-    // Handle network errors (offline, CORS, connection refused)
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.error(`[API Error] Network error for ${url}:`, error);
+    // Handle CORS errors specifically
+    if (error instanceof TypeError) {
+      const isNetworkError = error.message.includes('fetch') || error.message.includes('NetworkError');
+      const isCORSError = error.message.includes('CORS') || error.message.includes('cross-origin');
       
-      // In production, if using relative paths and network fails, try fallback
-      if (import.meta.env.PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
-        console.warn('[API Error] 🔄 Proxy may be unavailable, activating fallback on next request');
-        // Activate fallback but don't retry this request (avoid infinite loop)
-        activateFallbackUrl();
+      if (isCORSError) {
+        console.error(`[API Error] CORS violation for ${url}:`, error.message);
+        console.error('[API Error] Backend CORS headers likely not configured for this origin');
+        
+        // In production, try fallback if not already activated
+        if (import.meta.env.PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
+          console.warn('[API Error] 🔄 Proxy CORS failed, activating direct backend URL fallback');
+          activateFallbackUrl();
+        }
+        
+        throw new ApiError(0, 'CORS error: Backend API not accessible from this origin. Check network or contact support.');
       }
       
-      throw new ApiError(503, 'Network error. Please check your internet connection.');
+      if (isNetworkError) {
+        console.error(`[API Error] Network error for ${url}:`, error);
+        
+        // In production, if using relative paths and network fails, try fallback
+        if (import.meta.env.PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
+          console.warn('[API Error] 🔄 Proxy unavailable, activating fallback on next request');
+          activateFallbackUrl();
+        }
+        
+        throw new ApiError(503, 'Network error. Please check your internet connection.');
+      }
     }
     
     console.error(`[API Error] ${url}:`, error);
