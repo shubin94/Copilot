@@ -3,15 +3,6 @@
   "outputDirectory": "dist/public",
   "installCommand": "npm install",
   "framework": null,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist/public"
-      }
-    }
-  ],
   "rewrites": [
     {
       "source": "/api/:path*",
