@@ -5,10 +5,30 @@ const DEFAULT_DEV_API_BASE_URL = typeof window !== "undefined"
   ? `${window.location.protocol}//${window.location.hostname}:5000`
   : "http://127.0.0.1:5000";
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD
-    ? "https://copilot-06s5.onrender.com"
-    : DEFAULT_DEV_API_BASE_URL);
+// Determine API base URL with clear priority:
+// 1. Environment variable (VITE_API_URL)
+// 2. Production: Use relative paths (empty string) so Vercel proxy handles requests
+// 3. Development: localhost backend
+const determineApiBaseUrl = () => {
+  // Check for environment variable first (for direct backend access if needed)
+  if (import.meta.env.VITE_API_URL) {
+    console.log('[API Config] Using VITE_API_URL:', import.meta.env.VITE_API_URL);
+    return import.meta.env.VITE_API_URL;
+  }
+  
+  // In production, use relative paths so Vercel proxy handles the requests
+  // Vercel will proxy /api/* to the backend via vercel.json rewrites
+  if (import.meta.env.PROD) {
+    console.log('[API Config] Production mode - using Vercel proxy (relative paths)');
+    return ""; // Empty string = relative paths like /api/user
+  }
+  
+  // Default to local development backend
+  console.log('[API Config] Development mode, using local backend:', DEFAULT_DEV_API_BASE_URL);
+  return DEFAULT_DEV_API_BASE_URL;
+};
+
+export const API_BASE_URL = determineApiBaseUrl();
 
 export function buildApiUrl(path: string): string {
   if (path.startsWith("http")) return path;
@@ -45,6 +65,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 60000): Promise<Response> {
+  console.log(`[API Request] ${options.method || 'GET'} ${url}`);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   
@@ -54,12 +75,15 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
+    console.log(`[API Response] ${response.status} ${url}`);
     return response;
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
+      console.error(`[API Error] Request timeout: ${url}`);
       throw new ApiError(408, `Request timeout after ${timeout/1000} seconds. The file might be too large.`);
     }
+    console.error(`[API Error] ${url}:`, error);
     throw error;
   }
 }
