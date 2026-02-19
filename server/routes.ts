@@ -1510,29 +1510,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Use ranking system for detective visibility and ordering
       const { getRankedDetectives } = await import("./ranking.ts");
       const statusValue = status && status !== "all" ? (status as string) : undefined;
-      let detectives = await getRankedDetectives({
+      const limitNum = parseInt(limit);
+      const offsetNum = parseInt(offset);
+      
+      const result = await getRankedDetectives({
         country: country as string,
         status: statusValue, // Only filter if status is specific (not "all")
         plan: plan as string,
         searchQuery: search as string,
-        limit: 100,
+        limit: limitNum,
+        offset: offsetNum,
       });
 
-      // Apply filters based on query
-      if (country) {
-        detectives = detectives.filter((d: any) => d.country === country);
-      }
-      if (status) {
-        detectives = detectives.filter((d: any) => d.status === status);
-      }
+      // ✅ getRankedDetectives returns { detectives, total }
+      // All filtering is done in SQL inside getRankedDetectives
+      const { detectives, total } = typeof result === 'object' && 'detectives' in result
+        ? result
+        : { detectives: Array.isArray(result) ? result : [], total: Array.isArray(result) ? result.length : 0 };
 
-      // Apply pagination
-      const limitNum = parseInt(limit);
-      const offsetNum = parseInt(offset);
-      const total = detectives.length;
-      const paginatedDetectives = detectives.slice(offsetNum, offsetNum + limitNum);
-
-      const maskedDetectives = await Promise.all(paginatedDetectives.map(async (d: any) => {
+      const maskedDetectives = await Promise.all(detectives.map(async (d: any) => {
         const masked = await maskDetectiveContactsPublic(d);
         // Explicitly null sensitive fields we never want public
         masked.userId = undefined;
@@ -4118,38 +4114,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         level: level as string,
       }, limitNum, offsetNum, sortBy as string);
 
-      // Filter out services without images
-      const servicesWithImages = allServices.filter((s: any) => {
-        const hasImages = Array.isArray(s.images) && s.images.length > 0;
-        return hasImages;
-      });
+      // ✅ Image filtering is now done in SQL (searchServices), no post-filtering needed
+      // ✅ Sorting is done in SQL (storage.searchServices), no re-sorting needed
 
-      // Apply ranking for display order (after pagination)
-      const rankedLimit = 1000;
-      const rankedCacheKey = `ranked:${rankedLimit}`;
-      let rankedDetectives = getRankedDetectivesCache(rankedCacheKey);
-      if (!rankedDetectives) {
-        const { getRankedDetectives } = await import("./ranking");
-        rankedDetectives = await getRankedDetectives({ limit: rankedLimit });
-        setRankedDetectivesCache(rankedCacheKey, rankedDetectives);
-      }
-      const detectiveRankMap = new Map(rankedDetectives.map((d: any, idx: number) => [d.id, { score: d.visibilityScore, rank: idx }]));
-
-      // Sort results by detective ranking (higher score = higher position)
-      const sortedResults = servicesWithImages.sort((a: any, b: any) => {
-        const aRank = detectiveRankMap.get(a.detectiveId);
-        const bRank = detectiveRankMap.get(b.detectiveId);
-        // Higher score = better ranking = appears first
-        if (aRank && bRank) {
-          return bRank.score - aRank.score;
-        }
-        // Services without ranking appear after ranked ones
-        if (aRank) return -1;
-        if (bRank) return 1;
-        return 0;
-      });
-
-      const masked = await Promise.all(sortedResults.map(async (s: any) => {
+      const masked = await Promise.all(allServices.map(async (s: any) => {
         const maskedDetective = await maskDetectiveContactsPublic(s.detective);
         const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
         return { ...s, detective: { ...maskedDetective, effectiveBadges } };
