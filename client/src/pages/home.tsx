@@ -5,6 +5,7 @@ import { ServiceCard } from "@/components/home/service-card";
 import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { ArrowRight, AlertCircle, Layers } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Link } from "wouter";
@@ -256,27 +257,58 @@ export default function Home() {
                   </Card>
                 ))
               ) : (
-                featuredDetectives.map((d) => (
-                  <Link key={d.id} href={getDetectiveProfileUrl(d)}>
-                    <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-                      <CardContent className="p-6">
-                        <div className="flex items-center gap-4">
-                          <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
-                            {d.logo ? (
-                              <img src={d.logo} alt={d.businessName || "Detective"} className="h-12 w-12 object-cover" />
-                            ) : (
-                              <div className="h-8 w-8 rounded-full bg-gray-200" />
-                            )}
+                featuredDetectives.map((d) => {
+                  const badgeState = computeServiceBadges({
+                    isVerified: d.isVerified || false,
+                    effectiveBadges: d.effectiveBadges,
+                  });
+
+                  return (
+                    <Link key={d.id} href={getDetectiveProfileUrl(d)}>
+                      <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+                        <CardContent className="p-6">
+                          <div className="flex items-center gap-4">
+                            <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                              {d.logo ? (
+                                <img src={d.logo} alt={d.businessName || "Detective"} className="h-12 w-12 object-cover" width={12} height={12} />
+                              ) : (
+                                <div className="h-8 w-8 rounded-full bg-gray-200" />
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className="font-bold text-lg text-gray-900 hover:underline">{d.businessName || "Unknown Detective"}</div>
+                              </div>
+                              <div className="flex items-center gap-2 mb-2">
+                                {badgeState.showBlueTick && (
+                                  <img
+                                    src="/blue-tick.png"
+                                    alt="Verified"
+                                    className="h-4 w-4"
+                                    width={4}
+                                    height={4}
+                                    title="Verified Detective"
+                                  />
+                                )}
+                                {badgeState.showPro && (
+                                  <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
+                                    Pro
+                                  </Badge>
+                                )}
+                                {badgeState.showRecommended && (
+                                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-1.5 py-0.5">
+                                    Recommended
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-sm text-gray-600">{d.location || d.country || ""}</div>
+                            </div>
                           </div>
-                          <div className="flex-1">
-                            <div className="font-bold text-lg text-gray-900 hover:underline">{d.businessName || "Unknown Detective"}</div>
-                            <div className="text-sm text-gray-600">{d.location || d.country || ""}</div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                ))
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  );
+                })
               )}
             </div>
           </section>

@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Link, useLocation } from "wouter";
-import { useState, memo } from "react";
+import { useState, useEffect, memo } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ServiceActionButton } from "@/components/home/service-action-button";
 import type { ServiceBadgeState } from "@/lib/service-badges";
@@ -51,9 +51,30 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const { selectedCountry, formatPriceFromTo } = useCurrency();
   const { user, isFavorite, toggleFavorite } = useUserSafe();
   const { toast } = useToast();
+
+  // Reset image loaded state when image changes
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [currentImageIndex, displayImages]);
+
+  // Preload adjacent images for smooth carousel navigation
+  useEffect(() => {
+    if (displayImages.length > 1) {
+      const prevIndex = (currentImageIndex - 1 + displayImages.length) % displayImages.length;
+      const nextIndex = (currentImageIndex + 1) % displayImages.length;
+
+      const prevImg = new Image();
+      const nextImg = new Image();
+
+      prevImg.src = displayImages[prevIndex];
+      nextImg.src = displayImages[nextIndex];
+    }
+  }, [currentImageIndex, displayImages]);
+
   const showBlueTick = !!badgeState?.showBlueTick;
   const blueTickLabel = badgeState?.blueTickLabel || "Verified";
   const showPro = !!badgeState?.showPro;
@@ -142,12 +163,22 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
               </div>
             )}
             {displayImages.length > 0 && displayImages[currentImageIndex] ? (
-              <img 
-                src={displayImages[currentImageIndex]} 
-                alt={`${title} - ${name}${countryCode ? ` in ${countryCode}` : ''} | Professional Detective Service`}
-                loading="lazy"
-                className={`object-cover w-full h-full transition-transform duration-300 ${isUnclaimed ? 'grayscale' : ''}`}
-              />
+              <>
+                <img 
+                  src={displayImages[currentImageIndex]} 
+                  alt={`${title} - ${name}${countryCode ? ` in ${countryCode}` : ''} | Professional Detective Service`}
+                  loading="lazy"
+                  onLoad={() => setImageLoaded(true)}
+                  className={`object-cover w-full h-full ${isUnclaimed ? 'grayscale' : ''}`}
+                />
+                
+                {/* Fade overlay */}
+                <div
+                  className={`absolute inset-0 bg-gray-100 transition-opacity duration-300 pointer-events-none ${
+                    imageLoaded ? 'opacity-0' : 'opacity-100'
+                  }`}
+                />
+              </>
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-gray-100">
                 <div className="text-center text-gray-400">

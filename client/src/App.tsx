@@ -211,7 +211,7 @@ function Router() {
 }
 
 function App() {
-  // Initialize auth session management on app mount
+  // Initialize auth session management on app mount (ONCE)
   useEffect(() => {
     console.log('[APP] Initializing auth session management...');
     
@@ -219,7 +219,7 @@ function App() {
       enableIdleTimeout: false, // Disable idle timeout (optional feature)
       idleTimeoutMinutes: 60,
       enableCrossTabLogout: true, // Enable cross-tab logout detection
-      enableAuthMonitor: false, // DISABLED - causing issues, use interceptor only
+      enableAuthMonitor: false, // DISABLED - causes excessive /api/auth/me calls
     });
     
     return cleanup;
