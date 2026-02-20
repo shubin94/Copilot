@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Link, useLocation, useRoute } from "wouter";
 import { useState, useEffect } from "react";
 import { useLogin, useRegister } from "@/lib/hooks";
+import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { getOrFetchCsrfToken } from "@/lib/api";
@@ -33,6 +34,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const loginMutation = useLogin();
   const registerMutation = useRegister();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
   // Fetch CSRF token on page load to establish session
@@ -73,20 +75,37 @@ export default function Login() {
       return;
     }
     try {
+      console.log("[Login] Starting mutateAsync");
       const result = await loginMutation.mutateAsync({ email: email.trim().toLowerCase(), password });
+      console.log("[Login] mutateAsync resolved", { hasUser: !!result?.user, role: result?.user?.role });
       if (result.applicant) {
+        console.log("[Login] applicant detected, redirecting to application-under-review");
         setLocation("/application-under-review");
         return;
       }
+      console.log("[Login] refetchQueries start", { key: ["auth", "me"] });
+      await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
+      console.log("[Login] refetchQueries done", { key: ["auth", "me"] });
+      console.log("[Login] cache after refetch", queryClient.getQueryData(["auth", "me"]));
       const user = result.user;
       if (user) {
         toast({ title: "Welcome back!", description: `Logged in as ${user.name}` });
-        if (user.role === "admin") setLocation("/admin/dashboard");
-        else if (user.role === "employee") setLocation("/admin/dashboard");
-        else if (user.role === "detective") setLocation("/detective/dashboard");
-        else setLocation("/");
+        if (user.role === "admin") {
+          console.log("[Login] navigate -> /admin/dashboard");
+          setLocation("/admin/dashboard");
+        } else if (user.role === "employee") {
+          console.log("[Login] navigate -> /admin/dashboard");
+          setLocation("/admin/dashboard");
+        } else if (user.role === "detective") {
+          console.log("[Login] navigate -> /detective/dashboard");
+          setLocation("/detective/dashboard");
+        } else {
+          console.log("[Login] navigate -> /");
+          setLocation("/");
+        }
       }
     } catch (error: any) {
+      console.error("[Login] mutateAsync failed", error);
       toast({
         title: "Login failed",
         description: error.message || "Invalid email or password",
@@ -148,7 +167,7 @@ export default function Login() {
           <img
             src={heroBgPng}
             alt=""
-            fetchPriority="low"
+            fetchpriority="low"
             loading="lazy"
             decoding="async"
             className="absolute inset-0 z-0 opacity-60 object-cover w-full h-full"

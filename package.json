@@ -11,6 +11,7 @@
     "migrate": "tsx db/run-migrations.ts",
     "reset-auth": "cross-env NODE_ENV=development tsx scripts/reset-auth-and-bootstrap-admin.ts",
     "create-admin": "cross-env NODE_ENV=development tsx scripts/create-admin.ts",
+    "check:login": "cross-env NODE_ENV=development tsx scripts/check-login-flow.ts",
     "db:audit": "cross-env NODE_ENV=development tsx scripts/db-audit.ts",
     "seed-app-secrets": "cross-env NODE_ENV=development tsx scripts/seed-app-secrets.ts",
     "batch-index": "cross-env NODE_ENV=production tsx scripts/batch-index-all.ts",

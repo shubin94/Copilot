@@ -36,9 +36,9 @@ const determineApiBaseUrl = (): string => {
     return ""; // Empty string = relative paths like /api/user
   }
   
-  // Priority 3: Development mode - local backend
-  console.log('[API Config] 🛠️ Development mode - using local backend:', DEFAULT_DEV_API_BASE_URL);
-  return DEFAULT_DEV_API_BASE_URL;
+  // Priority 3: Development mode - use Vite proxy (relative paths) for stable cookies
+  console.log('[API Config] 🛠️ Development mode - using Vite proxy (relative /api)');
+  return "";
 };
 
 // Test if Vercel proxy is working (runs in background)
@@ -256,10 +256,11 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
 
 export const api = {
   // Generic HTTP methods for flexible API calls
-  get: async <T = any>(url: string): Promise<T> => {
+  get: async <T = any>(url: string, options: RequestInit & { forceProxy?: boolean } = {}): Promise<T> => {
     const response = await csrfFetch(url, {
       method: "GET",
       credentials: "include",
+      ...options,
     });
     return handleResponse(response);
   },
@@ -403,21 +404,23 @@ export const api = {
     },
 
     changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
-      const response = await csrfFetch(buildApiUrl("/api/auth/change-password"), {
+      const response = await csrfFetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ currentPassword, newPassword }),
         credentials: "include",
+        forceProxy: true,
       });;
       return handleResponse(response);
     },
 
     setPassword: async (newPassword: string): Promise<{ message: string }> => {
-      const response = await csrfFetch(buildApiUrl("/api/auth/set-password"), {
+      const response = await csrfFetch("/api/auth/set-password", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ newPassword }),
         credentials: "include",
+        forceProxy: true,
       });;
       if (!response.ok) {
         return handleResponse(response);
@@ -431,11 +434,12 @@ export const api = {
     },
 
     register: async (email: string, password: string, name: string): Promise<{ user: User }> => {
-      const response = await csrfFetch(buildApiUrl("/api/auth/register"), {
+      const response = await csrfFetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ email, password, name }),
         credentials: "include",
+        forceProxy: true,
       });
       const data = await handleResponse(response);
       // After register, the backend regenerates the session and issues a new CSRF token

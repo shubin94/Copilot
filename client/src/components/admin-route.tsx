@@ -56,14 +56,17 @@ export function AdminRoute({ children }: AdminRouteProps) {
   }, [employeePages]);
 
   useEffect(() => {
+    console.log("[AdminRoute] guard check", { isLoading, isAuthenticated, user });
     if (isLoading) return;
 
     if (!isAuthenticated || !user) {
+      console.log("[AdminRoute] redirect -> /login", { reason: "no-auth" });
       setLocation("/login");
       return;
     }
 
     if (user.role !== "admin" && user.role !== "employee") {
+      console.log("[AdminRoute] redirect -> /", { reason: "role" , role: user.role });
       setLocation("/");
       return;
     }
@@ -71,7 +74,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
     if (user.role === "employee" && employeePages === null && !isEmployeePagesLoading) {
       setIsEmployeePagesLoading(true);
       api
-        .get<{ pages: Array<{ key: string }> }>("/api/employee/pages")
+        .get<{ pages: Array<{ key: string }> }>("/api/employee/pages", { forceProxy: true })
         .then((data) => {
           setEmployeePages(data.pages.map((page) => page.key));
           setEmployeePagesError(null);
@@ -93,11 +96,13 @@ export function AdminRoute({ children }: AdminRouteProps) {
     if (employeePages === null || isEmployeePagesLoading) return;
 
     if (!accessKey) {
+      console.log("[AdminRoute] redirect -> /", { reason: "no-access-key" });
       setLocation("/");
       return;
     }
 
     if (!employeePages.includes(accessKey)) {
+      console.log("[AdminRoute] redirect -> employeeFirstPath", { accessKey, employeeFirstPath });
       setLocation(employeeFirstPath);
     }
   }, [isAuthenticated, user, accessKey, employeePages, isEmployeePagesLoading, employeeFirstPath, setLocation]);
