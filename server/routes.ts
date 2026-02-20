@@ -631,6 +631,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Health check for proxy validation and uptime monitors
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.status(200).json({ ok: true });
+  });
+
   app.post("/api/contact", async (req: Request, res: Response) => {
     try {
       const contactSchema = z.object({
