@@ -766,20 +766,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.createUser(validatedData);
 
       // Session fixation prevention: regenerate session before setting auth data
-      // Preserve CSRF token across regeneration (do NOT regenerate it)
-      const csrfToken = req.session.csrfToken;
-      const csrfTokenGeneratedAt = (req.session as any).csrfTokenGeneratedAt;
+      // Generate fresh CSRF token for new session (don't preserve old token)
       req.session.regenerate((err) => {
         if (err) {
           console.warn("[auth] Session error during registration");
           return res.status(500).json({ error: "Failed to register user" });
         }
+        
+        // ✅ Generate fresh CSRF token for new session (CSRF cache is cleared on frontend after registration)
+        req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfTokenGeneratedAt = Date.now();
+        
         req.session.userId = user.id;
         req.session.userRole = user.role;
-        req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
-        if (csrfTokenGeneratedAt) {
-          (req.session as any).csrfTokenGeneratedAt = csrfTokenGeneratedAt;
-        }
 
         // Explicitly save session to ensure CSRF token is persisted
         req.session.save((saveErr) => {
@@ -931,9 +930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Session fixation prevention: regenerate session before setting auth data
-      // Preserve CSRF token across regeneration (do NOT regenerate it)
-      const csrfToken = req.session.csrfToken;
-      const csrfTokenGeneratedAt = (req.session as any).csrfTokenGeneratedAt;
+      // Generate fresh CSRF token for new session (don't preserve old token)
       
       if (!user.id) {
         console.error("[auth] User object missing id after validation", { email });
@@ -945,12 +942,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error("[auth] Session regenerate error during login", { userId: user.id, email, err: err?.message });
           return res.status(500).json({ error: "Failed to log in" });
         }
+        
+        // ✅ Generate fresh CSRF token for new session (CSRF cache is cleared on frontend after login)
+        req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfTokenGeneratedAt = Date.now();
+        
         req.session.userId = user.id;
         req.session.userRole = user.role;
-        req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
-        if (csrfTokenGeneratedAt) {
-          (req.session as any).csrfTokenGeneratedAt = csrfTokenGeneratedAt;
-        }
 
         // Explicitly save session to ensure CSRF token and user data are persisted
         req.session.save((saveErr) => {

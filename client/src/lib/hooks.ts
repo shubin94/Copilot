@@ -111,7 +111,7 @@ export function useDetectiveBySlug(
   });
 }
 
-export function useCurrentDetective() {
+export function useCurrentDetective(enabled: boolean = true) {
   return useQuery({
     queryKey: ["detectives", "current"],
     queryFn: async () => {
@@ -130,6 +130,7 @@ export function useCurrentDetective() {
         throw error;
       }
     },
+    enabled,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
