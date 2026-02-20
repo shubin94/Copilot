@@ -2,38 +2,37 @@ import React, { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useUser } from "@/lib/user-context";
 
-interface AdminRouteProps {
+interface EmployeeRouteProps {
   children: React.ReactNode;
 }
 
 /**
- * AdminRoute: Protects admin pages with authentication and authorization checks
+ * EmployeeRoute: Protects employee pages with authentication and authorization checks
  * - Redirects unauthenticated users to /login
- * - Redirects non-admin users to /
- * - Only renders children if user is authenticated and has admin role
+ * - Redirects non-employee users to /
+ * - Only renders children if user is authenticated and has employee role
  */
-export function AdminRoute({ children }: AdminRouteProps) {
+export function EmployeeRoute({ children }: EmployeeRouteProps) {
   const { user, isAuthenticated, isLoading } = useUser();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    console.log("[AdminRoute] guard check", { isLoading, isAuthenticated, user });
+    console.log("[EmployeeRoute] guard check", { isLoading, isAuthenticated, user });
     if (isLoading) return;
 
     if (!isAuthenticated || !user) {
-      console.log("[AdminRoute] redirect -> /login", { reason: "no-auth" });
+      console.log("[EmployeeRoute] redirect -> /login", { reason: "no-auth" });
       setLocation("/login");
       return;
     }
 
-    if (user.role !== "admin") {
-      console.log("[AdminRoute] redirect -> /", { reason: "role" , role: user.role });
+    if (user.role !== "employee") {
+      console.log("[EmployeeRoute] redirect -> /", { reason: "role", role: user.role });
       setLocation("/");
       return;
     }
   }, [isAuthenticated, user, isLoading, setLocation]);
 
-  // Show loading state while checking authentication
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -45,11 +44,9 @@ export function AdminRoute({ children }: AdminRouteProps) {
     );
   }
 
-  // Not authenticated or not admin - don't render
-  if (!isAuthenticated || !user || user.role !== "admin") {
+  if (!isAuthenticated || !user || user.role !== "employee") {
     return null;
   }
 
-  // Authenticated and is admin - render the page
   return <>{children}</>;
 }

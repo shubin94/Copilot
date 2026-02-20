@@ -393,6 +393,8 @@ app.use((req, res, next) => {
   const cookieToken = getCookieValue(req, "csrfToken");
   const sessionId = (req.session as any)?.id || "NO_SESSION_ID";
 
+  log(`CSRF debug: ${req.method} ${req.path} session=${sessionId.substring(0, 20)}... header=${token ? token.substring(0, 20) + "..." : "MISSING"} sessionToken=${sessionToken ? sessionToken.substring(0, 20) + "..." : "MISSING"}`, "csrf");
+
   if (!req.session) {
     if (CSRF_EXEMPT_PATHS.includes(req.path)) {
       return next();

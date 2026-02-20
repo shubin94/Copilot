@@ -94,8 +94,8 @@ export default function Login() {
           console.log("[Login] navigate -> /admin/dashboard");
           setLocation("/admin/dashboard");
         } else if (user.role === "employee") {
-          console.log("[Login] navigate -> /admin/dashboard");
-          setLocation("/admin/dashboard");
+          console.log("[Login] navigate -> /employee/dashboard");
+          setLocation("/employee/dashboard");
         } else if (user.role === "detective") {
           console.log("[Login] navigate -> /detective/dashboard");
           setLocation("/detective/dashboard");
