@@ -55,24 +55,29 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   }, []);
 
   useEffect(() => {
+    console.log("[DashboardLayout] guard check", { isLoading, isAuthenticated, user, role });
     if (isLoading) return;
 
     if (!isAuthenticated || !user) {
+      console.log("[DashboardLayout] redirect -> /login", { reason: "no-auth" });
       setLocation("/login");
       return;
     }
 
     if (role === "admin" && user.role !== "admin" && user.role !== "employee") {
+      console.log("[DashboardLayout] redirect -> /", { reason: "role", role: user.role });
       setLocation("/");
       return;
     }
 
     if (role === "detective" && user.role !== "detective") {
+      console.log("[DashboardLayout] redirect -> /", { reason: "role", role: user.role });
       setLocation("/");
       return;
     }
 
     if (role === "user" && user.role !== "user") {
+      console.log("[DashboardLayout] redirect -> /", { reason: "role", role: user.role });
       setLocation("/");
       return;
     }
@@ -84,7 +89,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
     setIsEmployeePagesLoading(true);
     api
-      .get<{ pages: Array<{ key: string }> }>("/api/employee/pages")
+      .get<{ pages: Array<{ key: string }> }>("/api/employee/pages", { forceProxy: true })
       .then((data) => {
         setEmployeePages(data.pages.map((page) => page.key));
       })

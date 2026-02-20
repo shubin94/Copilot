@@ -288,6 +288,7 @@ export function getSessionMiddleware() {
     });
   }
 
+  const isDev = !config.env.isProd;
   const sessionMiddleware = session({
     store: sessionStore,
     secret: config.session.secret,
@@ -295,8 +296,8 @@ export function getSessionMiddleware() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: config.env.isProd,  // Only secure in production (HTTPS)
-      sameSite: config.env.isProd ? "none" : "lax",  // Dev: lax (works with HTTP), Prod: none (cross-origin)
+      secure: isDev ? false : true, // Always false in dev for HTTP
+      sameSite: isDev ? "lax" : "none",
       maxAge: config.session.ttlMs,
       domain: undefined,  // NO DOMAIN RESTRICTION
     },
@@ -318,6 +319,7 @@ const sessionMiddleware = getSessionMiddleware();
 
 // ✅ Apply session middleware to protected route groups
 // CSRF token endpoint (needs session to generate token)
+
 app.use("/api/csrf-token", sessionMiddleware);
 
 // Authentication routes
@@ -325,6 +327,9 @@ app.use("/api/auth", sessionMiddleware);
 
 // Detective profile routes
 app.use("/api/detectives/me", sessionMiddleware);
+
+// Employee dashboard routes (fix: ensure session is available)
+app.use("/api/employee", sessionMiddleware);
 
 // Admin panel routes
 app.use("/api/admin", sessionMiddleware);
@@ -351,7 +356,25 @@ const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 // Public endpoints that should work without authentication (incognito mode, mobile, etc.)
 const CSRF_EXEMPT_PATHS = [
   "/api/smart-search",  // Homepage AI search - must work for all public users
+  "/api/metrics",       // Client perf metrics - public, no session required
 ];
+
+function getCookieValue(req: Request, name: string): string | undefined {
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  const parts = header.split(";");
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex === -1) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    if (key !== name) continue;
+    const value = trimmed.slice(eqIndex + 1);
+    return decodeURIComponent(value);
+  }
+  return undefined;
+}
 
 app.use((req, res, next) => {
   if (!CSRF_METHODS.has(req.method)) return next();
@@ -367,13 +390,19 @@ app.use((req, res, next) => {
   const requestedWith = req.get("x-requested-with");
   const token = req.get("x-csrf-token");
   const sessionToken = (req.session as any)?.csrfToken;
+  const cookieToken = getCookieValue(req, "csrfToken");
   const sessionId = (req.session as any)?.id || "NO_SESSION_ID";
 
-if (!req.session) {
-  // If no session, this is likely a public mutation route.
-  // Skip CSRF enforcement for routes that don't require authentication.
-  return next();
-}
+  if (!req.session) {
+    if (CSRF_EXEMPT_PATHS.includes(req.path)) {
+      return next();
+    }
+    if (cookieToken && token === cookieToken) {
+      return next();
+    }
+    log(`CSRF blocked: ${req.method} ${req.path} - No session and no valid CSRF cookie`, "csrf");
+    return res.status(403).json({ error: "Invalid CSRF token" });
+  }
 
   const isAllowedOrigin = (urlValue: string | undefined): boolean => {
     if (!urlValue) return false;
@@ -402,8 +431,18 @@ if (!req.session) {
     return res.status(403).json({ error: "CSRF referer not allowed" });
   }
 
-  if (!sessionToken || token !== sessionToken) {
-    log(`CSRF blocked: ${req.method} ${req.path} - Session ${sessionId.substring(0, 20)}... - Token mismatch (header: ${token ? token.substring(0, 20) + "..." : "MISSING"}, session: ${sessionToken ? sessionToken.substring(0, 20) + "..." : "MISSING"})`, "csrf");
+  if (sessionToken) {
+    if (!token || token !== sessionToken) {
+      log(`CSRF blocked: ${req.method} ${req.path} - Session ${sessionId.substring(0, 20)}... - Token mismatch (header: ${token ? token.substring(0, 20) + "..." : "MISSING"}, session: ${sessionToken ? sessionToken.substring(0, 20) + "..." : "MISSING"})`, "csrf");
+      return res.status(403).json({ error: "Invalid CSRF token" });
+    }
+  } else if (cookieToken) {
+    if (!token || token !== cookieToken) {
+      log(`CSRF blocked: ${req.method} ${req.path} - Session ${sessionId.substring(0, 20)}... - Cookie token mismatch (header: ${token ? token.substring(0, 20) + "..." : "MISSING"}, cookie: ${cookieToken ? cookieToken.substring(0, 20) + "..." : "MISSING"})`, "csrf");
+      return res.status(403).json({ error: "Invalid CSRF token" });
+    }
+  } else {
+    log(`CSRF blocked: ${req.method} ${req.path} - Session ${sessionId.substring(0, 20)}... - Missing CSRF token`, "csrf");
     return res.status(403).json({ error: "Invalid CSRF token" });
   }
 

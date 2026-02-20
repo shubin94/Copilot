@@ -616,6 +616,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         setNoStore(res);
         
         console.log(`[CSRF-TOKEN] Saved session ${sessionId.substring(0, 20)}... with token ${req.session.csrfToken?.substring(0, 16)}...`);
+
+        // Set CSRF token cookie for double-submit validation (fallback when session token is missing)
+        const isProd = config.env.isProd;
+        res.cookie("csrfToken", req.session.csrfToken, {
+          httpOnly: true,
+          secure: isProd,
+          sameSite: isProd ? "none" : "lax",
+          maxAge: config.session.ttlMs,
+          domain: config.session.cookieDomain || undefined,
+          path: "/",
+        });
         
         // Final response - only if headers not sent
         if (!res.headersSent) {
@@ -1182,10 +1193,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Get current user
-  app.get("/api/auth/me", requireAuth, async (req: Request, res: Response) => {
+  // Get current user (return null when unauthenticated)
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
     try {
       setNoStore(res);
+      if (!req.session || !req.session.userId) {
+        return res.json({ user: null });
+      }
       // Only database-backed credentials are allowed
       const user = await storage.getUser(req.session.userId!);
       if (!user) {
@@ -1198,6 +1212,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Get user error:", error);
       res.status(500).json({ error: "Failed to get user" });
     }
+  });
+
+  // Dev-only session debug: confirms if session is saved and readable
+  app.get("/api/auth/session-debug", (req: Request, res: Response) => {
+    if (config.env.isProd) {
+      return res.status(404).json({ error: "Not Found" });
+    }
+    setNoStore(res);
+    const sessionId = (req.session as any)?.id || null;
+    return res.json({
+      hasSession: !!req.session,
+      userId: req.session?.userId || null,
+      userRole: req.session?.userRole || null,
+      sessionId,
+    });
   });
 
   // Alias for admin pages: same response shape as /api/auth/me (single source of truth)
