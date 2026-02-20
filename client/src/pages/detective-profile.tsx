@@ -667,8 +667,8 @@ export default function DetectiveProfile() {
                       </div>
                     );
                   })()}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4 text-sm">
+                
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4 text-sm">
                     <div>
                       <span className="text-gray-500 block">From</span>
                       <span className="font-bold" data-testid="text-location">{detective.location || detective.country}</span>
