@@ -10,6 +10,7 @@ import { ArrowRight, AlertCircle, Layers } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Link } from "wouter";
 import { useSearchServices, useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
+import { useCurrency } from "@/lib/currency-context";
 import type { Service, Detective, ServiceCategory } from "@shared/schema";
 import { computeServiceBadges } from "@/lib/service-badges";
 import { getDetectiveProfileUrl } from "@/lib/utils";
@@ -63,7 +64,11 @@ export default function Home() {
   const { data: categoriesData, isLoading: isLoadingCategories } = useServiceCategories(true);
   const categories = categoriesData?.categories || [];
 
-  const { data: popularServicesData, isLoading: isLoadingPopular } = useFeaturedHomeServices();
+  // Get selected country from context, but only use it if not GLOBAL and no manual filter applied
+  const { selectedCountry } = useCurrency();
+  const countryForApi = selectedCountry && selectedCountry.code !== "GLOBAL" ? selectedCountry.code : undefined;
+
+  const { data: popularServicesData, isLoading: isLoadingPopular } = useFeaturedHomeServices(countryForApi);
 
   const popularServices = (popularServicesData?.services || []).map(mapServiceToCard);
   const { data: featuredDetectivesData, isLoading: isLoadingDetectives } = useSearchDetectives({ status: "active", limit: 4 });
@@ -249,66 +254,35 @@ export default function Home() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {isLoadingDetectives ? (
                 [1, 2, 3, 4].map((i) => (
-                  <Card key={i} className="hover:shadow-lg transition-shadow">
-                    <CardContent className="p-6">
-                      <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4 mb-2" />
-                      <div className="h-4 bg-gray-100 rounded animate-pulse w-1/2" />
+                  <Card key={i} className="hover:shadow-lg transition-shadow h-40">
+                    <CardContent className="p-6 h-full flex items-center">
+                      <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4" />
                     </CardContent>
                   </Card>
                 ))
               ) : (
-                featuredDetectives.map((d) => {
-                  const badgeState = computeServiceBadges({
-                    isVerified: d.isVerified || false,
-                    effectiveBadges: d.effectiveBadges,
-                  });
-
-                  return (
+                featuredDetectives.map((d) => (
                     <Link key={d.id} href={getDetectiveProfileUrl(d)}>
-                      <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-                        <CardContent className="p-6">
-                          <div className="flex items-center gap-4">
-                            <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                      <Card className="hover:shadow-lg transition-shadow cursor-pointer h-40">
+                        <CardContent className="p-6 h-full flex items-center">
+                          <div className="flex items-center gap-4 w-full">
+                            <div className="h-14 w-14 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
                               {d.logo ? (
-                                <img src={d.logo} alt={d.businessName || "Detective"} className="h-12 w-12 object-cover" width={12} height={12} />
+                                <img src={d.logo} alt={d.businessName || "Detective"} className="h-14 w-14 object-cover" width={14} height={14} />
                               ) : (
-                                <div className="h-8 w-8 rounded-full bg-gray-200" />
+                                <div className="h-10 w-10 rounded-full bg-gray-200" />
                               )}
                             </div>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <div className="font-bold text-lg text-gray-900 hover:underline">{d.businessName || "Unknown Detective"}</div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-lg text-gray-900 hover:underline truncate">
+                                {d.businessName || "Unknown Detective"}
                               </div>
-                              <div className="flex items-center gap-2 mb-2">
-                                {badgeState.showBlueTick && (
-                                  <img
-                                    src="/blue-tick.png"
-                                    alt="Verified"
-                                    className="h-4 w-4"
-                                    width={4}
-                                    height={4}
-                                    title="Verified Detective"
-                                  />
-                                )}
-                                {badgeState.showPro && (
-                                  <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
-                                    Pro
-                                  </Badge>
-                                )}
-                                {badgeState.showRecommended && (
-                                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-1.5 py-0.5">
-                                    Recommended
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="text-sm text-gray-600">{d.location || d.country || ""}</div>
                             </div>
                           </div>
                         </CardContent>
                       </Card>
                     </Link>
-                  );
-                })
+                ))
               )}
             </div>
           </section>

@@ -953,7 +953,7 @@ export class DatabaseStorage implements IStorage {
     .groupBy(reviews.serviceId)
     .as('reviews_agg');
 
-    let query = db.select({
+    const baseSelect = {
       // Service fields needed by ServiceCard
       serviceId: services.id,
       serviceTitle: services.title,
@@ -989,32 +989,58 @@ export class DatabaseStorage implements IStorage {
       // Aggregated values
       avgRating: reviewsAgg.avgRating,
       reviewCount: reviewsAgg.reviewCount,
-    })
-    .from(services)
-    .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
-    .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
-    .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
-    .where(and(...conditions));
+    };
 
-    // rating filter uses WHERE on aggregated values
-    if (filters.ratingMin !== undefined) {
-      query = query.having(sql`COALESCE(${reviewsAgg.avgRating}, 0) >= ${filters.ratingMin}`) as any;
-    }
-
-    // Sort
-    if (sortBy === 'popular') {
-      query = query.orderBy(desc(services.orderCount), sql`RANDOM()`) as any;
-    } else if (sortBy === 'rating') {
-      query = query.orderBy(desc(reviewsAgg.avgRating)) as any;
-    } else if (sortBy === 'price_low') {
-      query = query.orderBy(services.basePrice) as any;
-    } else if (sortBy === 'price_high') {
-      query = query.orderBy(desc(services.basePrice)) as any;
-    } else {
-      query = query.orderBy(desc(services.createdAt)) as any;
-    }
-
+    let query: any;
     const cappedLimit = limit;
+
+    if (sortBy === 'popular') {
+      // Popular sort: Query services that are the best per detective (from materialized view)
+      // The materialized view pre-selects 1 best service per detective, so we just check membership
+      // This avoids DISTINCT ON full table sort, instead filtering by the view's pre-computed results
+      
+      query = db.select(baseSelect)
+        .from(services)
+        .where(
+          and(
+            and(...conditions),
+            // Only include services that are in the materialized view (best per detective)
+            sql`${services.id} IN (SELECT service_id FROM popular_service_per_detective)`
+          )
+        )
+        .leftJoin(detectives, eq(services.detectiveId, detectives.id))
+        .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
+        .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))
+        .orderBy(desc(services.orderCount)) as any;
+
+      if (filters.ratingMin !== undefined) {
+        query = query.having(sql`COALESCE(${reviewsAgg.avgRating}, 0) >= ${filters.ratingMin}`) as any;
+      }
+    } else {
+      query = db.select(baseSelect)
+        .from(services)
+        .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
+        .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
+        .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
+        .where(and(...conditions));
+
+      // rating filter uses WHERE on aggregated values
+      if (filters.ratingMin !== undefined) {
+        query = query.having(sql`COALESCE(${reviewsAgg.avgRating}, 0) >= ${filters.ratingMin}`) as any;
+      }
+
+      // Sort
+      if (sortBy === 'rating') {
+        query = query.orderBy(desc(reviewsAgg.avgRating)) as any;
+      } else if (sortBy === 'price_low') {
+        query = query.orderBy(services.basePrice) as any;
+      } else if (sortBy === 'price_high') {
+        query = query.orderBy(desc(services.basePrice)) as any;
+      } else {
+        query = query.orderBy(desc(services.createdAt)) as any;
+      }
+    }
+
     const results = await query.limit(cappedLimit).offset(offset);
     
     console.log('[searchServices] FINAL services count:', results.length, 'sortBy:', sortBy);

@@ -254,10 +254,13 @@ export default function SearchPage() {
   // Determine level filter for backend (level1 or level2)
   const level = filters.level1Only ? "level1" : filters.level2Only ? "level2" : undefined;
 
+  // Apply selected country from context if no manual country filter is set
+  const countryForApi = filters.country || (selectedCountry && selectedCountry.code !== "GLOBAL" ? selectedCountry.code : undefined);
+
   // Fetch services from backend with ALL filters applied server-side
   const { data: servicesData, isLoading } = useSearchServices({
     search: filters.category ? undefined : (query !== "All Services" ? query : undefined),
-    country: filters.country || undefined,
+    country: countryForApi,
     state: filters.state || undefined,
     city: filters.city || undefined,
     category: filters.category,

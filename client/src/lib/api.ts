@@ -704,8 +704,11 @@ export const api = {
       return handleResponse(response);
     },
 
-    getFeaturedHome: async (): Promise<{ services: Service[] }> => {
-      const response = await csrfFetch(`/api/services/featured/home`, {
+    getFeaturedHome: async (country?: string): Promise<{ services: Service[] }> => {
+      const queryParams = new URLSearchParams();
+      if (country) queryParams.append("country", country);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+      const response = await csrfFetch(`/api/services/featured/home${qs}`, {
         credentials: "include",
       });
       return handleResponse(response);

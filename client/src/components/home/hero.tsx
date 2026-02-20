@@ -96,7 +96,7 @@ export function Hero() {
           <img
             src={heroImage}
             alt=""
-            fetchPriority="low"
+            fetchpriority="low"
             loading="lazy"
             decoding="async"
             className="object-cover w-full h-full"
@@ -107,7 +107,7 @@ export function Hero() {
             <img
               src={heroBgPng}
               alt=""
-              fetchPriority="low"
+              fetchpriority="low"
               loading="lazy"
               decoding="async"
               className="object-cover w-full h-full"
