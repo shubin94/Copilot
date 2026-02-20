@@ -139,14 +139,10 @@ export default function AdminAppSecrets() {
   }, [isAuthenticated, user, isLoadingUser, setLocation]);
 
   useEffect(() => {
-    // Force fresh auth check to ensure we're using the current admin account
-    // This prevents showing stale cached user data from a different session
-    queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-    // Only fetch secrets if user is authenticated and admin
     if (isAuthenticated && user?.role === "admin") {
       fetchSecrets();
     }
-  }, [queryClient, isAuthenticated, user]);
+  }, [isAuthenticated, user?.role]);
 
   const fetchSecrets = async () => {
     try {

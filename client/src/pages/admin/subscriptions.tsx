@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Pencil, Trash2, Check, X, Shield, Crown, Star, Mail, Phone, MessageCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
 
 interface SubscriptionPlan {
   id: string;
@@ -136,6 +137,11 @@ export default function AdminSubscriptions() {
           const res = await api.subscriptionPlans.getAll({ includeInactive: true });
           setPlans(Array.isArray(res.plans) ? res.plans as any : []);
         } catch {}
+        
+        // Invalidate service/detective caches to immediately refresh badge changes
+        await queryClient.invalidateQueries({ queryKey: ["services"] });
+        await queryClient.invalidateQueries({ queryKey: ["detectives"] });
+        
         setIsDialogOpen(false);
         toast({ title: "Updated", description: "Plan updated" });
       }).catch(e => {
@@ -147,6 +153,11 @@ export default function AdminSubscriptions() {
           const res = await api.subscriptionPlans.getAll({ includeInactive: true });
           setPlans(Array.isArray(res.plans) ? res.plans as any : []);
         } catch {}
+        
+        // Invalidate service/detective caches to immediately refresh badge changes
+        await queryClient.invalidateQueries({ queryKey: ["services"] });
+        await queryClient.invalidateQueries({ queryKey: ["detectives"] });
+        
         setIsDialogOpen(false);
         toast({ title: "Created", description: "Plan created" });
       }).catch(e => {

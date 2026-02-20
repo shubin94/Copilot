@@ -885,17 +885,19 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(services.category, filters.category.trim()));
     }
     
-    // Full-text search uses fuzzy matching across title, description, category
-    // This is different from category filter - used when NO specific category selected
+    // Full-text search using PostgreSQL tsvector and tsquery for better match accuracy
+    // Searches across title, description, and category fields
     if (filters.searchQuery) {
-      const searchCondition = or(
-        ilike(services.title, `%${filters.searchQuery}%`),
-        ilike(services.description, `%${filters.searchQuery}%`),
-        ilike(services.category, `%${filters.searchQuery}%`)
+      conditions.push(
+        sql`
+          to_tsvector('simple',
+            coalesce(${services.title}, '') || ' ' ||
+            coalesce(${services.description}, '') || ' ' ||
+            coalesce(${services.category}, '')
+          )
+          @@ plainto_tsquery('simple', ${filters.searchQuery})
+        `
       );
-      if (searchCondition) {
-        conditions.push(searchCondition);
-      }
     }
 
     // country filter should be applied in WHERE conditions
@@ -918,6 +920,26 @@ export class DatabaseStorage implements IStorage {
     if (filters.level) {
       conditions.push(eq(detectives.level, filters.level as any));
     }
+
+    // Filter by price range (using effective price: offer price if available, else base price)
+    if (filters.minPrice !== undefined) {
+      conditions.push(
+        sql`COALESCE(${services.offerPrice}, ${services.basePrice}) >= ${filters.minPrice}`
+      );
+    }
+    if (filters.maxPrice !== undefined) {
+      conditions.push(
+        sql`COALESCE(${services.offerPrice}, ${services.basePrice}) <= ${filters.maxPrice}`
+      );
+    }
+
+    // ✅ Filter to ensure services have at least one image (in SQL, not post-pagination)
+    conditions.push(
+      and(
+        sql`${services.images} IS NOT NULL`,
+        sql`array_length(${services.images}, 1) > 0`
+      )
+    );
 
     // Use subquery for reviews aggregation to avoid cartesian product
     // This prevents the LEFT JOIN reviews from multiplying rows
@@ -956,13 +978,20 @@ export class DatabaseStorage implements IStorage {
       detectiveContactEmail: detectives.contactEmail,
       detectiveIsVerified: detectives.isVerified,
       
+      // Subscription fields needed for effectiveBadges calculation
+      detectiveSubscriptionPackageId: detectives.subscriptionPackageId,
+      detectiveSubscriptionExpiresAt: detectives.subscriptionExpiresAt,
+      detectiveHasBlueTick: detectives.hasBlueTick,
+      detectiveBlueTickAddon: detectives.blueTickAddon,
+      subscriptionPackageName: subscriptionPlans.name,
+      subscriptionPackageBadges: subscriptionPlans.badges,
+      
       // Aggregated values
       avgRating: reviewsAgg.avgRating,
       reviewCount: reviewsAgg.reviewCount,
     })
     .from(services)
     .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
-    .leftJoin(users, eq(detectives.userId, users.id))
     .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
     .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
     .where(and(...conditions));
@@ -985,7 +1014,7 @@ export class DatabaseStorage implements IStorage {
       query = query.orderBy(desc(services.createdAt)) as any;
     }
 
-    const cappedLimit = sortBy === "popular" ? 15 : limit;
+    const cappedLimit = limit;
     const results = await query.limit(cappedLimit).offset(offset);
     
     console.log('[searchServices] FINAL services count:', results.length, 'sortBy:', sortBy);
@@ -1028,6 +1057,15 @@ export class DatabaseStorage implements IStorage {
           whatsapp: r.detectiveWhatsapp,
           contactEmail: r.detectiveContactEmail,
           isVerified: r.detectiveIsVerified,
+          // Subscription data for effectiveBadges calculation
+          subscriptionPackageId: r.detectiveSubscriptionPackageId,
+          subscriptionExpiresAt: r.detectiveSubscriptionExpiresAt,
+          hasBlueTick: r.detectiveHasBlueTick,
+          blueTickAddon: r.detectiveBlueTickAddon,
+          subscriptionPackage: r.subscriptionPackageName ? {
+            name: r.subscriptionPackageName,
+            badges: r.subscriptionPackageBadges,
+          } : null,
         },
         avgRating: Number(r.avgRating),
         reviewCount: Number(r.reviewCount),

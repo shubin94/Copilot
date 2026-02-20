@@ -5,13 +5,35 @@ import type { User, Detective, Service, Review, Order, DetectiveApplication, Pro
 export function useAuth() {
   return useQuery({
     queryKey: ["auth", "me"],
-    queryFn: () => api.auth.me(),
+    queryFn: async () => {
+      try {
+        console.debug('[useAuth] Fetching authentication status');
+        const result = await api.auth.me();
+        console.debug('[useAuth] Auth response received:', result);
+        return result;
+      } catch (error: any) {
+        // Treat 401/403 as valid "not authenticated" state, not an error
+        // This prevents React Query from treating it as a failed request
+        if (error?.response?.status === 401 || error?.response?.status === 403) {
+          console.debug('[useAuth] 401/403 caught - treating as not authenticated');
+          return { user: null };
+        }
+        // Check for status in error message (some fetch implementations)
+        if (error?.message?.includes('401') || error?.message?.includes('403')) {
+          console.debug('[useAuth] 401/403 in error message - treating as not authenticated');
+          return { user: null };
+        }
+        // For other errors, rethrow to let React Query handle them
+        console.error('[useAuth] Unexpected error:', error);
+        throw error;
+      }
+    },
     retry: false,
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
-    refetchOnMount: "always",
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
   });
 }
 
@@ -58,9 +80,9 @@ export function useDetectives(limit?: number, offset?: number) {
   return useQuery({
     queryKey: ["detectives", "all", limit, offset],
     queryFn: () => api.detectives.getAll(limit, offset),
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -92,11 +114,27 @@ export function useDetectiveBySlug(
 export function useCurrentDetective() {
   return useQuery({
     queryKey: ["detectives", "current"],
-    queryFn: () => api.detectives.getCurrent(),
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    queryFn: async () => {
+      try {
+        return await api.detectives.getCurrent();
+      } catch (error: any) {
+        // Treat 401/403 as valid "not a detective" state
+        if (error?.status === 401 || error?.status === 403) {
+          console.debug('[useCurrentDetective] User not a detective - returning null');
+          return { detective: null };
+        }
+        if (error?.message?.includes('401') || error?.message?.includes('403')) {
+          console.debug('[useCurrentDetective] 401/403 in error - returning null');
+          return { detective: null };
+        }
+        throw error;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    retry: false,
   });
 }
 
@@ -186,6 +224,8 @@ export function useSearchDetectives(params?: {
   return useQuery({
     queryKey: ["detectives", "search", params],
     queryFn: () => api.detectives.search(params),
+    staleTime: 5 * 60 * 1000, // 5 minutes - search results valid for 5 mins
+    gcTime: 10 * 60 * 1000, // 10 minutes - keep in memory for 10 mins
   });
 }
 
@@ -245,9 +285,9 @@ export function useServices(limit?: number, offset?: number) {
   return useQuery({
     queryKey: ["services", "all", limit, offset],
     queryFn: () => api.services.getAll(limit, offset),
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -269,8 +309,8 @@ export function useSearchServices(params?: {
   return useQuery({
     queryKey: ["services", "search", params],
     queryFn: () => api.services.search(params),
-    staleTime: 60 * 1000, // 60 seconds - public search results cached for better UX
-    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
+    staleTime: 5 * 60 * 1000, // 5 minutes - search results valid for 5 mins
+    gcTime: 10 * 60 * 1000, // 10 minutes - keep in memory for 10 mins
   });
 }
 
@@ -309,10 +349,10 @@ export function useServicesByDetective(detectiveId: string | null | undefined) {
     queryKey: ["services", "detective", detectiveId],
     queryFn: () => api.services.getByDetective(detectiveId!),
     enabled: !!detectiveId,
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 }
 
@@ -345,10 +385,10 @@ export function useAdminServicesByDetective(detectiveId: string | null | undefin
     queryKey: ["services", "detective", detectiveId, "admin"],
     queryFn: () => api.services.adminGetByDetective(detectiveId!),
     enabled: !!detectiveId,
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 }
 
@@ -448,6 +488,8 @@ export function useReviews(limit?: number, offset?: number) {
   return useQuery({
     queryKey: ["reviews", "all", limit, offset],
     queryFn: () => api.reviews.getAll(limit, offset),
+    staleTime: 2 * 60 * 1000, // 2 minutes - reviews valid for 2 mins
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in memory for 5 mins
   });
 }
 
@@ -456,6 +498,8 @@ export function useReviewsByService(serviceId: string | null | undefined, limit?
     queryKey: ["reviews", "service", serviceId, limit],
     queryFn: () => api.reviews.getByService(serviceId!, limit),
     enabled: !!serviceId,
+    staleTime: 2 * 60 * 1000, // 2 minutes - reviews valid for 2 mins
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in memory for 5 mins
   });
 }
 
@@ -466,10 +510,10 @@ export function useReviewsByDetective() {
     queryKey: ["reviews", "detective", detectiveId],
     queryFn: () => api.reviews.getByDetective(),
     enabled: !!detectiveId,
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 }
 
@@ -547,10 +591,10 @@ export function useOrdersByDetective(detectiveId: string | null | undefined) {
     queryKey: ["orders", "detective", detectiveId],
     queryFn: () => api.orders.getByDetective(detectiveId!),
     enabled: !!detectiveId,
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 }
 
@@ -581,10 +625,10 @@ export function useFavorites(userId: string | null | undefined) {
     queryKey: ["favorites", "user", userId],
     queryFn: () => api.favorites.getByUser(userId!),
     enabled: !!userId,
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 }
 
@@ -717,8 +761,8 @@ export function useServiceCategories(activeOnly?: boolean, enabled: boolean = tr
     queryKey: ["serviceCategories", activeOnly],
     queryFn: () => api.serviceCategories.getAll(activeOnly),
     enabled,
-    staleTime: 2 * 60 * 1000, // 2 minutes - categories rarely change, safe to cache longer
-    gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache when navigating away
+    staleTime: 60 * 60 * 1000, // 1 hour - static data rarely changes
+    gcTime: 6 * 60 * 60 * 1000, // 6 hours - keep in memory longer
   });
 }
 
@@ -734,10 +778,9 @@ export function useSiteSettings() {
   return useQuery({
     queryKey: ["settings", "site"],
     queryFn: () => api.settings.getSite(),
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    staleTime: 60 * 60 * 1000,
+    gcTime: 6 * 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -755,7 +798,8 @@ export function usePopularCategories() {
   return useQuery({
     queryKey: ["categories", "popular"],
     queryFn: () => api.catalog.getPopularCategories(),
-    staleTime: 60 * 1000,
+    staleTime: 60 * 60 * 1000, // 1 hour - static data rarely changes
+    gcTime: 6 * 60 * 60 * 1000, // 6 hours - keep in memory longer
   });
 }
 
@@ -832,7 +876,8 @@ export function useCountries() {
   return useQuery({
     queryKey: ["locations", "countries"],
     queryFn: () => api.locations.getCountries(),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 60 * 60 * 1000, // 1 hour - static location data rarely changes
+    gcTime: 6 * 60 * 60 * 1000, // 6 hours - keep in memory longer
   });
 }
 
@@ -841,7 +886,8 @@ export function useStates(country: string | undefined) {
     queryKey: ["locations", "states", country],
     queryFn: () => api.locations.getStates(country!),
     enabled: !!country,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 60 * 1000, // 1 hour - static location data rarely changes
+    gcTime: 6 * 60 * 60 * 1000, // 6 hours - keep in memory longer
   });
 }
 
@@ -850,6 +896,7 @@ export function useCities(country: string | undefined, state: string | undefined
     queryKey: ["locations", "cities", country, state],
     queryFn: () => api.locations.getCities(country!, state!),
     enabled: !!country && !!state,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 60 * 1000, // 1 hour - static location data rarely changes
+    gcTime: 6 * 60 * 60 * 1000, // 6 hours - keep in memory longer
   });
 }

@@ -188,6 +188,7 @@ function Router() {
           <Route path="/detectives/:country/:state/:city" component={CityDetectivesPage} />
           <Route path="/detectives/:country/:state" component={CityDetectivesPage} />
           <Route path="/detectives/:country" component={CityDetectivesPage} />
+          <Route path="/service/:country/:state/:city/:detectiveSlug/:serviceSlug" component={DetectiveProfile} />
           <Route path="/news/:slug" component={ArticlePage} />
 
           {/* User Routes - MUST come before catch-all CMS routes */}
@@ -210,7 +211,7 @@ function Router() {
 }
 
 function App() {
-  // Initialize auth session management on app mount
+  // Initialize auth session management on app mount (ONCE)
   useEffect(() => {
     console.log('[APP] Initializing auth session management...');
     
@@ -218,7 +219,7 @@ function App() {
       enableIdleTimeout: false, // Disable idle timeout (optional feature)
       idleTimeoutMinutes: 60,
       enableCrossTabLogout: true, // Enable cross-tab logout detection
-      enableAuthMonitor: false, // DISABLED - causing issues, use interceptor only
+      enableAuthMonitor: false, // DISABLED - causes excessive /api/auth/me calls
     });
     
     return cleanup;

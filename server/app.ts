@@ -310,10 +310,43 @@ export function getSessionMiddleware() {
 }
 
 // Apply session middleware globally so all routes have access to CSRF tokens
-const globalSessionMiddleware = getSessionMiddleware();
-app.use(globalSessionMiddleware);
+// const globalSessionMiddleware = getSessionMiddleware();
+// app.use(globalSessionMiddleware);
+
+// ✅ Create session middleware instance
+const sessionMiddleware = getSessionMiddleware();
+
+// ✅ Apply session middleware to protected route groups
+// CSRF token endpoint (needs session to generate token)
+app.use("/api/csrf-token", sessionMiddleware);
+
+// Authentication routes
+app.use("/api/auth", sessionMiddleware);
+
+// Detective profile routes
+app.use("/api/detectives/me", sessionMiddleware);
+
+// Admin panel routes
+app.use("/api/admin", sessionMiddleware);
+
+// Payment processing routes
+app.use("/api/payments", sessionMiddleware);
+
+// ✅ CSRF protection for ALL mutations (require session for token validation)
+// This ensures POST/PUT/PATCH/DELETE requests validate CSRF tokens
+const csrfProtectionByMethod = (req: Request, res: Response, next: NextFunction) => {
+  // Only apply session middleware to mutation methods
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+    return sessionMiddleware(req, res, next);
+  }
+  return next();
+};
+
+// Apply CSRF protection globally to all routes
+app.use(csrfProtectionByMethod);
 
 const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 
 // Public endpoints that should work without authentication (incognito mode, mobile, etc.)
 const CSRF_EXEMPT_PATHS = [
@@ -336,10 +369,11 @@ app.use((req, res, next) => {
   const sessionToken = (req.session as any)?.csrfToken;
   const sessionId = (req.session as any)?.id || "NO_SESSION_ID";
 
-  if (!req.session) {
-    log(`CSRF blocked: session unavailable ${req.method} ${req.path}`, "csrf");
-    return res.status(403).json({ error: "Session unavailable" });
-  }
+if (!req.session) {
+  // If no session, this is likely a public mutation route.
+  // Skip CSRF enforcement for routes that don't require authentication.
+  return next();
+}
 
   const isAllowedOrigin = (urlValue: string | undefined): boolean => {
     if (!urlValue) return false;

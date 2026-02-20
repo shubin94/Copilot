@@ -376,18 +376,28 @@ export const api = {
 
     me: async (): Promise<{ user?: User | null }> => {
       try {
+        console.debug('[api.auth.me] Calling /api/auth/me endpoint');
         const response = await csrfFetch("/api/auth/me", {
           credentials: "include",
           forceProxy: true,
         });
+        
+        console.debug('[api.auth.me] Response status:', response.status);
+        
         if (response.status === 401 || response.status === 403) {
+          console.debug('[api.auth.me] User not authenticated - returning null');
           return { user: null } as any;
         }
-        return handleResponse(response);
+        
+        const result = await handleResponse(response);
+        console.debug('[api.auth.me] Auth successful - user data:', result?.user?.email || 'no email');
+        return result;
       } catch (err: any) {
         if (err?.name === "AbortError" || /network|fetch|failed|suspend/i.test(String(err?.message || ""))) {
+          console.warn('[api.auth.me] Network error - returning null');
           return { user: null } as any;
         }
+        console.error('[api.auth.me] Unexpected error:', err);
         throw err;
       }
     },

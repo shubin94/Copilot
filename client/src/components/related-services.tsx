@@ -1,4 +1,5 @@
 import { ServiceCard } from "@/components/home/service-card";
+import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
 import { computeServiceBadges } from "@/lib/service-badges";
 import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
 import type { Detective, Service } from "@shared/schema";
@@ -33,6 +34,7 @@ interface RelatedService {
 
 interface RelatedServicesProps {
   services: RelatedService[];
+  isLoading?: boolean;
   currentServiceTitle?: string;
 }
 
@@ -91,7 +93,21 @@ function mapServiceToCard(service: Service & { detective: Detective & { effectiv
   };
 }
 
-export function RelatedServices({ services, currentServiceTitle }: RelatedServicesProps) {
+export function RelatedServices({ services, isLoading, currentServiceTitle }: RelatedServicesProps) {
+  // Show skeletons during loading
+  if (isLoading) {
+    return (
+      <div className="mt-12 mb-8">
+        <h2 className="text-2xl font-bold mb-6">Similar Services You May Like</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <ServiceCardSkeleton key={i} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (!services || services.length === 0) return null;
 
   return (

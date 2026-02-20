@@ -42,7 +42,7 @@ export default function DetectiveProfile() {
   const detectiveIdForServices = serviceData?.detective?.id;
   const { data: servicesByDetective } = useServicesByDetective(detectiveIdForServices);
   const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceData?.service?.id);
-  const { data: relatedServicesData } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 2);
+  const { data: relatedServicesData, isLoading: isLoadingRelatedServices } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 2);
   
   let selectedCountry = null;
   let formatPriceFromTo = null;
@@ -639,26 +639,36 @@ export default function DetectiveProfile() {
                   )}
                 </Avatar>
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-2xl font-bold font-heading text-gray-900" data-testid="text-detective-name-heading">
-                      <Link href={getDetectiveProfileUrl(detective)}>
-                        <span className="hover:underline cursor-pointer">{detectiveName}</span>
-                      </Link>
-                    </h3>
-                    {/* Inline badges: Blue Tick → Pro → Recommended (Blue Tick & Pro icons, Recommended text) */}
-                    {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick) && (
-                      <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title="Verified" data-testid="badge-verified-inline" />
-                    )}
-                    {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
-                      <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" data-testid="badge-pro-inline" />
-                    )}
-                    {(detectiveTier === "agency" || (detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended) && (
-                      <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-agency-inline">
-                        Recommended
-                      </Badge>
-                    )}
-                  </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4 text-sm">
+                  {(() => {
+                    const badgeState = computeServiceBadges({
+                      isVerified: detective.isVerified || false,
+                      effectiveBadges: detective.effectiveBadges,
+                    });
+
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-2xl font-bold font-heading text-gray-900" data-testid="text-detective-name-heading">
+                          <Link href={getDetectiveProfileUrl(detective)}>
+                            <span className="hover:underline cursor-pointer">{detectiveName}</span>
+                          </Link>
+                        </h3>
+                        {/* Inline badges: Blue Tick → Pro → Recommended (using unified badge computation) */}
+                        {badgeState.showBlueTick && (
+                          <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title={badgeState.blueTickLabel} data-testid="badge-verified-inline" width={5} height={5} />
+                        )}
+                        {badgeState.showPro && (
+                          <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" data-testid="badge-pro-inline" width={5} height={5} />
+                        )}
+                        {badgeState.showRecommended && (
+                          <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-agency-inline">
+                            Recommended
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })()}
+                
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4 text-sm">
                     <div>
                       <span className="text-gray-500 block">From</span>
                       <span className="font-bold" data-testid="text-location">{detective.location || detective.country}</span>
@@ -855,12 +865,11 @@ export default function DetectiveProfile() {
             </section>
 
             {/* Related Services Section - SEO Internal Linking */}
-            {relatedServicesData && relatedServicesData.length > 0 && (
-              <RelatedServices 
-                services={relatedServicesData}
-                currentServiceTitle={service.title}
-              />
-            )}
+            <RelatedServices 
+              services={relatedServicesData || []}
+              isLoading={isLoadingRelatedServices}
+              currentServiceTitle={service.title}
+            />
 
           </div>
 
