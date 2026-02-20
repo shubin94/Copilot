@@ -949,6 +949,7 @@ export const api = {
           headers: { "Content-Type": "application/json" },
           body: jsonBody,
           credentials: "include",
+          forceProxy: true,
         }, 60000); // 60 second timeout for large file uploads
         console.log("API: Fetch completed with status:", response.status);
         return handleResponse(response);
