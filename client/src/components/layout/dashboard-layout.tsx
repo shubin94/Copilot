@@ -42,7 +42,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [expandedMenu, setExpandedMenu] = useState<string | null>("CMS");
   const { user, isLoading, isAuthenticated, logout } = useUser();
-  const { data: detectiveData } = useCurrentDetective();
+  const { data: detectiveData } = useCurrentDetective(user?.role === "detective");
   const detective = role === "detective" ? detectiveData?.detective : null;
   const [employeePages, setEmployeePages] = useState<string[] | null>(null);
   const [isEmployeePagesLoading, setIsEmployeePagesLoading] = useState(false);

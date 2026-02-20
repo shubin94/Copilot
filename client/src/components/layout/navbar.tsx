@@ -42,7 +42,7 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
   const [loading, setLoading] = useState(false);
   const { selectedCountry, setCountry } = useCurrency();
   const { user, logout } = useUserSafe();
-  const { data: currentDetectiveData } = useCurrentDetective();
+  const { data: currentDetectiveData } = useCurrentDetective(user?.role === "detective");
   const currentDetective = currentDetectiveData?.detective;
   const { data: siteData } = useSiteSettings();
   const site = siteData?.settings;
