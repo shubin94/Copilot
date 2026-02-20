@@ -12,6 +12,7 @@ import { SmokeTester } from "@/components/dev/smoke-tester";
 import CountrySelectorPopup from "@/components/modals/country-selector-popup";
 import { initializeAuthSession } from "./lib/authSessionManager";
 import { AdminRoute } from "@/components/admin-route";
+import { EmployeeRoute } from "@/components/employee-route";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { NetworkErrorHandler } from "@/components/network-error-handler";
 import { PerformanceMonitor } from "@/lib/performance-monitor";
@@ -57,6 +58,7 @@ const AdminTags = lazy(() => import("@/pages/admin/tags"));
 const AdminPagesEdit = lazy(() => import("@/pages/admin/pages-edit"));
 const PageEdit = lazy(() => import("@/pages/admin/page-edit"));
 const AdminEmployees = lazy(() => import("@/pages/admin/employees"));
+const EmployeeDashboard = lazy(() => import("@/pages/employee/dashboard"));
 
 // CMS Public Routes
 const PageView = lazy(() => import("@/pages/page-view"));
@@ -87,6 +89,12 @@ const withAdminRoute = (Component: ComponentType<any>) => (props: any) => (
   <AdminRoute>
     <Component {...props} />
   </AdminRoute>
+);
+
+const withEmployeeRoute = (Component: ComponentType<any>) => (props: any) => (
+  <EmployeeRoute>
+    <Component {...props} />
+  </EmployeeRoute>
 );
 
 function PageSkeleton() {
@@ -175,6 +183,9 @@ function Router() {
           
           {/* Employee Management Routes */}
           <Route path="/admin/employees" component={withAdminRoute(AdminEmployees)} />
+
+          {/* Employee Routes */}
+          <Route path="/employee/dashboard" component={withEmployeeRoute(EmployeeDashboard)} />
           
           {/* Detective Routes - MUST come before catch-all CMS routes */}
           <Route path="/detective/dashboard" component={DetectiveDashboard} />

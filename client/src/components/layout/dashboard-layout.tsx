@@ -34,7 +34,7 @@ import { useCurrentDetective } from "@/lib/hooks";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  role: "admin" | "detective" | "user";
+  role: "admin" | "employee" | "detective" | "user";
 }
 
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
@@ -64,7 +64,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       return;
     }
 
-    if (role === "admin" && user.role !== "admin" && user.role !== "employee") {
+    if (role === "admin" && user.role !== "admin") {
+      console.log("[DashboardLayout] redirect -> /", { reason: "role", role: user.role });
+      setLocation("/");
+      return;
+    }
+
+    if (role === "employee" && user.role !== "employee") {
       console.log("[DashboardLayout] redirect -> /", { reason: "role", role: user.role });
       setLocation("/");
       return;
@@ -84,7 +90,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   }, [isAuthenticated, isLoading, role, setLocation, user]);
 
   useEffect(() => {
-    if (role !== "admin" || user?.role !== "employee") return;
+    if (role !== "employee" || user?.role !== "employee") return;
     if (employeePages !== null || isEmployeePagesLoading) return;
 
     setIsEmployeePagesLoading(true);
@@ -117,7 +123,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     return null;
   }
 
-  if (role === "admin" && user.role !== "admin" && user.role !== "employee") return null;
+  if (role === "admin" && user.role !== "admin") return null;
+  if (role === "employee" && user.role !== "employee") return null;
   if (role === "user" && user.role !== "user") return null;
   if (role === "detective" && user.role !== "detective") return null;
 
@@ -194,28 +201,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   ];
 
   const employeeLinksMap: Record<string, { href: string; label: string; icon: any; submenu?: any[] }> = {
-    dashboard: { href: "/admin/dashboard", label: "Overview", icon: LayoutDashboard },
-    employees: { href: "/admin/employees", label: "Employees", icon: Users },
-    detectives: { href: "/admin/detectives", label: "Detectives", icon: Users },
-    services: { href: "/admin/services", label: "Services", icon: Layers },
-    users: { href: "/admin/signups", label: "Users", icon: UserCheck },
-    settings: { href: "/admin/settings", label: "Settings", icon: Settings },
-    reports: { href: "/admin/finance", label: "Reports", icon: TrendingUp },
-    payments: { href: "/admin/finance", label: "Finance", icon: DollarSign },
-    cms: { 
-      href: "#cms", 
-      label: "CMS", 
-      icon: FileText,
-      submenu: [
-        { href: "/admin/cms/categories", label: "Categories", icon: FolderOpen },
-        { href: "/admin/cms/tags", label: "Tags", icon: Tag },
-        { href: "/admin/cms/pages", label: "Pages", icon: FileText },
-      ]
-    },
+    dashboard: { href: "/employee/dashboard", label: "Overview", icon: LayoutDashboard },
   };
 
   let links = detectiveLinks;
-  if (role === "admin") {
+  if (role === "employee") {
     if (user?.role === "employee") {
       const keys = employeePages || [];
       links = keys
@@ -224,8 +214,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     } else {
       links = adminLinks;
     }
+  } else if (role === "admin") {
+    links = adminLinks;
   }
   if (role === "user") links = userLinks;
+  if (role === "detective") links = detectiveLinks;
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-white border-r border-gray-200 text-gray-900">
@@ -233,10 +226,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         <Shield className="h-8 w-8 text-green-600" />
         <span className="font-bold text-xl tracking-tight font-heading">
           {role === "admin"
-            ? (user?.role === "employee" ? "Employee" : "Admin")
-            : role === "detective"
-              ? "Detective"
-              : "User"}
+            ? "Admin"
+            : role === "employee"
+              ? "Employee"
+              : role === "detective"
+                ? "Detective"
+                : "User"}
           <span className="text-green-600">Portal</span>
         </span>
       </div>

@@ -350,8 +350,8 @@ export const api = {
           forceProxy: true,
         });
         const data = await handleResponse(response);
-        // CSRF token is generated once by /api/csrf-token and reused for entire session
-        // Do NOT clear it after login - preserve the same token
+        // Session regeneration invalidates CSRF token; force refresh on next mutation
+        clearCsrfToken();
         return data;
       } catch (err: any) {
         if (err?.name === "AbortError") {
