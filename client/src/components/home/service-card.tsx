@@ -7,8 +7,8 @@ import { useState, useEffect, memo } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ServiceActionButton } from "@/components/home/service-action-button";
 import type { ServiceBadgeState } from "@/lib/service-badges";
-import { getDetectiveProfileUrl } from "@/lib/utils";
 import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
+import { getDetectiveProfileUrl } from "@/lib/utils";
 
 interface ServiceCardProps {
   id: string;
@@ -21,40 +21,36 @@ interface ServiceCardProps {
   detectiveCity?: string;
   images?: string[];
   image?: string; // Backward compatibility
-  avatar: string;
-  name: string;
+  detectiveAvatar: string | null;
+  detectiveName: string;
   level: string;
   category?: string;
   badgeState?: ServiceBadgeState;
   title: string;
-  rating: number;
-  reviews: number;
-  price: number;
-  offerPrice?: number | null;
+  avgRating: number;
+  reviewCount: number;
+  priceDisplay: string;
   isOnEnquiry?: boolean;
   isUnclaimed?: boolean;
-  countryCode?: string;
   phone?: string;
   whatsapp?: string;
   contactEmail?: string;
 }
 
-import { useCurrency } from "@/lib/currency-context";
 import { useUserSafe } from "@/lib/user-context";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { useToast } from "@/hooks/use-toast";
 
-const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveBusinessName, detectiveCountry, detectiveState, detectiveCity, images, image, avatar, name, level, category, badgeState, title, rating, reviews, price, offerPrice, isOnEnquiry, isUnclaimed, countryCode, phone, whatsapp, contactEmail }: ServiceCardProps) => {
-  const [, setLocation] = useLocation();
+const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveBusinessName, detectiveCountry, detectiveState, detectiveCity, images, image, detectiveAvatar, detectiveName, level, category, badgeState, title, avgRating, reviewCount, priceDisplay, isOnEnquiry, isUnclaimed, phone, whatsapp, contactEmail }: ServiceCardProps) => {
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
-  const { selectedCountry, formatPriceFromTo } = useCurrency();
   const { user, isFavorite, toggleFavorite } = useUserSafe();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   // Reset image loaded state when image changes
   useEffect(() => {
@@ -81,15 +77,28 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
   const showRecommended = !!badgeState?.showRecommended;
 
   // Build service URL using location and slug if available
-  // Generate slug from title as fallback if not provided
-  const serviceSlug = slug || generateSlug(title);
+  const serviceSlug = slug;
   
-  const profileLink = serviceSlug && detectiveCountry
-    ? buildServiceUrl(
-        { country: detectiveCountry, state: detectiveState, city: detectiveCity, slug: detectiveSlug, businessName: detectiveBusinessName },
-        { slug: serviceSlug }
-      ) + (isUnclaimed ? '?unclaimed=true' : '')
-    : `/service/${id}${isUnclaimed ? '?unclaimed=true' : ''}`;
+  let profileLink = "#";
+
+  if (serviceSlug && detectiveSlug) {
+    profileLink = buildServiceUrl(
+      {
+        country: detectiveCountry || "",
+        state: detectiveState || "",
+        city: detectiveCity || "",
+        slug: detectiveSlug,
+        businessName: detectiveBusinessName,
+      },
+      { slug: serviceSlug }
+    );
+  } else {
+    console.error("Missing slug data in ServiceCard", {
+      id,
+      serviceSlug,
+      detectiveSlug
+    });
+  }
 
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -117,20 +126,6 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
     }
     
     toggleFavorite(id);
-  };
-
-  const handleDetectiveClick = (e: React.MouseEvent | React.KeyboardEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (detectiveId) {
-      setLocation(getDetectiveProfileUrl({
-        id: detectiveId,
-        slug: detectiveSlug,
-        country: detectiveCountry,
-        state: detectiveState,
-        city: detectiveCity
-      }));
-    }
   };
 
   return (
@@ -166,7 +161,7 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
               <>
                 <img 
                   src={displayImages[currentImageIndex]} 
-                  alt={`${title} - ${name}${countryCode ? ` in ${countryCode}` : ''} | Professional Detective Service`}
+                  alt={`${title} - ${detectiveName} | Professional Detective Service`}
                   loading="lazy"
                   onLoad={() => setImageLoaded(true)}
                   className={`object-cover w-full h-full ${isUnclaimed ? 'grayscale' : ''}`}
@@ -219,77 +214,50 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
           
           <CardContent className="p-4 flex-1">
             {/* Author Row */}
-            <div
-              className="flex items-center gap-3 mb-3"
-              role="button"
-              tabIndex={0}
-              onClick={handleDetectiveClick}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  handleDetectiveClick(e);
-                }
-              }}
-            >
+            <div className="flex items-center gap-3 mb-3">
               <Avatar className="h-8 w-8 border border-gray-100">
-                {avatar && <AvatarImage src={avatar} alt={`${name} - Professional Private Investigator`} />}
-                <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{name?.[0] || "?"}</AvatarFallback>
+                {detectiveAvatar && <AvatarImage src={detectiveAvatar} alt={`${detectiveName} - Professional Private Investigator`} />}
+                <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{detectiveName?.[0] || "?"}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col overflow-hidden">
-                <div className="flex items-start gap-2 flex-wrap">
-                  <span className="text-sm font-bold text-gray-900 hover:underline">{name}</span>
-                  
-                  {/* Badges Container - Allow wrapping */}
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {isUnclaimed ? (
-                      <Badge variant="outline" className="text-[10px] h-5 bg-gray-100 text-gray-500 border-gray-300 whitespace-nowrap">Unclaimed</Badge>
-                    ) : (
-                      <>
-                        {/* Order: Verified → Blue Tick → Pro → Recommended (labels from BADGE_LABELS) */}
-                        {/* Render blue tick for either verified or blueTick badge (only ONE icon) */}
-                        {showBlueTick && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <img 
-                                  src="/blue-tick.png" 
-                                  alt={blueTickLabel} 
-                                  className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title={blueTickLabel}
-                                />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{blueTickLabel}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                        {showPro && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <img 
-                                  src="/pro.png" 
-                                  alt="Pro" 
-                                  className="h-5 w-5 flex-shrink-0 cursor-help"
-                                  title="Pro"
-                                />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Pro</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                        {showRecommended && (
-                          <span className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap">
-                            Recommended
-                          </span>
-                        )}
-                      </>
+                <div className="min-w-0">
+                  <span
+                    role="link"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setLocation(
+                        getDetectiveProfileUrl({
+                          country: detectiveCountry,
+                          state: detectiveState,
+                          city: detectiveCity,
+                          slug: detectiveSlug,
+                          businessName: detectiveBusinessName,
+                        })
+                      );
+                    }}
+                    className="font-semibold cursor-pointer hover:underline"
+                  >
+                    {detectiveName}
+                  </span>
+
+                  <span className="inline-flex items-center gap-1 ml-1 align-middle">
+                    {badgeState?.showBlueTick && (
+                      <img src="/blue-tick.png" alt="Verified" className="h-4 w-4 inline-block align-middle" />
                     )}
-                  </div>
+
+                    {badgeState?.showPro && (
+                      <img src="/crown.png" alt="Pro" className="h-4 w-4 inline-block align-middle" />
+                    )}
+
+                    {badgeState?.showRecommended && (
+                      <span className="text-[10px] bg-green-100 px-1 rounded inline-block">
+                        Recommended
+                      </span>
+                    )}
+                  </span>
                 </div>
-                <span className="text-xs font-bold text-gray-900 truncate">{level || "Level 1"}</span>
+                <span className="text-xs font-bold text-green-600">{level || "Level 1"}</span>
               </div>
             </div>
 
@@ -302,11 +270,11 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
             <div className="flex items-center gap-1 text-sm mt-auto">
               {isUnclaimed ? (
                 <span className="text-gray-400 text-xs italic">No reviews yet</span>
-              ) : reviews > 0 ? (
+              ) : reviewCount > 0 ? (
                 <>
                   <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                  <span className="font-bold text-gray-900">{typeof rating === 'number' && !isNaN(rating) ? rating : 0}</span>
-                  <span className="text-gray-400">({typeof reviews === 'number' && !isNaN(reviews) ? reviews : 0})</span>
+                  <span className="font-bold text-gray-900">{typeof avgRating === 'number' && !isNaN(avgRating) ? avgRating : 0}</span>
+                  <span className="text-gray-400">({typeof reviewCount === 'number' && !isNaN(reviewCount) ? reviewCount : 0})</span>
                 </>
               ) : null}
             </div>
@@ -323,28 +291,16 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
              />
             
             <div className="flex flex-col items-end">
-              {isOnEnquiry ? (
-                <>
-                  <span className="text-xs text-gray-500 uppercase font-semibold">
-                    Pricing
-                  </span>
-                  <span className="text-sm font-bold text-green-600">On Enquiry</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-xs text-gray-500 uppercase font-semibold">
-                    {offerPrice ? "Offer Price" : "Starting at"}
-                  </span>
-                  {offerPrice ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-400 line-through font-medium">{formatPriceFromTo(price, countryCode, selectedCountry.code)}</span>
-                      <span className="text-lg font-bold text-green-600">{formatPriceFromTo(offerPrice!, countryCode, selectedCountry.code)}</span>
-                    </div>
-                  ) : (
-                    <span className="text-lg font-bold text-gray-900">{formatPriceFromTo(price, countryCode, selectedCountry.code)}</span>
-                  )}
-                </>
-              )}
+              <span className="text-xs font-semibold text-green-600">Price</span>
+              <span
+                className={
+                  priceDisplay === "On Enquiry"
+                    ? "price text-sm font-semibold text-gray-700"
+                    : "price text-xl font-bold text-gray-900"
+                }
+              >
+                {priceDisplay}
+              </span>
             </div>
           </CardFooter>
         </Card>
@@ -358,11 +314,9 @@ export const ServiceCard = memo(ServiceCardComponent, (prevProps, nextProps) => 
   return (
     prevProps.id === nextProps.id &&
     prevProps.title === nextProps.title &&
-    prevProps.price === nextProps.price &&
-    prevProps.offerPrice === nextProps.offerPrice &&
-    prevProps.rating === nextProps.rating &&
-    prevProps.reviews === nextProps.reviews &&
-    prevProps.countryCode === nextProps.countryCode &&
+    prevProps.avgRating === nextProps.avgRating &&
+    prevProps.reviewCount === nextProps.reviewCount &&
+    prevProps.priceDisplay === nextProps.priceDisplay &&
     prevProps.isUnclaimed === nextProps.isUnclaimed &&
     prevProps.images === nextProps.images &&
     prevProps.badgeState === nextProps.badgeState

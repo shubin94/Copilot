@@ -72,6 +72,7 @@ import sitemapRouter from "./routes/sitemap.ts";
 import rssRouter from "./routes/rss.ts";
 import llmsTxtRouter from "./routes/llms-txt.ts";
 import featuredHomeServicesRouter from "./routes/featured-home-services.ts";
+import { buildServiceCardDTO } from "../utils/buildServiceCardDTO";
 import { googleIndexing } from "./services/google-indexing-service.ts";
 
 // Utility function to generate URL-safe slugs from text
@@ -3476,26 +3477,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Convert country name/slug to country code (e.g., "india" -> "IN")
       const countryCode = getCountryCode(country);
+      const countryName = COUNTRY_CODE_MAP[countryCode] || "";
+      const requestedStateSlug = generateSlug(state);
+      const requestedCitySlug = generateSlug(city);
 
-      // Find detective by slug + location (text-based matching since location tables don't exist)
+      // Find candidates by slug + country (support both country code and country name in DB)
       const detectiveRows = await db
         .select()
         .from(detectives)
         .where(
           and(
             eq(detectives.slug, slug),
-            eq(detectives.country, countryCode), // country is stored as code (IN, US, etc)
-            ilike(detectives.state, state), // case-insensitive state match
-            ilike(detectives.city, city)    // case-insensitive city match
+            or(
+              eq(detectives.country, countryCode),
+              countryName ? ilike(detectives.country, countryName) : undefined,
+              ilike(detectives.country, country)
+            )
           )
-        )
-        .limit(1);
+        );
 
       if (detectiveRows.length === 0) {
         return res.status(404).json({ error: "Detective not found" });
       }
 
-      const detective = detectiveRows[0];
+      // URL uses slugified location segments; DB usually stores human-readable names
+      // Match by slugified state/city to handle values like "Madhya Pradesh" vs "madhya-pradesh"
+      const locationMatchedDetective = detectiveRows.find((row) => {
+        const rowStateSlug = generateSlug(row.state || "");
+        const rowCitySlug = generateSlug(row.city || "");
+        return rowStateSlug === requestedStateSlug && rowCitySlug === requestedCitySlug;
+      });
+
+      const detective = locationMatchedDetective || (detectiveRows.length === 1 ? detectiveRows[0] : null);
+
+      if (!detective) {
+        return res.status(404).json({ error: "Detective not found" });
+      }
 
       // Mask sensitive fields
       const detailsJSON = detective.detailsJSON ? JSON.parse(detective.detailsJSON) : {};
@@ -4221,18 +4238,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
         return { ...s, detective: { ...maskedDetective, effectiveBadges } };
       }));
+
+      const servicesDtos = masked.map((service: any) =>
+        buildServiceCardDTO({
+          service,
+          detective: service.detective,
+          avgRating: service.avgRating,
+          reviewCount: service.reviewCount,
+          maskContacts: true,
+        })
+      );
       
       // Only cache results that match the original request (don't cache fallback results)
       if (!skipCache && !usedFallback) {
         if (isPopularUnfiltered) {
           try {
-            setServicesPopularCache(popularCacheKey, { services: masked });
+            setServicesPopularCache(popularCacheKey, { services: servicesDtos });
           } catch (_) {
             // Cache failure must not break the request
           }
         }
         try {
-          cache.set(cacheKey, { services: masked }, 60);
+          cache.set(cacheKey, { services: servicesDtos }, 60);
         } catch (_) {
           // Cache failure must not break the request
         }
@@ -4247,7 +4274,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const totalTime = Date.now() - routeStartTime;
       console.timeEnd("[PERF:SERVICES] Total route execution");
       console.log(`[PERF:SERVICES] Total route time: ${totalTime}ms (Query: ${queryTime}ms, Mapping+Cache: ${totalTime - queryTime}ms)`);
-      sendCachedJson(req, res, { services: masked });
+      sendCachedJson(req, res, { services: servicesDtos });
     } catch (error) {
       console.timeEnd("[PERF:SERVICES] Total route execution");
       console.error("Search services error:", error);
@@ -4391,8 +4418,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Optional canonical guard: if detective slug is provided in URL, ensure it matches.
       if (detectiveSlug) {
-        const detSlug = rawDetective.slug || generateSlug(rawDetective.businessName || "");
-        if (detSlug !== detectiveSlug) {
+        const requestedSlug = generateSlug(detectiveSlug);
+        const detSlug = generateSlug(rawDetective.slug || rawDetective.businessName || "");
+        if (requestedSlug && detSlug && requestedSlug !== detSlug) {
           return res.status(404).json({ error: "Service not found" });
         }
       }
@@ -4411,7 +4439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? (!!service.title && !!service.description && !!service.category)
           : (hasImages && !!service.title && !!service.description && !!service.category);
         
-        const isComplete = service.isActive === true && hasRequiredContent && (service.isOnEnquiry || !!service.basePrice);
+        const isComplete = service.isActive === true && hasRequiredContent;
         if (!isComplete) {
           return res.status(404).json({ error: "Service not available" });
         }
@@ -4590,15 +4618,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log("[DEBUG] Fetching services for detective:", req.params.id);
       const services = await storage.getServicesByDetective(req.params.id);
+      const detective = await storage.getDetective(req.params.id);
       console.log("[DEBUG] Services retrieved:", services.length, "total");
       if (services.length > 0) {
         console.log("[DEBUG] First service:", { id: services[0].id, title: services[0].title, isActive: services[0].isActive });
       }
+      const serviceDtos = services.map((service: any) =>
+        buildServiceCardDTO({ service, detective })
+      );
       // Disable caching for detective dashboard - always fetch fresh data
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.set("Pragma", "no-cache");
       res.set("Expires", "0");
-      sendCachedJson(req, res, { services });
+      sendCachedJson(req, res, { services: serviceDtos });
     } catch (error) {
       console.error("Get services by detective error:", error);
       res.status(500).json({ error: "Failed to get services" });

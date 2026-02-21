@@ -8,7 +8,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { MapPin, ExternalLink, ChevronDown } from "lucide-react";
-import { computeServiceBadges } from "@/lib/service-badges";
 import { generateBreadcrumbListSchema, generateFAQPageSchema } from "@/lib/structured-data";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 
@@ -384,10 +383,11 @@ export default function CityDetectivesPage() {
         ) : detectives.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
             {detectives.map((detective) => {
-              const badgeState = computeServiceBadges({
-                isVerified: detective.isVerified || false,
-                effectiveBadges: detective.effectiveBadges,
-              });
+              const badgeState = detective.badgeState || {
+                showBlueTick: false,
+                showPro: false,
+                showRecommended: false,
+              };
 
               const detectiveUrl = getDetectiveProfileUrl(detective);
 
@@ -410,7 +410,7 @@ export default function CityDetectivesPage() {
                             <img
                               src="/blue-tick.png"
                               alt="Verified"
-                              className="h-4 w-4"
+                              className="h-4 w-4 inline-block align-middle"
                               title="Verified Detective"
                             />
                           )}

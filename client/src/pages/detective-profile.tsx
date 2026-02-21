@@ -27,7 +27,6 @@ import { buildServiceUrl, getCountryName } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
 import { format } from "date-fns";
 import type { Review, User } from "@shared/schema";
-import { computeServiceBadges } from "@/lib/service-badges";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 
 export default function DetectiveProfile() {
@@ -209,10 +208,7 @@ export default function DetectiveProfile() {
     ? (detective as any).subscriptionPackage.features.includes("contact_whatsapp")
     : false;
   const detectiveName = detective.businessName || "Unknown Detective";
-  const badgeState = computeServiceBadges({
-    isVerified: detective.isVerified,
-    effectiveBadges: (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
-  });
+  const badgeState = detective.badgeState || { showBlueTick: false, showPro: false, showRecommended: false, blueTickLabel: "Verified" };
   
   const memberSince = format(new Date(detective.memberSince), "MMMM yyyy");
   
@@ -453,7 +449,7 @@ export default function DetectiveProfile() {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <img 
-                          src="/pro.png" 
+                          src="/crown.png" 
                           alt="Pro" 
                           className="h-5 w-5 flex-shrink-0 cursor-help"
                           title="Pro"
@@ -640,10 +636,7 @@ export default function DetectiveProfile() {
                 </Avatar>
                 <div className="space-y-4">
                   {(() => {
-                    const badgeState = computeServiceBadges({
-                      isVerified: detective.isVerified || false,
-                      effectiveBadges: detective.effectiveBadges,
-                    });
+                    const badgeState = detective.badgeState || { showBlueTick: false, showPro: false, showRecommended: false, blueTickLabel: "Verified" };
 
                     return (
                       <div className="flex items-center gap-2 flex-wrap">
@@ -657,7 +650,7 @@ export default function DetectiveProfile() {
                           <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title={badgeState.blueTickLabel} data-testid="badge-verified-inline" width={5} height={5} />
                         )}
                         {badgeState.showPro && (
-                          <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" data-testid="badge-pro-inline" width={5} height={5} />
+                          <img src="/crown.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" data-testid="badge-pro-inline" width={5} height={5} />
                         )}
                         {badgeState.showRecommended && (
                           <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-agency-inline">

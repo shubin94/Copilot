@@ -759,6 +759,7 @@ export class DatabaseStorage implements IStorage {
   async getServicesByDetective(detectiveId: string): Promise<Service[]> {
     return await db.select({
       id: services.id,
+      slug: services.slug,
       detectiveId: services.detectiveId,
       title: services.title,
       description: services.description,
@@ -784,6 +785,7 @@ export class DatabaseStorage implements IStorage {
   async getAllServicesByDetective(detectiveId: string): Promise<Service[]> {
     return await db.select({
       id: services.id,
+      slug: services.slug,
       detectiveId: services.detectiveId,
       title: services.title,
       description: services.description,
@@ -956,6 +958,7 @@ export class DatabaseStorage implements IStorage {
     const baseSelect = {
       // Service fields needed by ServiceCard
       serviceId: services.id,
+      serviceSlug: services.slug,
       serviceTitle: services.title,
       serviceCategory: services.category,
       serviceBasePrice: services.basePrice,
@@ -985,6 +988,8 @@ export class DatabaseStorage implements IStorage {
       detectiveBlueTickAddon: detectives.blueTickAddon,
       subscriptionPackageName: subscriptionPlans.name,
       subscriptionPackageBadges: subscriptionPlans.badges,
+      subscriptionPackageFeatures: subscriptionPlans.features,
+      subscriptionPackageIsActive: subscriptionPlans.isActive,
       
       // Aggregated values
       avgRating: reviewsAgg.avgRating,
@@ -1063,6 +1068,7 @@ export class DatabaseStorage implements IStorage {
 
       mapped.push({
         id: r.serviceId,
+        slug: r.serviceSlug,
         title: r.serviceTitle,
         category: r.serviceCategory,
         basePrice: r.serviceBasePrice,
@@ -1091,6 +1097,8 @@ export class DatabaseStorage implements IStorage {
           subscriptionPackage: r.subscriptionPackageName ? {
             name: r.subscriptionPackageName,
             badges: r.subscriptionPackageBadges,
+            features: Array.isArray(r.subscriptionPackageFeatures) ? r.subscriptionPackageFeatures : [],
+            isActive: r.subscriptionPackageIsActive !== false,
           } : null,
         },
         avgRating: Number(r.avgRating),

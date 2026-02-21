@@ -1,13 +1,12 @@
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
-import { ServiceCard } from "@/components/home/service-card";
-import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
+import { ServiceCardGrid } from "@/components/common/service-card-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { Breadcrumb } from "@/components/breadcrumb";
-import { Search, MapPin, Filter, ChevronDown, Star, Check, Globe, Loader2, X } from "lucide-react";
+import { Search, MapPin, Filter, ChevronDown, Star, Check, Loader2, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect, useRef, useReducer } from "react";
 import {
@@ -28,9 +27,7 @@ import { SEO } from "@/components/seo";
 import { useSearchServices, useServiceCategories, useCountries, useStates, useCities } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
-import type { Service, Detective } from "@shared/schema";
-import { computeServiceBadges } from "@/lib/service-badges";
-import { buildServiceUrl, generateSlug, getCountryName } from "@/lib/slug-utils";
+import { getCountryName } from "@/lib/slug-utils";
 
 // Consolidated filter state using reducer
 type FilterState = {
@@ -126,62 +123,6 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
     default:
       return state;
   }
-}
-
-function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number; planName?: string }) {
-  const badgeState = computeServiceBadges({
-    isVerified: service.detective.isVerified,
-    effectiveBadges: service.detective.effectiveBadges,
-  });
-
-  const detectiveName = service.detective.businessName || "Unknown Detective";
-  const serviceSlug = service.slug || generateSlug(service.title || "service");
-  const servicePath = buildServiceUrl(
-    {
-      country: service.detective.country,
-      state: service.detective.state,
-      city: service.detective.city,
-      slug: service.detective.slug,
-      businessName: service.detective.businessName,
-    },
-    { slug: serviceSlug }
-  );
-  const canonicalUrl = `https://www.askdetectives.com${servicePath}`;
-
-  // Use actual database images - NO MOCK DATA
-  const images = service.images && service.images.length > 0 ? service.images : undefined;
-  const serviceImage = images ? images[0] : undefined;
-  const detectiveLogo = service.detective.logo || undefined;
-  
-  return {
-    id: service.id,
-    slug: service.slug,
-    canonicalUrl,
-    detectiveId: service.detective.id,
-    images,
-    image: serviceImage,
-    avatar: detectiveLogo || "",
-    name: detectiveName,
-    level: service.detective.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1",
-    levelValue: (() => { const m = String(service.detective.level || "level1").match(/\d+/); return m ? parseInt(m[0], 10) : 1; })(),
-    category: service.category,
-    badgeState,
-    title: service.title,
-    rating: service.avgRating,
-    reviews: service.reviewCount,
-    price: Number(service.basePrice),
-    offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
-    isOnEnquiry: service.isOnEnquiry,
-    countryCode: service.detective.country,
-    phone: service.detective.phone || undefined,
-    whatsapp: service.detective.whatsapp || undefined,
-    contactEmail: service.detective.contactEmail || undefined,
-    detectiveCountry: service.detective.country,
-    detectiveState: service.detective.state,
-    detectiveCity: service.detective.city,
-    detectiveSlug: service.detective.slug,
-    detectiveBusinessName: service.detective.businessName,
-  };
 }
 
 export default function SearchPage() {
@@ -301,7 +242,7 @@ export default function SearchPage() {
   });
 
   // Backend now handles ALL filtering - no client-side filtering needed
-  const results = servicesData?.services?.map(mapServiceToCard) || [];
+  const results = servicesData?.services || [];
   
   // Client-side price conversion filtering (since prices are stored in different currencies)
   const finalResults = results.filter((s) => {
@@ -315,20 +256,8 @@ export default function SearchPage() {
   });
 
   const resultServicesComputed = finalResults;
+  const services = finalResults;
   
-  const hasActiveFilters = !!(
-    filters.category || 
-    filters.minRating !== undefined || 
-    filters.country || 
-    filters.minPrice !== undefined || 
-    filters.maxPrice !== undefined || 
-    filters.state.trim() || 
-    filters.proOnly || 
-    filters.agencyOnly || 
-    filters.level1Only || 
-    filters.level2Only
-  );
-
   // Track if we've done initial URL sync to avoid loops
   const hasInitializedFromUrl = useRef(false);
 
@@ -861,37 +790,7 @@ export default function SearchPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {isLoading ? (
-                  [1, 2, 3, 4, 5, 6].map((i) => (
-                    <ServiceCardSkeleton key={i} />
-                  ))
-                ) : finalResults.length > 0 ? (
-                  finalResults.map((service) => (
-                    <ServiceCard key={service.id} {...service} />
-                  ))
-                ) : (
-                  <div className="col-span-full flex flex-col items-center justify-center py-16 text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200" data-testid="empty-search-results">
-                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-4">
-                      <Globe className="h-8 w-8 text-gray-400" />
-                    </div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">No results yet</h3>
-                    <p className="text-gray-500 mb-6 text-center max-w-md">
-                      We couldn't find any detectives matching your search for "{query}"{filters.country ? ` in ${availableCountries.find(c => c.code === filters.country)?.name || filters.country}` : ""}.
-                    </p>
-                    <Button 
-                      onClick={() => {
-                        dispatch({ type: 'RESET_FILTERS' });
-                        window.location.href = "/search";
-                      }}
-                      variant="outline"
-                      data-testid="button-clear-filters"
-                    >
-                      {hasActiveFilters ? "Clear Filters & Search All" : "Search All Services"}
-                    </Button>
-                  </div>
-                )}
-              </div>
+              <ServiceCardGrid services={services} isLoading={isLoading} emptyMessage="No results yet." />
 
                 {!isLoading && finalResults.length >= filters.limit && (
                  <div className="mt-12 flex justify-center">

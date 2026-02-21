@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../../db/index.ts";
 import * as cache from "../lib/cache.ts";
+import { buildServiceCardDTO } from "../../utils/buildServiceCardDTO";
 
 const router = Router();
 
@@ -71,6 +72,7 @@ router.get("/", async (req: Request, res: Response) => {
     const buildQuery = (filterClause: string) => `
       SELECT 
         s.id,
+        s.slug AS service_slug,
         s.detective_id,
         s.title,
         s.category,
@@ -101,11 +103,14 @@ router.get("/", async (req: Request, res: Response) => {
         d.level,
         d.visibility_score,
         d.is_featured,
-        u.email
+         u.email,
+        sp.name AS subscription_name,
+        sp.badges AS subscription_badges,
+        sp.features AS subscription_features
       FROM (
         SELECT d.id as detective_id_value, d.user_id, d.business_name, d.bio, d.logo, d.location, d.slug, 
                d.country, d.state, d.city, d.phone, d.whatsapp, d.contact_email, 
-               d.status, d.is_verified, d.level,
+           d.status, d.is_verified, d.level, d.subscription_package_id,
                COALESCE(dv.visibility_score, 0) as visibility_score, 
                COALESCE(dv.is_featured, false) as is_featured
         FROM detectives d
@@ -116,8 +121,9 @@ router.get("/", async (req: Request, res: Response) => {
         LIMIT 8
       ) d
       JOIN users u ON d.user_id = u.id
+      LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
       LEFT JOIN LATERAL (
-        SELECT s.id, s.detective_id, s.title, s.category, s.description, s.images,
+        SELECT s.id, s.slug, s.detective_id, s.title, s.category, s.description, s.images,
                s.base_price, s.offer_price, s.is_on_enquiry, s.order_count, s.updated_at
         FROM services s
         WHERE s.detective_id = d.detective_id_value
@@ -129,11 +135,12 @@ router.get("/", async (req: Request, res: Response) => {
       ) s ON true
       LEFT JOIN reviews r ON s.id = r.service_id
       GROUP BY 
-        s.id, s.detective_id, s.title, s.category, s.description, s.images,
+        s.id, s.slug, s.detective_id, s.title, s.category, s.description, s.images,
         s.base_price, s.offer_price, s.is_on_enquiry, s.order_count, s.updated_at,
         d.detective_id_value, d.user_id, d.business_name, d.bio, d.logo, d.location, d.slug,
         d.country, d.state, d.city, d.phone, d.whatsapp, d.contact_email, d.status,
-        d.is_verified, d.level, d.visibility_score, d.is_featured, u.email
+        d.is_verified, d.level, d.visibility_score, d.is_featured, u.email,
+        sp.name, sp.badges, sp.features
     `;
 
     // Get top 8 services - exactly 1 per detective
@@ -159,9 +166,10 @@ router.get("/", async (req: Request, res: Response) => {
     console.log(`[PERF:HOME] Query returned ${result.rows.length} rows in ${queryTime}ms`);
 
     // Map database rows to service objects
-    const services = await Promise.all(result.rows.map(async (row: any) => {
+    const rawServices = await Promise.all(result.rows.map(async (row: any) => {
       const service = {
         id: row.id,
+        slug: row.service_slug,
         detectiveId: row.detective_id,
         title: row.title,
         category: row.category,
@@ -194,17 +202,32 @@ router.get("/", async (req: Request, res: Response) => {
           level: row.level,
           visibilityScore: row.visibility_score || 0,
           isFeatured: row.is_featured || false,
+          subscriptionPackage: {
+            name: row.subscription_name,
+            badges: row.subscription_badges,
+            features: row.subscription_features,
+          },
         }
       };
 
       // Return service with detective data
       // Note: Contact masking is handled by the main routes.ts endpoint
       // This endpoint returns public detective data for featured services
-      return { 
-        ...service, 
+      return {
+        ...service,
         detective: service.detective
       };
     }));
+
+    const services = rawServices.map((service: any) =>
+      buildServiceCardDTO({
+        service,
+        detective: service.detective,
+        avgRating: service.avgRating ?? null,
+        reviewCount: service.reviewCount ?? 0,
+        maskContacts: true,
+      })
+    );
 
     featuredHomeCache.data = { services };
     featuredHomeCache.expiresAt = Date.now() + 60_000;
