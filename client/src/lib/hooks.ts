@@ -357,10 +357,10 @@ export function useServicesByDetective(detectiveId: string | null | undefined) {
   });
 }
 
-export function useFeaturedHomeServices() {
+export function useFeaturedHomeServices(country?: string) {
   return useQuery({
-    queryKey: ["services", "featured", "home"],
-    queryFn: () => api.services.getFeaturedHome(),
+    queryKey: ["services", "featured", "home", country],
+    queryFn: () => api.services.getFeaturedHome(country),
     staleTime: 5 * 60 * 1000, // 5 minutes - home page cache
     gcTime: 10 * 60 * 1000, // 10 minutes in memory cache
   });

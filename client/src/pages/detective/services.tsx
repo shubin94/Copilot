@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServiceCategories } from "@/lib/hooks";
 import { COUNTRIES, useCurrency } from "@/lib/currency-context";
+import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,7 @@ async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
 
 interface Service {
   id: string;
+  slug?: string | null;
   detectiveId: string;
   category: string;
   title: string;
@@ -706,15 +708,40 @@ export default function DetectiveServices() {
                     <Badge className={service.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}>
                       {service.isActive ? "Active" : "Inactive"}
                     </Badge>
-                    {Array.isArray(service.images) && service.images.length > 0 && service.title && service.description && service.category && service.basePrice && service.isActive ? (
-                      <Link href={`/service/${service.id}`}>
-                        <Button variant="outline" size="sm">View Public Page</Button>
-                      </Link>
-                    ) : (
-                      <Link href={`/service/${service.id}?preview=1`}>
-                        <Button variant="outline" size="sm">Preview (Private)</Button>
-                      </Link>
-                    )}
+                    {(() => {
+                      const detectiveSlug = detective.slug || (detective.businessName ? generateSlug(detective.businessName) : undefined);
+                      const servicePath = service.slug && detectiveSlug
+                        ? buildServiceUrl(
+                            {
+                              country: detective.country || "",
+                              state: detective.state || "",
+                              city: detective.city || "",
+                              slug: detectiveSlug,
+                              businessName: detective.businessName || "",
+                            },
+                            { slug: service.slug }
+                          )
+                        : "#";
+
+                      const isPublicReady =
+                        Array.isArray(service.images) &&
+                        service.images.length > 0 &&
+                        service.title &&
+                        service.description &&
+                        service.category &&
+                        service.basePrice &&
+                        service.isActive;
+
+                      return isPublicReady ? (
+                        <Link href={servicePath}>
+                          <Button variant="outline" size="sm">View Public Page</Button>
+                        </Link>
+                      ) : (
+                        <Link href={servicePath === "#" ? "#" : `${servicePath}?preview=1`}>
+                          <Button variant="outline" size="sm">Preview (Private)</Button>
+                        </Link>
+                      );
+                    })()}
                   </div>
                   <div className="mt-4">
                     <Label className="text-sm">Banner Image</Label>

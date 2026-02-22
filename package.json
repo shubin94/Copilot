@@ -13,6 +13,8 @@
     "create-admin": "cross-env NODE_ENV=development tsx scripts/create-admin.ts",
     "check:login": "cross-env NODE_ENV=development tsx scripts/check-login-flow.ts",
     "db:audit": "cross-env NODE_ENV=development tsx scripts/db-audit.ts",
+    "db:normalize-detectives": "cross-env NODE_ENV=development tsx scripts/normalize-detective-location-data.ts",
+    "db:normalize-detectives:apply": "cross-env NODE_ENV=development tsx scripts/normalize-detective-location-data.ts --apply",
     "seed-app-secrets": "cross-env NODE_ENV=development tsx scripts/seed-app-secrets.ts",
     "batch-index": "cross-env NODE_ENV=production tsx scripts/batch-index-all.ts",
     "perf:budget": "tsx scripts/check-performance-budgets.ts",

@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
 import { useService } from "@/lib/hooks";
-import { computeServiceBadges } from "@/lib/service-badges";
 import type { Service, Detective } from "@shared/schema";
 
 export default function FavoritesPage() {
@@ -110,11 +109,7 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
   const avatar = svc.detective.logo || "";
   const level = svc.detective.level ? (svc.detective.level === "pro" ? "Pro Level" : (svc.detective.level as string).replace("level", "Level ")) : "Level 1";
   
-  // Badges from effectiveBadges only (order: Verified → Blue Tick → Pro → Recommended)
-  const badgeState = computeServiceBadges({
-    isVerified: !!svc.detective.isVerified,
-    effectiveBadges: (svc.detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
-  });
+  const badgeState = svc.badgeState;
   
   return (
     <ServiceCard

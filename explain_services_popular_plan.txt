@@ -1,0 +1,25 @@
+Limit  (cost=15.34..54.09 rows=15 width=508) (actual time=0.106..0.608 rows=15 loops=1)
+  ->  Nested Loop Left Join  (cost=15.34..1038.32 rows=396 width=508) (actual time=0.105..0.605 rows=15 loops=1)
+        Join Filter: ((s.id)::text = (r.service_id)::text)
+        ->  Nested Loop Left Join  (cost=0.56..128.79 rows=396 width=454) (actual time=0.047..0.130 rows=15 loops=1)
+              Join Filter: (d.subscription_package_id = (sp.id)::text)
+              ->  Nested Loop Left Join  (cost=0.56..121.84 rows=396 width=390) (actual time=0.031..0.106 rows=15 loops=1)
+                    ->  Index Scan using idx_services_active_popular_with_images on services s  (cost=0.28..40.52 rows=396 width=175) (actual time=0.016..0.025 rows=15 loops=1)
+                    ->  Memoize  (cost=0.28..0.46 rows=1 width=252) (actual time=0.005..0.005 rows=1 loops=15)
+                          Cache Key: s.detective_id
+                          Cache Mode: logical
+                          Hits: 5  Misses: 10  Evictions: 0  Overflows: 0  Memory Usage: 4kB
+                          ->  Index Scan using detectives_pkey on detectives d  (cost=0.27..0.45 rows=1 width=252) (actual time=0.005..0.005 rows=1 loops=10)
+                                Index Cond: ((id)::text = (s.detective_id)::text)
+              ->  Materialize  (cost=0.00..1.01 rows=1 width=96) (actual time=0.001..0.001 rows=1 loops=15)
+                    ->  Seq Scan on subscription_plans sp  (cost=0.00..1.01 rows=1 width=96) (actual time=0.013..0.013 rows=1 loops=1)
+        ->  Materialize  (cost=14.78..18.91 rows=150 width=72) (actual time=0.000..0.001 rows=0 loops=15)
+              ->  Subquery Scan on r  (cost=14.78..18.16 rows=150 width=72) (actual time=0.006..0.007 rows=0 loops=1)
+                    ->  HashAggregate  (cost=14.78..16.66 rows=150 width=72) (actual time=0.006..0.006 rows=0 loops=1)
+                          Group Key: reviews.service_id
+                          Batches: 1  Memory Usage: 40kB
+                          ->  Bitmap Heap Scan on reviews  (cost=1.28..13.28 rows=200 width=68) (actual time=0.003..0.003 rows=0 loops=1)
+                                Recheck Cond: is_published
+                                ->  Bitmap Index Scan on idx_reviews_service_published  (cost=0.00..1.23 rows=200 width=0) (actual time=0.001..0.001 rows=0 loops=1)
+Planning Time: 0.659 ms
+Execution Time: 0.692 ms

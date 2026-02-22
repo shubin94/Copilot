@@ -1,71 +1,30 @@
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { Hero } from "@/components/home/hero";
-import { ServiceCard } from "@/components/home/service-card";
-import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
+import { ServiceCardGrid } from "@/components/common/service-card-grid";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, AlertCircle, Layers } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Link } from "wouter";
-import { useSearchServices, useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
-import type { Service, Detective, ServiceCategory } from "@shared/schema";
-import { computeServiceBadges } from "@/lib/service-badges";
+import { useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
+import { useCurrency } from "@/lib/currency-context";
+import type { ServiceCategory } from "@shared/schema";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { useEffect, useRef } from "react";
-
-function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number }) {
-  const badgeState = computeServiceBadges({
-    isVerified: service.detective.isVerified,
-    effectiveBadges: service.detective.effectiveBadges,
-  });
-
-  const detectiveName = service.detective.businessName || "Unknown Detective";
-
-  // Use actual database images - NO MOCK DATA
-  const images = service.images && service.images.length > 0 ? service.images : undefined;
-  const serviceImage = images ? images[0] : undefined;
-  const detectiveLogo = service.detective.logo || undefined;
-  
-  return {
-    id: service.id,
-    slug: service.slug,
-    detectiveId: service.detective.id,
-    images,
-    image: serviceImage,
-    avatar: detectiveLogo || "",
-    name: detectiveName,
-    level: service.detective.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1",
-    levelValue: (() => { const m = String(service.detective.level || "level1").match(/\d+/); return m ? parseInt(m[0], 10) : 1; })(),
-    category: service.category,
-    badgeState,
-    title: service.title,
-    rating: service.avgRating,
-    reviews: service.reviewCount,
-    price: Number(service.basePrice),
-    offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
-    isOnEnquiry: service.isOnEnquiry,
-    countryCode: service.detective.country,
-    location: service.detective.location || "",
-    phone: service.detective.phone || undefined,
-    whatsapp: service.detective.whatsapp || undefined,
-    contactEmail: service.detective.contactEmail || service.detective.email || undefined,
-    detectiveCountry: service.detective.country,
-    detectiveState: service.detective.state,
-    detectiveCity: service.detective.city,
-    detectiveSlug: service.detective.slug,
-    detectiveBusinessName: service.detective.businessName,
-  };
-}
 
 export default function Home() {
   const { data: categoriesData, isLoading: isLoadingCategories } = useServiceCategories(true);
   const categories = categoriesData?.categories || [];
 
-  const { data: popularServicesData, isLoading: isLoadingPopular } = useFeaturedHomeServices();
+  // Get selected country from context, but only use it if not GLOBAL and no manual filter applied
+  const { selectedCountry } = useCurrency();
+  const countryForApi = selectedCountry && selectedCountry.code !== "GLOBAL" ? selectedCountry.code : undefined;
 
-  const popularServices = (popularServicesData?.services || []).map(mapServiceToCard);
+  const { data: popularServicesData, isLoading: isLoadingPopular } = useFeaturedHomeServices(countryForApi);
+
+  const popularServices = popularServicesData?.services || [];
   const { data: featuredDetectivesData, isLoading: isLoadingDetectives } = useSearchDetectives({ status: "active", limit: 4 });
   const featuredDetectives = featuredDetectivesData?.detectives || [];
   const { data: siteData } = useSiteSettings();
@@ -218,22 +177,11 @@ export default function Home() {
               </Button>
             </Link>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {isLoadingPopular ? (
-              [1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <ServiceCardSkeleton key={i} />
-              ))
-            ) : popularServices.length > 0 ? (
-              popularServices.slice(0, 8).map((service) => (
-                <ServiceCard key={service.id} {...service} />
-              ))
-            ) : (
-              <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200" data-testid="empty-popular-services">
-                <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
-                <p className="text-sm text-gray-500">No services yet</p>
-              </div>
-            )}
-          </div>
+          <ServiceCardGrid
+            services={popularServices.slice(0, 8)}
+            isLoading={isLoadingPopular}
+            emptyMessage="No services yet."
+          />
         </section>
 
         {featuredDetectives.length > 0 && (
@@ -249,64 +197,76 @@ export default function Home() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {isLoadingDetectives ? (
                 [1, 2, 3, 4].map((i) => (
-                  <Card key={i} className="hover:shadow-lg transition-shadow">
-                    <CardContent className="p-6">
-                      <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4 mb-2" />
-                      <div className="h-4 bg-gray-100 rounded animate-pulse w-1/2" />
+                  <Card key={i} className="hover:shadow-lg transition-shadow h-40">
+                    <CardContent className="p-6 h-full flex items-center">
+                      <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4" />
                     </CardContent>
                   </Card>
                 ))
               ) : (
                 featuredDetectives.map((d) => {
-                  const badgeState = computeServiceBadges({
-                    isVerified: d.isVerified || false,
-                    effectiveBadges: d.effectiveBadges,
-                  });
+                  const planBadges = d.subscriptionPackage?.badges || null;
+                  const badgeState = d.badgeState ?? (planBadges
+                    ? {
+                        showBlueTick: !!planBadges.blueTick,
+                        showPro: !!planBadges.pro,
+                        showRecommended: !!planBadges.recommended,
+                        blueTickLabel: planBadges.blueTick ? "Verified" : null,
+                      }
+                    : null);
 
                   return (
-                    <Link key={d.id} href={getDetectiveProfileUrl(d)}>
-                      <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+                    <div key={d.id}>
+                      <Card 
+                        className="hover:shadow-lg transition-shadow cursor-pointer"
+                        onClick={() => window.location.href = getDetectiveProfileUrl(d)}
+                      >
                         <CardContent className="p-6">
-                          <div className="flex items-center gap-4">
-                            <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                          <div className="flex gap-3 items-start">
+                            <div className="h-14 w-14 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
                               {d.logo ? (
-                                <img src={d.logo} alt={d.businessName || "Detective"} className="h-12 w-12 object-cover" width={12} height={12} />
+                                <img src={d.logo} alt={d.businessName || "Detective"} className="h-14 w-14 object-cover" />
                               ) : (
-                                <div className="h-8 w-8 rounded-full bg-gray-200" />
+                                <div className="h-10 w-10 rounded-full bg-gray-200" />
                               )}
                             </div>
                             <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <div className="font-bold text-lg text-gray-900 hover:underline">{d.businessName || "Unknown Detective"}</div>
-                              </div>
-                              <div className="flex items-center gap-2 mb-2">
-                                {badgeState.showBlueTick && (
-                                  <img
-                                    src="/blue-tick.png"
-                                    alt="Verified"
-                                    className="h-4 w-4"
-                                    width={4}
-                                    height={4}
-                                    title="Verified Detective"
-                                  />
-                                )}
-                                {badgeState.showPro && (
-                                  <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
-                                    Pro
-                                  </Badge>
-                                )}
-                                {badgeState.showRecommended && (
-                                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-1.5 py-0.5">
-                                    Recommended
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="text-sm text-gray-600">{d.location || d.country || ""}</div>
+                              <h3 className="font-semibold text-sm line-clamp-2">
+                                {d.businessName || "Unknown Detective"}
+                              </h3>
+                              {badgeState && (
+                                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                  {badgeState.showBlueTick && (
+                                    <img
+                                      src="/blue-tick.png"
+                                      alt={badgeState.blueTickLabel || "Verified"}
+                                      className="h-4 w-4 flex-shrink-0"
+                                      title={badgeState.blueTickLabel || "Verified"}
+                                    />
+                                  )}
+                                  {badgeState.showPro && (
+                                    <img
+                                      src="/crown.png"
+                                      alt="Pro"
+                                      className="h-4 w-4 flex-shrink-0"
+                                      title="Pro"
+                                    />
+                                  )}
+                                  {badgeState.showRecommended && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="bg-green-100 text-green-700 hover:bg-green-100 text-[10px] px-2 py-0.5"
+                                    >
+                                      Recommended
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </CardContent>
                       </Card>
-                    </Link>
+                    </div>
                   );
                 })
               )}

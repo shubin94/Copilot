@@ -30,14 +30,14 @@ export function BadgeIcon({ type, className = "h-5 w-5 flex-shrink-0 cursor-help
         };
       case 'pro':
         return {
-          src: "/pro.png",
+          src: "/crown.png",
           alt: "Pro",
           title: "Pro",
           tooltip: "Pro"
         };
       case 'recommended':
         return {
-          src: "/star.png",
+          src: "/blue-tick-badge.svg",
           alt: "Recommended",
           title: "Recommended",
           tooltip: "Recommended"
