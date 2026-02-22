@@ -5,16 +5,10 @@ import { buildServiceCardDTO } from "../../utils/buildServiceCardDTO";
 
 const router = Router();
 
-const featuredHomeCache = {
-  key: "featured_home",
-  data: null as { services: unknown[] } | null,
-  expiresAt: 0
-};
-
 /**
  * 🚀 Featured Home Services Endpoint
  * Returns exactly 8 services - 1 per detective
- * Optimized with aggressive 5-minute caching
+ * Optimized with in-memory caching (60-second TTL)
  * Used on home page for fast loading
  * 
  * Query Parameters:
@@ -26,40 +20,25 @@ router.get("/", async (req: Request, res: Response) => {
     const routeStartTime = Date.now();
     console.time("[PERF:HOME] Total route execution");
 
-    // Extract country parameter from query string
-    const country = req.query.country ? String(req.query.country).toUpperCase() : undefined;
+    const cacheKey = "featured_home";
     
-    // Build cache key including country parameter
-    const cacheKey = country 
-      ? `services:featured:home:8unique:${country}`
-      : "services:featured:home:8unique";
-
-    const now = Date.now();
-    if (featuredHomeCache.data && now < featuredHomeCache.expiresAt) {
-      console.timeEnd("[PERF:HOME] Total route execution");
-      res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
-      res.json(featuredHomeCache.data);
-      return;
-    }
-    
-    // Check cache first (5 minute TTL for extremely fast home page loads)
+    // ✅ IN-MEMORY CACHE: Check cache first (60-second TTL, public requests only)
     if (!req.session?.userId) {
-      try {
-        const cached = cache.get<{ services: unknown[] }>(cacheKey);
-        if (cached != null && Array.isArray(cached.services) && cached.services.length === 8) {
-          const cacheTime = Date.now() - routeStartTime;
-          console.log("[HOME CACHE HIT] 8 featured services returned from cache in", cacheTime, "ms");
-          console.timeEnd("[PERF:HOME] Total route execution");
-          res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
-          res.json(cached);
-          return;
-        }
-      } catch (_) {
-        // Cache failure must not break the request
+      const cached = cache.get<{ services: unknown[] }>(cacheKey);
+      if (cached != null && Array.isArray(cached.services) && cached.services.length > 0) {
+        const cacheTime = Date.now() - routeStartTime;
+        console.log("[HOME CACHE HIT] Featured services returned from cache in", cacheTime, "ms");
+        console.timeEnd("[PERF:HOME] Total route execution");
+        res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+        res.json(cached);
+        return;
       }
     }
 
-    console.log("[HOME CACHE MISS] Fetching 8 featured services from database");
+    console.log("[HOME CACHE MISS] Fetching featured services from database");
+
+    // Extract country parameter from query string
+    const country = req.query.country ? String(req.query.country).toUpperCase() : undefined;
 
     // Performance: Database query execution timing
     console.time("[PERF:HOME] Database query execution");
@@ -229,14 +208,11 @@ router.get("/", async (req: Request, res: Response) => {
       })
     );
 
-    featuredHomeCache.data = { services };
-    featuredHomeCache.expiresAt = Date.now() + 60_000;
-
-    // Cache for 5 minutes (aggressive caching for home page performance)
-    // Only cache if we didn't use fallback (don't pollute country-specific cache with global results)
+    // ✅ IN-MEMORY CACHE: Store result with 60-second TTL (public requests only)
+    // Only cache if we didn't use fallback (to avoid caching incomplete global results)
     if (!req.session?.userId && !usedFallback) {
       try {
-        cache.set(cacheKey, { services }, 300);
+        cache.set(cacheKey, { services }, 60);
       } catch (_) {
         // Cache failure must not break the request
       }
@@ -249,7 +225,7 @@ router.get("/", async (req: Request, res: Response) => {
     console.timeEnd("[PERF:HOME] Total route execution");
     console.log(`[PERF:HOME] Total route time: ${totalTime}ms (Query: ${queryTime}ms, Mapping+Cache: ${totalTime - queryTime}ms)`);
     
-    res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
+    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
     res.json({ services });
   } catch (error) {
     console.timeEnd("[PERF:HOME] Total route execution");

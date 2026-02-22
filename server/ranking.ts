@@ -490,6 +490,8 @@ export async function getRankedDetectives(options?: {
       return {
         ...detective,
         subscriptionPackage,
+        avgRating: reviewData.avgRating,
+        reviewCount: reviewData.totalReviews,
         visibilityScore: score,
         isVisible: visibility.isVisible ?? true,
         isFeatured: visibility.isFeatured ?? false,

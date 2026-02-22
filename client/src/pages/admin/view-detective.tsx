@@ -50,6 +50,13 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ImageOff } from "lucide-react";
 
+const formatServiceDate = (value?: string | Date | null): string => {
+  if (!value) return "Unknown";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return format(date, "MMM d, yyyy");
+};
+
 export default function ViewDetective() {
   const { id } = useParams();
   const [, setLocation] = useLocation();
@@ -749,7 +756,7 @@ export default function ViewDetective() {
                               <span>👁️ {service.viewCount} views</span>
                             </div>
                             <div className="text-gray-500">
-                              Created {format(new Date(service.createdAt), "MMM d, yyyy")}
+                              Created {formatServiceDate(service.createdAt)}
                             </div>
                             </div>
                             <div className="mt-3 flex items-center gap-2 flex-wrap">

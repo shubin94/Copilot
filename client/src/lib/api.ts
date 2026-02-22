@@ -506,7 +506,10 @@ export const api = {
         const result = await handleResponse<{ detectives: Detective[]; total?: number }>(response);
         if (Array.isArray(result?.detectives) && result.detectives.length === 0) {
           try {
-            const adminResp = await csrfFetch(`/api/admin/detectives/raw`, { credentials: "include" });
+            const adminResp = await csrfFetch(`/api/admin/detectives/raw`, {
+              credentials: "include",
+              forceProxy: true,
+            });
             if (adminResp.ok) {
               const adminData = await adminResp.json();
               if (Array.isArray(adminData?.detectives) && adminData.detectives.length > 0) {
@@ -559,6 +562,7 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -568,6 +572,7 @@ export const api = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -576,6 +581,7 @@ export const api = {
       const response = await csrfFetch(`/api/admin/detectives/${id}`, {
         method: "DELETE",
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -598,7 +604,10 @@ export const api = {
       return handleResponse(response);
     },
     adminGetAll: async (): Promise<{ plans: any[] }> => {
-      const response = await csrfFetch(`/api/admin/subscription-plans`, { credentials: "include" });
+      const response = await csrfFetch(`/api/admin/subscription-plans`, {
+        credentials: "include",
+        forceProxy: true,
+      });
       return handleResponse(response);
     },
     create: async (data: any): Promise<{ plan: any }> => {
@@ -717,6 +726,7 @@ export const api = {
     adminGetByDetective: async (detectiveId: string): Promise<{ services: Service[] }> => {
       const response = await csrfFetch(`/api/admin/detectives/${detectiveId}/services`, {
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -737,6 +747,7 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -757,6 +768,7 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -926,12 +938,14 @@ export const api = {
       if (params?.offset !== undefined) qp.append("offset", String(params.offset));
       const response = await csrfFetch(`/api/applications?${qp.toString()}`, {
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },
     getById: async (id: string): Promise<{ application: DetectiveApplication }> => {
       const response = await csrfFetch(`/api/applications/${id}`, {
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -974,6 +988,7 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -987,6 +1002,7 @@ export const api = {
       try {
         const response = await csrfFetch(`/api/claims?${qs.toString()}`, {
           credentials: "include",
+          forceProxy: true,
         });
         return handleResponse(response);
       } catch (err: any) {
@@ -1000,6 +1016,7 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
         credentials: "include",
+        forceProxy: true,
       });
       return handleResponse(response);
     },

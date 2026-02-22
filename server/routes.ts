@@ -73,6 +73,7 @@ import rssRouter from "./routes/rss.ts";
 import llmsTxtRouter from "./routes/llms-txt.ts";
 import featuredHomeServicesRouter from "./routes/featured-home-services.ts";
 import { buildServiceCardDTO } from "../utils/buildServiceCardDTO";
+import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.ts";
 import { googleIndexing } from "./services/google-indexing-service.ts";
 
 // Utility function to generate URL-safe slugs from text
@@ -1531,11 +1532,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all detectives (public)
   app.get("/api/detectives", async (req: Request, res: Response) => {
     try {
+      const requestStart = Date.now();
+      let cacheStatus: "HIT" | "MISS" = "MISS";
       const { country, status, plan, search } = req.query;
       const policyLimit = await requirePolicy<{ value: number }>("pagination_default_limit");
       const policyOffset = await requirePolicy<{ value: number }>("pagination_default_offset");
       const limit = String((req.query as any).limit ?? policyLimit?.value ?? 20);
       const offset = String((req.query as any).offset ?? policyOffset?.value ?? 0);
+      
+      // ✅ CACHE KEY: Include all filter parameters + pagination for uniqueness
+      // Format: detectives:{country}:{status}:{plan}:{search}:{limit}:{offset}
+      const normalizedSearch = (search || "").toString().toLowerCase().trim();
+      const normalizedCountry = (country || "").toString().toLowerCase().trim();
+      const normalizedStatus = (status || "").toString().toLowerCase().trim();
+      const normalizedPlan = (plan || "").toString().toLowerCase().trim();
+      const cacheKey = `detectives:${normalizedCountry}:${normalizedStatus}:${normalizedPlan}:${normalizedSearch}:${limit}:${offset}`;
+      
+      // ✅ CHECK CACHE FIRST (60-second TTL)
+      try {
+        const cached = cache.get<{ detectives: any[]; total: number }>(cacheKey);
+        if (cached != null && cached.detectives != null && cached.total != null) {
+          cacheStatus = "HIT";
+          console.debug("[cache HIT]", cacheKey);
+          console.info("[api /api/detectives]", {
+            durationMs: Date.now() - requestStart,
+            cacheStatus,
+            cacheKey,
+          });
+          res.set("Cache-Control", "public, max-age=60");
+          return res.json(cached);
+        }
+      } catch (_) {
+        // Cache failure must not break the request
+      }
+      console.debug("[cache MISS]", cacheKey);
+      
       if (typeof search === 'string' && search.trim()) {
         await storage.recordSearch(search as string);
       }
@@ -1561,25 +1592,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? result
         : { detectives: Array.isArray(result) ? result : [], total: Array.isArray(result) ? result.length : 0 };
 
-      const maskedDetectives = await Promise.all(detectives.map(async (d: any) => {
-        const masked = await maskDetectiveContactsPublic(d);
-        // Explicitly null sensitive fields we never want public
-        masked.userId = undefined;
-        masked.email = masked.email; // preserved only if allowed by mask
-        masked.contactEmail = masked.contactEmail; // preserved only if allowed by mask
-        masked.phone = masked.phone; // preserved only if allowed by mask
-        masked.whatsapp = masked.whatsapp; // preserved only if allowed by mask
-        masked.businessDocuments = undefined;
-        masked.identityDocuments = undefined;
-        masked.isClaimable = undefined;
-        return masked;
-      }));
+      const listDetectives: DetectiveListDTO[] = detectives.map((d: any) => {
+        const rawBio = typeof d.bio === "string" ? d.bio.trim() : "";
+        const shortBio = rawBio.length > 150 ? rawBio.slice(0, 150) : rawBio;
+        return {
+          id: String(d.id ?? ""),
+          businessName: d.businessName ?? null,
+          slug: d.slug ?? null,
+          logo: d.logo ?? null,
+          city: d.city ?? null,
+          state: d.state ?? null,
+          country: d.country ?? null,
+          level: d.level ?? null,
+          hasBlueTick: Boolean(d.hasBlueTick),
+          avgRating: Number(d.avgRating ?? 0),
+          reviewCount: Number(d.reviewCount ?? 0),
+          shortBio,
+          visibilityScore: typeof d.visibilityScore === "number" ? d.visibilityScore : Number(d.visibilityScore ?? 0),
+        };
+      });
 
-      // Disable caching for dashboard - always fetch fresh data
-      res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-      res.set("Pragma", "no-cache");
-      res.set("Expires", "0");
-      res.json({ detectives: maskedDetectives, total });
+      const payload = { detectives: listDetectives, total };
+      
+      // ✅ STORE IN CACHE (60-second TTL)
+      try {
+        cache.set(cacheKey, payload, 60);
+        console.debug("[cache SET]", cacheKey, `ttl: 60s (${payload.detectives.length} detectives)`);
+      } catch (_) {
+        // Cache failure must not break the request
+      }
+
+      // Set cache header to allow 60-second client-side caching (aligns with server TTL)
+      res.set("Cache-Control", "public, max-age=60");
+      console.info("[api /api/detectives]", {
+        durationMs: Date.now() - requestStart,
+        cacheStatus,
+        cacheKey,
+      });
+      res.json(payload);
     } catch (error) {
       console.error("Get detectives error:", error);
       if (config.env.isProd) {
@@ -4277,6 +4327,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       sendCachedJson(req, res, { services: servicesDtos });
     } catch (error) {
       console.timeEnd("[PERF:SERVICES] Total route execution");
+      console.error("Search services error:", error);
+      res.status(500).json({ error: "Failed to search services" });
+    }
+  });
+
+  // ============== SEARCH Services (dedicated search endpoint) ==============
+  app.get("/api/services/search", async (req: Request, res: Response) => {
+    try {
+      const { q, category, country, minPrice, maxPrice, minRating, planName, level, limit = "20", offset = "0", sortBy = "popular" } = req.query;
+      const limitNum = Math.min(parseInt(limit as string) || 20, 100);
+      const offsetNum = parseInt(offset as string) || 0;
+      
+      // Record search query if provided
+      if (typeof q === 'string' && q.trim()) {
+        await storage.recordSearch(q as string);
+      }
+
+      // Get paginated services
+      const allServices = await storage.searchServices({
+        category: category as string,
+        country: country as string,
+        searchQuery: q as string,
+        minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
+        maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
+        ratingMin: minRating ? parseFloat(minRating as string) : undefined,
+        planName: planName as string,
+        level: level as string,
+      }, limitNum, offsetNum, sortBy as string);
+
+      // ✅ Return 200 OK with empty array if no results (not 404)
+      if (allServices.length === 0) {
+        return res.json({ services: [] });
+      }
+
+      const masked = await Promise.all(allServices.map(async (s: any) => {
+        const maskedDetective = await maskDetectiveContactsPublic(s.detective);
+        const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
+        return { ...s, detective: { ...maskedDetective, effectiveBadges } };
+      }));
+
+      const servicesDtos = masked.map((service: any) =>
+        buildServiceCardDTO({
+          service,
+          detective: service.detective,
+          avgRating: service.avgRating,
+          reviewCount: service.reviewCount,
+          maskContacts: true,
+        })
+      );
+      
+      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      sendCachedJson(req, res, { services: servicesDtos });
+    } catch (error) {
       console.error("Search services error:", error);
       res.status(500).json({ error: "Failed to search services" });
     }

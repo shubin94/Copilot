@@ -337,6 +337,13 @@ app.use("/api/admin", sessionMiddleware);
 // Payment processing routes
 app.use("/api/payments", sessionMiddleware);
 
+// Authenticated data routes (GET/HEAD must have session)
+app.use("/api/applications", sessionMiddleware);
+app.use("/api/claims", sessionMiddleware);
+app.use("/api/orders", sessionMiddleware);
+app.use("/api/favorites", sessionMiddleware);
+app.use("/api/users", sessionMiddleware);
+
 // ✅ CSRF protection for ALL mutations (require session for token validation)
 // This ensures POST/PUT/PATCH/DELETE requests validate CSRF tokens
 const csrfProtectionByMethod = (req: Request, res: Response, next: NextFunction) => {
