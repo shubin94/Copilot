@@ -3316,6 +3316,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
       
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
       res.json({ countries: allCountries });
     } catch (error) {
       console.error("Get countries error:", error);
@@ -3337,6 +3338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
       
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
       res.json({ states: countryStates });
     } catch (error) {
       console.error("Get states error:", error);
@@ -3363,6 +3365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
       
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
       res.json({ cities: stateCities });
     } catch (error) {
       console.error("Get cities error:", error);
@@ -3608,6 +3611,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       };
 
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
       sendCachedJson(req, res, payload);
     } catch (error) {
       console.error("[GET /api/detectives/:country/:state/:city/:slug] Error:", error);
@@ -4031,6 +4035,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!query || query.length < 3) {
         console.log("🔍 [Autocomplete API] Query too short, returning empty");
+        res.setHeader("Cache-Control", "public, s-maxage=300");
         return res.json({ suggestions: [] });
       }
 
@@ -4099,6 +4104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("🔍 [Autocomplete API] Found locations:", matchingLocations.length);
       console.log("🔍 [Autocomplete API] Total suggestions:", suggestions.length);
 
+      res.setHeader("Cache-Control", "public, s-maxage=300");
       res.json({ suggestions: suggestions.slice(0, limit) });
     } catch (error) {
       console.error("❌ [Autocomplete API] Error:", error);
@@ -4424,6 +4430,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const maskedDetective = await maskDetectiveContactsPublic(detective);
       const effectiveBadges = computeEffectiveBadges(maskedDetective, (maskedDetective as any).subscriptionPackage);
 
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
       res.json({
         service,
         detective: { ...maskedDetective, effectiveBadges },
