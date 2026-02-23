@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-02-23T05:52:05.025Z",
+  "totalEndpoints": 70,
+  "highRiskEndpoints": 21,
+  "mediumRiskEndpoints": 1,
+  "lowRiskEndpoints": 48,
+  "topCauses": [
+    {
+      "rank": 1,
+      "cause": "SELECT * queries on /api/detectives & /api/services",
+      "impact": "40-45% of total egress",
+      "detail": "Fetching full 70+ column detective records when only 10-15 needed"
+    },
+    {
+      "rank": 2,
+      "cause": "Admin endpoints with unbounded pagination",
+      "impact": "15-20% of total egress",
+      "detail": "/api/admin/detectives/raw returns 50+ records at 10 KB each = 500+ KB per request"
+    },
+    {
+      "rank": 3,
+      "cause": "Large text fields (bio, description, content) on every request",
+      "impact": "15-18% of total egress",
+      "detail": "JSONB recognitions field (1-5 KB), service descriptions (200-1000 chars)"
+    },
+    {
+      "rank": 4,
+      "cause": "Service sitemap generation (5000 URLs per page)",
+      "impact": "8-12% of total egress",
+      "detail": "Multiple sitemap endpoints generating XML with gzip compression still 500KB-2MB"
+    },
+    {
+      "rank": 5,
+      "cause": "Images served at original size from storage",
+      "impact": "5-8% of total egress",
+      "detail": "No CDN-level resizing; client receives full image bytes (500KB-2MB per image)"
+    }
+  ],
+  "riskAreas": [
+    "API Endpoints (80%)",
+    "Storage (15%)",
+    "Database (5%)"
+  ],
+  "estimatedMonthlySavings": "60-85%",
+  "immediateActions": 6
+}

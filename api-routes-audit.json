@@ -1,0 +1,123 @@
+{
+  "timestamp": "2026-02-23T05:51:15.968Z",
+  "summary": {
+    "totalEndpoints": 70,
+    "highRisk": 21,
+    "mediumRisk": 1,
+    "lowRisk": 48
+  },
+  "highRiskEndpoints": [
+    {
+      "path": "/api/admin/users",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/detectives",
+      "risk": "High",
+      "size": "50-200 KB"
+    },
+    {
+      "path": "/api/admin/db-check",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/admin/dashboard/summary",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/admin/detectives/raw",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/admin/env",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/admin/app-secrets",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/detectives/me",
+      "risk": "High",
+      "size": "50-200 KB"
+    },
+    {
+      "path": "/api/detectives/me/dashboard",
+      "risk": "High",
+      "size": "50-200 KB"
+    },
+    {
+      "path": "/api/detectives/:country/:state/:city/:slug",
+      "risk": "High",
+      "size": "50-200 KB"
+    },
+    {
+      "path": "/api/services",
+      "risk": "High",
+      "size": "80-300 KB"
+    },
+    {
+      "path": "/api/services/search",
+      "risk": "High",
+      "size": "80-300 KB"
+    },
+    {
+      "path": "/api/services/:country/:state/:city/:slug",
+      "risk": "High",
+      "size": "80-300 KB"
+    },
+    {
+      "path": "/api/services/by-slug/:slug",
+      "risk": "High",
+      "size": "80-300 KB"
+    },
+    {
+      "path": "/api/admin/detectives/:id/services",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/admin/email-templates",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/admin/email-templates/:key",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/detectives/location/:countrySlug/:stateSlug?/:citySlug?",
+      "risk": "High",
+      "size": "50-200 KB"
+    },
+    {
+      "path": "/api/admin/visibility",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/admin/payment-gateways",
+      "risk": "High",
+      "size": "200-500 KB"
+    },
+    {
+      "path": "/api/admin/payment-gateways/:id",
+      "risk": "High",
+      "size": "200-500 KB"
+    }
+  ],
+  "mediumRiskEndpoints": [
+    {
+      "path": "/api/search/autocomplete",
+      "risk": "Medium",
+      "size": "10-50 KB"
+    }
+  ]
+}

@@ -27,8 +27,8 @@ export const CSP_POLICY = [
   // Images: Allow self, data URLs, and all https
   "img-src 'self' data: https:",
   
-  // API connections: Allow Render backend and WebSocket
-  "connect-src 'self' https://copilot-06s5.onrender.com wss:",
+  // API connections: Allow Render backend, askdetectives domains, and WebSocket
+  "connect-src 'self' https://copilot-06s5.onrender.com https://api.askdetectives.com https://www.askdetectives.com wss:",
   
   // Framing: Only allow same origin
   "frame-ancestors 'self'",
