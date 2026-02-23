@@ -76,6 +76,9 @@ const DetectiveSettings = lazy(() => import("@/pages/detective/settings"));
 const UserDashboard = lazy(() => import("@/pages/user/dashboard"));
 const FavoritesPage = lazy(() => import("@/pages/user/favorites"));
 
+// Service + Location Pages (Phase 1: Background Checks)
+const ServiceBackgroundChecksPage = lazy(() => import("@/pages/service-background-checks"));
+
 // Static Pages
 const AboutPage = lazy(() => import("@/pages/about"));
 const PrivacyPage = lazy(() => import("@/pages/privacy"));
@@ -200,6 +203,7 @@ function Router() {
           <Route path="/detectives/:country/:state" component={CityDetectivesPage} />
           <Route path="/detectives/:country" component={CityDetectivesPage} />
           <Route path="/service/:country/:state/:city/:detectiveSlug/:serviceSlug" component={DetectiveProfile} />
+          <Route path="/services/background-checks/:country/:state/:city" component={ServiceBackgroundChecksPage} />
           <Route path="/news/:slug" component={ArticlePage} />
 
           {/* User Routes - MUST come before catch-all CMS routes */}

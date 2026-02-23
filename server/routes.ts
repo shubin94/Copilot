@@ -2779,6 +2779,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // llms.txt - AI agent discovery guide
   app.use("/llms.txt", llmsTxtRouter);
 
+  // Homepage Featured Services - Database-driven featured list
+  app.get("/api/home/featured", async (req: Request, res: Response) => {
+    try {
+      const country = req.query.country
+        ? String(req.query.country).toUpperCase()
+        : undefined;
+
+      if (!country) {
+        return res.status(400).json({ error: "country parameter is required" });
+      }
+
+      const query = `
+        SELECT s.*
+        FROM homepage_featured_services h
+        JOIN services s ON s.id = h.service_id
+        WHERE h.country = $1
+          AND s.is_active = true
+        ORDER BY h.position ASC
+        LIMIT 8;
+      `;
+
+      const result = await pool.query(query, [country]);
+
+      let finalResult = result.rows;
+
+      // Fallback: If no results from homepage_featured_services, query services by country
+      if (finalResult.length === 0) {
+        console.log(`[HOME_FEATURED] No results from homepage_featured_services for country=${country}, using fallback`);
+        
+        const fallbackQuery = `
+          SELECT s.*
+          FROM services s
+          JOIN detectives d ON s.detective_id = d.id
+          WHERE d.country = $1
+            AND s.is_active = true
+          ORDER BY s.view_count DESC
+          LIMIT 8;
+        `;
+
+        const fallbackResult = await pool.query(fallbackQuery, [country]);
+        finalResult = fallbackResult.rows;
+        
+        console.log(`[HOME_FEATURED] Fallback returned ${finalResult.length} services for country=${country}`);
+      }
+
+      res.setHeader(
+        "Cache-Control",
+        "public, s-maxage=14400, stale-while-revalidate=600"
+      );
+
+      return res.json({ services: finalResult });
+
+    } catch (error) {
+      console.error("[HOME_FEATURED] Error:", error);
+      return res.status(500).json({ error: "Failed to fetch featured services" });
+    }
+  });
+
   // Featured home services (8 services, 1 per detective - optimized for home page loading)
   app.use("/api/services/featured/home", featuredHomeServicesRouter);
 
@@ -6585,6 +6643,145 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ 
         error: 'Failed to fetch detectives by location',
         code: 'LOCATION_FETCH_ERROR',
+        message: error instanceof Error ? error.message : 'Internal server error'
+      });
+    }
+  });
+
+  // API: Services filtered by location slugs (country/state/city) - Phase 1: Background Checks
+  // Route: GET /api/services/background-checks/:country/:state/:city/
+  // Returns: Array of services with detective info, filtered by location and category
+  app.get('/api/services/background-checks/:country/:state/:city', async (req: Request, res: Response) => {
+    try {
+      const { country: countrySlug, state: stateSlug, city: citySlug } = req.params as { country: string; state: string; city: string };
+
+      // Validation: All three segments required for Phase 1
+      if (!countrySlug || !stateSlug || !citySlug) {
+        return res.status(400).json({
+          error: "Country, state, and city are required",
+          code: "INVALID_LOCATION_PATH",
+          meta: { country: countrySlug, state: stateSlug, city: citySlug }
+        });
+      }
+
+      // Resolve country by slug
+      const countryRows = await db
+        .select({ id: countries.id, code: countries.code, name: countries.name })
+        .from(countries)
+        .where(eq(countries.slug, countrySlug));
+
+      if (!countryRows || countryRows.length === 0) {
+        return res.status(404).json({ 
+          error: 'Country not found',
+          code: 'COUNTRY_NOT_FOUND',
+          meta: { country: countrySlug, state: stateSlug, city: citySlug }
+        });
+      }
+      
+      const countryRow: any = countryRows[0];
+
+      // Resolve state
+      const stateRows = await db
+        .select({ id: states.id, name: states.name })
+        .from(states)
+        .where(and(eq(states.countryId, countryRow.id), eq(states.slug, stateSlug)));
+      
+      if (!stateRows || stateRows.length === 0) {
+        return res.status(404).json({
+          error: 'State not found',
+          code: 'STATE_NOT_FOUND',
+          meta: { country: countrySlug, state: stateSlug, city: citySlug }
+        });
+      }
+
+      const stateRow: any = stateRows[0];
+
+      // Resolve city
+      const cityRows = await db
+        .select({ id: cities.id, name: cities.name })
+        .from(cities)
+        .where(and(eq(cities.stateId, stateRow.id), eq(cities.slug, citySlug)));
+      
+      if (!cityRows || cityRows.length === 0) {
+        return res.status(404).json({
+          error: 'City not found',
+          code: 'CITY_NOT_FOUND',
+          meta: { country: countrySlug, state: stateSlug, city: citySlug }
+        });
+      }
+
+      const cityRow: any = cityRows[0];
+
+      // Use storage.searchServices() to fetch background check services in this location
+      // Convert country code to country name for the filter (storage expects 2-letter country code)
+      const serviceResults = await storage.searchServices({
+        category: "Background Check",        // Phase 1: Only background checks
+        country: countryRow.code,             // 2-letter country code (IN, US, GB)
+        state: stateRow.name,                 // Full state name (Maharashtra)
+        city: cityRow.name,                   // Full city name (Pune)
+      }, limit = 50, offset = 0, sortBy = 'popular');
+
+      // Return 404 if no services found in this location
+      if (!serviceResults || serviceResults.length === 0) {
+        return res.status(404).json({
+          error: 'No background check services found in this location',
+          code: 'NO_SERVICES_FOUND',
+          meta: { 
+            country: countryRow.name,
+            state: stateRow.name,
+            city: cityRow.name,
+            category: 'Background Check'
+          }
+        });
+      }
+
+      // Log successful injection for monitoring
+      console.log(`[Service SEO] Injected background-checks for ${cityRow.name}`);
+
+      // Return services with location metadata
+      res.json({
+        meta: {
+          country: countryRow.name,
+          countryCode: countryRow.code,
+          state: stateRow.name,
+          city: cityRow.name,
+          category: 'Background Check',
+          total: serviceResults.length,
+          found: true
+        },
+        services: serviceResults.map(service => ({
+          id: service.id,
+          title: service.title,
+          slug: service.slug,
+          category: service.category,
+          description: service.description,
+          basePrice: service.basePrice,
+          offerPrice: service.offerPrice,
+          isOnEnquiry: service.isOnEnquiry,
+          images: service.images,
+          avgRating: service.avgRating,
+          reviewCount: service.reviewCount,
+          detective: {
+            id: service.detective.id,
+            businessName: service.detective.businessName,
+            slug: service.detective.slug,
+            logo: service.detective.logo,
+            country: service.detective.country,
+            state: service.detective.state,
+            city: service.detective.city,
+            isVerified: service.detective.isVerified,
+            level: service.detective.level,
+            phone: service.detective.phone,
+            whatsapp: service.detective.whatsapp,
+            contactEmail: service.detective.contactEmail
+          }
+        }))
+      });
+    } catch (error) {
+      console.error('[api/services/background-checks/location] error:', error);
+      res.status(500).json({
+        error: 'Failed to fetch background check services by location',
+        code: 'SERVICE_LOCATION_FETCH_ERROR',
         message: error instanceof Error ? error.message : 'Internal server error'
       });
     }
