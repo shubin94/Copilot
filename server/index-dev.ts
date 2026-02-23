@@ -116,6 +116,25 @@ export async function setupVite(app: Express, server: Server) {
       template = injectLocationSeoTags(template, params, detectives, canonicalUrl);
       console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${detectives.length} detectives)`);
 
+      // Inject detective data as JSON for client-side rendering
+      const cityPageData = {
+        location: {
+          country: params.country,
+          state: params.state,
+          city: params.city,
+        },
+        detectives: detectives,
+        count: detectives.length,
+      };
+
+      const dataScript = `<script>
+  window.__CITY_PAGE_DATA__ = ${JSON.stringify(cityPageData)};
+</script>`;
+
+      // Inject data script before closing head tag
+      template = template.replace('</head>', `${dataScript}</head>`);
+      console.log(`[DEV-SEO] Injected city page data for ${detectives.length} detectives into window.__CITY_PAGE_DATA__`);
+
       // CHECK IF CITY LEVEL: Inject detective → service authority link for city-level pages only
       const pathSegments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
       if (pathSegments.length === 4) { // /detectives/:country/:state/:city
@@ -124,13 +143,13 @@ export async function setupVite(app: Express, server: Server) {
           const stateSlug = pathSegments[2];
           const citySlug = pathSegments[3];
 
-          // Lightweight check for background check services (limit = 1, just existence check)
+          // Lightweight check for background check services (just existence check)
           const servicesCheckResult = await storage.searchServices({
             category: "Background Check",
             country: params.country,
             state: params.state,
             city: params.city,
-          }, limit = 1, offset = 0);
+          });
 
           const servicesExist = servicesCheckResult && servicesCheckResult.length > 0;
           
@@ -356,6 +375,8 @@ export async function setupVite(app: Express, server: Server) {
   // Injects server-rendered, crawlable location links for SEO
   app.get("/", async (req: Request, res: Response) => {
     try {
+      console.log("[Homepage Injection] Running for /");
+      
       const clientTemplate = path.resolve(
         import.meta.dirname,
         "..",
@@ -364,13 +385,18 @@ export async function setupVite(app: Express, server: Server) {
       );
 
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
+      console.log("[Homepage Injection] Template loaded, size:", template.length, "bytes");
+      console.log("[Homepage Injection] Marker exists:", template.includes("<!-- HOMEPAGE_AUTHORITY_INJECTION_POINT -->"));
+      
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
 
       // Fetch top countries
-      const countries = await storage.getTopCountries(5);
+      const countries = await storage.getTopCountries(8);
+      console.log("[Homepage Injection] Top countries fetched:", countries.length);
+      
       if (countries && countries.length > 0) {
         // Build map of states by country
         const statesByCountry: Record<string, Array<{ state: string; detectiveCount: number }>> = {};
@@ -378,13 +404,13 @@ export async function setupVite(app: Express, server: Server) {
 
         // Fetch states for each country
         for (const country of countries) {
-          const states = await storage.getTopStates(country.country, 3);
+          const states = await storage.getTopStates(country.country, 5);
           if (states && states.length > 0) {
             statesByCountry[country.country] = states;
 
             // Fetch cities for each state
             for (const state of states) {
-              const cities = await storage.getTopCities(country.country, state.state, 3);
+              const cities = await storage.getTopCities(country.country, state.state, 5);
               if (cities && cities.length > 0) {
                 citiesByCountryState[`${country.country}|${state.state}`] = cities;
               }
@@ -398,17 +424,25 @@ export async function setupVite(app: Express, server: Server) {
           statesByCountry,
           citiesByCountryState
         );
+        console.log("[Homepage Injection] Authority HTML built, size:", authorityBlockHtml.length, "bytes");
+        
+        const beforeTemplate = template;
         template = injectHomepageAuthorityHtml(template, authorityBlockHtml);
+        console.log("[Homepage Injection] Template modified:", beforeTemplate !== template);
+        console.log("[Homepage Injection] Marker after inject:", template.includes("<!-- HOMEPAGE_AUTHORITY_INJECTION_POINT -->"));
 
-        console.log("[Homepage Authority] Injected location links for SEO");
+        console.log("[Homepage Injection] Injected location links for SEO");
       }
 
       const page = await vite.transformIndexHtml(req.originalUrl, template);
+      console.log("[Homepage Injection] Vite transform complete, final size:", page.length, "bytes");
+      console.log("[Homepage Injection] Final HTML has authority:", page.includes("Find Private Detectives by Location"));
+      
       res.setHeader("Cache-Control", "no-store");
       res.set({ "Content-Type": "text/html" }).end(page);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error("[Homepage Authority] Error:", {
+      console.error("[Homepage Injection] Error:", {
         message: errorMsg,
         stack: error instanceof Error ? error.stack : undefined,
       });
@@ -429,7 +463,7 @@ export async function setupVite(app: Express, server: Server) {
         res.setHeader("Cache-Control", "no-store");
         res.set({ "Content-Type": "text/html" }).end(page);
       } catch (fallbackError) {
-        console.error("[Homepage Authority] Fallback failed:", fallbackError);
+        console.error("[Homepage Injection] Fallback failed:", fallbackError);
         res.status(500).set({ "Content-Type": "text/html" }).send(
           "<html><head><title>Error</title></head><body><h1>Error loading page</h1></body></html>"
         );

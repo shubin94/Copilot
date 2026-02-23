@@ -169,6 +169,7 @@ export interface IStorage {
   getTopCountries(limit?: number): Promise<Array<{ country: string; detectiveCount: number }>>;
   getTopStates(country: string, limit?: number): Promise<Array<{ state: string; detectiveCount: number }>>;
   getTopCities(country: string, state: string, limit?: number): Promise<Array<{ city: string; detectiveCount: number }>>;
+  getTopCitiesGlobally(limit?: number): Promise<Array<{ country: string; state: string; city: string; detectiveCount: number }>>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1398,6 +1399,45 @@ export class DatabaseStorage implements IStorage {
         `[Storage] Error fetching top cities for ${country}/${state}:`,
         error
       );
+      return [];
+    }
+  }
+
+  // Location authority flow: Get top cities globally across all countries/states
+  // Query: GROUP BY country, state, city, COUNT detectives with active status
+  // Used for homepage "Popular Cities" section
+  // Performance: O(n) scan with index on status + country + state + city columns
+  async getTopCitiesGlobally(
+    limit = 16
+  ): Promise<Array<{ country: string; state: string; city: string; detectiveCount: number }>> {
+    try {
+      const results = await db
+        .select({
+          country: detectives.country,
+          state: detectives.state,
+          city: detectives.city,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .where(
+          and(
+            eq(detectives.status, "active"),
+            ne(detectives.city, "Not specified"),
+            ne(detectives.state, "Not specified")
+          )
+        )
+        .groupBy(detectives.country, detectives.state, detectives.city)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limit);
+
+      return results.map((row) => ({
+        country: row.country,
+        state: row.state,
+        city: row.city,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }));
+    } catch (error) {
+      console.error("[Storage] Error fetching top cities globally:", error);
       return [];
     }
   }

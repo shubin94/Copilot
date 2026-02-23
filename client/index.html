@@ -54,6 +54,30 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="ssr-location-section">
+      <!-- HOMEPAGE_AUTHORITY_INJECTION_POINT -->
+    </div>
+    <script>
+      // Move SSR location section above Footer after React renders
+      (function() {
+        function moveLocationSection() {
+          const ssrSection = document.getElementById('ssr-location-section');
+          const footer = document.querySelector('footer');
+          const hasContent = ssrSection && ssrSection.querySelector('.homepage-authority');
+          
+          if (hasContent && footer && footer.parentNode) {
+            // Only move if not already positioned
+            if (ssrSection.nextSibling !== footer) {
+              footer.parentNode.insertBefore(ssrSection, footer);
+            }
+          }
+        }
+        // Wait for React to render before moving
+        setTimeout(moveLocationSection, 200);
+        setTimeout(moveLocationSection, 500);
+        setTimeout(moveLocationSection, 1000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

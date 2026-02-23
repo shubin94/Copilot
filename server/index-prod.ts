@@ -307,18 +307,24 @@ export async function serveStatic(app: Express, server: Server) {
     }
   });
 
-  // HOMEPAGE AUTHORITY FLOW
-  // Injects server-rendered, crawlable location links for SEO
+  // Homepage route - serves client index.html with authority injection
   app.get("/", async (req: Request, res: Response) => {
     try {
+      console.log("[Homepage Injection] Running for /");
+      
       // Read index.html once and cache it
       if (!cachedIndexHtml) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
       }
-      let html = cachedIndexHtml;
 
-      // Fetch top countries
-      const countries = await storage.getTopCountries(5);
+      let html = cachedIndexHtml;
+      console.log("[Homepage Injection] Template loaded, size:", html.length, "bytes");
+      console.log("[Homepage Injection] Marker exists:", html.includes("<!-- HOMEPAGE_AUTHORITY_INJECTION_POINT -->"));
+
+      // Fetch top countries for homepage authority injection
+      const countries = await storage.getTopCountries(8);
+      console.log("[Homepage Injection] Top countries fetched:", countries.length);
+      
       if (countries && countries.length > 0) {
         // Build map of states by country
         const statesByCountry: Record<string, Array<{ state: string; detectiveCount: number }>> = {};
@@ -326,13 +332,13 @@ export async function serveStatic(app: Express, server: Server) {
 
         // Fetch states for each country
         for (const country of countries) {
-          const states = await storage.getTopStates(country.country, 3);
+          const states = await storage.getTopStates(country.country, 5);
           if (states && states.length > 0) {
             statesByCountry[country.country] = states;
 
             // Fetch cities for each state
             for (const state of states) {
-              const cities = await storage.getTopCities(country.country, state.state, 3);
+              const cities = await storage.getTopCities(country.country, state.state, 5);
               if (cities && cities.length > 0) {
                 citiesByCountryState[`${country.country}|${state.state}`] = cities;
               }
@@ -346,9 +352,14 @@ export async function serveStatic(app: Express, server: Server) {
           statesByCountry,
           citiesByCountryState
         );
+        console.log("[Homepage Injection] Authority HTML built, size:", authorityBlockHtml.length, "bytes");
+        
+        const beforeHtml = html;
         html = injectHomepageAuthorityHtml(html, authorityBlockHtml);
+        console.log("[Homepage Injection] HTML modified:", beforeHtml !== html);
+        console.log("[Homepage Injection] Final HTML has authority:", html.includes("Find Private Detectives by Location"));
 
-        console.log("[Homepage Authority] Injected location links for SEO");
+        console.log("[Homepage Injection] Injected location links for SEO");
       }
 
       res.setHeader("Cache-Control", "no-store");
@@ -356,7 +367,7 @@ export async function serveStatic(app: Express, server: Server) {
       res.send(html);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error("[Homepage Authority] Error:", {
+      console.error("[Homepage] Error:", {
         message: errorMsg,
         stack: error instanceof Error ? error.stack : undefined,
       });
@@ -369,7 +380,7 @@ export async function serveStatic(app: Express, server: Server) {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.send(cachedIndexHtml);
       } catch (fallbackError) {
-        console.error("[Homepage Authority] Fallback failed:", fallbackError);
+        console.error("[Homepage] Fallback failed:", fallbackError);
         res.status(500).type("text/plain").send("Error loading page");
       }
     }

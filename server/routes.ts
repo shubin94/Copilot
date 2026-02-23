@@ -3431,6 +3431,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Homepage API - Get top locations for the homepage location grid section
+  // Returns: top countries (8), popular cities (8), and top states (8)
+  // SSR-friendly, cached for performance
+  app.get("/api/homepage/top-locations", async (_req: Request, res: Response) => {
+    try {
+      // Fetch top countries
+      const topCountries = await storage.getTopCountries(8);
+
+      // Build states and cities data
+      const statesByCountry: Record<string, Array<{ state: string; detectiveCount: number }>> = {};
+      const allCities: Array<{ country: string; state: string; city: string; detectiveCount: number }> = [];
+
+      // Fetch states for each country
+      for (const country of topCountries) {
+        const states = await storage.getTopStates(country.country, 5);
+        if (states && states.length > 0) {
+          statesByCountry[country.country] = states;
+
+          // Fetch cities for each state
+          for (const state of states) {
+            const cities = await storage.getTopCities(country.country, state.state, 5);
+            if (cities && cities.length > 0) {
+              cities.forEach((city) => {
+                allCities.push({
+                  country: country.country,
+                  state: state.state,
+                  city: city.city,
+                  detectiveCount: city.detectiveCount,
+                });
+              });
+            }
+          }
+        }
+      }
+
+      // Sort cities by detective count and take top 8
+      const topCities = allCities
+        .sort((a, b) => b.detectiveCount - a.detectiveCount)
+        .slice(0, 8);
+
+      // Build top states list (across all countries, top 8)
+      const allStates: Array<{ country: string; state: string; detectiveCount: number }> = [];
+      Object.entries(statesByCountry).forEach(([country, states]) => {
+        states.forEach((state) => {
+          allStates.push({
+            country,
+            state: state.state,
+            detectiveCount: state.detectiveCount,
+          });
+        });
+      });
+
+      const topStates = allStates
+        .sort((a, b) => b.detectiveCount - a.detectiveCount)
+        .slice(0, 8);
+
+      // Cache for 24 hours (top locations don't change frequently)
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
+      res.json({
+        topCountries,
+        topCities,
+        topStates,
+      });
+    } catch (error) {
+      console.error("[Homepage API] Error fetching top locations:", error);
+      res.status(500).json({ 
+        error: "Failed to fetch top locations",
+        topCountries: [],
+        topCities: [],
+        topStates: [],
+      });
+    }
+  });
+
   // Location Wizard API - Update detective location
   app.patch("/api/detectives/me/location", requireAuth, async (req: Request, res: Response) => {
     try {

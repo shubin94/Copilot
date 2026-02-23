@@ -34,6 +34,21 @@ interface LocationMeta {
   city?: string;
 }
 
+interface CityPageData {
+  location: LocationMeta;
+  detectives: Detective[];
+  count: number;
+}
+
+// Check for SSR data injected by server
+const getSSRData = (): CityPageData | null => {
+  if (typeof window !== 'undefined' && (window as any).__CITY_PAGE_DATA__) {
+    console.log('[CityDetectivesPage] Using SSR data from server');
+    return (window as any).__CITY_PAGE_DATA__;
+  }
+  return null;
+};
+
 interface RelatedCity {
   name: string;
   slug: string;
@@ -134,6 +149,21 @@ export default function CityDetectivesPage() {
         setLoading(true);
         setError(null);
 
+        // Check if SSR data is available from server
+        const ssrData = getSSRData();
+        if (ssrData) {
+          console.log('[CityDetectivesPage] Using SSR data from server-side injection');
+          setDetectives(ssrData.detectives);
+          setLocationMeta({
+            country: ssrData.location.country,
+            state: ssrData.location.state,
+            city: ssrData.location.city,
+          });
+          setLoading(false);
+          return;
+        }
+
+        // If no SSR data, fetch from API (for direct navigation or client-side clicks)
         // Fetch detectives for this location
         const response = await fetch(locationApiPath);
 
@@ -383,77 +413,139 @@ export default function CityDetectivesPage() {
         ) : detectives.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
             {detectives.map((detective) => {
-              const badgeState = detective.badgeState || {
-                showBlueTick: false,
-                showPro: false,
-                showRecommended: false,
-              };
-
               const detectiveUrl = getDetectiveProfileUrl(detective);
+              
+              // Generate initials fallback for logo
+              const initials = detective.businessName
+                ? detective.businessName
+                    .split(" ")
+                    .map(word => word[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2)
+                : "PI";
+
+              // Check for contact info
+              const hasPhone = detective.phone || detective.whatsapp;
+              const contactButtonText = detective.phone ? "Call Now" : detective.whatsapp ? "Contact" : "Email Now";
+              const contactHref = detective.phone 
+                ? `tel:${detective.phone}` 
+                : detective.whatsapp 
+                ? `https://wa.me/${detective.whatsapp}` 
+                : detective.contactEmail 
+                ? `mailto:${detective.contactEmail}` 
+                : "#";
 
               return (
-                <Card key={detective.id} className="hover:shadow-lg transition-shadow">
-                  <CardContent className="p-6">
-                    {/* Detective Header */}
-                    <div className="flex gap-4 mb-4">
-                      <img
-                        src={detective.logo || "/placeholder-avatar.png"}
-                        alt={detective.businessName}
-                        className="h-16 w-16 rounded-full object-cover border border-gray-200"
-                      />
-                      <div className="flex-1">
-                        <h3 className="font-bold text-base mb-1">
-                          {detective.businessName || "Detective Service"}
-                        </h3>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {badgeState.showBlueTick && (
-                            <img
-                              src="/blue-tick.png"
-                              alt="Verified"
-                              className="h-4 w-4 inline-block align-middle"
-                              title="Verified Detective"
-                            />
-                          )}
-                          {badgeState.showPro && (
-                            <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
-                              Pro
-                            </Badge>
-                          )}
-                          {badgeState.showRecommended && (
-                            <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-1.5 py-0.5">
-                              Recommended
-                            </Badge>
-                          )}
+                <Card 
+                  key={detective.id} 
+                  className="h-full flex flex-col rounded-xl border border-gray-200 bg-white hover:shadow-xl shadow-md transition-all duration-300 overflow-hidden"
+                >
+                  <CardContent className="p-5 flex flex-col gap-4 h-full">
+                    {/* Logo */}
+                    <div className="w-20 h-20 rounded-full overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0">
+                      {detective.logo ? (
+                        <img
+                          src={detective.logo}
+                          alt={detective.businessName || "Detective"}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-green-100 to-green-200 flex items-center justify-center text-sm font-bold text-green-700">
+                          {initials}
                         </div>
-                      </div>
-                    </div>
-
-                    {/* Location and Type */}
-                    <div className="space-y-2 mb-4">
-                      {detective.city && (
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <MapPin className="h-4 w-4 flex-shrink-0" />
-                          <span>{detective.city}, {detective.state}</span>
-                        </div>
-                      )}
-                      {detective.businessType && (
-                        <p className="text-sm text-gray-600">{detective.businessType}</p>
                       )}
                     </div>
 
-                    {/* Divider */}
-                    <div className="border-t border-gray-200 mb-4 pt-4" />
-
-                    {/* View Profile Button */}
-                    <Button
-                      asChild
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      <a href={detectiveUrl} className="flex items-center justify-center gap-2">
-                        View Profile
-                        <ExternalLink className="h-4 w-4" />
+                    {/* Business Name with Badge Icons */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <a 
+                        href={detectiveUrl}
+                        className="text-lg font-semibold text-gray-900 hover:underline line-clamp-1"
+                      >
+                        {detective.businessName || "Private Detective Service"}
                       </a>
-                    </Button>
+                      <span className="inline-flex items-center gap-1 ml-1 align-middle">
+                        {/* Blue Tick Badge (from isVerified or effectiveBadges.blueTick) */}
+                        {(detective.isVerified || detective.effectiveBadges?.blueTick) && (
+                          <img src="/blue-tick.png" alt="Verified" className="h-4 w-4 inline-block align-middle" />
+                        )}
+                        {/* Pro Badge */}
+                        {detective.effectiveBadges?.pro && (
+                          <img src="/crown.png" alt="Pro" className="h-4 w-4 inline-block align-middle" />
+                        )}
+                        {/* Recommended Badge */}
+                        {detective.effectiveBadges?.recommended && (
+                          <span className="text-[10px] bg-green-100 px-1 rounded inline-block">
+                            Recommended
+                          </span>
+                        )}
+                      </span>
+                    </div>
+
+                    {/* Level */}
+                    <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded inline-block w-fit">
+                      {detective.level || "1"}
+                    </span>
+
+                    {/* Location */}
+                    {(detective.city || detective.state) && (
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <MapPin className="h-4 w-4 flex-shrink-0" />
+                        <span className="line-clamp-1">
+                          {[detective.city, detective.state].filter(Boolean).join(", ")}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* About Preview */}
+                    {detective.bio && (
+                      <p className="text-sm text-gray-600 line-clamp-2">
+                        {detective.bio}
+                      </p>
+                    )}
+
+                    {/* Rating Section */}
+                    {detective.avgRating && detective.reviewCount && (
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1">
+                          {[...Array(5)].map((_, i) => (
+                            <span key={i} className={i < Math.round(detective.avgRating) ? "text-yellow-400" : "text-gray-300"}>
+                              ★
+                            </span>
+                          ))}
+                        </div>
+                        <span className="text-xs text-gray-500">
+                          ({detective.reviewCount} reviews)
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Spacer */}
+                    <div className="flex-1" />
+
+                    {/* Buttons Section */}
+                    <div className="flex gap-2 pt-4 border-t border-gray-100">
+                      {/* Contact Button */}
+                      {hasPhone || detective.contactEmail ? (
+                        <a
+                          href={contactHref}
+                          className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-3 rounded-lg text-sm text-center transition-colors duration-200 flex items-center justify-center gap-2"
+                        >
+                          {contactButtonText}
+                        </a>
+                      ) : (
+                        <div className="flex-1" />
+                      )}
+
+                      {/* View Profile Button */}
+                      <a
+                        href={detectiveUrl}
+                        className="flex-1 border border-green-600 text-green-700 hover:bg-green-50 font-medium py-2 px-3 rounded-lg text-sm text-center transition-colors duration-200 flex items-center justify-center gap-2"
+                      >
+                        View Profile
+                      </a>
+                    </div>
                   </CardContent>
                 </Card>
               );
