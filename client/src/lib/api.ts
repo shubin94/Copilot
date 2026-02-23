@@ -6,7 +6,7 @@ const DEFAULT_DEV_API_BASE_URL = typeof window !== "undefined"
   : "http://127.0.0.1:5000";
 
 // Fallback backend URL for production (used if proxy fails)
-const PRODUCTION_BACKEND_URL = "https://copilot-06s5.onrender.com";
+const PRODUCTION_BACKEND_URL = "https://api.askdetectives.com";
 
 // Runtime API URL (can be updated if proxy detection fails)
 let runtimeApiBaseUrl: string | null = null;
