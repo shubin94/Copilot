@@ -14,8 +14,7 @@ import type { ServiceCategory } from "@shared/schema";
 import { useEffect, useRef } from "react";
 
 export default function Home() {
-  // Authority HTML is now rendered via TRUE SSR (injected directly into HTML body)
-  // No longer reads from window global - it's already in the DOM before React loads
+  // ...existing code...
 
   const { data: categoriesData, isLoading: isLoadingCategories } = useServiceCategories(true);
   const categories = categoriesData?.categories || [];
@@ -71,108 +70,6 @@ export default function Home() {
         </h1>
         <Hero />
 
-        <div className="bg-gray-50 py-8 border-b border-gray-200">
-          <div className="container mx-auto px-6 md:px-12 lg:px-24 flex justify-center gap-8 md:gap-16 grayscale opacity-50">
-            <span className="font-bold text-xl">Meta</span>
-            <span className="font-bold text-xl">Google</span>
-            <span className="font-bold text-xl">Netflix</span>
-            <span className="font-bold text-xl">P&G</span>
-            <span className="font-bold text-xl">PayPal</span>
-          </div>
-        </div>
-
-        <section className="py-16">
-          <style>{`
-            .category-scroll-container {
-              scrollbar-width: none;
-              -ms-overflow-style: none;
-            }
-            .category-scroll-container::-webkit-scrollbar {
-              display: none;
-            }
-            .category-card {
-              flex: 0 0 calc((100% - 2 * 1.5rem) / 3);
-            }
-            @media (max-width: 1023px) {
-              .category-card {
-                flex-basis: calc((100% - 1 * 1.5rem) / 2);
-              }
-            }
-            @media (max-width: 639px) {
-              .category-card {
-                flex-basis: 100%;
-              }
-            }
-          `}</style>
-
-          <div className="container mx-auto px-6 md:px-12 lg:px-24">
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h2 className="text-3xl font-bold font-heading">Browse by Category</h2>
-                <p className="text-gray-600 mt-2">Explore professional detective services organized by specialty</p>
-              </div>
-              <Link href="/categories">
-                <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 font-normal" data-testid="button-view-all-categories">
-                  View All <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-
-            <div ref={scrollContainerRef} className="category-scroll-container overflow-x-auto overflow-y-hidden pb-4">
-              <div className="flex gap-6 w-full">
-              {isLoadingCategories ? (
-                [1, 2, 3].map((i) => (
-                  <Card key={i} className="category-card hover:shadow-lg transition-shadow">
-                    <CardContent className="p-6">
-                    <div className="flex items-start gap-4">
-                      <div className="p-3 bg-green-50 rounded-lg">
-                        <Layers className="h-6 w-6 text-green-600" />
-                      </div>
-                      <div className="flex-1 space-y-2">
-                        <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4" />
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-full" />
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-2/3" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                ))
-              ) : categories.length > 0 ? (
-                categories.map((category: ServiceCategory) => (
-                  <Link key={category.id} href={`/search?q=${encodeURIComponent(category.name)}`} className="category-card">
-                    <Card className="hover:shadow-lg transition-all hover:border-green-500 cursor-pointer group h-full" data-testid={`card-category-${category.id}`}>
-                      <CardContent className="p-6">
-                      <div className="flex items-start gap-4">
-                        <div className="p-3 bg-green-50 rounded-lg group-hover:bg-green-100 transition-colors">
-                          <Layers className="h-6 w-6 text-green-600" />
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="font-bold text-lg text-gray-900 group-hover:text-green-700 transition-colors mb-2" data-testid={`text-category-name-${category.id}`}>
-                            {category.name}
-                          </h3>
-                          <p className="text-sm text-gray-600 line-clamp-2" data-testid={`text-category-description-${category.id}`}>
-                            {category.description || "Professional investigation services"}
-                          </p>
-                          <div className="mt-3 flex items-center text-sm text-green-600 font-medium group-hover:gap-2 transition-all">
-                            Explore <ArrowRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  </Link>
-                ))
-              ) : (
-                <div className="w-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200" data-testid="empty-categories">
-                  <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
-                  <p className="text-sm text-gray-500">No categories yet</p>
-                </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
         <section className="py-12 container mx-auto px-6 md:px-12 lg:px-24 bg-gray-50/50">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-3xl font-bold font-heading">Latest Services</h2>
@@ -221,63 +118,10 @@ export default function Home() {
           </section>
         )}
 
-        <section className="bg-green-50 py-16">
-          <div className="container mx-auto px-6 md:px-12 lg:px-24 flex flex-col lg:flex-row items-stretch gap-12">
-            <div className="flex-1 space-y-6 flex flex-col justify-center">
-              <h2 className="text-3xl md:text-4xl font-bold font-heading">
-                The best part? Everything that matters.
-              </h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <h3 className="flex items-center text-lg font-bold mb-1">
-                    <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    The world's first dedicated detective service platform
-                  </h3>
-                  <p className="text-gray-600 ml-8">A single place to discover, compare, and hire professional detectives across verified categories.</p>
-                </div>
-                
-                <div>
-                  <h3 className="flex items-center text-lg font-bold mb-1">
-                    <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Trusted detectives, faster results
-                  </h3>
-                  <p className="text-gray-600 ml-8">Work only with verified and recommended detectives, so you get accurate outcomes without delays.</p>
-                </div>
-                
-                <div>
-                  <h3 className="flex items-center text-lg font-bold mb-1">
-                    <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Talk first. Pay only if it feels right
-                  </h3>
-                  <p className="text-gray-600 ml-8">Connect directly with the detective, discuss your case, and proceed with payment only when you're confident.</p>
-                </div>
-                
-                <div>
-                  <h3 className="flex items-center text-lg font-bold mb-1">
-                    <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Your review helps others choose better
-                  </h3>
-                  <p className="text-gray-600 ml-8">Share your experience after the service — your review guides others to make the right decision.</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex-1 relative min-h-[400px] lg:min-h-full">
-              <div className="absolute inset-0 h-full w-full rounded-lg shadow-xl overflow-hidden">
-                <img
-                  src={featuresImage || "/pub.png"}
-                  alt="Professional detectives collaborating on a case"
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
+        {/* ...removed location/feature section... */}
       </main>
       
-      {/* LocationAuthority now rendered via SSR - no React component needed for homepage */}
+      {/* ...existing code... */}
       <Footer />
     </div>
   );

@@ -25,7 +25,6 @@ import {
   extractLocationRouteParams,
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
-  buildHomepageAuthorityHtml,
   injectHomepageAuthorityHtml,
   injectDetectiveLocationAuthorityLink,
 } from "./lib/seo-injection";
