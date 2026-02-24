@@ -1,5 +1,10 @@
 import type { User, Detective, Service, Review, Order, DetectiveApplication, ProfileClaim, ServiceCategory, InsertDetective, InsertService, InsertReview, InsertOrder, InsertServiceCategory, InsertDetectiveApplication } from "@shared/schema";
 
+const VITE_ENV = ((import.meta as any)?.env ?? {}) as Record<string, any>;
+const VITE_API_URL = VITE_ENV.VITE_API_URL as string | undefined;
+const VITE_PORT = VITE_ENV.VITE_PORT as string | undefined;
+const IS_PROD = !!VITE_ENV.PROD;
+
 // API Base URL configuration for different environments
 const DEFAULT_DEV_API_BASE_URL = typeof window !== "undefined"
   ? `${window.location.protocol}//${window.location.hostname}:5000`
@@ -18,13 +23,13 @@ let runtimeApiBaseUrl: string | null = null;
 // 4. Development: localhost backend
 const determineApiBaseUrl = (): string => {
   // Priority 1: Environment variable (most reliable, set in Vercel dashboard)
-  if (import.meta.env.VITE_API_URL) {
-    console.log('[API Config] ✅ Using VITE_API_URL:', import.meta.env.VITE_API_URL);
-    return import.meta.env.VITE_API_URL;
+  if (VITE_API_URL) {
+    console.log('[API Config] ✅ Using VITE_API_URL:', VITE_API_URL);
+    return VITE_API_URL;
   }
   
   // Priority 2: Production mode - use Vercel proxy (relative paths)
-  if (import.meta.env.PROD) {
+  if (IS_PROD) {
     console.log('[API Config] 🌐 Production mode - using Vercel proxy (relative paths)');
     console.log('[API Config] 🔄 Fallback available:', PRODUCTION_BACKEND_URL);
     
@@ -43,7 +48,7 @@ const determineApiBaseUrl = (): string => {
 
 // Test if Vercel proxy is working (runs in background)
 async function checkProxyHealth(): Promise<void> {
-  if (!import.meta.env.PROD || runtimeApiBaseUrl) return;
+  if (!IS_PROD || runtimeApiBaseUrl) return;
   
   try {
     console.log('[API Health] Testing Vercel proxy...');
@@ -162,7 +167,7 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
         console.error('[API Error] Backend CORS headers likely not configured for this origin');
         
         // In production, try fallback if not already activated
-        if (import.meta.env.PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
+        if (IS_PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
           console.warn('[API Error] 🔄 Proxy CORS failed, activating direct backend URL fallback');
           activateFallbackUrl();
         }
@@ -174,7 +179,7 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
         console.error(`[API Error] Network error for ${url}:`, error);
         
         // In production, if using relative paths and network fails, try fallback
-        if (import.meta.env.PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
+        if (IS_PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
           console.warn('[API Error] 🔄 Proxy unavailable, activating fallback on next request');
           activateFallbackUrl();
         }
@@ -247,7 +252,7 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
     // Improve error message for network failures (e.g., server not running)
     const errorMsg = error?.message || String(error);
     if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-      const port = import.meta.env.VITE_PORT || window.location.port || '5000';
+      const port = VITE_PORT || window.location.port || '5000';
       throw new Error(`Cannot reach API server at ${fullUrl}. Is the server running on port ${port}? Check: npm run dev`);
     }
     throw error;

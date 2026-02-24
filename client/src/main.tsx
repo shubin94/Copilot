@@ -1,4 +1,4 @@
-import { createRoot } from "react-dom/client";
+import { createRoot, hydrateRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { PerformanceMonitor } from "./lib/performance-monitor";
@@ -41,5 +41,11 @@ if (!rootElement) {
 }
 
 console.log('[App Startup] Mounting React app...');
-createRoot(rootElement).render(<App />);
+if (rootElement.hasChildNodes()) {
+  console.log('[App Startup] Detected pre-rendered HTML, hydrating React app...');
+  hydrateRoot(rootElement, <App />);
+} else {
+  console.log('[App Startup] No pre-rendered HTML detected, using createRoot...');
+  createRoot(rootElement).render(<App />);
+}
 console.log('[App Startup] React app mounted successfully');

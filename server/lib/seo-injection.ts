@@ -579,28 +579,32 @@ export function extractLocationRouteParams(
 
 /**
  * Fetches detectives for a location for SEO purposes
- * Returns limited data (top 10 for JSON-LD ItemList) with effectiveBadges
+ * Returns limited detectives list plus totalCount for SEO metadata
  */
 export async function getLocationDetectivesForSEO(
   country: string,
   state?: string,
-  city?: string
-): Promise<Array<{ 
-  id: string; 
-  businessName: string | null; 
-  slug: string | null; 
-  city: string; 
-  state: string; 
-  country: string;
-  logo: string | null;
-  bio: string | null;
-  phone: string | null;
-  whatsapp: string | null;
-  contactEmail: string | null;
-  isVerified: boolean;
-  level: string | null;
-  effectiveBadges: { blueTick: boolean; pro: boolean; recommended: boolean };
-}>> {
+  city?: string,
+  limit?: number
+): Promise<{
+  detectives: Array<{
+    id: string;
+    businessName: string | null;
+    slug: string | null;
+    city: string;
+    state: string;
+    country: string;
+    logo: string | null;
+    bio: string | null;
+    phone: string | null;
+    whatsapp: string | null;
+    contactEmail: string | null;
+    isVerified: boolean;
+    level: string | null;
+    effectiveBadges: { blueTick: boolean; pro: boolean; recommended: boolean };
+  }>;
+  totalCount: number;
+}> {
   try {
     // Convert slug to title case
     const slugToTitleCase = (slug: string): string => {
@@ -648,6 +652,7 @@ export async function getLocationDetectivesForSEO(
 
     // Build query conditions
     let conditions = [eq(detectives.status, "active")];
+    const limitValue = typeof limit === "number" && limit > 0 ? limit : 15;
 
     // Try country code first, then fallback to title case name
     const countryCode = countrySlugToCode[country.toLowerCase()];
@@ -681,7 +686,15 @@ export async function getLocationDetectivesForSEO(
       city: city ? slugToTitleCase(city) : undefined,
     });
 
-    // Query top 10 detectives for this location with subscription package for badges
+    // Query total count for this location (before limit)
+    const totalCountRows = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(detectives)
+      .where(and(...conditions));
+
+    const totalCount = Number(totalCountRows?.[0]?.count || 0);
+
+    // Query detectives for this location with subscription package for badges
     const rows = await db
       .select({
         id: detectives.id,
@@ -705,7 +718,7 @@ export async function getLocationDetectivesForSEO(
       .from(detectives)
       .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
       .where(and(...conditions))
-      .limit(10);
+      .limit(limitValue);
 
     console.log("[Location SEO] Query returned", rows.length, "detectives for", {country, state, city});
 
@@ -738,10 +751,16 @@ export async function getLocationDetectivesForSEO(
       };
     });
 
-    return detectivesWithBadges;
+    return {
+      detectives: detectivesWithBadges,
+      totalCount,
+    };
   } catch (error) {
     console.error("[SEO] Error fetching location detectives:", error);
-    return [];
+    return {
+      detectives: [],
+      totalCount: 0,
+    };
   }
 }
 
@@ -750,33 +769,19 @@ export async function getLocationDetectivesForSEO(
  */
 export function generateLocationSeoMetaTags(
   location: { country: string; state?: string; city?: string },
-  detectiveCount: number,
+  totalCount: number,
   canonicalUrl: string
 ): string {
-  // Build location label
-  const locationLabel = [location.city, location.state, location.country]
+  const locationDisplayName = [location.city, location.state, location.country]
     .filter(Boolean)
     .join(", ");
+  const year = new Date().getFullYear();
 
   // Generate dynamic title
-  let title = "";
-  if (location.city && location.state) {
-    title = `Private Detectives in ${location.city}, ${location.state} | Ask Detectives`;
-  } else if (location.state && !location.city) {
-    title = `Private Detectives in ${location.state}, ${location.country} | Ask Detectives`;
-  } else {
-    title = `Private Detectives in ${location.country} | Ask Detectives`;
-  }
+  const title = `${totalCount} Active Private Detectives in ${locationDisplayName} (${year})`;
 
   // Generate dynamic description
-  let description = "";
-  if (location.city && location.state) {
-    description = `Find verified private detectives in ${location.city}, ${location.state}. Compare ${detectiveCount}+ profiles, ratings, and services. Contact investigators near you.`;
-  } else if (location.state && !location.city) {
-    description = `Browse private detectives across ${location.state}, ${location.country}. Find ${detectiveCount}+ licensed investigators. Compare services and ratings.`;
-  } else {
-    description = `Discover verified private detectives in ${location.country}. Connect with ${detectiveCount}+ licensed professionals. Browse services by city and state.`;
-  }
+  const description = `Compare ${totalCount} active private detectives in ${locationDisplayName}. View profiles, ratings, and services to find the right investigator for your needs.`;
 
   const metaTags = [
     `<title>${escapeHtml(title)}</title>`,
@@ -914,13 +919,14 @@ export function injectLocationSeoTags(
   htmlContent: string,
   location: { country: string; state?: string; city?: string },
   detectives: Array<{ slug: string; businessName: string; city: string; state: string; country: string }>,
-  canonicalUrl: string
+  canonicalUrl: string,
+  totalCount?: number
 ): string {
   // STEP 1: Remove all existing default meta tags
   let modified = removeDefaultMetaTags(htmlContent);
 
   // STEP 2: Inject new SEO tags
-  const metaTags = generateLocationSeoMetaTags(location, detectives.length, canonicalUrl);
+  const metaTags = generateLocationSeoMetaTags(location, totalCount ?? detectives.length, canonicalUrl);
   const metaTagsArray = metaTags.split('\n');
   const titleTag = metaTagsArray[0];
   const otherTags = metaTagsArray.slice(1).join('\n    ');

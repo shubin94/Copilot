@@ -2,16 +2,15 @@ import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { Hero } from "@/components/home/hero";
 import { ServiceCardGrid } from "@/components/common/service-card-grid";
+import { DetectiveCard } from "@/components/DetectiveCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ArrowRight, AlertCircle, Layers } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Link } from "wouter";
 import { useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
 import type { ServiceCategory } from "@shared/schema";
-import { getDetectiveProfileUrl } from "@/lib/utils";
 import { useEffect, useRef } from "react";
 
 export default function Home() {
@@ -205,67 +204,9 @@ export default function Home() {
                 ))
               ) : (
                 featuredDetectives.map((d) => {
-                  const planBadges = d.subscriptionPackage?.badges || null;
-                  const badgeState = d.badgeState ?? (planBadges
-                    ? {
-                        showBlueTick: !!planBadges.blueTick,
-                        showPro: !!planBadges.pro,
-                        showRecommended: !!planBadges.recommended,
-                        blueTickLabel: planBadges.blueTick ? "Verified" : null,
-                      }
-                    : null);
-
                   return (
                     <div key={d.id}>
-                      <Card 
-                        className="hover:shadow-lg transition-shadow cursor-pointer"
-                        onClick={() => window.location.href = getDetectiveProfileUrl(d)}
-                      >
-                        <CardContent className="p-6">
-                          <div className="flex gap-3 items-start">
-                            <div className="h-14 w-14 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                              {d.logo ? (
-                                <img src={d.logo} alt={d.businessName || "Detective"} className="h-14 w-14 object-cover" />
-                              ) : (
-                                <div className="h-10 w-10 rounded-full bg-gray-200" />
-                              )}
-                            </div>
-                            <div className="flex-1">
-                              <h3 className="font-semibold text-sm line-clamp-2">
-                                {d.businessName || "Unknown Detective"}
-                              </h3>
-                              {badgeState && (
-                                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                                  {badgeState.showBlueTick && (
-                                    <img
-                                      src="/blue-tick.png"
-                                      alt={badgeState.blueTickLabel || "Verified"}
-                                      className="h-4 w-4 flex-shrink-0"
-                                      title={badgeState.blueTickLabel || "Verified"}
-                                    />
-                                  )}
-                                  {badgeState.showPro && (
-                                    <img
-                                      src="/crown.png"
-                                      alt="Pro"
-                                      className="h-4 w-4 flex-shrink-0"
-                                      title="Pro"
-                                    />
-                                  )}
-                                  {badgeState.showRecommended && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="bg-green-100 text-green-700 hover:bg-green-100 text-[10px] px-2 py-0.5"
-                                    >
-                                      Recommended
-                                    </Badge>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                      <DetectiveCard detective={d} variant="homeFeatured" />
                     </div>
                   );
                 })

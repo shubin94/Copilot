@@ -7,6 +7,7 @@ import path from "node:path";
 
 import express from "express";
 import type { Express, Request, Response } from "express";
+import { renderLocationApp } from "../client/src/ssr-entry.tsx";
 
 import runApp from "./app.ts";
 import { config, validateConfig } from "./config.ts";
@@ -78,11 +79,13 @@ export async function serveStatic(app: Express, server: Server) {
       }
 
       // Fetch detective listings for this location
-      const detectives = await getLocationDetectivesForSEO(
+      const locationSeoData = await getLocationDetectivesForSEO(
         params.country,
         params.state,
         params.city
       );
+      const detectives = locationSeoData.detectives;
+      const totalCount = locationSeoData.totalCount;
 
       if (!detectives || detectives.length === 0) {
         // No detectives found - return 404
@@ -93,7 +96,7 @@ export async function serveStatic(app: Express, server: Server) {
         );
       }
 
-      console.log(`[SEO] Found ${detectives.length} detectives for location`);
+      console.log(`[SEO] Found ${totalCount} total detectives for location (${detectives.length} rendered)`);
 
       // Generate canonical URL
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
@@ -103,7 +106,7 @@ export async function serveStatic(app: Express, server: Server) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
       }
 
-      const seoHtml = injectLocationSeoTags(cachedIndexHtml, params, detectives, canonicalUrl);
+      const seoHtml = injectLocationSeoTags(cachedIndexHtml, params, detectives, canonicalUrl, totalCount);
 
       // CHECK IF CITY LEVEL: Inject detective → service authority link for city-level pages only
       let finalHtml = seoHtml;
@@ -138,6 +141,18 @@ export async function serveStatic(app: Express, server: Server) {
           console.error("[SEO] Error injecting authority link:", err);
           // Continue without authority link if error occurs
         }
+      }
+
+      // SSR render location listing route with request URL context
+      try {
+        console.log('[SSR DEBUG] Before renderLocationApp:', req.originalUrl || requestPath);
+        console.log('[SSR DEBUG] Root placeholder present before replace:', finalHtml.includes('<div id="root"></div>'));
+        const renderedHtml = renderLocationApp(req.originalUrl || requestPath);
+        console.log('[SSR DEBUG] After renderLocationApp');
+        console.log('[SSR DEBUG] renderedHtml length > 0:', renderedHtml.length > 0, 'length:', renderedHtml.length);
+        finalHtml = finalHtml.replace('<div id="root"></div>', `<div id="root">${renderedHtml}</div>`);
+      } catch (ssrError) {
+        console.error('[SSR] Failed to render location route, falling back to SEO-only HTML:', ssrError);
       }
 
       res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");

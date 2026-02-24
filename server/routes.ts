@@ -1669,6 +1669,135 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/location-seo/countries", requireRole("admin"), async (_req: Request, res: Response) => {
+    try {
+      const result = await pool.query(`
+        WITH active_countries AS (
+          SELECT
+            c.slug AS country_slug,
+            COUNT(*)::int AS total_detectives
+          FROM detectives d
+          INNER JOIN countries c
+            ON LOWER(TRIM(d.country)) = LOWER(TRIM(c.code))
+            OR LOWER(TRIM(d.country)) = LOWER(TRIM(c.name))
+          WHERE d.status = 'active'
+          GROUP BY c.slug
+        )
+        SELECT
+          ac.country_slug,
+          ac.total_detectives,
+          lso.custom_title,
+          lso.custom_meta_description,
+          lso.custom_h1,
+          COALESCE(lso.is_custom, false) AS is_custom,
+          lso.updated_at
+        FROM active_countries ac
+        LEFT JOIN location_seo_overrides lso
+          ON lso.country_slug = ac.country_slug
+          AND lso.state_slug IS NULL
+          AND lso.city_slug IS NULL
+        ORDER BY ac.country_slug ASC
+      `);
+
+      res.json({ countries: result.rows });
+    } catch (error) {
+      console.error("Error fetching country SEO overrides:", error);
+      res.status(500).json({ error: "Failed to fetch country SEO overrides" });
+    }
+  });
+
+  app.get("/api/admin/location-seo/states", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(`
+        WITH active_states AS (
+          SELECT
+            c.slug AS country_slug,
+            LOWER(REGEXP_REPLACE(TRIM(d.state), '\\s+', '-', 'g')) AS state_slug,
+            COUNT(*)::int AS total_detectives
+          FROM detectives d
+          INNER JOIN countries c
+            ON LOWER(TRIM(d.country)) = LOWER(TRIM(c.code))
+            OR LOWER(TRIM(d.country)) = LOWER(TRIM(c.name))
+          WHERE d.status = 'active'
+            AND d.state IS NOT NULL
+            AND TRIM(d.state) <> ''
+          GROUP BY c.slug, LOWER(REGEXP_REPLACE(TRIM(d.state), '\\s+', '-', 'g'))
+        )
+        SELECT
+          s.country_slug,
+          s.state_slug,
+          s.total_detectives,
+          lso.custom_title,
+          lso.custom_meta_description,
+          lso.custom_h1,
+          COALESCE(lso.is_custom, false) AS is_custom,
+          lso.updated_at
+        FROM active_states s
+        LEFT JOIN location_seo_overrides lso
+          ON lso.country_slug = s.country_slug
+          AND lso.state_slug = s.state_slug
+          AND lso.city_slug IS NULL
+        ORDER BY s.country_slug ASC, s.state_slug ASC
+      `);
+
+      res.json({ states: result.rows });
+    } catch (error) {
+      console.error("Error fetching state SEO overrides:", error);
+      res.status(500).json({ error: "Failed to fetch state SEO overrides" });
+    }
+  });
+
+  app.get("/api/admin/location-seo/cities", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(`
+        WITH active_cities AS (
+          SELECT
+            c.slug AS country_slug,
+            LOWER(REGEXP_REPLACE(TRIM(d.state), '\\s+', '-', 'g')) AS state_slug,
+            LOWER(REGEXP_REPLACE(TRIM(d.city), '\\s+', '-', 'g')) AS city_slug,
+            COUNT(*)::int AS total_detectives
+          FROM detectives d
+          INNER JOIN countries c
+            ON LOWER(TRIM(d.country)) = LOWER(TRIM(c.code))
+            OR LOWER(TRIM(d.country)) = LOWER(TRIM(c.name))
+          WHERE d.status = 'active'
+            AND d.state IS NOT NULL
+            AND TRIM(d.state) <> ''
+            AND d.city IS NOT NULL
+            AND TRIM(d.city) <> ''
+          GROUP BY
+            c.slug,
+            LOWER(REGEXP_REPLACE(TRIM(d.state), '\\s+', '-', 'g')),
+            LOWER(REGEXP_REPLACE(TRIM(d.city), '\\s+', '-', 'g'))
+        )
+        SELECT
+          ac.country_slug,
+          ac.state_slug,
+          ac.city_slug,
+          ac.total_detectives,
+          lso.custom_title,
+          lso.custom_meta_description,
+          lso.custom_h1,
+          COALESCE(lso.is_custom, false) AS is_custom,
+          lso.updated_at
+        FROM active_cities ac
+        LEFT JOIN location_seo_overrides lso
+          ON lso.country_slug = ac.country_slug
+          AND lso.state_slug = ac.state_slug
+          AND lso.city_slug = ac.city_slug
+        ORDER BY
+          ac.country_slug ASC,
+          ac.state_slug ASC,
+          ac.city_slug ASC
+      `);
+
+      res.json({ cities: result.rows });
+    } catch (error) {
+      console.error("Error fetching city SEO overrides:", error);
+      res.status(500).json({ error: "Failed to fetch city SEO overrides" });
+    }
+  });
+
   // OPTIMIZED: Admin Dashboard Summary - single query with conditional aggregation
   // Returns only summary statistics (no full records, <100ms execution target)
   app.get("/api/admin/dashboard/summary", requireRole("admin"), async (_req: Request, res: Response) => {
@@ -3656,9 +3785,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============== GET Detective by Slug (Country/State/City/Slug) ==============
-  app.get("/api/detectives/:country/:state/:city/:slug", async (req: Request, res: Response) => {
+  app.get("/api/detectives/:country/:state/:city/:slug", async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { country, state, city, slug } = req.params;
+
+      // Route guard: allow dedicated location API route
+      if (String(country).toLowerCase() === "location") {
+        return next();
+      }
 
       // Convert country name/slug to country code (e.g., "india" -> "IN")
       const countryCode = getCountryCode(country);
@@ -6609,6 +6743,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/detectives/location/:countrySlug/:stateSlug?/:citySlug?', async (req: Request, res: Response) => {
     try {
       const { countrySlug, stateSlug, citySlug } = req.params as { countrySlug: string; stateSlug?: string; citySlug?: string };
+      const limit = Number(req.query.limit) || 15;
+      const offset = Number(req.query.offset) || 0;
+      type RelatedLocation = { slug: string; name: string };
 
       // City-level URLs must include a state segment.
       if (citySlug && !stateSlug) {
@@ -6634,6 +6771,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const countryRow: any = countryRows[0];
+      const countryName = String(countryRow.name || '');
+      const countryCode = String(countryRow.code || '');
+      const countrySlugValue = String(countrySlug || '');
+
+      const toUniqueLocations = (names: string[], excludeSlug?: string): RelatedLocation[] => {
+        const seen = new Set<string>();
+        const rows = names
+          .map((value) => String(value || '').trim())
+          .filter((value) => value.length > 0 && value.toLowerCase() !== 'not specified')
+          .map((name) => ({ name, slug: generateSlug(name) }))
+          .filter((item) => !!item.slug && (!excludeSlug || item.slug !== excludeSlug));
+
+        const uniqueRows: RelatedLocation[] = [];
+        for (const row of rows) {
+          if (seen.has(row.slug)) continue;
+          seen.add(row.slug);
+          uniqueRows.push(row);
+        }
+
+        return uniqueRows
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .slice(0, 8);
+      };
 
       // Optional state
       let stateRow: any = null;
@@ -6643,52 +6803,182 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .from(states)
           .where(and(eq(states.countryId, countryRow.id), eq(states.slug, stateSlug)));
         
-        if (!stateRows || stateRows.length === 0) {
-          return res.status(404).json({
-            error: 'State not found',
-            code: 'STATE_NOT_FOUND',
-            meta: { country: countrySlug, state: stateSlug, city: citySlug }
-          });
-        }
+        if (stateRows && stateRows.length > 0) {
+          stateRow = stateRows[0];
+        } else {
+          const fallbackStatesResult = await pool.query(
+            `
+              SELECT DISTINCT d.state AS state
+              FROM detectives d
+              WHERE (
+                LOWER(TRIM(d.country)) = LOWER(TRIM($1))
+                OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
+                OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
+              )
+                AND d.state IS NOT NULL
+                AND TRIM(d.state) <> ''
+                AND LOWER(TRIM(d.state)) <> 'not specified'
+              ORDER BY d.state;
+            `,
+            [countryName, countryCode, countrySlugValue]
+          );
 
-        stateRow = stateRows[0];
+          const fallbackStateMatch = (fallbackStatesResult.rows || []).find(
+            (row: any) => generateSlug(String(row.state || '')) === stateSlug
+          );
+
+          if (!fallbackStateMatch) {
+            return res.status(404).json({
+              error: 'State not found',
+              code: 'STATE_NOT_FOUND',
+              meta: { country: countrySlug, state: stateSlug, city: citySlug }
+            });
+          }
+
+          stateRow = { id: null, name: fallbackStateMatch.state };
+        }
       }
 
       // Optional city
       let cityRow: any = null;
       if (citySlug && stateRow) {
-        const cityRows = await db
-          .select({ id: cities.id, name: cities.name })
-          .from(cities)
-          .where(and(eq(cities.stateId, stateRow.id), eq(cities.slug, citySlug)));
-        
-        if (!cityRows || cityRows.length === 0) {
-          return res.status(404).json({
-            error: 'City not found',
-            code: 'CITY_NOT_FOUND',
-            meta: { country: countrySlug, state: stateSlug, city: citySlug }
-          });
+        if (stateRow.id) {
+          const cityRows = await db
+            .select({ id: cities.id, name: cities.name })
+            .from(cities)
+            .where(and(eq(cities.stateId, stateRow.id), eq(cities.slug, citySlug)));
+
+          if (cityRows && cityRows.length > 0) {
+            cityRow = cityRows[0];
+          }
         }
 
-        cityRow = cityRows[0];
+        if (!cityRow) {
+          const fallbackCitiesResult = await pool.query(
+            `
+              SELECT DISTINCT d.city AS city
+              FROM detectives d
+              WHERE (
+                LOWER(TRIM(d.country)) = LOWER(TRIM($1))
+                OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
+                OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
+              )
+                AND (
+                  LOWER(TRIM(d.state)) = LOWER(TRIM($4))
+                  OR LOWER(REPLACE(TRIM(d.state), ' ', '-')) = LOWER(TRIM($5))
+                )
+                AND d.city IS NOT NULL
+                AND TRIM(d.city) <> ''
+                AND LOWER(TRIM(d.city)) <> 'not specified'
+              ORDER BY d.city;
+            `,
+            [countryName, countryCode, countrySlugValue, stateRow.name, stateSlug]
+          );
+
+          const fallbackCityMatch = (fallbackCitiesResult.rows || []).find(
+            (row: any) => generateSlug(String(row.city || '')) === citySlug
+          );
+
+          if (!fallbackCityMatch) {
+            return res.status(404).json({
+              error: 'City not found',
+              code: 'CITY_NOT_FOUND',
+              meta: { country: countrySlug, state: stateSlug, city: citySlug }
+            });
+          }
+
+          cityRow = { id: null, name: fallbackCityMatch.city };
+        }
+      }
+
+      let relatedLocations: RelatedLocation[] = [];
+      let relatedType: 'states' | 'cities' = stateSlug ? 'cities' : 'states';
+
+      if (!stateSlug) {
+        const statesResult = await pool.query(
+          `
+            SELECT DISTINCT d.state AS state
+            FROM detectives d
+            WHERE (
+              LOWER(TRIM(d.country)) = LOWER(TRIM($1))
+              OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
+              OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
+            )
+              AND d.state IS NOT NULL
+              AND TRIM(d.state) <> ''
+              AND LOWER(TRIM(d.state)) <> 'not specified'
+            ORDER BY d.state;
+          `,
+          [countryName, countryCode, countrySlugValue]
+        );
+
+        relatedLocations = toUniqueLocations((statesResult.rows || []).map((row: any) => row.state));
+      } else if (stateSlug && !citySlug) {
+        const citiesResult = await pool.query(
+          `
+            SELECT DISTINCT d.city AS city
+            FROM detectives d
+            WHERE (
+              LOWER(TRIM(d.country)) = LOWER(TRIM($1))
+              OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
+              OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
+            )
+              AND (
+                LOWER(TRIM(d.state)) = LOWER(TRIM($4))
+                OR LOWER(REPLACE(TRIM(d.state), ' ', '-')) = LOWER(TRIM($5))
+              )
+              AND d.city IS NOT NULL
+              AND TRIM(d.city) <> ''
+              AND LOWER(TRIM(d.city)) <> 'not specified'
+            ORDER BY d.city;
+          `,
+          [countryName, countryCode, countrySlugValue, stateRow.name, stateSlug]
+        );
+
+        relatedLocations = toUniqueLocations((citiesResult.rows || []).map((row: any) => row.city));
+      } else if (stateSlug && citySlug) {
+        const citiesResult = await pool.query(
+          `
+            SELECT DISTINCT d.city AS city
+            FROM detectives d
+            WHERE (
+              LOWER(TRIM(d.country)) = LOWER(TRIM($1))
+              OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
+              OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
+            )
+              AND (
+                LOWER(TRIM(d.state)) = LOWER(TRIM($4))
+                OR LOWER(REPLACE(TRIM(d.state), ' ', '-')) = LOWER(TRIM($5))
+              )
+              AND d.city IS NOT NULL
+              AND TRIM(d.city) <> ''
+              AND LOWER(TRIM(d.city)) <> 'not specified'
+            ORDER BY d.city;
+          `,
+          [countryName, countryCode, countrySlugValue, stateRow.name, stateSlug]
+        );
+
+        relatedLocations = toUniqueLocations((citiesResult.rows || []).map((row: any) => row.city), citySlug);
       }
 
       // Use existing ranking helper to fetch base list (by country code)
       const { getRankedDetectives } = await import('./ranking.ts');
-      let detectivesList = await getRankedDetectives({ country: countryRow.code, limit: 1000 });
-
-      // Filter by state and city names if present (case-insensitive, null-safe)
-      if (stateRow) {
-        detectivesList = detectivesList.filter((d: any) => 
-          d.state && String(d.state).toLowerCase() === String(stateRow.name).toLowerCase()
-        );
-      }
-      
-      if (cityRow) {
-        detectivesList = detectivesList.filter((d: any) => 
-          d.city && String(d.city).toLowerCase() === String(cityRow.name).toLowerCase()
-        );
-      }
+      const rankedDetectivesResult = await getRankedDetectives({
+        country: countryRow.code,
+        state: stateRow?.name,
+        city: cityRow?.name,
+        status: 'active',
+        limit,
+        offset,
+      });
+      const total = typeof rankedDetectivesResult === 'object' && rankedDetectivesResult && 'total' in rankedDetectivesResult
+        ? Number((rankedDetectivesResult as any).total || 0)
+        : 0;
+      let detectivesList = Array.isArray(rankedDetectivesResult)
+        ? rankedDetectivesResult
+        : (Array.isArray((rankedDetectivesResult as any)?.detectives)
+        ? (rankedDetectivesResult as any).detectives
+        : []);
 
       // Mask sensitive fields similarly to /api/detectives
       const maskedDetectives = await Promise.all(detectivesList.map(async (d: any) => {
@@ -6709,8 +6999,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           city: cityRow?.name || null,
           found: true
         }, 
+        relatedType,
+        relatedLocations,
         detectives: maskedDetectives, 
-        total: maskedDetectives.length 
+        total
       });
     } catch (error) {
       console.error('[api/detectives/location] error:', error);

@@ -23,7 +23,9 @@ import {
   Lock,
   FolderOpen,
   Tag,
-  DollarSign
+  DollarSign,
+  Map,
+  MapPin
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -177,6 +179,16 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
     { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
     { href: "/admin/snippets", label: "Snippets", icon: Zap },
+    {
+      href: "#location-seo",
+      label: "Location SEO",
+      icon: Map,
+      submenu: [
+        { href: "/admin/location-seo/countries", label: "Countries", icon: Globe },
+        { href: "/admin/location-seo/states", label: "States", icon: Map },
+        { href: "/admin/location-seo/cities", label: "Cities", icon: MapPin },
+      ]
+    },
     { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
     { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
     { href: "/admin/app-secrets", label: "App Secrets (Auth)", icon: Lock },

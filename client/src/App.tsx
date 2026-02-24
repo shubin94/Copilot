@@ -58,6 +58,9 @@ const AdminTags = lazy(() => import("@/pages/admin/tags"));
 const AdminPagesEdit = lazy(() => import("@/pages/admin/pages-edit"));
 const PageEdit = lazy(() => import("@/pages/admin/page-edit"));
 const AdminEmployees = lazy(() => import("@/pages/admin/employees"));
+const AdminLocationSeoCountries = lazy(() => import("@/pages/admin/location-seo-countries"));
+const AdminLocationSeoStates = lazy(() => import("@/pages/admin/location-seo-states"));
+const AdminLocationSeoCities = lazy(() => import("@/pages/admin/location-seo-cities"));
 const EmployeeDashboard = lazy(() => import("@/pages/employee/dashboard"));
 
 // CMS Public Routes
@@ -176,6 +179,9 @@ function Router() {
           <Route path="/admin/ranking-visibility" component={withAdminRoute(AdminRankingVisibility)} />
           <Route path="/admin/email-templates" component={withAdminRoute(AdminEmailTemplates)} />
           <Route path="/admin/snippets" component={withAdminRoute(AdminSnippets)} />
+          <Route path="/admin/location-seo/countries" component={withAdminRoute(AdminLocationSeoCountries)} />
+          <Route path="/admin/location-seo/states" component={withAdminRoute(AdminLocationSeoStates)} />
+          <Route path="/admin/location-seo/cities" component={withAdminRoute(AdminLocationSeoCities)} />
           
           {/* CMS Admin Routes */}
           <Route path="/admin/cms" component={withAdminRoute(AdminDashboardCMS)} />

@@ -20,7 +20,10 @@ router.get("/", async (req: Request, res: Response) => {
     const routeStartTime = Date.now();
     console.time("[PERF:HOME] Total route execution");
 
-    const cacheKey = "featured_home";
+    // Extract country parameter from query string
+    const country = req.query.country ? String(req.query.country).toUpperCase() : undefined;
+
+    const cacheKey = country ? `featured_home:${country}` : "featured_home:GLOBAL";
     
     // ✅ IN-MEMORY CACHE: Check cache first (60-second TTL, public requests only)
     if (!req.session?.userId) {
@@ -36,9 +39,6 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     console.log("[HOME CACHE MISS] Fetching featured services from database");
-
-    // Extract country parameter from query string
-    const country = req.query.country ? String(req.query.country).toUpperCase() : undefined;
 
     // Performance: Database query execution timing
     console.time("[PERF:HOME] Database query execution");
@@ -96,12 +96,20 @@ router.get("/", async (req: Request, res: Response) => {
         LEFT JOIN detective_visibility dv ON d.id = dv.detective_id
         WHERE d.status = 'active'
         ${filterClause}
+          AND EXISTS (
+            SELECT 1
+            FROM services s
+            WHERE s.detective_id = d.id
+              AND s.is_active = true
+              AND s.images IS NOT NULL
+              AND s.images::text[] != '{}'::text[]
+          )
         ORDER BY visibility_score DESC NULLS LAST
         LIMIT 8
       ) d
       JOIN users u ON d.user_id = u.id
       LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
-      LEFT JOIN LATERAL (
+      JOIN LATERAL (
         SELECT s.id, s.slug, s.detective_id, s.title, s.category, s.description, s.images,
                s.base_price, s.offer_price, s.is_on_enquiry, s.order_count, s.updated_at
         FROM services s

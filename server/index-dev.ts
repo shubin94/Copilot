@@ -83,11 +83,13 @@ export async function setupVite(app: Express, server: Server) {
       console.log("[SEO] Fetching detectives for location:", { country: params.country, state: params.state, city: params.city });
 
       // Fetch detective listings for this location
-      const detectives = await getLocationDetectivesForSEO(
+      const locationSeoData = await getLocationDetectivesForSEO(
         params.country,
         params.state,
         params.city
       );
+      const detectives = locationSeoData.detectives;
+      const totalCount = locationSeoData.totalCount;
 
       // If no detectives found for this location, return 404
       if (!detectives || detectives.length === 0) {
@@ -113,8 +115,8 @@ export async function setupVite(app: Express, server: Server) {
       );
 
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-      template = injectLocationSeoTags(template, params, detectives, canonicalUrl);
-      console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${detectives.length} detectives)`);
+      template = injectLocationSeoTags(template, params, detectives, canonicalUrl, totalCount);
+      console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${totalCount} total detectives, ${detectives.length} rendered)`);
 
       // Inject detective data as JSON for client-side rendering
       const cityPageData = {
