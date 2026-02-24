@@ -7,8 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
-import { Calendar, MapPin, ArrowRight } from "lucide-react";
-import { computeServiceBadges } from "@/lib/service-badges";
+import { Calendar } from "lucide-react";
+import { DetectiveCard } from "@/components/DetectiveCard";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 
 // Simple HTML sanitization: removes dangerous content while preserving safe HTML
@@ -184,13 +184,6 @@ export default function ArticlePage() {
     },
   };
 
-  const badgeState = article.detective
-    ? computeServiceBadges({
-        isVerified: article.detective.isVerified || false,
-        effectiveBadges: article.detective.effectiveBadges,
-      })
-    : null;
-
   return (
     <div className="min-h-screen bg-white">
       <SEO 
@@ -280,60 +273,7 @@ export default function ArticlePage() {
               <Card className="mb-6 sticky top-6">
                 <CardContent className="p-6">
                   <h3 className="font-bold text-lg mb-4">Featured Detective</h3>
-
-                  {/* Detective Info */}
-                  <div className="flex gap-4 mb-4">
-                    <img
-                      src={article.detective.logo || "/placeholder-avatar.png"}
-                      alt={article.detective.businessName}
-                      className="h-16 w-16 rounded-full object-cover border border-gray-200"
-                    />
-                    <div className="flex-1">
-                      <h4 className="font-bold text-sm mb-1">
-                        {article.detective.businessName || "Detective"}
-                      </h4>
-                      {badgeState && (
-                        <div className="flex items-center gap-2">
-                          {badgeState.showBlueTick && (
-                            <img
-                              src="/blue-tick.png"
-                              alt="Verified"
-                              className="h-4 w-4"
-                            />
-                          )}
-                          {badgeState.showPro && (
-                            <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
-                              Pro
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Location */}
-                  {article.detective.city && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600 mb-4">
-                      <MapPin className="h-4 w-4" />
-                      <span>
-                        {article.detective.city}, {article.detective.state}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* View Profile Button */}
-                  <Button
-                    asChild
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <a
-                      href={getDetectiveProfileUrl(article.detective)}
-                      className="flex items-center justify-center gap-2"
-                    >
-                      View Profile
-                      <ArrowRight className="h-4 w-4" />
-                    </a>
-                  </Button>
+                  <DetectiveCard detective={article.detective} variant="newsFeatured" />
                 </CardContent>
               </Card>
             )}

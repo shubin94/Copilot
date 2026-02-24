@@ -20,7 +20,10 @@ router.get("/", async (req: Request, res: Response) => {
     const routeStartTime = Date.now();
     console.time("[PERF:HOME] Total route execution");
 
-    const cacheKey = "featured_home";
+    // Extract country parameter from query string
+    const country = req.query.country ? String(req.query.country) : undefined;
+
+    const cacheKey = country ? `featured_home:${country}` : "featured_home:GLOBAL";
     
     // ✅ IN-MEMORY CACHE: Check cache first (60-second TTL, public requests only)
     if (!req.session?.userId) {
@@ -37,18 +40,34 @@ router.get("/", async (req: Request, res: Response) => {
 
     console.log("[HOME CACHE MISS] Fetching featured services from database");
 
-    // Extract country parameter from query string
-    const country = req.query.country ? String(req.query.country).toUpperCase() : undefined;
-
     // Performance: Database query execution timing
     console.time("[PERF:HOME] Database query execution");
     const queryStartTime = Date.now();
 
-    // Build WHERE clause with optional country filter
-    const countryFilter = country ? `AND d.country = '${country}'` : '';
+    // Resolve country slug/name to country_id (FK-based filtering)
+    let countryId: number | null = null;
+    if (country) {
+      const countryLookup = await pool.query(
+        `SELECT id FROM countries WHERE slug = $1 OR LOWER(name) = LOWER($2) OR code = $3 LIMIT 1`,
+        [country.toLowerCase(), country, country.toUpperCase()]
+      );
+      if (countryLookup.rows.length > 0) {
+        countryId = countryLookup.rows[0].id;
+        console.log(`[HOME] Resolved country "${country}" to country_id=${countryId}`);
+      } else {
+        console.log(`[HOME] Country "${country}" not found in normalized table, will use text fallback`);
+      }
+    }
+
+    // Build WHERE clause with FK-based filtering (fallback to text if country_id not found)
+    const countryFilter = country 
+      ? (countryId ? 'AND d.country_id = $1' : 'AND d.country = $1')
+      : '';
+    const countryParam = country ? (countryId || country.toUpperCase()) : null;
 
     // SQL query template for featured services
-    const buildQuery = (filterClause: string) => `
+    const buildQuery = (filterClause: string, params: (number | string)[] = []) => ({
+      text: `
       SELECT 
         s.id,
         s.slug AS service_slug,
@@ -96,12 +115,20 @@ router.get("/", async (req: Request, res: Response) => {
         LEFT JOIN detective_visibility dv ON d.id = dv.detective_id
         WHERE d.status = 'active'
         ${filterClause}
+          AND EXISTS (
+            SELECT 1
+            FROM services s
+            WHERE s.detective_id = d.id
+              AND s.is_active = true
+              AND s.images IS NOT NULL
+              AND s.images::text[] != '{}'::text[]
+          )
         ORDER BY visibility_score DESC NULLS LAST
         LIMIT 8
       ) d
       JOIN users u ON d.user_id = u.id
       LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
-      LEFT JOIN LATERAL (
+      JOIN LATERAL (
         SELECT s.id, s.slug, s.detective_id, s.title, s.category, s.description, s.images,
                s.base_price, s.offer_price, s.is_on_enquiry, s.order_count, s.updated_at
         FROM services s
@@ -120,13 +147,16 @@ router.get("/", async (req: Request, res: Response) => {
         d.country, d.state, d.city, d.phone, d.whatsapp, d.contact_email, d.status,
         d.is_verified, d.level, d.visibility_score, d.is_featured, u.email,
         sp.name, sp.badges, sp.features
-    `;
+    `,
+      values: params
+    });
 
     // Get top 8 services - exactly 1 per detective
     // Ordered by visibility score (best detectives first)
     // Only services with images are shown
     // Optimized: Uses LATERAL join for sequential per-detective service selection (no window functions)
-    let result = await pool.query(buildQuery(countryFilter));
+    const queryParams = countryParam ? [countryParam] : [];
+    let result = await pool.query(buildQuery(countryFilter, queryParams));
     let usedFallback = false;
 
     // ✅ FALLBACK: If country filter provided but no results, try global results
@@ -134,7 +164,7 @@ router.get("/", async (req: Request, res: Response) => {
       console.log(`[FALLBACK] No services for country=${country}, retrying with global results`);
       usedFallback = true;
       const fallbackStartTime = Date.now();
-      result = await pool.query(buildQuery(''));  // Empty filter clause for global
+      result = await pool.query(buildQuery('', []));  // Empty filter clause for global
       const fallbackTime = Date.now() - fallbackStartTime;
       console.log(`[FALLBACK] Global query returned ${result.rows.length} rows in ${fallbackTime}ms`);
     }

@@ -145,7 +145,7 @@ async function generateCountriesSitemap(): Promise<string> {
       c.slug as country_slug,
       MAX(d.updated_at) as last_mod
     FROM countries c
-    INNER JOIN detectives d ON d.country = c.code
+    INNER JOIN detectives d ON d.country_id = c.id
     WHERE d.status = 'active'
     GROUP BY c.name, c.slug
     ORDER BY c.name
@@ -155,7 +155,7 @@ async function generateCountriesSitemap(): Promise<string> {
     const lastmod = row.last_mod
       ? new Date(row.last_mod).toISOString().split("T")[0]
       : today;
-    const countrySlug = toSlug(row.country_name || row.country_slug);
+    const countrySlug = row.country_slug || toSlug(row.country_name);
 
     xml += `  <url>
     <loc>https://www.askdetectives.com/detectives/${countrySlug}/</loc>
@@ -185,13 +185,15 @@ async function generateStatesSitemap(): Promise<string> {
     SELECT DISTINCT 
       c.name as country_name,
       c.slug as country_slug,
-      d.state as state_name,
+      s.name as state_name,
+      s.slug as state_slug,
       MAX(d.updated_at) as last_mod
     FROM detectives d
-    INNER JOIN countries c ON d.country = c.code
-    WHERE d.status = 'active' AND d.state IS NOT NULL AND d.state != ''
-    GROUP BY c.name, c.slug, d.state
-    ORDER BY c.name, d.state
+    INNER JOIN countries c ON d.country_id = c.id
+    INNER JOIN states s ON d.state_id = s.id
+    WHERE d.status = 'active'
+    GROUP BY c.name, c.slug, s.name, s.slug
+    ORDER BY c.name, s.name
     LIMIT 5000
   `);
 
@@ -199,8 +201,8 @@ async function generateStatesSitemap(): Promise<string> {
     const lastmod = row.last_mod
       ? new Date(row.last_mod).toISOString().split("T")[0]
       : today;
-    const countrySlug = toSlug(row.country_name || row.country_slug);
-    const stateSlug = toSlug(row.state_name);
+    const countrySlug = row.country_slug || toSlug(row.country_name);
+    const stateSlug = row.state_slug || toSlug(row.state_name);
 
     xml += `  <url>
     <loc>https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/</loc>
@@ -230,14 +232,18 @@ async function generateCitiesSitemap(): Promise<string> {
     SELECT DISTINCT 
       c.name as country_name,
       c.slug as country_slug,
-      d.state as state_name,
-      d.city as city_name,
+      s.name as state_name,
+      s.slug as state_slug,
+      ci.name as city_name,
+      ci.slug as city_slug,
       MAX(d.updated_at) as last_mod
     FROM detectives d
-    INNER JOIN countries c ON d.country = c.code
-    WHERE d.status = 'active' AND d.city IS NOT NULL AND d.city != ''
-    GROUP BY c.name, c.slug, d.state, d.city
-    ORDER BY c.name, d.state, d.city
+    INNER JOIN countries c ON d.country_id = c.id
+    INNER JOIN states s ON d.state_id = s.id
+    INNER JOIN cities ci ON d.city_id = ci.id
+    WHERE d.status = 'active'
+    GROUP BY c.name, c.slug, s.name, s.slug, ci.name, ci.slug
+    ORDER BY c.name, s.name, ci.name
     LIMIT 5000
   `);
 
@@ -245,9 +251,9 @@ async function generateCitiesSitemap(): Promise<string> {
     const lastmod = row.last_mod
       ? new Date(row.last_mod).toISOString().split("T")[0]
       : today;
-    const countrySlug = toSlug(row.country_name || row.country_slug);
-    const stateSlug = toSlug(row.state_name);
-    const citySlug = toSlug(row.city_name);
+    const countrySlug = row.country_slug || toSlug(row.country_name);
+    const stateSlug = row.state_slug || toSlug(row.state_name);
+    const citySlug = row.city_slug || toSlug(row.city_name);
 
     xml += `  <url>
     <loc>https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/</loc>
@@ -283,7 +289,7 @@ async function generateDetectivesSitemap(): Promise<string> {
       d.state as state_name,
       d.city as city_name
     FROM detectives d
-    INNER JOIN countries c ON d.country = c.code
+    INNER JOIN countries c ON d.country_id = c.id
     WHERE d.status = 'active' AND d.slug IS NOT NULL AND d.slug != ''
     ORDER BY d.updated_at DESC
   `);
@@ -347,7 +353,7 @@ async function generateServicesSitemap(page: number = 1): Promise<string> {
       d.business_name as detective_business_name
     FROM services s
     INNER JOIN detectives d ON s.detective_id = d.id
-    INNER JOIN countries c ON d.country = c.code
+    INNER JOIN countries c ON d.country_id = c.id
     WHERE s.is_active = true AND d.status = 'active'
     ORDER BY s.updated_at DESC
     LIMIT $1 OFFSET $2

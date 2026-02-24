@@ -145,43 +145,8 @@ export function SEO({
     }
 
     // Build all schemas
+    // Note: Organization and WebSite schemas are now static in index.html only
     const allSchemas: Record<string, any>[] = [];
-    
-    // Organization schema (injected on all pages for brand consistency)
-    const organizationSchema = {
-      "@context": "https://schema.org",
-      "@type": "Organization",
-      "@id": "https://www.askdetectives.com/#organization",
-      "name": "Ask Detectives",
-      "url": "https://www.askdetectives.com",
-      "logo": "https://www.askdetectives.com/favicon.png",
-      "description": "The leading marketplace for professional private investigation services",
-      "contactPoint": {
-        "@type": "ContactPoint",
-        "contactType": "customer service",
-        "email": "support@askdetectives.com",
-        "availableLanguage": ["English"]
-      },
-      "sameAs": [
-        "https://www.facebook.com/finddetectives",
-        "https://twitter.com/finddetectives"
-      ]
-    };
-    allSchemas.push(organizationSchema);
-
-    const websiteSchema = {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "@id": "https://www.askdetectives.com/#website",
-      "url": "https://www.askdetectives.com",
-      "name": "Ask Detectives",
-      "potentialAction": {
-        "@type": "SearchAction",
-        "target": "https://www.askdetectives.com/search?q={search_term_string}",
-        "query-input": "required name=search_term_string"
-      }
-    };
-    allSchemas.push(websiteSchema);
     
     // Main schema(s) (if provided)
     if (schema) {

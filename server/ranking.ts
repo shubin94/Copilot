@@ -265,6 +265,8 @@ async function calculateReviewScore(detectiveId: string): Promise<number> {
  */
 export async function getRankedDetectives(options?: {
   country?: string;
+  state?: string;
+  city?: string;
   status?: string;
   plan?: string;
   searchQuery?: string;
@@ -305,6 +307,16 @@ export async function getRankedDetectives(options?: {
     // Apply country filter
     if (opts.country && opts.country !== "all") {
       conditions.push(eq(detectives.country, opts.country));
+    }
+
+    // Apply state filter
+    if (opts.state && opts.state !== "all") {
+      conditions.push(eq(detectives.state, opts.state));
+    }
+
+    // Apply city filter
+    if (opts.city && opts.city !== "all") {
+      conditions.push(eq(detectives.city, opts.city));
     }
     
     // Apply plan filter (subscription package)
