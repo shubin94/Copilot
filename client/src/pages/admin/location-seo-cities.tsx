@@ -55,29 +55,48 @@ export default function AdminLocationSeoCities() {
 
   // Apply filters
   useEffect(() => {
+    console.log("[Location SEO Cities] Applying filters");
+    console.log("[Location SEO Cities] Total cities:", allCities.length);
+    console.log("[Location SEO Cities] Country filter:", selectedCountryFilter);
+    console.log("[Location SEO Cities] State filter:", selectedStateFilter);
+    console.log("[Location SEO Cities] City filter:", selectedCityFilter);
+    
     let filtered = allCities;
 
     if (selectedCountryFilter) {
       filtered = filtered.filter(c => c.country_slug === selectedCountryFilter);
+      console.log("[Location SEO Cities] After country filter:", filtered.length);
     }
 
     if (selectedStateFilter) {
       filtered = filtered.filter(c => c.state_slug === selectedStateFilter);
+      console.log("[Location SEO Cities] After state filter:", filtered.length);
     }
 
     if (selectedCityFilter) {
       filtered = filtered.filter(c => c.city_slug === selectedCityFilter);
+      console.log("[Location SEO Cities] After city filter:", filtered.length);
     }
 
+    console.log("[Location SEO Cities] Final filtered count:", filtered.length);
     setFilteredCities(filtered);
   }, [selectedCountryFilter, selectedStateFilter, selectedCityFilter, allCities]);
 
   const loadCities = async () => {
     try {
       setIsLoading(true);
-      const response = await api.get<{ cities: LocationSeoCity[] }>("/api/admin/location-seo/cities");
-      setAllCities(response.cities || []);
-      setFilteredCities(response.cities || []);
+      const response = await api.get<{ success: boolean; data: LocationSeoCity[] }>("/api/admin/location-seo/cities");
+      console.log("[Location SEO Cities] Raw API Response:", response);
+      console.log("[Location SEO Cities] Response Type:", typeof response);
+      console.log("[Location SEO Cities] Success:", response.success);
+      console.log("[Location SEO Cities] Data length:", response.data?.length || 0);
+      
+      const citiesData = response.data || [];
+      
+      console.log("[Location SEO Cities] Setting state with:", citiesData.length, "cities");
+      console.log("[Location SEO Cities] First city:", citiesData[0]);
+      setAllCities(citiesData);
+      setFilteredCities(citiesData);
     } catch (error) {
       console.error("[Location SEO Cities] Load error:", error);
       toast({
@@ -178,6 +197,11 @@ export default function AdminLocationSeoCities() {
     return null;
   }
 
+  // Debug logging for render
+  console.log("[Location SEO Cities] RENDER: isLoading:", isLoading);
+  console.log("[Location SEO Cities] RENDER: filteredCities.length:", filteredCities.length);
+  console.log("[Location SEO Cities] RENDER: allCities.length:", allCities.length);
+
   return (
     <DashboardLayout role="admin">
       <div className="space-y-6">
@@ -252,7 +276,9 @@ export default function AdminLocationSeoCities() {
             </div>
           </div>
         ) : filteredCities.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">No cities found</div>
+          <div className="text-center py-8 text-gray-500">
+            No cities found
+          </div>
         ) : (
           <div className="bg-white rounded-lg shadow overflow-hidden overflow-x-auto">
             <table className="w-full min-w-max">

@@ -886,6 +886,88 @@ export class DatabaseStorage implements IStorage {
     
     console.log('[searchServices] Base conditions (isActive only):', conditions.length);
     
+    // ✅ RESOLVE LOCATION IDs (FK-based filtering with text fallback)
+    let countryId: number | null = null;
+    let stateId: number | null = null;
+    let cityId: number | null = null;
+
+    if (filters.country) {
+      const countryResult = await db
+        .select({ id: countries.id })
+        .from(countries)
+        .where(
+          or(
+            eq(countries.slug, filters.country.toLowerCase()),
+            eq(sql`LOWER(${countries.name})`, filters.country.toLowerCase()),
+            eq(countries.code, filters.country.toUpperCase())
+          )!
+        )
+        .limit(1);
+      
+      if (countryResult.length > 0) {
+        // Convert varchar UUID to integer (assuming ID mapping exists)
+        const idNum = parseInt(countryResult[0].id, 10);
+        if (!isNaN(idNum)) {
+          countryId = idNum;
+          console.log(`[searchServices] Resolved country "${filters.country}" to country_id=${countryId} (FK filtering)`);
+        } else {
+          console.log(`[searchServices] Country "${filters.country}" ID is not numeric, using text fallback`);
+        }
+      } else {
+        console.log(`[searchServices] Country "${filters.country}" not found in normalized tables, using text fallback`);
+      }
+    }
+
+    if (filters.state) {
+      const stateResult = await db
+        .select({ id: states.id })
+        .from(states)
+        .where(
+          or(
+            eq(states.slug, filters.state.toLowerCase()),
+            eq(sql`LOWER(${states.name})`, filters.state.toLowerCase())
+          )!
+        )
+        .limit(1);
+      
+      if (stateResult.length > 0) {
+        const idNum = parseInt(stateResult[0].id, 10);
+        if (!isNaN(idNum)) {
+          stateId = idNum;
+          console.log(`[searchServices] Resolved state "${filters.state}" to state_id=${stateId} (FK filtering)`);
+        } else {
+          console.log(`[searchServices] State "${filters.state}" ID is not numeric, using text fallback`);
+        }
+      } else {
+        console.log(`[searchServices] State "${filters.state}" not found in normalized tables, using text fallback`);
+      }
+    }
+
+    if (filters.city) {
+      const cityResult = await db
+        .select({ id: cities.id })
+        .from(cities)
+        .where(
+          or(
+            eq(cities.slug, filters.city.toLowerCase()),
+            eq(sql`LOWER(${cities.name})`, filters.city.toLowerCase())
+          )!
+        )
+        .limit(1);
+      
+      if (cityResult.length > 0) {
+        const idNum = parseInt(cityResult[0].id, 10);
+        if (!isNaN(idNum)) {
+          cityId = idNum;
+          console.log(`[searchServices] Resolved city "${filters.city}" to city_id=${cityId} (FK filtering)`);
+        } else {
+          console.log(`[searchServices] City "${filters.city}" ID is not numeric, using text fallback`);
+        }
+      } else {
+        console.log(`[searchServices] City "${filters.city}" not found in normalized tables, using text fallback`);
+      }
+    }
+    
     // ✅ STRICT CATEGORY MATCHING - When category is selected, it's authoritative
     // Smart Search determines the category; we enforce EXACT match (not fuzzy)
     // Ranking applies ONLY within the selected category
@@ -902,15 +984,28 @@ export class DatabaseStorage implements IStorage {
       );
     }
 
-    // country filter should be applied in WHERE conditions
+    // ✅ LOCATION FILTERING - FK-based with text fallback
+    // Uses country_id/state_id/city_id when available, falls back to text columns during migration
     if (filters.country) {
-      conditions.push(eq(detectives.country, filters.country));
+      if (countryId !== null) {
+        conditions.push(eq(detectives.countryId, countryId));
+      } else {
+        conditions.push(eq(detectives.country, filters.country));
+      }
     }
     if (filters.state) {
-      conditions.push(ilike(detectives.state, filters.state));
+      if (stateId !== null) {
+        conditions.push(eq(detectives.stateId, stateId));
+      } else {
+        conditions.push(ilike(detectives.state, filters.state));
+      }
     }
     if (filters.city) {
-      conditions.push(ilike(detectives.city, filters.city));
+      if (cityId !== null) {
+        conditions.push(eq(detectives.cityId, cityId));
+      } else {
+        conditions.push(ilike(detectives.city, filters.city));
+      }
     }
 
     // Filter by subscription plan (pro, agency, etc)

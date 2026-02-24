@@ -15,6 +15,7 @@ import { loadSecretsFromDatabase } from "./lib/secretsLoader";
 import { validateDatabase } from "./startup";
 import { initializeEnv } from "./lib/loadEnv";
 import { getEnvironmentBadge } from "../db/validateDatabase";
+import { ensureLocationSeoTable } from "./lib/init-location-seo-table";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest";
 import {
   extractDetectiveRouteParams,
@@ -115,7 +116,12 @@ export async function setupVite(app: Express, server: Server) {
       );
 
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-      template = injectLocationSeoTags(template, params, detectives, canonicalUrl, totalCount);
+      
+      console.log(`[DEV-SEO] Before injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
+      
+      template = await injectLocationSeoTags(template, params, detectives, canonicalUrl, totalCount);
+      
+      console.log(`[DEV-SEO] After injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
       console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${totalCount} total detectives, ${detectives.length} rendered)`);
 
       // Inject detective data as JSON for client-side rendering
@@ -126,7 +132,7 @@ export async function setupVite(app: Express, server: Server) {
           city: params.city,
         },
         detectives: detectives,
-        count: detectives.length,
+        count: totalCount,
       };
 
       const dataScript = `<script>
@@ -171,9 +177,17 @@ export async function setupVite(app: Express, server: Server) {
         }
       }
 
-      const page = await vite.transformIndexHtml(req.originalUrl, template);
+      // SSR injections applied. Now transform through Vite for React hydration.
+      // Vite will process the modified template (with H1, meta tags, JSON-LD already injected)
+      // and return HTML ready for React to hydrate
+      console.log(`[DEV-SEO] Transforming SSR-injected template through Vite for ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''}`);
+      const transformedHtml = await vite.transformIndexHtml(req.originalUrl, template);
+      
       res.setHeader("Cache-Control", "no-store");
-      res.set({ "Content-Type": "text/html" }).end(page);
+      return res
+        .status(200)
+        .set({ "Content-Type": "text/html; charset=utf-8" })
+        .end(transformedHtml);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[DEV-SEO Location] CRITICAL ERROR:', {
@@ -420,7 +434,7 @@ export async function setupVite(app: Express, server: Server) {
           }
         }
 
-        // Build and inject authority HTML block
+        // Build and inject authority HTML block (TRUE SSR)
         const authorityBlockHtml = buildHomepageAuthorityHtml(
           countries,
           statesByCountry,
@@ -428,12 +442,14 @@ export async function setupVite(app: Express, server: Server) {
         );
         console.log("[Homepage Injection] Authority HTML built, size:", authorityBlockHtml.length, "bytes");
         
-        const beforeTemplate = template;
-        template = injectHomepageAuthorityHtml(template, authorityBlockHtml);
-        console.log("[Homepage Injection] Template modified:", beforeTemplate !== template);
-        console.log("[Homepage Injection] Marker after inject:", template.includes("<!-- HOMEPAGE_AUTHORITY_INJECTION_POINT -->"));
-
-        console.log("[Homepage Injection] Injected location links for SEO");
+        // Inject directly into HTML body before <div id="root"> (TRUE SSR - no React dependency)
+        template = template.replace(
+          `<div id="root">`,
+          `${authorityBlockHtml}
+    <div id="root">`
+        );
+        
+        console.log("[Homepage Injection] Authority HTML injected into body (SSR)");
       }
 
       const page = await vite.transformIndexHtml(req.originalUrl, template);
@@ -581,6 +597,7 @@ async function attachViteTransform(
     const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
     validateConfig(secretsLoadedSuccessfully);
     await validateDatabase();
+    await ensureLocationSeoTable();
     const server = await runApp(setupVite);
     console.log(`✅ Server fully started and listening on port ${config.server.port}`);
     

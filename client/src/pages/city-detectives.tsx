@@ -39,6 +39,11 @@ interface CityPageData {
   count: number;
   relatedType?: "states" | "cities";
   relatedLocations?: Array<{ slug: string; name: string }>;
+  seoMetadata?: {
+    metaTitle: string | null;
+    metaDescription: string | null;
+    h1: string | null;
+  };
 }
 
 // Check for SSR data injected by server
@@ -133,6 +138,9 @@ export default function CityDetectivesPage() {
   const [relatedLocations, setRelatedLocations] = useState<RelatedLocation[]>(
     Array.isArray(initialData?.relatedLocations) ? initialData!.relatedLocations : []
   );
+  const [seoMetadata, setSeoMetadata] = useState<{ metaTitle: string | null; metaDescription: string | null; h1: string | null } | null>(
+    initialData?.seoMetadata || null
+  );
   const [loading, setLoading] = useState(!initialData);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -186,6 +194,7 @@ export default function CityDetectivesPage() {
         setTotalCount(typeof data.total === "number" ? data.total : nextDetectives.length);
         setLocationMeta(data.meta);
         setRelatedLocations(Array.isArray(data.relatedLocations) ? data.relatedLocations : []);
+        setSeoMetadata(data.seoMetadata || null);
       } catch (err) {
         console.error("Error fetching location detectives:", err);
         setError("An error occurred while loading detectives");
@@ -225,34 +234,64 @@ export default function CityDetectivesPage() {
     }
   };
 
-  // SEO Metadata
-  const cityName = locationMeta?.city || citySlug?.replace(/-/g, " ") || "";
-  const stateName = locationMeta?.state || stateSlug?.replace(/-/g, " ") || "";
-  const countryName = locationMeta?.country || countrySlug?.replace(/-/g, " ") || "";
-  const locationLabel = isCityLevel
-    ? `${cityName}, ${stateName}`
-    : isStateLevel
-    ? `${stateName}, ${countryName}`
-    : countryName;
-  const locationDisplayName = isCityLevel
-    ? `${cityName}, ${stateName}, ${countryName}`
-    : isStateLevel
-    ? `${stateName}, ${countryName}`
-    : countryName;
+  // SEO Metadata - Ensure non-empty fallbacks
+  const cityName = locationMeta?.city || (citySlug ? citySlug.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()) : "");
+  const stateName = locationMeta?.state || (stateSlug ? stateSlug.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()) : "");
+  const countryName = locationMeta?.country || (countrySlug ? countrySlug.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()) : "India");
   
-  // Enhanced SEO Title and Description with current year
+  const locationLabel = isCityLevel && cityName && stateName
+    ? `${cityName}, ${stateName}`
+    : isStateLevel && stateName && countryName
+    ? `${stateName}, ${countryName}`
+    : countryName || "India";
+    
+  const locationDisplayName = isCityLevel && cityName && stateName && countryName
+    ? `${cityName}, ${stateName}, ${countryName}`
+    : isStateLevel && stateName && countryName
+    ? `${stateName}, ${countryName}`
+    : countryName || "India";
+  
+  // Enhanced SEO Title and Description with current year - Always have fallbacks
   const currentYear = new Date().getFullYear();
-  const seoTitle = isCityLevel
+  const defaultSeoTitle = isCityLevel && cityName && stateName
     ? `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${currentYear})`
-    : isStateLevel
+    : isStateLevel && stateName && countryName
     ? `Top Private Detectives in ${stateName}, ${countryName} (${currentYear})`
-    : `Top Private Detectives in ${countryName} (${currentYear})`;
-  const seoDescription = `Browse trusted detective agencies in ${locationLabel}. Compare ratings, services, and contact vetted professionals today. ${detectives.length} licensed detectives available.`;
-  const h1Text = isCityLevel
+    : `Top Private Detectives in ${countryName || "India"} (${currentYear})`;
+    
+  const defaultSeoDescription = `Browse trusted detective agencies in ${locationLabel}. Compare ratings, services, and contact vetted professionals today.${detectives.length > 0 ? ` ${detectives.length} licensed detectives available.` : ''}`;
+  
+  const defaultH1Text = isCityLevel && cityName && stateName && countryName
     ? `Best Private Detectives in ${cityName}, ${stateName}, ${countryName}`
-    : isStateLevel
+    : isStateLevel && stateName && countryName
     ? `Best Private Detectives in ${stateName}, ${countryName}`
-    : `Best Private Detectives in ${countryName}`;
+    : `Best Private Detectives in ${countryName || "India"}`;
+
+  // Read SEO data from server-injected script (SSR with database overrides)
+  const seoData = typeof window !== 'undefined' 
+    ? (window as any).__SEO_DATA__ 
+    : null;
+
+  // SEO Title priority: SSR data > API override > default
+  const seoTitle = seoData?.title && seoData.title.trim() !== ""
+    ? seoData.title
+    : (seoMetadata?.metaTitle && seoMetadata.metaTitle.trim() !== "") 
+    ? seoMetadata.metaTitle 
+    : defaultSeoTitle;
+  
+  // SEO Description priority: SSR data > API override > default
+  const seoDescription = seoData?.description && seoData.description.trim() !== ""
+    ? seoData.description
+    : (seoMetadata?.metaDescription && seoMetadata.metaDescription.trim() !== "") 
+    ? seoMetadata.metaDescription 
+    : defaultSeoDescription;
+  
+  // H1 priority: SSR data > API override > default
+  const h1Text = seoData?.h1 && seoData.h1.trim() !== ""
+    ? seoData.h1
+    : (seoMetadata?.h1 && seoMetadata.h1.trim() !== "") 
+    ? seoMetadata.h1 
+    : defaultH1Text;
 
   const relatedHeading = isCountryLevel
     ? `Other States in ${countryName}`
@@ -385,6 +424,20 @@ export default function CityDetectivesPage() {
     );
   }
 
+  // Calculate pagination links for SEO
+  const pageSize = 15;
+  const searchParams = new URLSearchParams(window.location.search);
+  const currentOffsetValue = Number(searchParams.get("offset") || 0);
+
+  const pagination = {
+    prevUrl: currentOffsetValue > 0
+      ? `${canonicalPath}?offset=${Math.max(0, currentOffsetValue - pageSize)}`
+      : undefined,
+    nextUrl: currentOffsetValue + pageSize < totalCount
+      ? `${canonicalPath}?offset=${currentOffsetValue + pageSize}`
+      : undefined
+  };
+
   return (
     <div className="min-h-screen bg-white">
       <SEO 
@@ -394,6 +447,7 @@ export default function CityDetectivesPage() {
         robots="index, follow"
         schema={allSchemas}
         breadcrumbs={breadcrumbs}
+        pagination={pagination}
         keywords={[
           `detectives in ${cityName}`,
           `private investigators ${stateName}`,
@@ -472,7 +526,7 @@ export default function CityDetectivesPage() {
                 <DetectiveCard key={d.id} detective={d} />
               ))}
             </div>
-            {currentOffset < totalCount && (
+            {detectives.length < totalCount && (
               <div className="mb-12 text-center">
                 <Button onClick={handleLoadMore} disabled={loadingMore}>
                   {loadingMore ? "Loading..." : "Load More"}

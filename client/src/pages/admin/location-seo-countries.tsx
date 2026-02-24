@@ -51,9 +51,14 @@ export default function AdminLocationSeoCountries() {
 
   // Apply filter
   useEffect(() => {
+    console.log("[Location SEO Countries] Applying filter. selectedFilter:", selectedFilter);
+    console.log("[Location SEO Countries] Total countries before filter:", countries.length);
     if (selectedFilter) {
-      setFilteredCountries(countries.filter(c => c.country_slug === selectedFilter));
+      const filtered = countries.filter(c => c.country_slug === selectedFilter);
+      console.log("[Location SEO Countries] Filtered count:", filtered.length);
+      setFilteredCountries(filtered);
     } else {
+      console.log("[Location SEO Countries] No filter, showing all:", countries.length);
       setFilteredCountries(countries);
     }
   }, [selectedFilter, countries]);
@@ -61,9 +66,18 @@ export default function AdminLocationSeoCountries() {
   const loadCountries = async () => {
     try {
       setIsLoading(true);
-      const response = await api.get<{ countries: LocationSeoCountry[] }>("/api/admin/location-seo/countries");
-      setCountries(response.countries || []);
-      setFilteredCountries(response.countries || []);
+      const response = await api.get<{ success: boolean; data: LocationSeoCountry[] }>("/api/admin/location-seo/countries");
+      console.log("[Location SEO Countries] Raw API Response:", response);
+      console.log("[Location SEO Countries] Response Type:", typeof response);
+      console.log("[Location SEO Countries] Success:", response.success);
+      console.log("[Location SEO Countries] Data length:", response.data?.length || 0);
+      
+      const countriesData = response.data || [];
+      
+      console.log("[Location SEO Countries] Setting state with:", countriesData.length, "countries");
+      console.log("[Location SEO Countries] First country:", countriesData[0]);
+      setCountries(countriesData);
+      setFilteredCountries(countriesData);
     } catch (error) {
       console.error("[Location SEO Countries] Load error:", error);
       toast({
@@ -143,6 +157,11 @@ export default function AdminLocationSeoCountries() {
     return null;
   }
 
+  // Debug logging for render
+  console.log("[Location SEO Countries] RENDER: isLoading:", isLoading);
+  console.log("[Location SEO Countries] RENDER: filteredCountries.length:", filteredCountries.length);
+  console.log("[Location SEO Countries] RENDER: countries.length:", countries.length);
+
   return (
     <DashboardLayout role="admin">
       <div className="space-y-6">
@@ -174,7 +193,9 @@ export default function AdminLocationSeoCountries() {
             </div>
           </div>
         ) : filteredCountries.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">No countries found</div>
+          <div className="text-center py-8 text-gray-500">
+            No countries found
+          </div>
         ) : (
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <table className="w-full">

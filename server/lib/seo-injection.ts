@@ -9,8 +9,8 @@
  * - JSON-LD structured data (LocalBusiness schema)
  */
 
-import { db } from "../../db/index.ts";
-import { detectives, reviews, services, subscriptionPlans } from "../../shared/schema.ts";
+import { db, pool } from "../../db/index.ts";
+import { detectives, reviews, services, subscriptionPlans, countries, states, cities } from "../../shared/schema.ts";
 import { eq, and, isNotNull, sql, or } from "drizzle-orm";
 import { avg, count } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.ts";
@@ -767,22 +767,139 @@ export async function getLocationDetectivesForSEO(
 /**
  * Generates SEO meta tags for location listing pages
  */
-export function generateLocationSeoMetaTags(
+export async function generateLocationSeoMetaTags(
   location: { country: string; state?: string; city?: string },
   totalCount: number,
   canonicalUrl: string
-): string {
-  const locationDisplayName = [location.city, location.state, location.country]
-    .filter(Boolean)
-    .join(", ");
+): Promise<{ html: string; title: string; description: string; h1: string }> {
   const year = new Date().getFullYear();
 
-  // Generate dynamic title
-  const title = `${totalCount} Active Private Detectives in ${locationDisplayName} (${year})`;
+  // ✅ STEP 1: Resolve location IDs (country, state, city)
+  let countryId: number | null = null;
+  let stateId: number | null = null;
+  let cityId: number | null = null;
+  let countryName = location.country;
+  let stateName = location.state || "";
+  let cityName = location.city || "";
 
-  // Generate dynamic description
-  const description = `Compare ${totalCount} active private detectives in ${locationDisplayName}. View profiles, ratings, and services to find the right investigator for your needs.`;
+  try {
+    // Resolve country ID and name
+    const countrySlug = location.country.toLowerCase();
+    const countryResult = await db
+      .select({ id: countries.id, name: countries.name })
+      .from(countries)
+      .where(eq(countries.slug, countrySlug))
+      .limit(1);
+    
+    if (countryResult.length > 0) {
+      countryId = countryResult[0].id;
+      countryName = countryResult[0].name;
+    }
 
+    // Resolve state ID and name if state exists
+    if (location.state && countryId) {
+      const stateSlug = location.state.toLowerCase();
+      const stateResult = await db
+        .select({ id: states.id, name: states.name })
+        .from(states)
+        .where(and(
+          eq(states.slug, stateSlug),
+          eq(states.countryId, countryId)
+        ))
+        .limit(1);
+      
+      if (stateResult.length > 0) {
+        stateId = stateResult[0].id;
+        stateName = stateResult[0].name;
+      }
+    }
+
+    // Resolve city ID and name if city exists
+    if (location.city && stateId) {
+      const citySlug = location.city.toLowerCase();
+      const cityResult = await db
+        .select({ id: cities.id, name: cities.name })
+        .from(cities)
+        .where(and(
+          eq(cities.slug, citySlug),
+          eq(cities.stateId, stateId)
+        ))
+        .limit(1);
+      
+      if (cityResult.length > 0) {
+        cityId = cityResult[0].id;
+        cityName = cityResult[0].name;
+      }
+    }
+  } catch (resolutionError) {
+    console.error('[SEO SSR] Location ID resolution error:', resolutionError);
+  }
+
+  // ✅ STEP 2: Query location_seo_overrides table (Priority: Override > System Generated > Fallback)
+  let title = "";
+  let description = "";
+  let h1 = "";
+
+  try {
+    let seoOverrideQuery: any = null;
+    
+    if (cityId && stateId && countryId) {
+      // City-level page: entity_type='city', entity_id=cityId::text
+      seoOverrideQuery = await pool.query(
+        `SELECT meta_title, meta_description, h1 
+         FROM location_seo_overrides 
+         WHERE entity_type = 'city' AND entity_id = $1::text 
+         LIMIT 1`,
+        [cityId]
+      );
+    } else if (stateId && countryId) {
+      // State-level page: entity_type='state', entity_id=stateId::text
+      seoOverrideQuery = await pool.query(
+        `SELECT meta_title, meta_description, h1 
+         FROM location_seo_overrides 
+         WHERE entity_type = 'state' AND entity_id = $1::text 
+         LIMIT 1`,
+        [stateId]
+      );
+    } else if (countryId) {
+      // Country-level page: entity_type='country', entity_id=countryId::text
+      seoOverrideQuery = await pool.query(
+        `SELECT meta_title, meta_description, h1 
+         FROM location_seo_overrides 
+         WHERE entity_type = 'country' AND entity_id = $1::text 
+         LIMIT 1`,
+        [countryId]
+      );
+    }
+
+    if (seoOverrideQuery?.rows?.length > 0) {
+      // ✅ OVERRIDE FOUND - Use override values
+      const override = seoOverrideQuery.rows[0];
+      title = override.meta_title || "";
+      description = override.meta_description || "";
+      h1 = override.h1 || "";
+      console.log(`[SEO SSR] Override applied for ${cityId ? 'city' : stateId ? 'state' : 'country'}`);
+    } else {
+      // ✅ NO OVERRIDE - Generate system SEO (improved format)
+      const locationName = cityName || stateName || countryName;
+      
+      title = `Top Private Detectives in ${locationName} | Verified Investigators (${year})`;
+      description = `Find trusted private detectives in ${locationName}. Browse ${totalCount} verified investigators offering background checks, surveillance, and investigation services.`;
+      h1 = `Private Detectives in ${locationName}`;
+      
+      console.log(`[SEO SSR] System-generated SEO for ${cityId ? 'city' : stateId ? 'state' : 'country'}: ${locationName}`);
+    }
+  } catch (seoError) {
+    console.error('[SEO SSR] Override query error:', seoError);
+    
+    // ✅ FALLBACK - Use default template if database query fails
+    const locationDisplayName = [cityName, stateName, countryName].filter(Boolean).join(", ");
+    title = `Top Private Detectives in ${locationDisplayName} (${year})`;
+    description = `Find trusted private detectives in ${locationDisplayName}. Browse verified investigators.`;
+    h1 = `Private Detectives in ${locationDisplayName}`;
+  }
+
+  // ✅ STEP 3: Generate meta tags (use h1 value for OG title to match frontend)
   const metaTags = [
     `<title>${escapeHtml(title)}</title>`,
     `<meta name="description" content="${escapeHtml(description)}">`,
@@ -790,16 +907,21 @@ export function generateLocationSeoMetaTags(
     `<meta name="canonical" content="${escapeHtml(canonicalUrl)}">`,
     `<meta property="og:type" content="website">`,
     `<meta property="og:url" content="${escapeHtml(canonicalUrl)}">`,
-    `<meta property="og:title" content="${escapeHtml(title)}">`,
+    `<meta property="og:title" content="${escapeHtml(h1 || title)}">`,
     `<meta property="og:description" content="${escapeHtml(description)}">`,
     `<meta property="og:site_name" content="Ask Detectives">`,
     `<meta name="twitter:card" content="summary_large_image">`,
-    `<meta name="twitter:title" content="${escapeHtml(title)}">`,
+    `<meta name="twitter:title" content="${escapeHtml(h1 || title)}">`,
     `<meta name="twitter:description" content="${escapeHtml(description)}">`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}">`,
   ];
 
-  return metaTags.join('\n    ');
+  return {
+    html: metaTags.join('\n    '),
+    title: title,
+    description: description,
+    h1: h1
+  };
 }
 
 /**
@@ -913,21 +1035,22 @@ export function generateLocationJsonLd(
 /**
  * Injects location SEO tags into HTML template
  * STEP 1: Removes all default meta tags first to prevent duplicates
- * STEP 2: Injects fresh SEO tags at injection points
+ * STEP 2: Injects fresh SEO tags (title, meta) from database overrides or system-generated
+ * STEP 3: Injects SEO data (title, description, h1) as JavaScript object for React to consume
  */
-export function injectLocationSeoTags(
+export async function injectLocationSeoTags(
   htmlContent: string,
   location: { country: string; state?: string; city?: string },
   detectives: Array<{ slug: string; businessName: string; city: string; state: string; country: string }>,
   canonicalUrl: string,
   totalCount?: number
-): string {
+): Promise<string> {
   // STEP 1: Remove all existing default meta tags
   let modified = removeDefaultMetaTags(htmlContent);
 
-  // STEP 2: Inject new SEO tags
-  const metaTags = generateLocationSeoMetaTags(location, totalCount ?? detectives.length, canonicalUrl);
-  const metaTagsArray = metaTags.split('\n');
+  // STEP 2: Inject new SEO tags (now async with override support)
+  const seoData = await generateLocationSeoMetaTags(location, totalCount ?? detectives.length, canonicalUrl);
+  const metaTagsArray = seoData.html.split('\n');
   const titleTag = metaTagsArray[0];
   const otherTags = metaTagsArray.slice(1).join('\n    ');
 
@@ -952,7 +1075,146 @@ export function injectLocationSeoTags(
     `<!-- SEO_JSON_LD_INJECTION_POINT -->\n    ${jsonLdScripts}`
   );
 
+  // STEP 3: Inject SEO data as window.__SEO_DATA__ for React to consume
+  // Includes title, description, and H1 from database overrides or system-generated values
+  const seoDataScript = `<script>
+      window.__SEO_DATA__ = {
+        title: ${JSON.stringify(seoData.title)},
+        description: ${JSON.stringify(seoData.description)},
+        h1: ${JSON.stringify(seoData.h1)},
+        location: ${JSON.stringify(location)},
+        totalCount: ${totalCount ?? detectives.length}
+      };
+    </script>`;
+  
+  modified = modified.replace('</head>', `${seoDataScript}\n  </head>`);
+
   return modified;
+}
+
+/**
+ * Generates H1 text for location listing pages using same logic as SEO meta tags
+ * Returns H1 text string (not HTML)
+ */
+export async function generateLocationH1(
+  location: { country: string; state?: string; city?: string },
+  totalCount: number
+): Promise<string> {
+  const year = new Date().getFullYear();
+
+  // ✅ STEP 1: Resolve location IDs (country, state, city)
+  let countryId: number | null = null;
+  let stateId: number | null = null;
+  let cityId: number | null = null;
+  let countryName = location.country;
+  let stateName = location.state || "";
+  let cityName = location.city || "";
+
+  try {
+    // Resolve country ID and name
+    const countrySlug = location.country.toLowerCase();
+    const countryResult = await db
+      .select({ id: countries.id, name: countries.name })
+      .from(countries)
+      .where(eq(countries.slug, countrySlug))
+      .limit(1);
+    
+    if (countryResult.length > 0) {
+      countryId = countryResult[0].id;
+      countryName = countryResult[0].name;
+    }
+
+    // Resolve state ID and name if state exists
+    if (location.state && countryId) {
+      const stateSlug = location.state.toLowerCase();
+      const stateResult = await db
+        .select({ id: states.id, name: states.name })
+        .from(states)
+        .where(and(
+          eq(states.slug, stateSlug),
+          eq(states.countryId, countryId)
+        ))
+        .limit(1);
+      
+      if (stateResult.length > 0) {
+        stateId = stateResult[0].id;
+        stateName = stateResult[0].name;
+      }
+    }
+
+    // Resolve city ID and name if city exists
+    if (location.city && stateId) {
+      const citySlug = location.city.toLowerCase();
+      const cityResult = await db
+        .select({ id: cities.id, name: cities.name })
+        .from(cities)
+        .where(and(
+          eq(cities.slug, citySlug),
+          eq(cities.stateId, stateId)
+        ))
+        .limit(1);
+      
+      if (cityResult.length > 0) {
+        cityId = cityResult[0].id;
+        cityName = cityResult[0].name;
+      }
+    }
+  } catch (resolutionError) {
+    console.error('[SEO SSR] Location ID resolution error for H1:', resolutionError);
+  }
+
+  // ✅ STEP 2: Query location_seo_overrides table
+  let h1 = "";
+
+  try {
+    let seoOverrideQuery: any = null;
+    
+    if (cityId && stateId && countryId) {
+      // City-level page: entity_type='city', entity_id=cityId::text
+      seoOverrideQuery = await pool.query(
+        `SELECT h1 FROM location_seo_overrides 
+         WHERE entity_type = 'city' AND entity_id = $1::text 
+         LIMIT 1`,
+        [cityId]
+      );
+    } else if (stateId && countryId) {
+      // State-level page: entity_type='state', entity_id=stateId::text
+      seoOverrideQuery = await pool.query(
+        `SELECT h1 FROM location_seo_overrides 
+         WHERE entity_type = 'state' AND entity_id = $1::text 
+         LIMIT 1`,
+        [stateId]
+      );
+    } else if (countryId) {
+      // Country-level page: entity_type='country', entity_id=countryId::text
+      seoOverrideQuery = await pool.query(
+        `SELECT h1 FROM location_seo_overrides 
+         WHERE entity_type = 'country' AND entity_id = $1::text 
+         LIMIT 1`,
+        [countryId]
+      );
+    }
+
+    if (seoOverrideQuery?.rows?.length > 0) {
+      // ✅ OVERRIDE FOUND - Use override H1
+      const override = seoOverrideQuery.rows[0];
+      h1 = override.h1 || "";
+      console.log(`[SEO SSR] Override H1 applied for ${cityId ? 'city' : stateId ? 'state' : 'country'}`);
+    } else {
+      // ✅ NO OVERRIDE - Generate system H1
+      const locationName = cityName || stateName || countryName;
+      h1 = `Private Detectives in ${locationName}`;
+      console.log(`[SEO SSR] System-generated H1 for ${cityId ? 'city' : stateId ? 'state' : 'country'}: ${locationName}`);
+    }
+  } catch (seoError) {
+    console.error('[SEO SSR] H1 override query error:', seoError);
+    
+    // ✅ FALLBACK - Use default template if database query fails
+    const locationDisplayName = [cityName, stateName, countryName].filter(Boolean).join(", ");
+    h1 = `Private Detectives in ${locationDisplayName}`;
+  }
+
+  return h1;
 }
 
 /**

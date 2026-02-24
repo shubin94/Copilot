@@ -42,7 +42,7 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [location, setLocation] = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [expandedMenu, setExpandedMenu] = useState<string | null>("CMS");
+  const [expandedMenu, setExpandedMenu] = useState<string | null>("Location SEO");
   const { user, isLoading, isAuthenticated, logout } = useUser();
   const { data: detectiveData } = useCurrentDetective(user?.role === "detective");
   const detective = role === "detective" ? detectiveData?.detective : null;

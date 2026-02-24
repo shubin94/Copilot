@@ -4,21 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- SEO_TITLE_INJECTION_POINT -->
-    <title>Ask Detectives | Find Professional Private Investigators</title>
+    <!-- Title is now fully controlled by React SEO component -->
     <!-- SEO_META_INJECTION_POINT -->
-    <meta name="description" content="Find vetted private investigators and detective services. Compare ratings, services, and contact trusted professionals." />
-    <meta name="keywords" content="private investigator, detective agency, background checks, surveillance, find a detective, investigator directory, professional investigations, ask detectives">
-
-    <meta property="og:title" content="Ask Detectives | Find Professional Private Investigators" />
-    <meta property="og:description" content="The marketplace for professional private investigation services. Find verified detectives for your needs." />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Ask Detectives" />
-    <meta property="og:image" content="/social-preview.jpg" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@FindDetectives" />
-    <meta name="twitter:title" content="Ask Detectives | Find Professional Private Investigators" />
-    <meta name="twitter:description" content="The marketplace for professional private investigation services. Find verified detectives for your needs." />
-    <meta name="twitter:image" content="/social-preview.jpg" />
+    <!-- Meta description and keywords controlled by React SEO component -->
+    <link rel="canonical" href="https://www.askdetectives.com/" />
 
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -53,31 +42,8 @@
     </script>
   </head>
   <body>
+    <!-- SSR_H1_INJECTION_POINT -->
     <div id="root"></div>
-    <div id="ssr-location-section">
-      <!-- HOMEPAGE_AUTHORITY_INJECTION_POINT -->
-    </div>
-    <script>
-      // Move SSR location section above Footer after React renders
-      (function() {
-        function moveLocationSection() {
-          const ssrSection = document.getElementById('ssr-location-section');
-          const footer = document.querySelector('footer');
-          const hasContent = ssrSection && ssrSection.querySelector('.homepage-authority');
-          
-          if (hasContent && footer && footer.parentNode) {
-            // Only move if not already positioned
-            if (ssrSection.nextSibling !== footer) {
-              footer.parentNode.insertBefore(ssrSection, footer);
-            }
-          }
-        }
-        // Wait for React to render before moving
-        setTimeout(moveLocationSection, 200);
-        setTimeout(moveLocationSection, 500);
-        setTimeout(moveLocationSection, 1000);
-      })();
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -15,6 +15,7 @@ import { loadSecretsFromDatabase } from "./lib/secretsLoader.ts";
 import { validateDatabase } from "./startup.ts";
 import { initializeEnv } from "./lib/loadEnv.ts";
 import { getEnvironmentBadge } from "../db/validateDatabase.ts";
+import { ensureLocationSeoTable } from "./lib/init-location-seo-table.ts";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.ts";
 import {
   isDetectiveProfilePath,
@@ -106,7 +107,11 @@ export async function serveStatic(app: Express, server: Server) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
       }
 
-      const seoHtml = injectLocationSeoTags(cachedIndexHtml, params, detectives, canonicalUrl, totalCount);
+      console.log(`[PROD-SEO] Before injectLocationSeoTags - template length: ${cachedIndexHtml.length}, has SSR_H1_INJECTION_POINT: ${cachedIndexHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
+
+      const seoHtml = await injectLocationSeoTags(cachedIndexHtml, params, detectives, canonicalUrl, totalCount);
+
+      console.log(`[PROD-SEO] After injectLocationSeoTags - template length: ${seoHtml.length}, has SSR_H1_INJECTION_POINT: ${seoHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
 
       // CHECK IF CITY LEVEL: Inject detective → service authority link for city-level pages only
       let finalHtml = seoHtml;
@@ -361,7 +366,7 @@ export async function serveStatic(app: Express, server: Server) {
           }
         }
 
-        // Build and inject authority HTML block
+        // Build and inject authority HTML block (TRUE SSR)
         const authorityBlockHtml = buildHomepageAuthorityHtml(
           countries,
           statesByCountry,
@@ -369,12 +374,14 @@ export async function serveStatic(app: Express, server: Server) {
         );
         console.log("[Homepage Injection] Authority HTML built, size:", authorityBlockHtml.length, "bytes");
         
-        const beforeHtml = html;
-        html = injectHomepageAuthorityHtml(html, authorityBlockHtml);
-        console.log("[Homepage Injection] HTML modified:", beforeHtml !== html);
-        console.log("[Homepage Injection] Final HTML has authority:", html.includes("Find Private Detectives by Location"));
-
-        console.log("[Homepage Injection] Injected location links for SEO");
+        // Inject directly into HTML body before <div id="root"> (TRUE SSR - no React dependency)
+        html = html.replace(
+          `<div id="root">`,
+          `${authorityBlockHtml}
+    <div id="root">`
+        );
+        
+        console.log("[Homepage Injection] Authority HTML injected into body (SSR)");
       }
 
       res.setHeader("Cache-Control", "no-store");
@@ -571,6 +578,7 @@ async function main() {
 
     console.log('🔍 Validating database connection...');
     await validateDatabase();
+    await ensureLocationSeoTable();
 
     console.log('⚙️  Starting Express app...');
     console.log('[DEBUG] About to call runApp(serveStatic)...');

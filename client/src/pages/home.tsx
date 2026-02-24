@@ -14,6 +14,9 @@ import type { ServiceCategory } from "@shared/schema";
 import { useEffect, useRef } from "react";
 
 export default function Home() {
+  // Authority HTML is now rendered via TRUE SSR (injected directly into HTML body)
+  // No longer reads from window global - it's already in the DOM before React loads
+
   const { data: categoriesData, isLoading: isLoadingCategories } = useServiceCategories(true);
   const categories = categoriesData?.categories || [];
 
@@ -54,8 +57,8 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900">
       <SEO 
-        title="Ask Detectives - Hire Top Private Investigators" 
-        description="The leading marketplace for professional private investigation services. Find verified detectives for surveillance, background checks, and more."
+        title="Find Detectives - Hire Top Private Investigators | AskDetectives" 
+        description="The world's first dedicated detective service platform. A single place to discover, compare, and hire professional detectives across verified categories"
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
         canonical="https://www.askdetectives.com"
         robots="index, follow"
@@ -63,6 +66,9 @@ export default function Home() {
       <Navbar transparentOnHome={true} overlayOnHome={true} />
       
       <main className="flex-1">
+        <h1 className="sr-only">
+          Find Trusted Private Investigators & Detective Agencies Worldwide
+        </h1>
         <Hero />
 
         <div className="bg-gray-50 py-8 border-b border-gray-200">
@@ -271,6 +277,7 @@ export default function Home() {
         </section>
       </main>
       
+      {/* LocationAuthority now rendered via SSR - no React component needed for homepage */}
       <Footer />
     </div>
   );

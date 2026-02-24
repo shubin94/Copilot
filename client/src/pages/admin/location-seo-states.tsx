@@ -53,25 +53,42 @@ export default function AdminLocationSeoStates() {
 
   // Apply filters
   useEffect(() => {
+    console.log("[Location SEO States] Applying filters");
+    console.log("[Location SEO States] Total states:", allStates.length);
+    console.log("[Location SEO States] Country filter:", selectedCountryFilter);
+    console.log("[Location SEO States] State filter:", selectedStateFilter);
+    
     let filtered = allStates;
 
     if (selectedCountryFilter) {
       filtered = filtered.filter(s => s.country_slug === selectedCountryFilter);
+      console.log("[Location SEO States] After country filter:", filtered.length);
     }
 
     if (selectedStateFilter) {
       filtered = filtered.filter(s => s.state_slug === selectedStateFilter);
+      console.log("[Location SEO States] After state filter:", filtered.length);
     }
 
+    console.log("[Location SEO States] Final filtered count:", filtered.length);
     setFilteredStates(filtered);
   }, [selectedCountryFilter, selectedStateFilter, allStates]);
 
   const loadStates = async () => {
     try {
       setIsLoading(true);
-      const response = await api.get<{ states: LocationSeoState[] }>("/api/admin/location-seo/states");
-      setAllStates(response.states || []);
-      setFilteredStates(response.states || []);
+      const response = await api.get<{ success: boolean; data: LocationSeoState[] }>("/api/admin/location-seo/states");
+      console.log("[Location SEO States] Raw API Response:", response);
+      console.log("[Location SEO States] Response Type:", typeof response);
+      console.log("[Location SEO States] Success:", response.success);
+      console.log("[Location SEO States] Data length:", response.data?.length || 0);
+      
+      const statesData = response.data || [];
+      
+      console.log("[Location SEO States] Setting state with:", statesData.length, "states");
+      console.log("[Location SEO States] First state:", statesData[0]);
+      setAllStates(statesData);
+      setFilteredStates(statesData);
     } catch (error) {
       console.error("[Location SEO States] Load error:", error);
       toast({
@@ -163,6 +180,11 @@ export default function AdminLocationSeoStates() {
     return null;
   }
 
+  // Debug logging for render
+  console.log("[Location SEO States] RENDER: isLoading:", isLoading);
+  console.log("[Location SEO States] RENDER: filteredStates.length:", filteredStates.length);
+  console.log("[Location SEO States] RENDER: allStates.length:", allStates.length);
+
   return (
     <DashboardLayout role="admin">
       <div className="space-y-6">
@@ -216,7 +238,9 @@ export default function AdminLocationSeoStates() {
             </div>
           </div>
         ) : filteredStates.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">No states found</div>
+          <div className="text-center py-8 text-gray-500">
+            No states found
+          </div>
         ) : (
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <table className="w-full">
