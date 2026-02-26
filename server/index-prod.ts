@@ -367,21 +367,28 @@ export async function serveStatic(app: Express, server: Server) {
         }
 
         // Build and inject authority HTML block (TRUE SSR)
-        const authorityBlockHtml = buildHomepageAuthorityHtml(
-          countries,
-          statesByCountry,
-          citiesByCountryState
-        );
-        console.log("[Homepage Injection] Authority HTML built, size:", authorityBlockHtml.length, "bytes");
-        
-        // Inject directly into HTML body before <div id="root"> (TRUE SSR - no React dependency)
-        html = html.replace(
-          `<div id="root">`,
-          `${authorityBlockHtml}
+        let authorityBlockHtml = '';
+        try {
+          authorityBlockHtml = buildHomepageAuthorityHtml(
+            countries,
+            statesByCountry,
+            citiesByCountryState
+          );
+          console.log("[Homepage Injection] Authority HTML built, size:", authorityBlockHtml.length, "bytes");
+          
+          if (authorityBlockHtml && html.includes(`<div id="root">`)) {
+            // Inject directly into HTML body before <div id="root"> (TRUE SSR - no React dependency)
+            html = html.replace(
+              `<div id="root">`,
+              `${authorityBlockHtml}
     <div id="root">`
-        );
-        
-        console.log("[Homepage Injection] Authority HTML injected into body (SSR)");
+            );
+            console.log("[Homepage Injection] Authority HTML injected into body (SSR)");
+          }
+        } catch (authorityError) {
+          console.error("[Homepage Injection] Error building authority HTML:", authorityError);
+          // Continue without authority injection if error occurs
+        }
       }
 
       res.setHeader("Cache-Control", "no-store");

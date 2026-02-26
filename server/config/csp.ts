@@ -24,11 +24,11 @@ export const CSP_POLICY = [
   // Fonts: Allow from self and Google Fonts CDN
   "font-src 'self' https://fonts.gstatic.com data:",
   
-  // Images: Allow self, data URLs, and all https
-  "img-src 'self' data: https:",
+  // Images: Allow self, data URLs, HTTPS, and Supabase storage
+  "img-src 'self' data: https: https://*.supabase.co",
   
-  // API connections: Allow askdetectives domains and WebSocket
-  "connect-src 'self' https://api.askdetectives.com https://www.askdetectives.com wss:",
+  // API connections: Allow askdetectives domains, Supabase, and WebSocket
+  "connect-src 'self' https://api.askdetectives.com https://www.askdetectives.com https://*.supabase.co wss:",
   
   // Framing: Only allow same origin
   "frame-ancestors 'self'",
