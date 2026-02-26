@@ -10,7 +10,7 @@ import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./servi
 import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
 import { db, pool } from "../db/index.ts";
-import { eq, and, or, desc, avg, count, min, ilike } from "drizzle-orm";
+import { eq, and, or, desc, avg, count, min, ilike, sql, isNotNull } from "drizzle-orm";
 import {
   detectives,
   countries,
@@ -3231,6 +3231,320 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Admin Finance Routes
   app.use("/api/admin/finance", requireRole("admin", "employee"), adminFinanceRouter);
+
+  // DEBUG Image Routes - Check image URLs and storage issues
+  app.get("/api/debug/images/services", async (req: Request, res: Response) => {
+    try {
+      const result = await db.select({
+        id: services.id,
+        title: services.title,
+        images: services.images,
+        detectiveId: services.detectiveId,
+      })
+        .from(services)
+        .where(
+          and(
+            isNotNull(services.images),
+            sql`array_length(${services.images}, 1) > 0`
+          )
+        )
+        .limit(5);
+
+      const servicesData = result.map(s => ({
+        id: s.id,
+        title: s.title,
+        imageCount: Array.isArray(s.images) ? s.images.length : 0,
+        images: Array.isArray(s.images) ? s.images.slice(0, 2) : [],
+      }));
+
+      return res.json({
+        success: true,
+        count: servicesData.length,
+        services: servicesData,
+      });
+    } catch (error) {
+      console.error("[DEBUG] Error fetching service images:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  app.get("/api/debug/images/detectives", async (req: Request, res: Response) => {
+    try {
+      const result = await db.select({
+        id: detectives.id,
+        businessName: detectives.businessName,
+        logo: detectives.logo,
+      })
+        .from(detectives)
+        .where(isNotNull(detectives.logo))
+        .limit(5);
+
+      const detectivesData = result.map(d => ({
+        id: d.id,
+        businessName: d.businessName,
+        logo: d.logo ? d.logo.substring(0, 100) : null,
+        isSupabase: d.logo?.includes('.supabase.co') ?? false,
+        isBase64: d.logo?.startsWith('data:') ?? false,
+      }));
+
+      return res.json({
+        success: true,
+        count: detectivesData.length,
+        detectives: detectivesData,
+      });
+    } catch (error) {
+      console.error("[DEBUG] Error fetching detective logos:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // IMAGE PROXY - Fetch images from Supabase with timeout and error handling
+  app.get("/api/proxy/image", async (req: Request, res: Response) => {
+    try {
+      const { url } = req.query;
+      
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({ error: "URL parameter required" });
+      }
+
+      // Security: Only allow Supabase URLs
+      if (!url.includes('.supabase.co')) {
+        return res.status(403).json({ error: "Only Supabase URLs allowed" });
+      }
+
+      console.log(`[IMAGE_PROXY] Fetching: ${url.substring(0, 80)}...`);
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Ask Detectives Bot/1.0',
+          }
+        });
+        
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          console.error(`[IMAGE_PROXY] HTTP ${response.status}: ${url.substring(0, 80)}`);
+          return res.status(response.status).json({ error: `Supabase returned ${response.status}` });
+        }
+
+        // Get content type and size
+        const contentType = response.headers.get('content-type') || 'application/octet-stream';
+        const contentLength = response.headers.get('content-length');
+
+        // Set response headers
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        if (contentLength) {
+          res.setHeader('Content-Length', contentLength);
+        }
+
+        // Stream the image
+        const buffer = await response.arrayBuffer();
+        res.send(Buffer.from(buffer));
+
+        console.log(`[IMAGE_PROXY] Success: ${url.substring(0, 80)}... (${buffer.byteLength} bytes)`);
+      } catch (fetchError: any) {
+        clearTimeout(timeout);
+        
+        if (fetchError.name === 'AbortError') {
+          console.error(`[IMAGE_PROXY] TIMEOUT: ${url.substring(0, 80)}`);
+          return res.status(504).json({ error: "Supabase timeout" });
+        }
+        
+        console.error(`[IMAGE_PROXY] FETCH ERROR: ${fetchError.message}`);
+        return res.status(503).json({ error: "Failed to fetch image from Supabase" });
+      }
+    } catch (error) {
+      console.error("[IMAGE_PROXY] Error:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // DIAGNOSTIC - Test Supabase connectivity and image availability
+  app.get("/api/diagnostic/supabase", async (req: Request, res: Response) => {
+    try {
+      console.log("[DIAGNOSTICS] Starting Supabase connectivity test...");
+
+      // Step 1: Get sample image URLs from database
+      const sampleService = await db.select({
+        id: services.id,
+        title: services.title,
+        images: services.images,
+      })
+        .from(services)
+        .where(and(isNotNull(services.images), sql`array_length(${services.images}, 1) > 0`))
+        .limit(1);
+
+      const diagnostics: any = {
+        timestamp: new Date().toISOString(),
+        supabaseUrl: process.env.SUPABASE_URL || "NOT SET",
+        tests: []
+      };
+
+      // Test 1: Check if Supabase URL is configured
+      if (!process.env.SUPABASE_URL) {
+        diagnostics.tests.push({
+          name: "Supabase URL Configuration",
+          status: "FAILED",
+          message: "SUPABASE_URL environment variable not set"
+        });
+        return res.json(diagnostics);
+      }
+
+      diagnostics.tests.push({
+        name: "Supabase URL Configuration",
+        status: "OK",
+        url: process.env.SUPABASE_URL
+      });
+
+      // Test 2: Check if we have sample images
+      if (!sampleService || sampleService.length === 0 || !sampleService[0].images) {
+        diagnostics.tests.push({
+          name: "Sample Image Availability",
+          status: "FAILED",
+          message: "No images found in database"
+        });
+        return res.json(diagnostics);
+      }
+
+      const imageUrl = Array.isArray(sampleService[0].images) 
+        ? sampleService[0].images[0] 
+        : sampleService[0].images;
+
+      diagnostics.tests.push({
+        name: "Sample Image Availability",
+        status: "OK",
+        imageUrl: imageUrl.substring(0, 100),
+        isSupabase: imageUrl.includes('.supabase.co'),
+        isBase64: imageUrl.startsWith('data:'),
+      });
+
+      // Test 3: Try to fetch the image from Supabase
+      console.log(`[DIAGNOSTICS] Testing image fetch: ${imageUrl.substring(0, 80)}...`);
+      
+      const controller = new AbortController();
+      const fetchTimeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      try {
+        const fetchStart = Date.now();
+        const response = await fetch(imageUrl, {
+          signal: controller.signal,
+          method: 'HEAD', // Only get headers, not the full image
+        });
+        const fetchDuration = Date.now() - fetchStart;
+        clearTimeout(fetchTimeout);
+
+        diagnostics.tests.push({
+          name: "Supabase Image Fetch (HEAD)",
+          status: response.ok ? "OK" : "FAILED",
+          httpStatus: response.status,
+          duration: `${fetchDuration}ms`,
+          headers: {
+            'content-type': response.headers.get('content-type'),
+            'content-length': response.headers.get('content-length'),
+            'access-control-allow-origin': response.headers.get('access-control-allow-origin'),
+            'cache-control': response.headers.get('cache-control'),
+          }
+        });
+      } catch (fetchErr: any) {
+        clearTimeout(fetchTimeout);
+        
+        diagnostics.tests.push({
+          name: "Supabase Image Fetch (HEAD)",
+          status: "FAILED",
+          error: fetchErr.name === 'AbortError' ? "TIMEOUT (15s+)" : fetchErr.message,
+          errorType: fetchErr.name,
+        });
+      }
+
+      // Test 4: Try GET request (full download)
+      console.log(`[DIAGNOSTICS] Testing full image download...`);
+      
+      const getController = new AbortController();
+      const getTimeout = setTimeout(() => getController.abort(), 15000);
+      
+      try {
+        const getStart = Date.now();
+        const getResponse = await fetch(imageUrl, {
+          signal: getController.signal,
+          method: 'GET',
+        });
+        const getDuration = Date.now() - getStart;
+        clearTimeout(getTimeout);
+
+        if (getResponse.ok) {
+          const buffer = await getResponse.arrayBuffer();
+          diagnostics.tests.push({
+            name: "Supabase Image Fetch (GET)",
+            status: "OK",
+            httpStatus: 200,
+            duration: `${getDuration}ms`,
+            size: `${buffer.byteLength} bytes`,
+          });
+        } else {
+          diagnostics.tests.push({
+            name: "Supabase Image Fetch (GET)",
+            status: "FAILED",
+            httpStatus: getResponse.status,
+            duration: `${getDuration}ms`,
+          });
+        }
+      } catch (getErr: any) {
+        clearTimeout(getTimeout);
+        
+        diagnostics.tests.push({
+          name: "Supabase Image Fetch (GET)",
+          status: "FAILED",
+          error: getErr.name === 'AbortError' ? "TIMEOUT (15s+)" : getErr.message,
+          errorType: getErr.name,
+        });
+      }
+
+      // Test 5: Check network from Render
+      console.log("[DIAGNOSTICS] Testing DNS resolution...");
+      try {
+        const hostname = new URL(imageUrl).hostname;
+        const { lookup } = require('dns').promises;
+        const address = await lookup(hostname);
+        
+        diagnostics.tests.push({
+          name: "DNS Resolution",
+          status: "OK",
+          hostname,
+          address: address.address,
+        });
+      } catch (dnsErr: any) {
+        diagnostics.tests.push({
+          name: "DNS Resolution",
+          status: "FAILED",
+          error: dnsErr.message,
+        });
+      }
+
+      console.log("[DIAGNOSTICS] Tests complete:", JSON.stringify(diagnostics, null, 2));
+      return res.json(diagnostics);
+    } catch (error) {
+      console.error("[DIAGNOSTICS] Error:", error);
+      return res.status(500).json({
+        status: "ERROR",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
 
   // Get payment history for current detective
   app.get("/api/payments/history", requireRole("detective"), async (req: Request, res: Response) => {

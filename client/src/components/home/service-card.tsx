@@ -48,6 +48,18 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
+  // Proxy image URLs through backend if they're from Supabase
+  const proxyImageUrl = (url: string): string => {
+    if (!url) return '';
+    if (url.includes('.supabase.co')) {
+      return `/api/proxy/image?url=${encodeURIComponent(url)}`;
+    }
+    return url;
+  };
+
+  const proxiedImages = displayImages.map(proxyImageUrl);
   const { user, isFavorite, toggleFavorite } = useUserSafe();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -55,21 +67,25 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
   // Reset image loaded state when image changes
   useEffect(() => {
     setImageLoaded(false);
-  }, [currentImageIndex, displayImages]);
+    setImageError(false);
+    if (displayImages[currentImageIndex]) {
+      console.debug(`[ServiceCard ${id}] Loading image: ${displayImages[currentImageIndex].substring(0, 50)}...`);
+    }
+  }, [currentImageIndex, displayImages, id]);
 
   // Preload adjacent images for smooth carousel navigation
   useEffect(() => {
-    if (displayImages.length > 1) {
-      const prevIndex = (currentImageIndex - 1 + displayImages.length) % displayImages.length;
-      const nextIndex = (currentImageIndex + 1) % displayImages.length;
+    if (proxiedImages.length > 1) {
+      const prevIndex = (currentImageIndex - 1 + proxiedImages.length) % proxiedImages.length;
+      const nextIndex = (currentImageIndex + 1) % proxiedImages.length;
 
       const prevImg = new Image();
       const nextImg = new Image();
 
-      prevImg.src = displayImages[prevIndex];
-      nextImg.src = displayImages[nextIndex];
+      prevImg.src = proxiedImages[prevIndex];
+      nextImg.src = proxiedImages[nextIndex];
     }
-  }, [currentImageIndex, displayImages]);
+  }, [currentImageIndex, proxiedImages]);
 
   const showBlueTick = !!badgeState?.showBlueTick;
   const blueTickLabel = badgeState?.blueTickLabel || "Verified";
@@ -157,13 +173,17 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
                 </div>
               </div>
             )}
-            {displayImages.length > 0 && displayImages[currentImageIndex] ? (
+            {displayImages.length > 0 && proxiedImages[currentImageIndex] && !imageError ? (
               <>
                 <img 
-                  src={displayImages[currentImageIndex]} 
+                  src={proxiedImages[currentImageIndex]} 
                   alt={`${title} - ${detectiveName} | Professional Detective Service`}
                   loading="lazy"
                   onLoad={() => setImageLoaded(true)}
+                  onError={() => {
+                    console.error(`[ServiceCard ${id}] Image failed to load: ${displayImages[currentImageIndex]}`);
+                    setImageError(true);
+                  }}
                   className={`object-cover w-full h-full ${isUnclaimed ? 'grayscale' : ''}`}
                 />
                 
@@ -178,13 +198,16 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
               <div className="w-full h-full flex items-center justify-center bg-gray-100">
                 <div className="text-center text-gray-400">
                   <Star className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm font-medium">No image available</p>
+                  <p className="text-sm font-medium">{imageError ? 'Image failed to load' : 'No image available'}</p>
+                  {imageError && displayImages[currentImageIndex] && (
+                    <p className="text-xs text-red-400 mt-1 truncate px-2">{displayImages[currentImageIndex].substring(0, 40)}...</p>
+                  )}
                 </div>
               </div>
             )}
             
             {/* Navigation Arrows - Only show on hover and if multiple images */}
-            {displayImages.length > 1 && isHovered && (
+            {proxiedImages.length > 1 && isHovered && (
               <>
                 <button 
                   onClick={prevImage}
@@ -201,7 +224,7 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
                 
                 {/* Dots Indicator */}
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
-                  {displayImages.map((_, idx) => (
+                  {proxiedImages.map((_, idx) => (
                     <div 
                       key={idx} 
                       className={`h-1.5 w-1.5 rounded-full shadow-sm transition-colors ${idx === currentImageIndex ? 'bg-white' : 'bg-white/50'}`}
@@ -216,7 +239,15 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
             {/* Author Row */}
             <div className="flex items-center gap-3 mb-3">
               <Avatar className="h-8 w-8 border border-gray-100">
-                {detectiveAvatar && <AvatarImage src={detectiveAvatar} alt={`${detectiveName} - Professional Private Investigator`} />}
+                {detectiveAvatar && (
+                  <AvatarImage 
+                    src={detectiveAvatar.includes('.supabase.co') ? `/api/proxy/image?url=${encodeURIComponent(detectiveAvatar)}` : detectiveAvatar}
+                    alt={`${detectiveName} - Professional Private Investigator`}
+                    onError={() => {
+                      console.error(`[Avatar ${detectiveId}] Failed to load: ${detectiveAvatar}`)
+                    }}
+                  />
+                )}
                 <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{detectiveName?.[0] || "?"}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col overflow-hidden">
