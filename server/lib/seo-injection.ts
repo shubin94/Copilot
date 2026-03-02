@@ -1,4 +1,41 @@
 /**
+ * Builds homepage authority HTML block for SSR injection
+ */
+export function buildHomepageAuthorityHtml(
+  countries: Array<{ country: string; detectiveCount: number }>,
+  statesByCountry: Record<string, Array<{ state: string; detectiveCount: number }>>,
+  citiesByCountryState: Record<string, Array<{ city: string; detectiveCount: number }>>
+): string {
+  // Simple HTML block for homepage authority injection
+  let html = '<section class="homepage-authority-block">\n';
+  html += '<h2>Top Detective Locations</h2>\n';
+  html += '<ul>\n';
+  for (const country of countries) {
+    html += `<li><strong>${country.country}</strong> (${country.detectiveCount} detectives)`;
+    const states = statesByCountry[country.country] || [];
+    if (states.length > 0) {
+      html += '<ul>\n';
+      for (const state of states) {
+        html += `<li>${state.state} (${state.detectiveCount})`;
+        const cities = citiesByCountryState[`${country.country}|${state.state}`] || [];
+        if (cities.length > 0) {
+          html += '<ul>\n';
+          for (const city of cities) {
+            html += `<li>${city.city} (${city.detectiveCount})</li>\n`;
+          }
+          html += '</ul>\n';
+        }
+        html += '</li>\n';
+      }
+      html += '</ul>\n';
+    }
+    html += '</li>\n';
+  }
+  html += '</ul>\n';
+  html += '</section>\n';
+  return html;
+}
+/**
  * Server-Side SEO Meta Tag Injection
  * 
  * Intercepts requests to detective profile pages and injects:
@@ -1572,102 +1609,4 @@ export function injectDetectiveLocationAuthorityLink(
 
   // Fallback: inject right after </h1>
   return htmlContent.substring(0, h1CloseIndex + 5) + authorityLinkHtml + htmlContent.substring(h1CloseIndex + 5);
-}
-
-/**
- * Builds homepage authority HTML block for SSR injection (SEO links for authority building)
- * This is injected into the HTML OUTSIDE React root to avoid hydration issues
- */
-export function buildHomepageAuthorityHtml(
-  countries: Array<{ country: string; detectiveCount: number }>,
-  statesByCountry: Record<string, Array<{ state: string; detectiveCount: number }>>,
-  citiesByCountryState: Record<string, Array<{ city: string; detectiveCount: number }>>
-): string {
-  try {
-    if (!countries || !Array.isArray(countries) || countries.length === 0) {
-      console.log("[Authority HTML] No countries provided, skipping");
-      return '';
-    }
-
-    const generateSlug = (text: string): string => {
-      if (!text) return "";
-      return text
-        .toLowerCase()
-        .trim()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-+|-+$/g, "");
-    };
-
-    // Build JSON-LD structured data for countries/states/cities
-    const jsonLdItems: any[] = [];
-    let position = 1;
-
-    for (const country of countries) {
-      if (!country || !country.country) continue;
-      
-      const countrySlug = generateSlug(country.country);
-      const countryUrl = `https://www.askdetectives.com/detectives/${countrySlug}/`;
-      
-      jsonLdItems.push({
-        "@type": "ListItem",
-        "position": position++,
-        "name": country.country,
-        "url": countryUrl
-      });
-
-      const states = (statesByCountry && statesByCountry[country.country]) || [];
-      if (Array.isArray(states)) {
-        for (const state of states) {
-          if (!state || !state.state) continue;
-          
-          const stateSlug = generateSlug(state.state);
-          const stateUrl = `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/`;
-          
-          jsonLdItems.push({
-            "@type": "ListItem",
-            "position": position++,
-            "name": `${state.state}, ${country.country}`,
-            "url": stateUrl
-          });
-
-          const cities = (citiesByCountryState && citiesByCountryState[`${country.country}|${state.state}`]) || [];
-          if (Array.isArray(cities)) {
-            for (const city of cities) {
-              if (!city || !city.city) continue;
-              
-              const citySlug = generateSlug(city.city);
-              const cityUrl = `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/`;
-              
-              jsonLdItems.push({
-                "@type": "ListItem",
-                "position": position++,
-                "name": `${city.city}, ${state.state}`,
-                "url": cityUrl
-              });
-            }
-          }
-        }
-      }
-    }
-
-    if (jsonLdItems.length === 0) {
-      console.log("[Authority HTML] No items generated, skipping");
-      return '';
-    }
-
-    const jsonLd = {
-      "@context": "https://schema.org",
-      "@type": "BreadcrumbList",
-      "itemListElement": jsonLdItems
-    };
-
-    const structuredHtml = `<!-- SEO Authority Schema Start -->\n<script type="application/ld+json">\n${JSON.stringify(jsonLd)}\n</script>\n<!-- SEO Authority Schema End -->\n`;
-    
-    return structuredHtml;
-  } catch (error) {
-    console.error("[Authority HTML] Error building HTML:", error);
-    return '';
-  }
 }

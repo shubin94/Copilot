@@ -1,42 +1,26 @@
+import "./server/lib/loadEnv.ts";
 import { db } from "./db/index.ts";
 import { services } from "./shared/schema.ts";
-import { sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
-async function checkServiceImages() {
-  try {
-    console.log("🔍 Checking services and their images...\n");
-
-    const allServices = await db.select({
+async function main() {
+  const premarriageServices = await db
+    .select({
       id: services.id,
       title: services.title,
-      imageCount: sql<number>`array_length(${services.images}, 1)`,
       images: services.images,
-    }).from(services).limit(5);
+    })
+    .from(services)
+    .where(eq(services.category, "Pre-marriage investigations"));
 
-    console.log(`Found ${allServices.length} services:\n`);
-
-    for (const service of allServices) {
-      console.log(`📦 Service: ${service.title} (ID: ${service.id})`);
-      console.log(`   Image count: ${service.imageCount || 0}`);
-      
-      if (service.images && Array.isArray(service.images)) {
-        console.log(`   Images:`);
-        service.images.forEach((img: string, idx: number) => {
-          const preview = img.substring(0, 100) + (img.length > 100 ? '...' : '');
-          const isSupabase = img.includes('.supabase.co');
-          const isBase64 = img.startsWith('data:');
-          console.log(`   [${idx}] ${preview}`);
-          console.log(`      └─ Supabase: ${isSupabase}, Base64: ${isBase64}`);
-        });
-      }
-      console.log();
-    }
-
-  } catch (error) {
-    console.error("❌ Error checking services:", error);
-  }
+  console.log("Pre-marriage Services Images Check:");
+  premarriageServices.forEach(s => {
+    console.log(`  Service: ${s.title}`);
+    console.log(`    Images: ${JSON.stringify(s.images)}`);
+    console.log(`    Has images: ${s.images && s.images.length > 0}`);
+  });
 
   process.exit(0);
 }
 
-checkServiceImages();
+main().catch(console.error);

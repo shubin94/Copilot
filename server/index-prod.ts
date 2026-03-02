@@ -26,8 +26,6 @@ import {
   extractLocationRouteParams,
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
-  buildHomepageAuthorityHtml,
-  injectHomepageAuthorityHtml,
   injectDetectiveLocationAuthorityLink,
 } from "./lib/seo-injection.ts";
 import { storage } from "./storage.ts";
@@ -200,12 +198,14 @@ export async function serveStatic(app: Express, server: Server) {
       );
 
       if (!detective) {
-        // Detective not found - return 404
-        console.log('[SEO] Detective not found:', params);
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        return res.status(404).send(
-          '<html><head><title>Detective Not Found</title></head><body><h1>404 - Detective not found</h1></body></html>'
-        );
+        // Detective not found - serve SPA to allow client-side 404 handling
+        console.log('[SEO] Detective not found, serving SPA fallback:', params);
+        if (!cachedIndexHtml) {
+          cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
+        }
+        res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        return res.send(cachedIndexHtml);
       }
 
       console.log('[SEO] Detective found:', { businessName: detective.businessName, avgRating: detective.avgRating, reviewCount: detective.reviewCount });
@@ -236,6 +236,35 @@ export async function serveStatic(app: Express, server: Server) {
       return res.status(500).send(
         '<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1><p>Failed to load detective profile</p></body></html>'
       );
+    }
+  });
+
+  // CATCH-ALL ROUTE FOR UNMATCHED /detectives PATHS (6+ segments or invalid patterns)
+  // Prevents hard 404s for paths like /detectives/:country/:state/:city/:agency/:something
+  // Serves SPA to allow client-side routing to handle navigation
+  app.get(/^\/detectives\//, async (req: Request, res: Response) => {
+    try {
+      const requestPath = req.path;
+      const segments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
+      
+      // Skip if already handled by earlier routes (2-5 segments)
+      if (segments.length <= 5) {
+        return; // Pass through to next middleware/catch-all
+      }
+
+      console.log(`[Detectives Catch-All] Serving SPA for unmatched path: ${requestPath} (${segments.length} segments)`);
+      
+      if (!cachedIndexHtml) {
+        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
+      }
+
+      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(cachedIndexHtml);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[Detectives Catch-All] Error:', errorMsg);
+      res.status(500).type("text/plain").send("Error loading page");
     }
   });
 
@@ -327,91 +356,25 @@ export async function serveStatic(app: Express, server: Server) {
     }
   });
 
-  // Homepage route - serves client index.html with authority injection
+  // Homepage route - serves client index.html
   app.get("/", async (req: Request, res: Response) => {
     try {
-      console.log("[Homepage Injection] Running for /");
-      
       // Read index.html once and cache it
       if (!cachedIndexHtml) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
       }
 
-      let html = cachedIndexHtml;
-      console.log("[Homepage Injection] Template loaded, size:", html.length, "bytes");
-      console.log("[Homepage Injection] Marker exists:", html.includes("<!-- HOMEPAGE_AUTHORITY_INJECTION_POINT -->"));
-
-      // Fetch top countries for homepage authority injection
-      const countries = await storage.getTopCountries(8);
-      console.log("[Homepage Injection] Top countries fetched:", countries.length);
-      
-      if (countries && countries.length > 0) {
-        // Build map of states by country
-        const statesByCountry: Record<string, Array<{ state: string; detectiveCount: number }>> = {};
-        const citiesByCountryState: Record<string, Array<{ city: string; detectiveCount: number }>> = {};
-
-        // Fetch states for each country
-        for (const country of countries) {
-          const states = await storage.getTopStates(country.country, 5);
-          if (states && states.length > 0) {
-            statesByCountry[country.country] = states;
-
-            // Fetch cities for each state
-            for (const state of states) {
-              const cities = await storage.getTopCities(country.country, state.state, 5);
-              if (cities && cities.length > 0) {
-                citiesByCountryState[`${country.country}|${state.state}`] = cities;
-              }
-            }
-          }
-        }
-
-        // Build and inject authority HTML block (TRUE SSR)
-        let authorityBlockHtml = '';
-        try {
-          authorityBlockHtml = buildHomepageAuthorityHtml(
-            countries,
-            statesByCountry,
-            citiesByCountryState
-          );
-          console.log("[Homepage Injection] Authority HTML built, size:", authorityBlockHtml.length, "bytes");
-          
-          if (authorityBlockHtml && html.includes(`<div id="root">`)) {
-            // Inject directly into HTML body before <div id="root"> (TRUE SSR - no React dependency)
-            html = html.replace(
-              `<div id="root">`,
-              `${authorityBlockHtml}
-    <div id="root">`
-            );
-            console.log("[Homepage Injection] Authority HTML injected into body (SSR)");
-          }
-        } catch (authorityError) {
-          console.error("[Homepage Injection] Error building authority HTML:", authorityError);
-          // Continue without authority injection if error occurs
-        }
-      }
-
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.send(html);
+      res.send(cachedIndexHtml);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error("[Homepage] Error:", {
         message: errorMsg,
         stack: error instanceof Error ? error.stack : undefined,
       });
-      // Fallback to plain index.html on error
-      try {
-        if (!cachedIndexHtml) {
-          cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
-        }
-        res.setHeader("Cache-Control", "no-store");
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.send(cachedIndexHtml);
-      } catch (fallbackError) {
-        console.error("[Homepage] Fallback failed:", fallbackError);
-        res.status(500).type("text/plain").send("Error loading page");
-      }
+      // Fallback to plain error response
+      res.status(500).type("text/plain").send("Error loading page");
     }
   });
 
