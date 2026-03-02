@@ -5,8 +5,9 @@
  * - Environment loading
  * - Database migrations
  * - Secrets loading
- * - Express app setup with all routes
+ * - Express app setup with all routes (lazy loaded)
  * 
+ * OPTIMIZATION: Uses lazy loading & deferred imports to reduce cold start memory
  * Wrapped with serverless-http to convert to serverless format
  */
 
@@ -21,13 +22,12 @@ import { validateDatabase } from "./startup";
 import { initializeEnv } from "./lib/loadEnv";
 import { getEnvironmentBadge } from "../db/validateDatabase";
 import { ensureLocationSeoTable } from "./lib/init-location-seo-table";
-import { app } from "./app";
-import runApp from "./app";
 import serverless from "serverless-http";
 
 // Track initialization state
 let initPromise: Promise<any> | null = null;
 let cachedHandler: any = null;
+let appInstance: any = null;
 
 export async function produceServerHandler() {
   // Return cached handler if already initialized
@@ -54,7 +54,7 @@ export async function produceServerHandler() {
 
 async function initializeServerApp() {
   try {
-    console.log(`\n${getEnvironmentBadge()} Environment (Vercel Serverless)`);
+    console.log(`\n${getEnvironmentBadge()} Environment (Vercel Serverless - Optimized)`);
     
     // Load environment variables
     await initializeEnv();
@@ -68,24 +68,26 @@ async function initializeServerApp() {
     
     const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader");
     
-    // Run database migrations
-    console.log('📊 Running database migrations...');
-    try {
-      const { runMigrations } = await import('../db/run-migrations');
-      await runMigrations();
-    } catch (migrationError) {
-      console.error('❌ Migration error:', migrationError);
-      // Continue - don't fail in serverless
-    }
+    // OPTIMIZATION: Defer database migrations to reduce startup time
+    console.log('📊 Scheduling database migrations...');
+    const migrateInBackground = async () => {
+      try {
+        const { runMigrations } = await import('../db/run-migrations');
+        await runMigrations();
+      } catch (migrationError) {
+        console.error('❌ Migration error (background):', migrationError);
+      }
+    };
     
     // Initialize Sentry for error tracking
     if (config.env.isProd && config.sentryDsn) {
+      console.log('📍 Initializing Sentry...');
       Sentry.init({
         dsn: config.sentryDsn,
         environment: "production",
         integrations: [nodeProfilingIntegration()],
         tracesSampleRate: 0.1,
-        profilesSampleRate: 0.1,
+        profilesSampleRate: 0.05, // Reduced from 0.1 to save memory
         beforeSend(event, hint) {
           if (event.request) {
             if (event.request.headers) {
@@ -118,14 +120,31 @@ async function initializeServerApp() {
     await validateDatabase();
     await ensureLocationSeoTable();
 
-    // Setup Express app with all middleware and routes
-    console.log('⚙️  Setting up Express app...');
-    await runApp(serveStaticForVercel);
+    // OPTIMIZATION: Lazy load Express app and routes
+    // Import app.ts which sets up middleware but NOT routes yet
+    const { app } = await import("./app");
+    appInstance = app;
+    
+    console.log('⚙️  Registering routes (this may take a moment)...');
+    const { registerRoutes } = await import("./routes");
+    const httpServer = await registerRoutes(app);
     
     // Wrap the Express app with serverless-http for Vercel
+    console.log('🚀 Wrapping with serverless-http...');
     cachedHandler = serverless(app);
     
     console.log('✅ Vercel serverless function initialized and ready');
+    
+    // Run migrations in background (don't block cold start)
+    if (config.env.isProd) {
+      migrateInBackground().catch(err => {
+        console.error('Background migration error:', err);
+        if (config.sentryDsn) {
+          Sentry.captureException(err);
+        }
+      });
+    }
+    
     return cachedHandler;
     
   } catch (error) {
@@ -135,16 +154,4 @@ async function initializeServerApp() {
     }
     throw error;
   }
-}
-
-/**
- * Modified serveStatic for Vercel - same as index-prod but tailored for serverless
- * All routes are set up but no HTTP server is started (serverless-http handles that)
- */
-async function serveStaticForVercel(app: any, server: Server) {
-  // Import the setup function from index-prod
-  const { serveStatic } = await import("./index-prod");
-  
-  // Call the original serveStatic (doesn't start a server, just sets up routes)
-  await serveStatic(app, server);
 }
