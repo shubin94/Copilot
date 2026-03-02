@@ -279,6 +279,15 @@ export async function getRankedDetectives(options?: {
     const limitVal = opts.limit || 100;
     const offsetVal = opts.offset || 0;
 
+    // 🔍 DIAGNOSTIC LOG 1: Full options object
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('[getRankedDetectives] CALLED with full opts:', JSON.stringify(opts, null, 2));
+    console.log('[getRankedDetectives] opts.country specifically:', opts.country);
+    if (opts.country === undefined) {
+      console.warn('[getRankedDetectives] WARNING: opts.country is undefined; country filter cannot be applied.');
+    }
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
     // ✅ QUERY 1a: Get subscription package IDs matching plan name (if plan filter applied)
     let planPackageIds: string[] = [];
     if (opts.plan && opts.plan !== "all") {
@@ -305,8 +314,18 @@ export async function getRankedDetectives(options?: {
     }
     
     // Apply country filter
+    // NOTE: detectives.country is currently stored as ISO country code in this path (e.g., IN, US).
+    // 🔍 DIAGNOSTIC LOG 2: Country filter check
+    console.log('[getRankedDetectives] Checking country filter...');
+    console.log('  - opts.country value:', opts.country);
+    console.log('  - opts.country !== "all":', opts.country !== "all");
+    console.log('  - Will add country filter:', !!(opts.country && opts.country !== "all"));
+    
     if (opts.country && opts.country !== "all") {
+      console.log('  ✅ ADDING country filter condition: detectives.country =', opts.country);
       conditions.push(eq(detectives.country, opts.country));
+    } else {
+      console.log('  ❌ SKIPPING country filter (no country or country="all")');
     }
 
     // Apply state filter
@@ -330,6 +349,13 @@ export async function getRankedDetectives(options?: {
       conditions.push(sql`${detectives.businessName} ilike ${searchTerm}`);
     }
 
+    // 🔍 DIAGNOSTIC LOG 3: Final conditions array before query
+    console.log('[getRankedDetectives] FINAL CONDITIONS ARRAY (', conditions.length, 'conditions):');
+    conditions.forEach((cond, idx) => {
+      console.log(`  [${idx}]:`, cond);
+    });
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
     // ✅ QUERY 1b: Count ALL matching detectives (BEFORE pagination)
     let countQuery = db.select({ count: count() }).from(detectives);
     if (conditions.length > 0) {
@@ -337,6 +363,14 @@ export async function getRankedDetectives(options?: {
     }
     const countResult = await countQuery;
     const totalCount = Number(countResult[0]?.count || 0);
+
+    if (opts.country && opts.country !== "all" && totalCount === 0) {
+      console.warn('[getRankedDetectives] WARNING: country filter applied but count is 0 for country =', opts.country);
+    }
+
+    // 🔍 DIAGNOSTIC LOG 4: Query result count
+    console.log('[getRankedDetectives] COUNT QUERY RESULT:', totalCount, 'detectives found');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     // ✅ QUERY 1c: Select paginated detectives (AFTER applying same filters)
     let query = db.select().from(detectives);
@@ -346,6 +380,14 @@ export async function getRankedDetectives(options?: {
 
     // ✅ Apply LIMIT and OFFSET AFTER all filters
     const detList = await query.limit(limitVal).offset(offsetVal);
+
+    // 🔍 DIAGNOSTIC LOG 5: Detectives fetched
+    console.log('[getRankedDetectives] FETCHED', detList.length, 'detectives (limit:', limitVal, ', offset:', offsetVal, ')');
+    if (detList.length > 0) {
+      console.log('[getRankedDetectives] First detective country:', detList[0].country);
+      console.log('[getRankedDetectives] Sample countries:', detList.slice(0, 5).map(d => d.country).join(', '));
+    }
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     if (detList.length === 0) {
       return { detectives: [], total: totalCount };

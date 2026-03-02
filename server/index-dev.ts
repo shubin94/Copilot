@@ -25,7 +25,6 @@ import {
   extractLocationRouteParams,
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
-  injectHomepageAuthorityHtml,
   injectDetectiveLocationAuthorityLink,
 } from "./lib/seo-injection";
 import { storage } from "./storage";
@@ -386,12 +385,10 @@ export async function setupVite(app: Express, server: Server) {
 
   app.use(vite.middlewares);
 
-  // HOMEPAGE AUTHORITY FLOW (DEV)
-  // Injects server-rendered, crawlable location links for SEO
+  // HOMEPAGE FLOW (DEV)
+  // Serves the index.html with Vite development transforms
   app.get("/", async (req: Request, res: Response) => {
     try {
-      console.log("[Homepage Injection] Running for /");
-      
       const clientTemplate = path.resolve(
         import.meta.dirname,
         "..",
@@ -400,66 +397,19 @@ export async function setupVite(app: Express, server: Server) {
       );
 
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
-      console.log("[Homepage Injection] Template loaded, size:", template.length, "bytes");
-      console.log("[Homepage Injection] Marker exists:", template.includes("<!-- HOMEPAGE_AUTHORITY_INJECTION_POINT -->"));
       
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
 
-      // Fetch top countries
-      const countries = await storage.getTopCountries(8);
-      console.log("[Homepage Injection] Top countries fetched:", countries.length);
-      
-      if (countries && countries.length > 0) {
-        // Build map of states by country
-        const statesByCountry: Record<string, Array<{ state: string; detectiveCount: number }>> = {};
-        const citiesByCountryState: Record<string, Array<{ city: string; detectiveCount: number }>> = {};
-
-        // Fetch states for each country
-        for (const country of countries) {
-          const states = await storage.getTopStates(country.country, 5);
-          if (states && states.length > 0) {
-            statesByCountry[country.country] = states;
-
-            // Fetch cities for each state
-            for (const state of states) {
-              const cities = await storage.getTopCities(country.country, state.state, 5);
-              if (cities && cities.length > 0) {
-                citiesByCountryState[`${country.country}|${state.state}`] = cities;
-              }
-            }
-          }
-        }
-
-        // Build and inject authority HTML block (TRUE SSR)
-        const authorityBlockHtml = buildHomepageAuthorityHtml(
-          countries,
-          statesByCountry,
-          citiesByCountryState
-        );
-        console.log("[Homepage Injection] Authority HTML built, size:", authorityBlockHtml.length, "bytes");
-        
-        // Inject directly into HTML body before <div id="root"> (TRUE SSR - no React dependency)
-        template = template.replace(
-          `<div id="root">`,
-          `${authorityBlockHtml}
-    <div id="root">`
-        );
-        
-        console.log("[Homepage Injection] Authority HTML injected into body (SSR)");
-      }
-
       const page = await vite.transformIndexHtml(req.originalUrl, template);
-      console.log("[Homepage Injection] Vite transform complete, final size:", page.length, "bytes");
-      console.log("[Homepage Injection] Final HTML has authority:", page.includes("Find Private Detectives by Location"));
       
       res.setHeader("Cache-Control", "no-store");
       res.set({ "Content-Type": "text/html" }).end(page);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error("[Homepage Injection] Error:", {
+      console.error("[Homepage] Error:", {
         message: errorMsg,
         stack: error instanceof Error ? error.stack : undefined,
       });
@@ -480,7 +430,7 @@ export async function setupVite(app: Express, server: Server) {
         res.setHeader("Cache-Control", "no-store");
         res.set({ "Content-Type": "text/html" }).end(page);
       } catch (fallbackError) {
-        console.error("[Homepage Injection] Fallback failed:", fallbackError);
+        console.error("[Homepage] Fallback failed:", fallbackError);
         res.status(500).set({ "Content-Type": "text/html" }).send(
           "<html><head><title>Error</title></head><body><h1>Error loading page</h1></body></html>"
         );

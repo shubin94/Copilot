@@ -4128,68 +4128,290 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Homepage API - Get top locations for the homepage location grid section
-  // Returns: top countries (8), popular cities (8), and top states (8)
-  // SSR-friendly, cached for performance
-  app.get("/api/homepage/top-locations", async (_req: Request, res: Response) => {
+  // Public API - Get top locations with detective counts
+  // Aggregates detectives by country, state, and city with joins to normalized tables
+  // Query params: limitCountries, limitStates, limitCities (defaults: 10 each)
+  app.get("/api/locations/top", async (req: Request, res: Response) => {
     try {
-      // Fetch top countries
-      const topCountries = await storage.getTopCountries(8);
+      const limitCountries = Math.min(Number(req.query.limitCountries) || 10, 50);
+      const limitStates = Math.min(Number(req.query.limitStates) || 10, 50);
+      const limitCities = Math.min(Number(req.query.limitCities) || 10, 50);
 
-      // Build states and cities data
-      const statesByCountry: Record<string, Array<{ state: string; detectiveCount: number }>> = {};
-      const allCities: Array<{ country: string; state: string; city: string; detectiveCount: number }> = [];
+      const countryJoinCondition = or(
+        eq(detectives.country, countries.code),
+        eq(detectives.country, countries.name),
+        eq(detectives.country, countries.slug)
+      )!;
 
-      // Fetch states for each country
-      for (const country of topCountries) {
-        const states = await storage.getTopStates(country.country, 5);
-        if (states && states.length > 0) {
-          statesByCountry[country.country] = states;
+      // Aggregate countries with detective counts
+      const topCountries = await db
+        .select({
+          name: countries.name,
+          slug: countries.slug,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .innerJoin(
+          countries,
+          countryJoinCondition
+        )
+        .where(eq(detectives.status, "active"))
+        .groupBy(countries.id, countries.name, countries.slug)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limitCountries);
 
-          // Fetch cities for each state
-          for (const state of states) {
-            const cities = await storage.getTopCities(country.country, state.state, 5);
-            if (cities && cities.length > 0) {
-              cities.forEach((city) => {
-                allCities.push({
-                  country: country.country,
-                  state: state.state,
-                  city: city.city,
-                  detectiveCount: city.detectiveCount,
-                });
-              });
-            }
-          }
-        }
-      }
+      // Aggregate states with detective counts (from detective records)
+      const topStates = await db
+        .select({
+          normalizedName: states.name,
+          normalizedSlug: states.slug,
+          rawName: detectives.state,
+          countrySlug: countries.slug,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .innerJoin(
+          countries,
+          countryJoinCondition
+        )
+        .leftJoin(
+          states,
+          and(
+            eq(states.countryId, countries.id),
+            or(
+              eq(detectives.state, states.name),
+              eq(detectives.state, states.slug)
+            )
+          )
+        )
+        .where(
+          and(
+            eq(detectives.status, "active"),
+            sql`trim(${detectives.state}) <> ''`,
+            sql`lower(trim(${detectives.state})) <> 'n/a'`,
+            sql`lower(trim(${detectives.state})) <> 'not specified'`
+          )
+        )
+        .groupBy(states.name, states.slug, detectives.state, countries.slug)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limitStates);
 
-      // Sort cities by detective count and take top 8
-      const topCities = allCities
-        .sort((a, b) => b.detectiveCount - a.detectiveCount)
-        .slice(0, 8);
+      // Aggregate cities with detective counts (from detective records)
+      const topCities = await db
+        .select({
+          normalizedName: cities.name,
+          normalizedSlug: cities.slug,
+          normalizedStateSlug: states.slug,
+          rawName: detectives.city,
+          rawStateName: detectives.state,
+          countrySlug: countries.slug,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .innerJoin(
+          countries,
+          countryJoinCondition
+        )
+        .leftJoin(
+          states,
+          and(
+            eq(states.countryId, countries.id),
+            or(
+              eq(detectives.state, states.name),
+              eq(detectives.state, states.slug)
+            )
+          )
+        )
+        .leftJoin(
+          cities,
+          and(
+            eq(cities.stateId, states.id),
+            or(
+              eq(detectives.city, cities.name),
+              eq(detectives.city, cities.slug)
+            )
+          )
+        )
+        .where(
+          and(
+            eq(detectives.status, "active"),
+            sql`trim(${detectives.state}) <> ''`,
+            sql`trim(${detectives.city}) <> ''`,
+            sql`lower(trim(${detectives.state})) <> 'n/a'`,
+            sql`lower(trim(${detectives.city})) <> 'n/a'`,
+            sql`lower(trim(${detectives.state})) <> 'not specified'`,
+            sql`lower(trim(${detectives.city})) <> 'not specified'`
+          )
+        )
+        .groupBy(cities.name, cities.slug, states.slug, detectives.city, detectives.state, countries.slug)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limitCities);
 
-      // Build top states list (across all countries, top 8)
-      const allStates: Array<{ country: string; state: string; detectiveCount: number }> = [];
-      Object.entries(statesByCountry).forEach(([country, states]) => {
-        states.forEach((state) => {
-          allStates.push({
-            country,
-            state: state.state,
-            detectiveCount: state.detectiveCount,
-          });
-        });
-      });
+      // Filter out zero counts and format response
+      const countriesData = topCountries
+        .map((row) => ({
+          name: row.name,
+          slug: row.slug,
+          detectiveCount: Number(row.detectiveCount) || 0,
+        }))
+        .filter((item) => item.detectiveCount > 0);
 
-      const topStates = allStates
-        .sort((a, b) => b.detectiveCount - a.detectiveCount)
-        .slice(0, 8);
+      const statesData = topStates
+        .map((row) => ({
+          name: String(row.normalizedName || row.rawName || "").trim(),
+          slug: String(row.normalizedSlug || generateSlug(String(row.normalizedName || row.rawName || ""))),
+          countrySlug: row.countrySlug,
+          detectiveCount: Number(row.detectiveCount) || 0,
+        }))
+        .filter((item) => item.detectiveCount > 0 && item.name.length > 0 && item.slug.length > 0);
+
+      const citiesData = topCities
+        .map((row) => ({
+          name: String(row.normalizedName || row.rawName || "").trim(),
+          slug: String(row.normalizedSlug || generateSlug(String(row.normalizedName || row.rawName || ""))),
+          stateSlug: String(row.normalizedStateSlug || generateSlug(String(row.rawStateName || ""))),
+          countrySlug: row.countrySlug,
+          detectiveCount: Number(row.detectiveCount) || 0,
+        }))
+        .filter((item) => item.detectiveCount > 0 && item.name.length > 0 && item.slug.length > 0 && item.stateSlug.length > 0);
 
       // Cache for 24 hours (top locations don't change frequently)
       res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
+      res.json({ countries: countriesData, states: statesData, cities: citiesData });
+    } catch (error) {
+      console.error("[API /api/locations/top] Error:", error);
+      res.status(500).json({ 
+        error: "Failed to fetch top locations",
+        countries: [],
+        states: [],
+        cities: [],
+      });
+    }
+  });
+
+  // Homepage API - Get top locations for the homepage location grid section
+  // Uses /api/locations/top logic with homepage-specific limits (8 each)
+  // Returns: top countries, states, and cities with backward-compatible keys
+  // SSR-friendly, cached for performance
+  app.get("/api/homepage/top-locations", async (req: Request, res: Response) => {
+    try {
+      const limitCountries = 8;
+      const limitStates = 8;
+      const limitCities = 8;
+
+      // Aggregate countries with detective counts
+      const topCountries = await db
+        .select({
+          name: countries.name,
+          slug: countries.slug,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .innerJoin(
+          countries,
+          sql`upper(trim(${detectives.country})) = upper(trim(${countries.code}))`
+        )
+        .where(eq(detectives.status, "active"))
+        .groupBy(countries.id, countries.name, countries.slug)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limitCountries);
+
+      // Aggregate states with detective counts
+      const topStates = await db
+        .select({
+          name: states.name,
+          slug: states.slug,
+          countrySlug: countries.slug,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .innerJoin(
+          countries,
+          sql`upper(trim(${detectives.country})) = upper(trim(${countries.code}))`
+        )
+        .innerJoin(
+          states,
+          and(
+            eq(states.countryId, countries.id),
+            sql`lower(trim(${detectives.state})) = lower(trim(${states.name}))`
+          )
+        )
+        .where(
+          and(
+            eq(detectives.status, "active"),
+            sql`lower(trim(${detectives.state})) <> 'not specified'`
+          )
+        )
+        .groupBy(states.id, states.name, states.slug, countries.slug)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limitStates);
+
+      // Aggregate cities with detective counts
+      const topCities = await db
+        .select({
+          name: cities.name,
+          slug: cities.slug,
+          stateSlug: states.slug,
+          countrySlug: countries.slug,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .innerJoin(
+          countries,
+          sql`upper(trim(${detectives.country})) = upper(trim(${countries.code}))`
+        )
+        .innerJoin(
+          states,
+          and(
+            eq(states.countryId, countries.id),
+            sql`lower(trim(${detectives.state})) = lower(trim(${states.name}))`
+          )
+        )
+        .innerJoin(
+          cities,
+          and(
+            eq(cities.stateId, states.id),
+            sql`lower(trim(${detectives.city})) = lower(trim(${cities.name}))`
+          )
+        )
+        .where(
+          and(
+            eq(detectives.status, "active"),
+            sql`lower(trim(${detectives.state})) <> 'not specified'`,
+            sql`lower(trim(${detectives.city})) <> 'not specified'`
+          )
+        )
+        .groupBy(cities.id, cities.name, cities.slug, states.slug, countries.slug)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limitCities);
+
+      // Filter out zero counts and format response (backward compatible)
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
       res.json({
-        topCountries,
-        topCities,
-        topStates,
+        topCountries: topCountries
+          .map((row) => ({
+            name: row.name,
+            slug: row.slug,
+            detectiveCount: Number(row.detectiveCount) || 0,
+          }))
+          .filter((item) => item.detectiveCount > 0),
+        topStates: topStates
+          .map((row) => ({
+            name: row.name,
+            slug: row.slug,
+            countrySlug: row.countrySlug,
+            detectiveCount: Number(row.detectiveCount) || 0,
+          }))
+          .filter((item) => item.detectiveCount > 0),
+        topCities: topCities
+          .map((row) => ({
+            name: row.name,
+            slug: row.slug,
+            stateSlug: row.stateSlug,
+            countrySlug: row.countrySlug,
+            detectiveCount: Number(row.detectiveCount) || 0,
+          }))
+          .filter((item) => item.detectiveCount > 0),
       });
     } catch (error) {
       console.error("[Homepage API] Error fetching top locations:", error);
@@ -7662,6 +7884,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } else {
         // Mix of FK and text filters - use getRankedDetectives with text values
+        // 🔍 DIAGNOSTIC LOG: What we're passing to getRankedDetectives
+        console.log('═════════════════════════════════════════════════════════════');
+        console.log('[/api/detectives/location] Calling getRankedDetectives with:');
+        console.log('  - countryCode:', countryCode);
+        console.log('  - countryName:', countryRow.name);
+        console.log('  - countryId:', countryId);
+        console.log('  - stateRow?.name:', stateRow?.name);
+        console.log('  - cityRow?.name:', cityRow?.name);
+        console.log('  - status: active');
+        console.log('  - limit:', limit);
+        console.log('  - offset:', offset);
+        console.log('═════════════════════════════════════════════════════════════');
+        
         rankedDetectivesResult = await getRankedDetectives({
           country: countryCode,
           state: stateRow?.name,

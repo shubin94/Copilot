@@ -50,16 +50,7 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  // Proxy image URLs through backend if they're from Supabase
-  const proxyImageUrl = (url: string): string => {
-    if (!url) return '';
-    if (url.includes('.supabase.co')) {
-      return `/api/proxy/image?url=${encodeURIComponent(url)}`;
-    }
-    return url;
-  };
-
-  const proxiedImages = displayImages.map(proxyImageUrl);
+  const proxiedImages = displayImages;
   const { user, isFavorite, toggleFavorite } = useUserSafe();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -241,7 +232,7 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
               <Avatar className="h-8 w-8 border border-gray-100">
                 {detectiveAvatar && (
                   <AvatarImage 
-                    src={detectiveAvatar.includes('.supabase.co') ? `/api/proxy/image?url=${encodeURIComponent(detectiveAvatar)}` : detectiveAvatar}
+                    src={detectiveAvatar}
                     alt={`${detectiveName} - Professional Private Investigator`}
                     onError={() => {
                       console.error(`[Avatar ${detectiveId}] Failed to load: ${detectiveAvatar}`)
