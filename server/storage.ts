@@ -1899,8 +1899,8 @@ export class DatabaseStorage implements IStorage {
    */
   async processDetectiveFileUpdates(detective: Detective, validatedData: Record<string, any>): Promise<void> {
     // Import file utilities
-    const { uploadDataUrl } = await import("./supabase.ts");
-    const { safeDeletePublicUrl } = await import("./supabase.ts");
+    const { uploadDataUrl } = await import("./supabase.js");
+    const { safeDeletePublicUrl } = await import("./supabase.js");
 
     // Helper to validate file URLs
     const validateFileUrl = (fileUrl: string, existingUrls: string[]): boolean => {

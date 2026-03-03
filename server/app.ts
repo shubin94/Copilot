@@ -476,7 +476,7 @@ export default async function runApp(
 ): Promise<Server> {
   // Dynamic import of routes to ensure environment is loaded BEFORE routes are imported
   console.log('[DEBUG] Starting to import registerRoutes...');
-  const { registerRoutes } = await import("./routes.ts");
+  const { registerRoutes } = await import("./routes.js");
   console.log('[DEBUG] registerRoutes imported successfully');
   
   console.log('[DEBUG] Calling registerRoutes(app)...');

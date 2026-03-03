@@ -1,5 +1,5 @@
 import "../server/lib/loadEnv.ts";
-import { db, pool } from "./index.ts";
+import { db, pool } from "./index.js";
 import { sql } from "drizzle-orm";
 import { fileURLToPath } from 'url';
 import path from 'path';

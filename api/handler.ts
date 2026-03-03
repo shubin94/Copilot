@@ -15,12 +15,12 @@ import "../server/lib/loadEnv.js";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 
-import { loadSecretsFromDatabase } from "../server/lib/secretsLoader";
-import { config, validateConfig } from "../server/config";
-import { validateDatabase } from "../server/startup";
-import { initializeEnv } from "../server/lib/loadEnv";
-import { getEnvironmentBadge } from "../db/validateDatabase";
-import { ensureLocationSeoTable } from "../server/lib/init-location-seo-table";
+import { loadSecretsFromDatabase } from "../server/lib/secretsLoader.js";
+import { config, validateConfig } from "../server/config.js";
+import { validateDatabase } from "../server/startup.js";
+import { initializeEnv } from "../server/lib/loadEnv.js";
+import { getEnvironmentBadge } from "../db/validateDatabase.js";
+import { ensureLocationSeoTable } from "../server/lib/init-location-seo-table.js";
 import serverless from "serverless-http";
 
 // Track initialization state
@@ -64,13 +64,13 @@ async function initializeServerApp() {
     console.log('🔐 Loading auth/secrets from database...');
     await loadSecretsFromDatabase();
     
-    const { secretsLoadedSuccessfully } = await import("../server/lib/secretsLoader");
+    const { secretsLoadedSuccessfully } = await import("../server/lib/secretsLoader.js");
     
     // OPTIMIZATION: Defer database migrations to reduce startup time
     console.log('📊 Scheduling database migrations...');
     const migrateInBackground = async () => {
       try {
-        const { runMigrations } = await import('../db/run-migrations');
+        const { runMigrations } = await import('../db/run-migrations.js');
         await runMigrations();
       } catch (migrationError) {
         console.error('❌ Migration error (background):', migrationError);
@@ -120,10 +120,10 @@ async function initializeServerApp() {
 
     // OPTIMIZATION: Lazy load Express app and routes
     // Import app.ts which sets up middleware but NOT routes yet
-    const { app } = await import("../server/app");
+    const { app } = await import("../server/app.js");
     
     console.log('⚙️  Registering routes (this may take a moment)...');
-    const { registerRoutes } = await import("../server/routes");
+    const { registerRoutes } = await import("../server/routes.js");
     await registerRoutes(app);
     
     // Wrap the Express app with serverless-http for Vercel

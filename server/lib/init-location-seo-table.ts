@@ -1,4 +1,4 @@
-import { pool } from "../../db/index";
+import { pool } from "../../db/index.js";
 
 /**
  * Ensures location_seo_overrides table exists with correct schema

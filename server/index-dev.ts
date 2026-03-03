@@ -376,7 +376,7 @@ export async function setupVite(app: Express, _server: Server) {
         extractServiceLocationRouteParams,
         resolveServiceLocation,
         injectServiceLocationSeoTags,
-      } = await import("./lib/seo-injection.ts");
+      } = await import("./lib/seo-injection.js");
 
       const params = extractServiceLocationRouteParams(requestPath);
       if (!params) {
@@ -638,7 +638,7 @@ async function attachViteTransform(
     }
 
     await loadSecretsFromDatabase();
-    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
+    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.js");
     validateConfig(secretsLoadedSuccessfully);
     await validateDatabase();
     await ensureLocationSeoTable();

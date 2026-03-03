@@ -1,4 +1,4 @@
-import type { ServiceCardDTO } from "../interfaces/ServiceCardDTO";
+import type { ServiceCardDTO } from "../interfaces/ServiceCardDTO.js";
 
 type BuildServiceCardDTOParams = {
   service: any;

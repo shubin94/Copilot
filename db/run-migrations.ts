@@ -1,5 +1,5 @@
-import "../server/lib/loadEnv.ts";
-import { db } from './index';
+import "../server/lib/loadEnv.js";
+import { db } from './index.js';
 import { sql } from 'drizzle-orm';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';

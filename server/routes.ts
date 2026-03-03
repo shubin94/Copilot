@@ -71,7 +71,7 @@ import publicTagsRouter from "./routes/public-tags.js";
 // import rssRouter from "./routes/rss.js"; // Unused
 import llmsTxtRouter from "./routes/llms-txt.js";
 import featuredHomeServicesRouter from "./routes/featured-home-services.js";
-import { buildServiceCardDTO } from "../utils/buildServiceCardDTO";
+import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
 import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.js";
 import { googleIndexing } from "./services/google-indexing-service.js";
 
@@ -1509,7 +1509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Use ranking system for detective visibility and ordering
-      const { getRankedDetectives } = await import("./ranking.ts");
+      const { getRankedDetectives } = await import("./ranking.js");
       const statusValue = status && status !== "all" ? (status as string) : undefined;
       const limitNum = parseInt(limit);
       const offsetNum = parseInt(offset);
@@ -2587,7 +2587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     generateServicesSitemap,
     getServiceSitemapCount,
     CACHE_MAX_AGE,
-  } = await import("./services/sitemapService.ts");
+  } = await import("./services/sitemapService.js");
   const { gzipSync } = await import("zlib");
 
   // Helper to send XML with proper headers and compression
@@ -3940,7 +3940,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Lazy-populate country code in background (non-blocking)
       if (validatedData.country) {
-        const { ensureCountryCode } = await import("./utils/countryCodeMapper.ts");
+        const { ensureCountryCode } = await import("./utils/countryCodeMapper.js");
         ensureCountryCode(validatedData.country).catch(err => {
           console.error("[Country Mapper] Failed to populate code:", err);
         });
@@ -4013,7 +4013,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Lazy-populate country code in background (non-blocking)
       if (validatedData.country && updatedDetective) {
-        const { ensureCountryCode } = await import("./utils/countryCodeMapper.ts");
+        const { ensureCountryCode } = await import("./utils/countryCodeMapper.js");
         ensureCountryCode(updatedDetective.country).catch(err => {
           console.error("[Country Mapper] Failed to populate code:", err);
         });
@@ -4342,7 +4342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("🔍 [Autocomplete API] Found detectives:", matchingDetectives.length);
 
       // Search locations (countries, states, cities from WORLD_COUNTRIES)
-      const { WORLD_COUNTRIES } = await import("../client/src/lib/world-countries.ts");
+      const { WORLD_COUNTRIES } = await import("../client/src/lib/world-countries.js");
       const matchingLocations: Array<{ type: "location"; label: string; value: string }> = [];
       
       for (const country of WORLD_COUNTRIES) {
@@ -6131,7 +6131,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Hash the token to look up in database
-      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.ts");
+      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.js");
       const tokenHash = hashToken(token);
 
       // Find claim token in database
@@ -6197,7 +6197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Hash the token to look up in database
-      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.ts");
+      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.js");
       const tokenHash = hashToken(token);
 
       // Start transaction: Find and validate claim token
@@ -6291,7 +6291,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Generate secure temporary password
-        const { generateTempPassword } = await import("./services/claimTokenService.ts");
+        const { generateTempPassword } = await import("./services/claimTokenService.js");
         const tempPassword = generateTempPassword(12);
         const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
@@ -6369,7 +6369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Validate finalization conditions using utility function
-      const { validateClaimFinalization } = await import("./services/claimTokenService.ts");
+      const { validateClaimFinalization } = await import("./services/claimTokenService.js");
       const validationResult = validateClaimFinalization(detective, user);
 
       if (!validationResult.isValid) {
@@ -6469,7 +6469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/email-templates", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
-      const { getAllEmailTemplates } = await import("./services/emailTemplateService");
+      const { getAllEmailTemplates } = await import("./services/emailTemplateService.js");
       const templates = await getAllEmailTemplates();
       console.log("[Admin] Email templates count:", templates.length);
       console.log("[Admin] First template:", templates[0] ? { id: templates[0].id, key: templates[0].key, name: templates[0].name } : "none");
@@ -6487,7 +6487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Template key is required" });
       }
 
-      const { getEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService");
+      const { getEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService.js");
       const template = await getEmailTemplate(key);
 
       if (!template) {
@@ -6519,7 +6519,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Subject and body are required" });
       }
 
-      const { updateEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService");
+      const { updateEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService.js");
       const updated = await updateEmailTemplate(key, {
         name,
         description,
@@ -6554,7 +6554,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Template key is required" });
       }
 
-      const { toggleEmailTemplate } = await import("./services/emailTemplateService");
+      const { toggleEmailTemplate } = await import("./services/emailTemplateService.js");
       const updated = await toggleEmailTemplate(key);
 
       if (!updated) {
@@ -6605,7 +6605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[Admin] Starting test email batch for all templates...");
 
-      const { getAllEmailTemplates } = await import("./services/emailTemplateService");
+      const { getAllEmailTemplates } = await import("./services/emailTemplateService.js");
       const allTemplates = await getAllEmailTemplates();
 
       const results = {
@@ -7073,7 +7073,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Fetch paginated detectives with visibility scoring
-      const { getRankedDetectives } = await import('./ranking.ts');
+      const { getRankedDetectives } = await import('./ranking.js');
       
       // Use FK-based filtering for ranked detectives if we have IDs
       let rankedDetectivesResult;
