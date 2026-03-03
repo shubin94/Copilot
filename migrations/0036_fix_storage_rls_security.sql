@@ -149,7 +149,7 @@ CREATE POLICY "site_assets_insert_auth"
     bucket_id = 'site-assets'
     AND EXISTS (
       SELECT 1 FROM public.users 
-      WHERE id = auth.uid() 
+      WHERE id = auth.uid()::text
       AND role IN ('admin', 'employee')
     )
   );
@@ -163,7 +163,7 @@ CREATE POLICY "site_assets_update_auth"
     bucket_id = 'site-assets'
     AND EXISTS (
       SELECT 1 FROM public.users 
-      WHERE id = auth.uid() 
+      WHERE id = auth.uid()::text
       AND role IN ('admin', 'employee')
     )
   );
@@ -177,7 +177,7 @@ CREATE POLICY "site_assets_delete_auth"
     bucket_id = 'site-assets'
     AND EXISTS (
       SELECT 1 FROM public.users 
-      WHERE id = auth.uid() 
+      WHERE id = auth.uid()::text
       AND role IN ('admin', 'employee')
     )
   );
@@ -197,7 +197,7 @@ CREATE POLICY "page_assets_insert_auth"
     bucket_id = 'page-assets'
     AND EXISTS (
       SELECT 1 FROM public.users 
-      WHERE id = auth.uid() 
+      WHERE id = auth.uid()::text
       AND role IN ('admin', 'employee')
     )
   );
@@ -211,7 +211,7 @@ CREATE POLICY "page_assets_update_auth"
     bucket_id = 'page-assets'
     AND EXISTS (
       SELECT 1 FROM public.users 
-      WHERE id = auth.uid() 
+      WHERE id = auth.uid()::text
       AND role IN ('admin', 'employee')
     )
   );
@@ -225,7 +225,7 @@ CREATE POLICY "page_assets_delete_auth"
     bucket_id = 'page-assets'
     AND EXISTS (
       SELECT 1 FROM public.users 
-      WHERE id = auth.uid() 
+      WHERE id = auth.uid()::text
       AND role IN ('admin', 'employee')
     )
   );
@@ -253,7 +253,7 @@ CREATE POLICY "page_assets_delete_auth"
 --
 -- SITE-ASSETS & PAGE-ASSETS:
 --   - Admin/employee role verification via public.users table
---   - Query: EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role IN ('admin', 'employee'))
+--   - Query: EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid()::text AND role IN ('admin', 'employee'))
 --   - Only users with 'admin' or 'employee' role can insert/update/delete
 --
 -- PATH STRUCTURE REQUIREMENTS:
