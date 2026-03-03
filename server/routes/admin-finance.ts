@@ -9,10 +9,8 @@ router.get("/summary", async (req: Request, res: Response) => {
     const { startDate, endDate } = req.query;
 
     // Build date filter
-    let _dateFilter = "";
     const params: any[] = [];
     if (startDate && endDate) {
-      _dateFilter = "WHERE po.created_at BETWEEN $1 AND $2";
       params.push(startDate, endDate);
     }
 

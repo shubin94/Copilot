@@ -199,7 +199,7 @@ export default function DetectivePublicPage() {
               <dt>Primary Specialty</dt>
               <dd>{detectiveServices.length > 0 ? detectiveServices[0].category : 'Private Investigation'}</dd>
               <dt>Years of Experience</dt>
-              <dd>{detective.yearsOfExperience || 'Not specified'}</dd>
+              <dd>{detective.yearsExperience || 'Not specified'}</dd>
               <dt>License Status</dt>
               <dd>{detective.isVerified ? 'Active' : 'Unverified'}</dd>
               <dt>Services Count</dt>
