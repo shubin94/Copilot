@@ -8,8 +8,7 @@
   "functions": {
     "api/index.ts": {
       "memory": 2048,
-      "maxDuration": 60,
-      "runtime": "nodejs20.x"
+      "maxDuration": 60
     }
   },
   "rewrites": [
