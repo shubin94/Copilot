@@ -119,7 +119,7 @@ router.post(
         const user = userResult.rows[0];
 
         const mappingValues = validPages
-          .map((page, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`)
+          .map((_page, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`)
           .join(",");
         const mappingParams = validPages.flatMap((page) => [user.id, page.id]);
 

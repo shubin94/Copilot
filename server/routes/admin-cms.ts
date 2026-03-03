@@ -600,8 +600,8 @@ router.patch("/pages/:id", requireRole("admin", "employee"), async (req: Request
     res.json({ page });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      console.warn("[cms] Validation error updating page:", fromZodError(error).message);
-      return res.status(400).json({ error: fromZodError(error).message });
+      console.warn("[cms] Validation error updating page:", (error as any).message || "Validation failed");
+      return res.status(400).json({ error: (error as any).message || "Validation failed" });
     }
     console.error("[cms] Update page error - system error:", error instanceof Error ? error.message : String(error));
     res.status(500).json({ error: "Failed to update page" });
