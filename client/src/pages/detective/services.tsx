@@ -299,7 +299,7 @@ export default function DetectiveServices() {
       // Use live subscription package data from API, not hardcoded values
       const subscriptionPackage = (detective as any).subscriptionPackage;
       const serviceLimit = subscriptionPackage?.serviceLimit ?? 1; // Default to 1 if no package
-      const planName = subscriptionPackage?.displayName ?? detective.subscriptionPlan ?? "Free";
+      const planName = subscriptionPackage?.displayName ?? subscriptionPackage?.name ?? 'Free';
       
       if (services.length >= serviceLimit) {
         toast({
@@ -414,7 +414,7 @@ export default function DetectiveServices() {
   // Use live subscription package data from API, not hardcoded values
   const subscriptionPackage = (detective as any).subscriptionPackage;
   const serviceLimit = subscriptionPackage?.serviceLimit ?? 1; // Default to 1 if no package
-  const planName = subscriptionPackage?.displayName ?? detective.subscriptionPlan ?? "Free";
+  const planName = subscriptionPackage?.displayName ?? subscriptionPackage?.name ?? 'Free';
   const planLabel = `${planName} - ${serviceLimit} Service${serviceLimit > 1 ? 's' : ''}`;
   const canAddMore = services.length < serviceLimit;
 

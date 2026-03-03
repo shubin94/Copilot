@@ -200,7 +200,7 @@ export default function DetectiveProfile() {
   const isClaimable = detective.isClaimable && !detective.isClaimed;
   // Use actual subscription package name, not legacy subscriptionPlan field
   const subscriptionPackage = (detective as any).subscriptionPackage;
-  const detectiveTier = subscriptionPackage?.name || detective.subscriptionPlan || "free";
+  const detectiveTier = subscriptionPackage?.name || 'free';
   const recognitionAllowed = Array.isArray((detective as any)?.subscriptionPackage?.features)
     ? (detective as any).subscriptionPackage.features.includes("recognition")
     : false;
@@ -208,7 +208,12 @@ export default function DetectiveProfile() {
     ? (detective as any).subscriptionPackage.features.includes("contact_whatsapp")
     : false;
   const detectiveName = detective.businessName || "Unknown Detective";
-  const badgeState = detective.badgeState || { showBlueTick: false, showPro: false, showRecommended: false, blueTickLabel: "Verified" };
+  const badgeState = {
+    showBlueTick: detective.hasBlueTick || false,
+    showPro: detective.level === 'level2' || detective.level === 'pro' || false,
+    showRecommended: false,
+    blueTickLabel: detective.hasBlueTick ? 'Verified' : 'Unverified'
+  };
   
   const memberSince = format(new Date(detective.memberSince), "MMMM yyyy");
   
@@ -636,7 +641,12 @@ export default function DetectiveProfile() {
                 </Avatar>
                 <div className="space-y-4">
                   {(() => {
-                    const badgeState = detective.badgeState || { showBlueTick: false, showPro: false, showRecommended: false, blueTickLabel: "Verified" };
+                    const badgeState = {
+                      showBlueTick: detective.hasBlueTick || false,
+                      showPro: detective.level === 'pro' || detective.level === 'level2' || false,
+                      showRecommended: false,
+                      blueTickLabel: detective.hasBlueTick ? 'Verified' : 'Unverified'
+                    };
 
                     return (
                       <div className="flex items-center gap-2 flex-wrap">

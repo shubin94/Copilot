@@ -37,15 +37,46 @@ declare module "recharts" {
   export const Cell: React.ComponentType<any>;
 }
 
-// Vaul (Drawer)
+// Vaul (Drawer) - comprehensive component exports
 declare module "vaul" {
-  export const Drawer: React.ComponentType<{ children: React.ReactNode; [key: string]: any }>;
-  export const DrawerTrigger: React.ComponentType<any>;
-  export const DrawerContent: React.ComponentType<any>;
-  export const DrawerHeader: React.ComponentType<any>;
-  export const DrawerTitle: React.ComponentType<any>;
-  export const DrawerDescription: React.ComponentType<any>;
-  export const DrawerClose: React.ComponentType<any>;
+  import { ReactNode, ComponentType } from "react";
+
+  interface DrawerContextType {
+    onOpenChange?: (open: boolean) => void;
+    open?: boolean;
+  }
+
+  // Root drawer component with context
+  interface DrawerRootProps {
+    children: ReactNode;
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    shouldScaleBackground?: boolean;
+    [key: string]: any;
+  }
+  
+  const Root: ComponentType<DrawerRootProps>;
+  const Trigger: ComponentType<any>;
+  const Portal: ComponentType<any>;
+  const Close: ComponentType<any>;
+  const Overlay: ComponentType<any>;
+  const Content: ComponentType<any>;
+  const Title: ComponentType<any>;
+  const Description: ComponentType<any>;
+  
+  // Main export - compatibility with existing code
+  const Drawer: ComponentType<DrawerRootProps> & {
+    Root: ComponentType<DrawerRootProps>;
+    Trigger: ComponentType<any>;
+    Portal: ComponentType<any>;
+    Close: ComponentType<any>;
+    Overlay: ComponentType<any>;
+    Content: ComponentType<any>;
+    Title: ComponentType<any>;
+    Description: ComponentType<any>;
+  };
+  
+  export { Drawer, Root, Trigger, Portal, Close, Overlay, Content, Title, Description };
 }
 
 // React Hook Form
@@ -232,5 +263,36 @@ declare global {
       isPublished: boolean;
       createdAt: Date;
     }>;
+    
+    // Computed/derived properties for search components
+    /** Price alias for basePrice - for search compatibility */
+    price?: string | number | null;
+    /** Country code from detective (not a stored property) */
+    countryCode?: string;
+    /** Rating alias for avgRating */
+    rating?: number;
+    /** Detective name - used in search snippets */
+    name?: string;
+    /** Canonical URL - computed property */
+    canonicalUrl?: string;
+    /** Badge state from detective - optional UI property */
+    badgeState?: "verified" | "blue-tick" | "agency" | null;
+  }
+
+  // Service type for snippet display
+  interface SnippetService extends ServiceWithDetective {
+    badgeState?: "verified" | "blue-tick" | "agency" | null;
+  }
+
+  // CaseStudy type with updatedAt field
+  interface CaseStudy {
+    id: string;
+    title: string;
+    description: string;
+    slug: string;
+    image?: string;
+    createdAt: Date;
+    updatedAt?: Date;
+    [key: string]: any;
   }
 }

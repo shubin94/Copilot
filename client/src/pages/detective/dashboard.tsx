@@ -22,7 +22,10 @@ import { LocationWizardModal } from "@/components/modals/LocationWizardModal";
 export default function DetectiveDashboard() {
   const [, navigate] = useLocation();
   const auth = useAuth();
-  const { detective, services, subscription, isLoading, error } = useDetectiveDashboard();
+  const dashboardResult = useDetectiveDashboard();
+  const { detective, services, subscription } = dashboardResult.data || {};
+  const isLoading = dashboardResult.isLoading;
+  const error = dashboardResult.error;
   const { selectedCountry, formatPriceForCountry } = useCurrency();
   const detectiveCountry = detective?.country || selectedCountry.code;
   const currencySymbol = (() => {
@@ -210,18 +213,18 @@ export default function DetectiveDashboard() {
     );
   }
 
-  const accountStatus = detective.status;
+  const accountStatus = detective?.status;
   
   // Calculate profile completion based on filled fields
   const totalFields = 7;
   const filledFields = [
-    detective.businessName,
-    detective.bio,
-    detective.location,
-    detective.phone,
-    detective.whatsapp,
-    detective.languages?.length,
-    detective.country,
+    detective?.businessName,
+    (detective as any)?.bio,
+    detective?.location,
+    (detective as any)?.phone,
+    (detective as any)?.whatsapp,
+    (detective as any)?.languages?.length,
+    detective?.country,
   ].filter(Boolean).length;
   const completionPercentage = Math.round((filledFields / totalFields) * 100);
 

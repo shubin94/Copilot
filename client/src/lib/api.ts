@@ -393,7 +393,7 @@ export const api = {
         }
         
         const result = await handleResponse(response);
-        console.debug('[api.auth.me] Auth successful - user data:', result?.user?.email || 'no email');
+        console.debug('[api.auth.me] Auth successful - user data:', (result as any)?.user?.email || 'no email');
         return result;
       } catch (err: any) {
         if (err?.name === "AbortError" || /network|fetch|failed|suspend/i.test(String(err?.message || ""))) {

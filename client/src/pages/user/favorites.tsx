@@ -109,7 +109,13 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
   const avatar = svc.detective.logo || "";
   const level = svc.detective.level ? (svc.detective.level === "pro" ? "Pro Level" : (svc.detective.level as string).replace("level", "Level ")) : "Level 1";
   
-  const badgeState = svc.badgeState;
+  // Compute badge state from detective properties
+  const badgeState = {
+    showBlueTick: svc.detective.hasBlueTick || false,
+    showPro: svc.detective.level === 'pro' || svc.detective.level === 'level2' || false,
+    showRecommended: false,
+    blueTickLabel: svc.detective.hasBlueTick ? 'Verified' : 'Unverified'
+  };
   
   return (
     <ServiceCard

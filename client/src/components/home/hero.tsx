@@ -57,7 +57,14 @@ export function Hero() {
       if (kind === "prohibited" || kind === "category_not_found" || kind === "need_location" || kind === "resolved") {
         setResult(data as SmartSearchResult);
       } else {
-        setResult({ ...noMatchResult, suggestedCategories: data?.suggestedCategories, locationFilters: data?.locationFilters });
+        // Safely construct result with proper typing
+        const newResult: SmartSearchResult & { suggestedCategories?: string[]; locationFilters?: { country?: string; state?: string } } = {
+          kind: "category_not_found",
+          message: "We didn't find any relevant categories. You can browse here to find what you need.",
+          suggestedCategories: (data as any)?.suggestedCategories,
+          locationFilters: (data as any)?.locationFilters
+        };
+        setResult(newResult as SmartSearchResult);
       }
     } catch (_err) {
       setResult(noMatchResult);

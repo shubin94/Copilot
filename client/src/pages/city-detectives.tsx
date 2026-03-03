@@ -147,8 +147,8 @@ export default function CityDetectivesPage() {
   const [expandedFAQs, setExpandedFAQs] = useState<{ [key: number]: boolean }>({ 0: false, 1: false, 2: false });
 
   const countrySlug = matchedParams?.country || "";
-  const stateSlug = matchedParams?.state || "";
-  const citySlug = matchedParams?.city || "";
+  const stateSlug = (matchedParams as any)?.state || "";
+  const citySlug = (matchedParams as any)?.city || "";
   const isCountryLevel = !!countrySlug && !stateSlug;
   const isStateLevel = !!countrySlug && !!stateSlug && !citySlug;
   const isCityLevel = !!countrySlug && !!stateSlug && !!citySlug;

@@ -285,7 +285,7 @@ export default function DetectiveProfileEdit() {
 
   // Get actual subscription package name (not legacy field)
   const subscriptionPackage = (detective as any).subscriptionPackage;
-  const subscriptionPlanName = subscriptionPackage?.displayName || subscriptionPackage?.name || detective.subscriptionPlan || "Free";
+  const subscriptionPlanName = subscriptionPackage?.displayName || subscriptionPackage?.name || 'Free';
   // PAID FEATURE CHECK: Use subscriptionPackageId presence, NOT plan name
   // If subscriptionPackageId is set, detective has paid package
   const hasPaidPackage = !!detective.subscriptionPackageId;

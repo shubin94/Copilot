@@ -313,7 +313,7 @@ export default function PageEdit() {
             <p className="text-sm text-gray-500 mb-6">/{formData.slug}</p>
             <div
               className="prose max-w-none"
-              dangerouslySetInnerHTML={{ __html: formData.content || "" }}
+              dangerouslySetInnerHTML={{ __html: stringifyContentBlocks(formData.blocks) || "<p>No content</p>" }}
             />
           </div>
         ) : (

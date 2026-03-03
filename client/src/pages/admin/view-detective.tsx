@@ -450,7 +450,7 @@ export default function ViewDetective() {
                       className="capitalize"
                       data-testid="badge-plan"
                     >
-                      {detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || detective.subscriptionPlan} Plan
+                      {detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || 'Free'} Plan
                     </Badge>
                   </div>
                 </div>
@@ -1092,7 +1092,7 @@ export default function ViewDetective() {
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label>Current Plan</Label>
-                    <p className="text-2xl font-bold capitalize">{detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || detective.subscriptionPlan}</p>
+                    <p className="text-2xl font-bold capitalize">{detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || 'Free'}</p>
                   </div>
 
                   <div className="space-y-2">
