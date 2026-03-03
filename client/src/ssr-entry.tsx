@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { Router as WouterRouter } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -10,14 +9,15 @@ export function renderLocationApp(url: string): string {
     static: true,
   });
 
+  const routerProps = {
+    hook: location.hook,
+    searchHook: location.searchHook,
+  } as unknown as { hook: typeof location.hook };
+
   return renderToString(
-    createElement(
-      WouterRouter,
-      {
-        hook: location.hook,
-        searchHook: location.searchHook,
-      },
-      createElement(App)
-    )
+    <WouterRouter {...routerProps}>
+      <App />
+    </WouterRouter>
   );
+
 }

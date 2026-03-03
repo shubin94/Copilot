@@ -6,7 +6,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
 } from "lucide-react"
-import { DayButton, DayPicker, getDefaultClassNames } from "react-day-picker"
+import { DayPicker } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -23,7 +23,33 @@ function Calendar({
 }: React.ComponentProps<typeof DayPicker> & {
   buttonVariant?: React.ComponentProps<typeof Button>["variant"]
 }) {
-  const defaultClassNames = getDefaultClassNames()
+  // Empty default class names since getDefaultClassNames is not available
+  const defaultClassNames = {
+    root: "",
+    months: "",
+    month: "",
+    nav: "",
+    button_previous: "",
+    button_next: "",
+    month_caption: "",
+    dropdowns: "",
+    dropdown_root: "",
+    dropdown: "",
+    caption_label: "",
+    weekdays: "",
+    weekday: "",
+    week: "",
+    week_number_header: "",
+    week_number: "",
+    day: "",
+    range_start: "",
+    range_middle: "",
+    range_end: "",
+    today: "",
+    outside: "",
+    disabled: "",
+    hidden: "",
+  }
 
   return (
     <DayPicker
@@ -36,7 +62,7 @@ function Calendar({
       )}
       captionLayout={captionLayout}
       formatters={{
-        formatMonthDropdown: (date) =>
+        formatMonthDropdown: (date: Date) =>
           date.toLocaleString("default", { month: "short" }),
         ...formatters,
       }}
@@ -125,7 +151,7 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        Root: ({ className, rootRef, ...props }) => {
+        Root: ({ className, rootRef, ...props }: { className?: string; rootRef?: React.Ref<HTMLDivElement> } & React.HTMLAttributes<HTMLDivElement>) => {
           return (
             <div
               data-slot="calendar"
@@ -135,10 +161,10 @@ function Calendar({
             />
           )
         },
-        Chevron: ({ className, orientation, ...props }) => {
+        Chevron: ({ className, orientation }: { className?: string; orientation?: "left" | "right" | "up" | "down" } & React.HTMLAttributes<HTMLElement>) => {
           if (orientation === "left") {
             return (
-              <ChevronLeftIcon className={cn("size-4", className)} {...props} />
+              <ChevronLeftIcon className={cn("size-4", className)} />
             )
           }
 
@@ -146,17 +172,16 @@ function Calendar({
             return (
               <ChevronRightIcon
                 className={cn("size-4", className)}
-                {...props}
               />
             )
           }
 
           return (
-            <ChevronDownIcon className={cn("size-4", className)} {...props} />
+            <ChevronDownIcon className={cn("size-4", className)} />
           )
         },
         DayButton: CalendarDayButton,
-        WeekNumber: ({ children, ...props }) => {
+        WeekNumber: ({ children, ...props }: { children?: React.ReactNode } & React.TdHTMLAttributes<HTMLTableCellElement>) => {
           return (
             <td {...props}>
               <div className="flex size-[--cell-size] items-center justify-center text-center">
@@ -177,8 +202,14 @@ function CalendarDayButton({
   day,
   modifiers,
   ...props
-}: React.ComponentProps<typeof DayButton>) {
-  const defaultClassNames = getDefaultClassNames()
+}: {
+  className?: string
+  day: { date: Date }
+  modifiers: Record<string, boolean>
+  onClick?: React.MouseEventHandler<HTMLButtonElement>
+}) {
+  // Empty default class names since getDefaultClassNames is not available
+  const defaultClassNames = { day: "" }
 
   const ref = React.useRef<HTMLButtonElement>(null)
   React.useEffect(() => {

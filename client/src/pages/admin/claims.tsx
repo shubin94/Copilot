@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle, XCircle, ShieldAlert, Inbox } from "lucide-react";
+import { CheckCircle, XCircle, Inbox } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useClaims, useUpdateClaimStatus, useDetective } from "@/lib/hooks";
 import { format } from "date-fns";
@@ -154,7 +154,7 @@ function ClaimItem({ claim }: { claim: any }) {
 
 export default function AdminClaims() {
   const pageSize = 10;
-  const { data, isLoading, isError } = useClaims("pending", 200);
+  const { data, isLoading } = useClaims("pending", 200);
   const claims = data?.claims || [];
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(claims.length / pageSize));

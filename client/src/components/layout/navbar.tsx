@@ -1,8 +1,8 @@
 import { Link, useLocation } from "wouter";
-import { Search, Menu, X, Globe, ChevronDown, Heart, User, LogOut } from "lucide-react";
+import { Search, Menu, ChevronDown, Heart, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   DropdownMenu,
@@ -39,7 +39,7 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
   const [focused, setFocused] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const { selectedCountry, setCountry } = useCurrency();
   const { user, logout } = useUserSafe();
   const { data: currentDetectiveData } = useCurrentDetective(user?.role === "detective");
@@ -446,7 +446,8 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                       className="absolute right-2 top-2.5 h-5 w-5 text-gray-500 cursor-pointer"
                       onClick={() => {
                         if (searchQuery.trim()) {
-                          const val = activeIdx >= 0 && suggestions[activeIdx] ? suggestions[activeIdx] : searchQuery;
+                          const suggestion = activeIdx >= 0 && suggestions[activeIdx] ? suggestions[activeIdx] : null;
+                          const val = suggestion ? suggestion.value : searchQuery;
                           const params = new URLSearchParams();
                           params.set("q", val);
                           if (selectedCountry.code !== "ALL") params.set("country", selectedCountry.code);

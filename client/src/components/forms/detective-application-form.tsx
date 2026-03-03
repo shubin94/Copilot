@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -114,7 +114,6 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     // Validate all fields in current step
     const newErrors: Record<string, string> = {};
     fieldsToValidate.forEach(field => {
-      const fieldValue = formData[field as keyof typeof formData] as string;
       
       // Run validation for each field
       switch (field) {

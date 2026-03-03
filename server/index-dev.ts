@@ -275,6 +275,88 @@ export async function setupVite(app: Express, server: Server) {
     }
   });
 
+  // SERVICE DETAIL PAGE ROUTE (Development)
+  // Intercepts /service/:country/:state/:city/:detectiveSlug/:serviceSlug
+  app.get(/^\/service\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {
+    try {
+      const requestPath = req.path;
+      const segments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
+      
+      // Validate we have exactly 6 segments (service + 5 params)
+      if (segments.length !== 6 || segments[0] !== 'service') {
+        return; // Fall through to other handlers
+      }
+
+      const [, country, state, city, detectiveSlug, serviceSlug] = segments;
+
+      console.log("[Service Detail Dev] Request matched:", {
+        country,
+        state,
+        city,
+        detectiveSlug,
+        serviceSlug,
+      });
+
+      // Serve with Vite transform for development
+      const clientTemplate = path.resolve(
+        import.meta.dirname,
+        "..",
+        "client",
+        "index.html",
+      );
+
+      let template = await fs.promises.readFile(clientTemplate, "utf-8");
+      template = template.replace(
+        `src="/src/main.tsx"`,
+        `src="/src/main.tsx?v=${nanoid()}"`,
+      );
+
+      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
+      
+      // Inject breadcrumb structured data
+      template = template.replace(
+        '</head>',
+        `<link rel="canonical" href="${canonicalUrl}" />
+       <script type="application/ld+json">
+       {
+         "@context": "https://schema.org",
+         "@type": "BreadcrumbList",
+         "itemListElement": [
+           {
+             "@type": "ListItem",
+             "position": 1,
+             "name": "Home",
+             "item": "https://www.askdetectives.com"
+           },
+           {
+             "@type": "ListItem",
+             "position": 2,
+             "name": "Service",
+             "item": "${canonicalUrl}"
+           }
+         ]
+       }
+       </script></head>`
+      );
+
+      console.log(`[Service Detail Dev] Serving service page: ${detectiveSlug}/${serviceSlug}`);
+
+      const page = await vite.transformIndexHtml(req.originalUrl, template);
+      res.setHeader("Cache-Control", "no-store");
+      res.set({ "Content-Type": "text/html; charset=utf-8" }).end(page);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[Service Detail Dev] Error:', {
+        url: req.originalUrl,
+        message: errorMsg,
+      });
+      return res.status(500).set({ "Content-Type": "text/html" }).send(
+        "<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1></body></html>"
+      );
+    }
+  });
+
   // SERVICE + LOCATION SEO INJECTION (Development)
   // Intercepts /services/background-checks/:country/:state/:city
   app.get(/^\/services\/background-checks\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {

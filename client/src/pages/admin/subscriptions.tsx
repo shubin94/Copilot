@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Check, X, Shield, Crown, Star, Mail, Phone, MessageCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, Crown, Star, Mail, Phone, MessageCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -58,8 +58,8 @@ export default function AdminSubscriptions() {
   });
   const [featureInput, setFeatureInput] = useState("");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [includeInactive, setIncludeInactive] = useState(true);
+  const [, setError] = useState<string | null>(null);
+  const [] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -205,18 +205,6 @@ export default function AdminSubscriptions() {
     }));
   };
 
-  const applyServiceLimits = async () => {
-    const free = Number(plans.find(p => p.id === "free")?.serviceLimit || 10);
-    const pro = Number(plans.find(p => p.id === "pro")?.serviceLimit || 4);
-    const agencyPlan = plans.find(p => p.id === "agency")?.serviceLimit || "1000";
-    const agency = agencyPlan === "unlimited" ? 1000 : Number(agencyPlan);
-    try {
-      await api.post("/api/admin/subscription-limits", { free, pro, agency });
-      toast({ title: "Updated", description: "Service limits applied" });
-    } catch (e: any) {
-      toast({ title: "Error", description: e?.message || "Failed to update service limits", variant: "destructive" });
-    }
-  };
 
   return (
     <DashboardLayout role="admin">

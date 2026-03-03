@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pgEnum, serial, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pgEnum, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -45,7 +45,7 @@ export const detectives = pgTable("detectives", {
   countryId: integer("country_id").notNull(),
   stateId: integer("state_id").notNull(),
   cityId: integer("city_id").notNull(),
-  slug: text("slug").unique(),
+  slug: text("slug").notNull().unique(),
   address: text("address"),
   pincode: text("pincode"),
   phone: text("phone"),
@@ -599,13 +599,6 @@ const footerSectionSchema = z.object({
 });
 
 // Social links schema
-const socialLinksSchema = z.object({
-  facebook: z.string().optional().nullable(),
-  instagram: z.string().optional().nullable(),
-  twitter: z.string().optional().nullable(),
-  linkedin: z.string().optional().nullable(),
-  youtube: z.string().optional().nullable(),
-});
 
 export const updateSiteSettingsSchema = z.object({
   logoUrl: z.string().optional(),

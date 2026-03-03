@@ -1,6 +1,6 @@
 import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
 import { ServiceCardGrid } from "@/components/common/service-card-grid";
-import type { ServiceCardDTO } from "../../interfaces/ServiceCardDTO";
+import type { ServiceCardDTO } from "../interfaces/ServiceCardDTO";
 
 interface RelatedServicesProps {
   services: ServiceCardDTO[];
@@ -8,7 +8,7 @@ interface RelatedServicesProps {
   currentServiceTitle?: string;
 }
 
-export function RelatedServices({ services, isLoading, currentServiceTitle }: RelatedServicesProps) {
+export function RelatedServices({ services, isLoading }: RelatedServicesProps) {
   // Show skeletons during loading
   if (isLoading) {
     return (

@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
-  Settings,
   FolderOpen,
   Tag,
   FileText,

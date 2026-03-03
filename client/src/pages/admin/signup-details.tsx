@@ -1,11 +1,11 @@
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Check, X, FileText, Download, Shield, User, Mail, Phone, MapPin, Calendar } from "lucide-react";
+import { Check, X, FileText, Download, Shield, User, Mail, Phone, MapPin } from "lucide-react";
 import { Link, useRoute, useLocation } from "wouter";
 import { useApplication, useUpdateApplicationNotes, useUpdateApplicationStatus } from "@/lib/hooks";
 import { format } from "date-fns";
@@ -13,10 +13,10 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function AdminSignupDetails() {
-  const [match, params] = useRoute("/admin/signups/:id");
+  const [, params] = useRoute("/admin/signups/:id");
   const id = params?.id || null;
   const [, setLocation] = useLocation();
-  const { data, isLoading } = useApplication(id);
+  const { data } = useApplication(id);
   const application = data?.application;
   const updateNotes = useUpdateApplicationNotes();
   const updateStatus = useUpdateApplicationStatus();

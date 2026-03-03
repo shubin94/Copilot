@@ -43,7 +43,7 @@ export function classifyError(error: any): ErrorState['errorType'] {
 export function getUserFriendlyErrorMessage(
   errorType: ErrorState['errorType'],
   operation: string,
-  context?: Partial<ErrorContext>
+  _context?: Partial<ErrorContext>
 ): string {
   const messages: Record<ErrorState['errorType'], string> = {
     'not-found': `The ${operation} you're looking for doesn't exist or has been removed.`,
@@ -178,7 +178,6 @@ export async function safeLoadData<T>(
     return { data, error: null };
   } catch (error) {
     const errorType = classifyError(error);
-    const errorData = logError(error, context);
 
     return {
       data: fallback,

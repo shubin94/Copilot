@@ -268,6 +268,82 @@ export async function serveStatic(app: Express, server: Server) {
     }
   });
 
+  // SERVICE DETAIL PAGE ROUTE (Production)
+  // Intercepts /service/:country/:state/:city/:detectiveSlug/:serviceSlug
+  app.get(/^\/service\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {
+    try {
+      const requestPath = req.path;
+      const segments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
+      
+      // Validate we have exactly 5 segments after /service
+      if (segments.length !== 6 || segments[0] !== 'service') {
+        return; // Fall through to static file serving
+      }
+
+      const [, country, state, city, detectiveSlug, serviceSlug] = segments;
+      
+      console.log("[Service Detail] Request matched:", {
+        country,
+        state,
+        city,
+        detectiveSlug,
+        serviceSlug,
+      });
+
+      // Optionally, you could fetch service + detective data for SEO injection here
+      // For now, serve with generic HTML that allows client-side routing to take over
+      if (!cachedIndexHtml) {
+        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
+      }
+
+      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
+      
+      // Inject breadcrumb and basic service page meta tags
+      let seoHtml = cachedIndexHtml;
+      seoHtml = seoHtml.replace(
+        '</head>',
+        `<link rel="canonical" href="${canonicalUrl}" />
+       <script type="application/ld+json">
+       {
+         "@context": "https://schema.org",
+         "@type": "BreadcrumbList",
+         "itemListElement": [
+           {
+             "@type": "ListItem",
+             "position": 1,
+             "name": "Home",
+             "item": "https://www.askdetectives.com"
+           },
+           {
+             "@type": "ListItem",
+             "position": 2,
+             "name": "Service",
+             "item": "${canonicalUrl}"
+           }
+         ]
+       }
+       </script></head>`
+      );
+
+      console.log(`[Service Detail] Serving service page: ${detectiveSlug}/${serviceSlug}`);
+
+      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(seoHtml);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[Service Detail] Error:', {
+        url: req.originalUrl,
+        message: errorMsg,
+      });
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(500).send(
+        '<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1></body></html>'
+      );
+    }
+  });
+
   // SERVICE + LOCATION SEO INJECTION (Production)
   // Intercepts /services/background-checks/:country/:state/:city
   app.get(/^\/services\/background-checks\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {

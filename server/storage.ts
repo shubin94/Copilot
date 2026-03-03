@@ -27,8 +27,8 @@ import * as cache from "./lib/cache.ts";
 
 const SALT_ROUNDS = 10;
 
-// Helper: Generate URL-safe slug from text
-function generateSlug(text: string): string {
+// Helper: Generate URL-safe slug from text (exported for use in routes)
+export function generateSlug(text: string): string {
   return text
     .toString()
     .normalize("NFKD")
@@ -56,6 +56,7 @@ export interface IStorage {
   // Detective operations
   getDetective(id: string): Promise<Detective | undefined>;
   getDetectiveByUserId(userId: string): Promise<Detective | undefined>;
+  ensureUniqueDetectiveSlug(baseSlug: string, excludeDetectiveId?: string): Promise<string>;
   createDetective(detective: InsertDetective): Promise<Detective>;
   updateDetective(id: string, updates: Partial<Detective>): Promise<Detective | undefined>;
   updateDetectiveAdmin(id: string, updates: Partial<Detective>): Promise<Detective | undefined>;
@@ -529,6 +530,35 @@ export class DatabaseStorage implements IStorage {
         serviceLimit: finalServiceLimit ? Number(finalServiceLimit) : 0,
       },
     };
+  }
+
+  /**
+   * Ensure detective slug is unique by appending numeric suffix if needed
+   * @param baseSlug - Base slug to check
+   * @param excludeDetectiveId - Optional detective ID to exclude from uniqueness check (for updates)
+   * @returns Unique slug
+   */
+  async ensureUniqueDetectiveSlug(baseSlug: string, excludeDetectiveId?: string): Promise<string> {
+    let uniqueSlug = baseSlug;
+    let counter = 1;
+    
+    while (true) {
+      const existing = await db.select({ id: detectives.id })
+        .from(detectives)
+        .where(
+          excludeDetectiveId
+            ? and(eq(detectives.slug, uniqueSlug), sql`${detectives.id} != ${excludeDetectiveId}`)
+            : eq(detectives.slug, uniqueSlug)
+        )
+        .limit(1);
+      
+      if (existing.length === 0) {
+        return uniqueSlug;
+      }
+      
+      uniqueSlug = `${baseSlug}-${counter}`;
+      counter++;
+    }
   }
 
   async createDetective(insertDetective: InsertDetective): Promise<Detective> {

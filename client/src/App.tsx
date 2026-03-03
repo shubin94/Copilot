@@ -15,7 +15,6 @@ import { AdminRoute } from "@/components/admin-route";
 import { EmployeeRoute } from "@/components/employee-route";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { NetworkErrorHandler } from "@/components/network-error-handler";
-import { PerformanceMonitor } from "@/lib/performance-monitor";
 
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -134,7 +133,11 @@ function Router() {
         <Switch>
           {/* Public Routes */}
           <Route path="/" component={Home} />
+          
+          {/* Service Page Route - MUST be BEFORE generic routes */}
           <Route path="/service/:country/:state/:city/:detectiveSlug/:serviceSlug" component={DetectiveProfile} />
+          
+          {/* Claim and Auth Routes */}
           <Route path="/claim-profile/:id" component={ClaimProfile} />
           <Route path="/claim-account" component={ClaimAccount} />
           <Route path="/login" component={Login} />
@@ -208,7 +211,6 @@ function Router() {
           <Route path="/detectives/:country/:state/:city" component={CityDetectivesPage} />
           <Route path="/detectives/:country/:state" component={CityDetectivesPage} />
           <Route path="/detectives/:country" component={CityDetectivesPage} />
-          <Route path="/service/:country/:state/:city/:detectiveSlug/:serviceSlug" component={DetectiveProfile} />
           <Route path="/services/background-checks/:country/:state/:city" component={ServiceBackgroundChecksPage} />
           <Route path="/news/:slug" component={ArticlePage} />
 

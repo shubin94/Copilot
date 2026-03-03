@@ -16,10 +16,6 @@ type SmartSearchResult =
   | { kind: "need_location"; message: string; category: string }
   | { kind: "resolved"; category: string; resolvedLocationScope: string; country: string; state?: string; city?: string; searchUrl: string };
 
-const SUGGESTED_PROMPTS = [
-  "I need background verification for a marriage proposal in Mumbai",
-  "Find a detective for pre-employment verification in Bangalore",
-];
 
 export function Hero() {
   const [, setLocation] = useLocation();

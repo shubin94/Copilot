@@ -6,10 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { Lock, Save, AlertCircle, AlertTriangle } from "lucide-react";
+import { Lock, AlertCircle, AlertTriangle } from "lucide-react";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/user-context";
 import { useLocation } from "wouter";
 
@@ -122,7 +121,6 @@ const SECRET_GROUPS: SecretGroup[] = [
 
 export default function AdminAppSecrets() {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
   const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
   const [, setLocation] = useLocation();
   const [secrets, setSecrets] = useState<SecretItem[]>([]);

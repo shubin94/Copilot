@@ -246,7 +246,7 @@ export function useUpdateDetective() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Detective> }) =>
       api.detectives.update(id, data),
-    onSuccess: async (_, variables) => {
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["detectives"] });
       await queryClient.invalidateQueries({ queryKey: ["services"] });
     },
@@ -258,7 +258,7 @@ export function useAdminUpdateDetective() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Detective> }) =>
       api.detectives.adminUpdate(id, data),
-    onSuccess: async (_, variables) => {
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["detectives"] });
       await queryClient.invalidateQueries({ queryKey: ["services"] });
     },
@@ -444,7 +444,7 @@ export function useAdminCreateServiceForDetective() {
 export function useAdminUpdateService() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, detectiveId, data }: { id: string; detectiveId: string; data: Partial<Service> }) =>
+    mutationFn: ({ id, data }: { id: string; detectiveId: string; data: Partial<Service> }) =>
       api.services.update(id, data),
     onSuccess: async (_: any, variables: { id: string; detectiveId: string; data: Partial<Service> }) => {
       // Invalidate all variations of the specific service query
@@ -465,7 +465,7 @@ export function useAdminUpdateServicePricing() {
   return useMutation<{ service: any }, Error, { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }>({
     mutationFn: ({ id, data }: { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }) =>
       api.services.adminUpdatePricing(id, data),
-    onSuccess: async (_: any, variables: { id: string }) => {
+    onSuccess: async () => {
       // Invalidate all service-related queries to ensure fresh data everywhere
       await queryClient.invalidateQueries({ queryKey: ["services"] });
       // Force refetch to ensure UI updates immediately
@@ -522,7 +522,7 @@ export function useCreateReview() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: InsertReview) => api.reviews.create(data),
-    onSuccess: async (response: any) => {
+    onSuccess: async () => {
       // Invalidate all review queries
       await queryClient.invalidateQueries({ queryKey: ["reviews"] });
       

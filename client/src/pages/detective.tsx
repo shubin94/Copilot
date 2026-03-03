@@ -13,9 +13,7 @@ import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { 
-  generateCompleteDetectiveSchema,
-  generateBreadcrumbListSchema 
-} from "@/lib/structured-data";
+  generateCompleteDetectiveSchema} from "@/lib/structured-data";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { getCountryName } from "@/lib/slug-utils";
 import { useState, useEffect } from "react";
@@ -142,7 +140,7 @@ export default function DetectivePublicPage() {
   // Includes LocalBusiness, AggregateRating, BreadcrumbList, and Speakable for AI/voice assistants
   const detectiveSchemas = detective ? generateCompleteDetectiveSchema(
     detective,
-    detectiveServices,
+    detectiveServices as any[],
     [],
     breadcrumbs,
     canonicalUrl,

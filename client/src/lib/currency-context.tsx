@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useUser } from "./user-context";
 import { WORLD_COUNTRIES } from "./world-countries";
-import { getCurrencyForCountry, isCurrencySupported, getEffectiveCurrency, SUPPORTED_CURRENCIES } from "./country-currency-map";
+import { getCurrencyForCountry, isCurrencySupported, getEffectiveCurrency } from "./country-currency-map";
 import { api, buildApiUrl } from "./api";
 
 export type CurrencyCode = "USD" | "GBP" | "INR" | "CAD" | "AUD" | "EUR";
@@ -82,7 +82,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   const [selectedCountry, setSelectedCountry] = useState<Country>(COUNTRIES[0]);
   const [showCountrySelector, setShowCountrySelector] = useState(false);
   const [hasSeenCountrySelector, setHasSeenCountrySelector] = useState(false);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [, setIsInitialized] = useState(false);
   const [showUnsupportedCurrencyNotice, setShowUnsupportedCurrencyNotice] = useState(false);
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({
     USD: 1,
@@ -243,9 +243,6 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   };
 
   // Helper to get exchange rate for a currency
-  const getExchangeRate = (currencyCode: CurrencyCode): number => {
-    return exchangeRates[currencyCode] || 1;
-  };
 
   // Convert between currencies using live rates
   const convertPrice = (amount: number, fromCurrency: string, toCurrency: string): number => {

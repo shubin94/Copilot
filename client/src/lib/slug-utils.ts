@@ -100,16 +100,16 @@ function formatLocationPart(part: string | undefined): string {
  * Format: /service/{country}/{state}/{city}/{detective-slug}/{service-slug}
  */
 export function buildServiceUrl(
-  detective: { country?: string; state?: string; city?: string; slug?: string; businessName?: string } | null,
-  service: { slug?: string } | null
+  detective: { country?: string | null; state?: string | null; city?: string | null; slug?: string | null; businessName?: string | null; [key: string]: any } | null,
+  service: { slug?: string | null; [key: string]: any } | null
 ): string {
   if (!detective || !service?.slug) return '/service';
   
-  // Convert country code to full name
-  const country = formatLocationPart(getCountryName(detective.country));
+  // Convert country code to full name (convert null to undefined)
+  const country = formatLocationPart(getCountryName(detective.country ?? undefined));
   // Use full state and city names (already in full form)
-  const state = formatLocationPart(detective.state) || 'region';
-  const city = formatLocationPart(detective.city) || 'area';
+  const state = formatLocationPart(detective.state ?? undefined) || 'region';
+  const city = formatLocationPart(detective.city ?? undefined) || 'area';
   
   // Use detective slug or generate from business name for uniqueness
   const detectiveSlug = detective.slug || (detective.businessName ? generateSlug(detective.businessName) : 'detective');

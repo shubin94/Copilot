@@ -16,6 +16,7 @@ export function generateSlug(text: string): string {
 interface DetectiveProfileData {
   id: string;
   slug?: string | null;
+  businessName?: string | null;
   country?: string | null;
   state?: string | null;
   city?: string | null;

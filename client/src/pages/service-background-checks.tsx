@@ -9,7 +9,6 @@ import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Star, MapPin, ExternalLink, ChevronDown, ShoppingCart } from "lucide-react";
 import { generateBreadcrumbListSchema } from "@/lib/structured-data";
-import { getDetectiveProfileUrl } from "@/lib/utils";
 
 interface Detective {
   id: string;
@@ -67,12 +66,11 @@ const generateServiceLocationDescription = (cityName: string, stateName: string,
 };
 
 // Generate ItemList schema for services
-const generateServiceItemListSchema = (services: Service[], breadcrumbs: Array<{ name: string; url: string }>) => {
+const generateServiceItemListSchema = (services: Service[]): Record<string, any> => {
   return {
     "@context": "https://schema.org",
     "@type": "ItemList",
     "name": "Background Check Services",
-    "position": 1,
     "itemListElement": services.slice(0, 20).map((service, index) => ({
       "@type": "ListItem",
       "position": index + 1,
@@ -104,7 +102,7 @@ const generateServiceItemListSchema = (services: Service[], breadcrumbs: Array<{
 };
 
 // FAQ items for background checks service
-const getBackgroundCheckFAQs = (cityName: string, stateName: string, detectives: Detective[], serviceCount: number) => [
+const getBackgroundCheckFAQs = (cityName: string, stateName: string, _detectives: Detective[], serviceCount: number) => [
   {
     question: `What background check services are available in ${cityName}?`,
     answer: `Professional background check services in ${cityName} include criminal history searches, employment screening, tenant verification, civil records checks, database searches, and more. Our network of ${serviceCount} providers offers comprehensive background verification tailored to corporate, legal, and personal needs.`,
@@ -169,7 +167,6 @@ export default function ServiceBackgroundChecksPage() {
 
         if (!response.ok) {
           if (response.status === 404) {
-            const errorData = await response.json().catch(() => ({}));
             setError(`No background check services found in ${[citySlug, stateSlug, countrySlug].filter(Boolean).join(", ")}`);
           } else {
             setError("Failed to load background check services for this location");
@@ -204,7 +201,6 @@ export default function ServiceBackgroundChecksPage() {
   const countryName = locationMeta?.country || countrySlug?.replace(/-/g, " ") || "";
   
   // Generate SEO title and description
-  const currentYear = new Date().getFullYear();
   const seoTitle = `Background Check Services in ${cityName}, ${stateName} | Verified Detectives`;
   const seoDescription = `Find trusted background check services in ${cityName}, ${stateName}. Compare verified detectives, reviews & contact details. ${services.length} providers available.`;
   const h1Text = `Background Check Services in ${cityName}`;
@@ -240,7 +236,7 @@ export default function ServiceBackgroundChecksPage() {
   const breadcrumbSchema = generateBreadcrumbListSchema(breadcrumbs);
 
   // Generate ItemList schema for services
-  const itemListSchema = generateServiceItemListSchema(services, breadcrumbs);
+  const itemListSchema = generateServiceItemListSchema(services);
 
   // Combine all schemas
   const allSchemas = [

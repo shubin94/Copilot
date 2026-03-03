@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { ContentBlock, stringifyContentBlocks } from "@/shared/content-blocks";
 import { HeadingBlockEditor } from "./heading-block";
 import { ParagraphBlockEditor } from "./paragraph-block";

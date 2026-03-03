@@ -4,18 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Star, Mail, Phone, MessageCircle, ShieldCheck, AlertTriangle, FileText, Heart, Loader2, ChevronLeft } from "lucide-react";
+import { Star, Mail, Phone, MessageCircle, ShieldCheck, AlertTriangle, FileText, Heart, ChevronLeft } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useCurrency } from "@/lib/currency-context";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/user-context";
-import { useService, useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
+import { useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
@@ -25,9 +24,8 @@ import { Breadcrumb } from "@/components/breadcrumb";
 import { ServiceFAQ, getServiceFAQs } from "@/components/service-faq";
 import { buildServiceUrl, getCountryName } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
-import { format } from "date-fns";
-import type { Review, User } from "@shared/schema";
 import { getDetectiveProfileUrl } from "@/lib/utils";
+import { format } from "date-fns";
 
 export default function DetectiveProfile() {
   const [, params] = useRoute("/service/:country/:state/:city/:detectiveSlug/:serviceSlug");
@@ -39,11 +37,12 @@ export default function DetectiveProfile() {
   const isPreview = previewParam === "1" || previewParam === "true";
   const { data: serviceData, isLoading: isLoadingService, error: serviceError } = useServiceBySlug(serviceSlug, detectiveSlug, isPreview);
   const detectiveIdForServices = serviceData?.detective?.id;
-  const { data: servicesByDetective } = useServicesByDetective(detectiveIdForServices);
+  useServicesByDetective(detectiveIdForServices);
   const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceData?.service?.id);
   const { data: relatedServicesData, isLoading: isLoadingRelatedServices } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 2);
   
   let selectedCountry = null;
+  const serviceId = serviceData?.service?.id;
   let formatPriceFromTo = null;
   try {
     const currencyContext = useCurrency();
@@ -66,17 +65,22 @@ export default function DetectiveProfile() {
   const submitReview = useMutation({
     mutationFn: async () => {
       if (existingUserReview?.id) {
-        return api.reviews.update(existingUserReview.id, { rating, comment });
+        return api.reviews.update(existingUserReview.id, { userId: user!.id, rating, comment });
       }
-      return api.reviews.create({ serviceId: serviceId!, rating, comment });
+      return api.reviews.create({ 
+        userId: user!.id, 
+        serviceId: serviceId!, 
+        rating, 
+        comment 
+      });
     },
     onSuccess: () => {
       // Invalidate review queries
-      queryClient.invalidateQueries({ queryKey: ["reviews", "service", serviceId] });
+      queryClient.invalidateQueries({ queryKey: ["reviews", "service", serviceId!] });
       queryClient.invalidateQueries({ queryKey: ["reviews", "detective"] });
       
       // CRITICAL: Invalidate service data so service detail page shows updated avgRating/reviewCount
-      queryClient.invalidateQueries({ queryKey: ["services", serviceId] });
+      queryClient.invalidateQueries({ queryKey: ["services", serviceId!] });
       
       setRating(5);
       setComment("");
@@ -199,8 +203,6 @@ export default function DetectiveProfile() {
 
   const isClaimable = detective.isClaimable && !detective.isClaimed;
   // Use actual subscription package name, not legacy subscriptionPlan field
-  const subscriptionPackage = (detective as any).subscriptionPackage;
-  const detectiveTier = subscriptionPackage?.name || 'free';
   const recognitionAllowed = Array.isArray((detective as any)?.subscriptionPackage?.features)
     ? (detective as any).subscriptionPackage.features.includes("recognition")
     : false;

@@ -115,7 +115,7 @@ export default function CityDetectivesPage() {
   // Support routes: /detectives/:country, /detectives/:country/:state, /detectives/:country/:state/:city
   const [match, params] = useRoute("/detectives/:country/:state/:city");
   const [matchState, paramsState] = useRoute("/detectives/:country/:state");
-  const [matchCountry, paramsCountry] = useRoute("/detectives/:country");
+  const [, paramsCountry] = useRoute("/detectives/:country");
   
   // Use the matched route params
   const matchedParams = match ? params : (matchState ? paramsState : paramsCountry);

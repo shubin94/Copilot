@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import crypto from "crypto";
 import { createServer, type Server } from "http";
 import rateLimit from "express-rate-limit";
-import { storage } from "./storage.ts";
+import { storage, generateSlug } from "./storage.ts";
 import { sendClaimApprovedEmail } from "./email.ts";
 import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.ts";
 import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.ts";
@@ -3874,6 +3874,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Detective profile already exists" });
       }
 
+      // DEFENSIVE CHECK: Business name is required for slug generation
+      if (!validatedData.businessName || validatedData.businessName.trim() === "") {
+        return res.status(400).json({ error: "Business name is required" });
+      }
+
+      // Generate unique slug from business name
+      const baseSlug = generateSlug(validatedData.businessName);
+      const uniqueSlug = await storage.ensureUniqueDetectiveSlug(baseSlug);
+
       // Resolve location IDs (REQUIRED - database has NOT NULL constraints)
       let locationIds: LocationService.ResolvedLocationIds;
       try {
@@ -3889,6 +3898,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const detective = await storage.createDetective({
         ...validatedData,
+        slug: uniqueSlug,
         countryId: locationIds.countryId!,
         stateId: locationIds.stateId!,
         cityId: locationIds.cityId!,
@@ -5663,6 +5673,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           let detective = await storage.getDetectiveByUserId(user!.id);
           if (!detective) {
+            // DEFENSIVE CHECK: Business name is required for slug generation
+            const businessName = application.companyName || application.fullName;
+            if (!businessName || businessName.trim() === "") {
+              return res.status(400).json({ error: "Business/company name is required" });
+            }
+
+            // Generate unique slug from business name
+            const baseSlug = generateSlug(businessName);
+            const uniqueSlug = await storage.ensureUniqueDetectiveSlug(baseSlug);
+
             // Resolve location IDs (REQUIRED - database has NOT NULL constraints)
             let locationIds: LocationService.ResolvedLocationIds;
             try {
@@ -5678,7 +5698,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             detective = await storage.createDetective({
               userId: user!.id,
-              businessName: application.companyName || application.fullName,
+              businessName: businessName,
+              slug: uniqueSlug,
               bio: application.about || "Professional detective ready to help with your case.",
               logo: application.logo || undefined,
               defaultServiceBanner: (application as any).banner || undefined,

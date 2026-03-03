@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, RotateCcw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { WifiOff, RotateCcw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 

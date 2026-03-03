@@ -225,8 +225,6 @@ export function DetectiveSnippetGrid({
 
   const displayCountry = resolvedCountry || country || "";
   const displayCategory = resolvedCategory || category || "";
-  const displayState = resolvedState || state || "";
-  const displayCity = resolvedCity || city || "";
 
   const applySuggestion = (suggestion: AutocompleteSuggestion | null) => {
     if (suggestion?.type === "detective") {

@@ -2,7 +2,6 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Check, X, Inbox } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from "@/components/ui/textarea";
 
 export default function AdminSignups() {
-  const [newLimit, setNewLimit] = useState(10);
+  const [newLimit] = useState(10);
   const [newOffset, setNewOffset] = useState(0);
   
 

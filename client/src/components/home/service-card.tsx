@@ -1,13 +1,11 @@
-import { Star, Heart, ChevronLeft, ChevronRight, ShieldCheck, Award, BadgeCheck } from "lucide-react";
+import { Star, Heart, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Link, useLocation } from "wouter";
 import { useState, useEffect, memo } from "react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ServiceActionButton } from "@/components/home/service-action-button";
 import type { ServiceBadgeState } from "@/lib/service-badges";
-import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
+import { buildServiceUrl } from "@/lib/slug-utils";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 
 interface ServiceCardProps {
@@ -40,11 +38,10 @@ interface ServiceCardProps {
 
 import { useUserSafe } from "@/lib/user-context";
 import { AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 import { useToast } from "@/hooks/use-toast";
 
-const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveBusinessName, detectiveCountry, detectiveState, detectiveCity, images, image, detectiveAvatar, detectiveName, level, category, badgeState, title, avgRating, reviewCount, priceDisplay, isOnEnquiry, isUnclaimed, phone, whatsapp, contactEmail }: ServiceCardProps) => {
+const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveBusinessName, detectiveCountry, detectiveState, detectiveCity, images, image, detectiveAvatar, detectiveName, level, badgeState, title, avgRating, reviewCount, priceDisplay, isUnclaimed, phone, whatsapp, contactEmail }: ServiceCardProps) => {
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
@@ -78,10 +75,6 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
     }
   }, [currentImageIndex, displayImages]);
 
-  const showBlueTick = !!badgeState?.showBlueTick;
-  const blueTickLabel = badgeState?.blueTickLabel || "Verified";
-  const showPro = !!badgeState?.showPro;
-  const showRecommended = !!badgeState?.showRecommended;
 
   // Build service URL using location and slug if available
   const serviceSlug = slug;
@@ -103,7 +96,9 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
     console.error("Missing slug data in ServiceCard", {
       id,
       serviceSlug,
-      detectiveSlug
+      detectiveSlug,
+      detectiveBusinessName,
+      title
     });
   }
 
@@ -253,8 +248,9 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
                           country: detectiveCountry,
                           state: detectiveState,
                           city: detectiveCity,
-                          slug: detectiveSlug,
+                          id: detectiveId || "",
                           businessName: detectiveBusinessName,
+                          slug: detectiveSlug,
                         })
                       );
                     }}
@@ -292,7 +288,7 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
             <div className="flex items-center gap-1 text-sm mt-auto">
               {isUnclaimed ? (
                 <span className="text-gray-400 text-xs italic">No reviews yet</span>
-              ) : reviewCount > 0 ? (
+              ) : (reviewCount ?? 0) > 0 ? (
                 <>
                   <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                   <span className="font-bold text-gray-900">{typeof avgRating === 'number' && !isNaN(avgRating) ? avgRating : 0}</span>
