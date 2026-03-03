@@ -165,6 +165,19 @@ async function seedData() {
 
       let detective = await storage.getDetectiveByUserId(user.id);
       if (!detective) {
+        // Resolve location IDs for India/Karnataka
+        let locationIds;
+        try {
+          locationIds = await (await import("../services/locationService.ts")).resolveLocationIds(
+            "IN",
+            "Karnataka",
+            seed.city
+          );
+        } catch (error) {
+          console.error("[Admin Flow Test] Location resolution failed:", error);
+          locationIds = await (await import("../services/locationService.ts")).getDefaultLocationIds();
+        }
+
         detective = await storage.createDetective({
           userId: user.id,
           businessName: `Detective ${i + 1} Agency`,
@@ -173,6 +186,9 @@ async function seedData() {
           country: "IN",
           state: "Karnataka",
           city: seed.city,
+          countryId: locationIds.countryId!,
+          stateId: locationIds.stateId!,
+          cityId: locationIds.cityId!,
           phone: `+91-90000${1000 + i}`,
           whatsapp: `+91-90000${1000 + i}`,
           contactEmail: seed.email,

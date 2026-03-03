@@ -50,7 +50,6 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  const proxiedImages = displayImages;
   const { user, isFavorite, toggleFavorite } = useUserSafe();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -66,17 +65,17 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
 
   // Preload adjacent images for smooth carousel navigation
   useEffect(() => {
-    if (proxiedImages.length > 1) {
-      const prevIndex = (currentImageIndex - 1 + proxiedImages.length) % proxiedImages.length;
-      const nextIndex = (currentImageIndex + 1) % proxiedImages.length;
+    if (displayImages.length > 1) {
+      const prevIndex = (currentImageIndex - 1 + displayImages.length) % displayImages.length;
+      const nextIndex = (currentImageIndex + 1) % displayImages.length;
 
       const prevImg = new Image();
       const nextImg = new Image();
 
-      prevImg.src = proxiedImages[prevIndex];
-      nextImg.src = proxiedImages[nextIndex];
+      prevImg.src = displayImages[prevIndex];
+      nextImg.src = displayImages[nextIndex];
     }
-  }, [currentImageIndex, proxiedImages]);
+  }, [currentImageIndex, displayImages]);
 
   const showBlueTick = !!badgeState?.showBlueTick;
   const blueTickLabel = badgeState?.blueTickLabel || "Verified";
@@ -164,10 +163,10 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
                 </div>
               </div>
             )}
-            {displayImages.length > 0 && proxiedImages[currentImageIndex] && !imageError ? (
+            {displayImages.length > 0 && displayImages[currentImageIndex] && !imageError ? (
               <>
                 <img 
-                  src={proxiedImages[currentImageIndex]} 
+                  src={displayImages[currentImageIndex]} 
                   alt={`${title} - ${detectiveName} | Professional Detective Service`}
                   loading="lazy"
                   onLoad={() => setImageLoaded(true)}
@@ -198,7 +197,7 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
             )}
             
             {/* Navigation Arrows - Only show on hover and if multiple images */}
-            {proxiedImages.length > 1 && isHovered && (
+            {displayImages.length > 1 && isHovered && (
               <>
                 <button 
                   onClick={prevImage}
@@ -215,7 +214,7 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
                 
                 {/* Dots Indicator */}
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
-                  {proxiedImages.map((_, idx) => (
+                  {displayImages.map((_, idx) => (
                     <div 
                       key={idx} 
                       className={`h-1.5 w-1.5 rounded-full shadow-sm transition-colors ${idx === currentImageIndex ? 'bg-white' : 'bg-white/50'}`}

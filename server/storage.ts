@@ -23,6 +23,7 @@ import {
 import { eq, and, desc, sql, count, avg, or, ilike, inArray, isNotNull, ne, asc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan.ts";
+import * as cache from "./lib/cache.ts";
 
 const SALT_ROUNDS = 10;
 
@@ -36,6 +37,12 @@ function generateSlug(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
+
+type TopLocationsResult = {
+  countries: Array<{ name: string; slug: string; detectiveCount: number }>;
+  states: Array<{ name: string; slug: string; countrySlug: string; detectiveCount: number }>;
+  cities: Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>;
+};
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -170,6 +177,20 @@ export interface IStorage {
   getTopStates(country: string, limit?: number): Promise<Array<{ state: string; detectiveCount: number }>>;
   getTopCities(country: string, state: string, limit?: number): Promise<Array<{ city: string; detectiveCount: number }>>;
   getTopCitiesGlobally(limit?: number): Promise<Array<{ country: string; state: string; city: string; detectiveCount: number }>>;
+
+  // Location hierarchy APIs (FK-based with caching)
+  getAllCountries(): Promise<Array<{ id: string; code: string; name: string; slug: string }>>;
+  getStatesForCountry(countryId: string): Promise<Array<{ id: string; countryId: string; name: string; slug: string }>>;
+  getCitiesForState(countryId: string, stateId: string): Promise<Array<{ id: string; stateId: string; name: string; slug: string }>>;
+
+  // Location aggregation APIs (FK-based optimized queries)
+  getTopLocations(limitCountries?: number, limitStates?: number, limitCities?: number): Promise<TopLocationsResult>;
+  getTopLocationsForHomepage(): Promise<TopLocationsResult>;
+
+  // File operations for detective profiles
+  // Handles validation, uploading, and deleting detective profile files (logo, documents)
+  // Modifies validatedData in-place with new URLs from uploads
+  processDetectiveFileUpdates(detective: Detective, validatedData: Record<string, any>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1398,6 +1419,15 @@ export class DatabaseStorage implements IStorage {
     return Number((row as any)?.c) || 0;
   }
 
+  /**
+   * @deprecated Use getTopLocations() instead - it uses indexed FK joins instead of text matching
+   * 
+   * PERFORMANCE WARNING: This method performs text-based GROUP BY on detectives.country,
+   * which cannot use B-tree indexes efficiently. The newer getTopLocations() method uses
+   * FK-based joins (detectives.countryId -> countries.id) enabling index scans.
+   * 
+   * Legacy method retained for backward compatibility during migration period.
+   */
   // Location authority flow: Get top countries by detective count
   // Query: GROUP BY country, COUNT detectives with active status
   // Performance: O(n) scan with index on status + country columns
@@ -1424,6 +1454,14 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  /**
+   * @deprecated Use getTopLocations() instead - it uses indexed FK joins instead of text matching
+   * 
+   * PERFORMANCE WARNING: This method performs text-based matching on detectives.country
+   * and GROUP BY on detectives.state, preventing efficient index usage.
+   * 
+   * Legacy method retained for backward compatibility during migration period.
+   */
   // Location authority flow: Get top states by detective count in a country
   // Query: GROUP BY state, COUNT detectives in country with active status
   // Excludes 'Not specified' states to avoid meaningless aggregations
@@ -1457,6 +1495,15 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  /**
+   * @deprecated Use getTopLocations() instead - it uses indexed FK joins instead of text matching
+   * 
+   * PERFORMANCE WARNING: This method performs text-based matching on detectives.country
+   * and detectives.state, then GROUP BY on detectives.city. These operations cannot use
+   * standard B-tree indexes efficiently, causing table scans.
+   * 
+   * Legacy method retained for backward compatibility during migration period.
+   */
   // Location authority flow: Get top cities by detective count in a state
   // Query: GROUP BY city, COUNT detectives in country+state with active status
   // Excludes 'Not specified' cities to avoid meaningless aggregations
@@ -1498,6 +1545,15 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  /**
+   * @deprecated Use getTopLocationsForHomepage() instead - it uses indexed FK joins
+   * 
+   * PERFORMANCE WARNING: This method performs text-based GROUP BY on detectives.country,
+   * detectives.state, and detectives.city, preventing efficient index usage and causing
+   * full table scans on large datasets.
+   * 
+   * Legacy method retained for backward compatibility during migration period.
+   */
   // Location authority flow: Get top cities globally across all countries/states
   // Query: GROUP BY country, state, city, COUNT detectives with active status
   // Used for homepage "Popular Cities" section
@@ -1537,7 +1593,385 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  // OPTIMIZED: Admin dashboard summary - single query with conditional aggregation
+  // ========================================
+  // LOCATION HIERARCHY: FK-BASED QUERIES
+  // ========================================
+
+  /**
+   * Get all countries with slugs
+   * Cached in memory for 24 hours to avoid recomputing on every request
+   */
+  async getAllCountries(): Promise<Array<{ id: string; code: string; name: string; slug: string }>> {
+    try {
+      const cacheKey = "location:countries:all";
+      const cached = cache.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+
+      const allCountries = await db
+        .select({
+          id: countries.id,
+          code: countries.code,
+          name: countries.name,
+          slug: countries.slug,
+        })
+        .from(countries)
+        .where(eq(countries.isActive, true))
+        .orderBy(asc(countries.name));
+
+      // Cache for 24 hours
+      cache.set(cacheKey, JSON.stringify(allCountries), 86400);
+      return allCountries;
+    } catch (error) {
+      console.error("[Storage] Error fetching all countries:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get states for a specific country
+   * Cached in memory per country to avoid recomputing on every request
+   */
+  async getStatesForCountry(countryId: string): Promise<Array<{ id: string; countryId: string; name: string; slug: string }>> {
+    try {
+      const cacheKey = `location:states:country_${countryId}`;
+      const cached = cache.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+
+      const countryStates = await db
+        .select({
+          id: states.id,
+          countryId: states.countryId,
+          name: states.name,
+          slug: states.slug,
+        })
+        .from(states)
+        .where(and(
+          eq(states.countryId, countryId as any),
+          eq(states.isActive, true)
+        ))
+        .orderBy(asc(states.name));
+
+      // Cache for 24 hours
+      cache.set(cacheKey, JSON.stringify(countryStates), 86400);
+      return countryStates;
+    } catch (error) {
+      console.error(`[Storage] Error fetching states for country ${countryId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get cities for a specific state
+   * Cached in memory per state to avoid recomputing on every request
+   */
+  async getCitiesForState(countryId: string, stateId: string): Promise<Array<{ id: string; stateId: string; name: string; slug: string }>> {
+    try {
+      const cacheKey = `location:cities:state_${stateId}`;
+      const cached = cache.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+
+      const stateCities = await db
+        .select({
+          id: cities.id,
+          stateId: cities.stateId,
+          name: cities.name,
+          slug: cities.slug,
+        })
+        .from(cities)
+        .where(and(
+          eq(cities.stateId, stateId as any),
+          eq(cities.isActive, true)
+        ))
+        .orderBy(asc(cities.name));
+
+      // Cache for 24 hours
+      cache.set(cacheKey, JSON.stringify(stateCities), 86400);
+      return stateCities;
+    } catch (error) {
+      console.error(`[Storage] Error fetching cities for state ${stateId}:`, error);
+      return [];
+    }
+  }
+
+  // ========================================
+  // LOCATION AGGREGATION: FK-BASED QUERIES
+  // ========================================
+
+  /**
+   * Core location aggregation logic consolidating duplicate query patterns
+   * Shared by getTopLocations and getTopLocationsForHomepage
+   * 
+   * PERFORMANCE OPTIMIZATION: Uses FK-based joins (detectives.countryId = countries.id)
+   * instead of text-based matching (detectives.country = countries.name). This enables:
+   * 1. B-tree index scans on integer foreign keys (fast)
+   * 2. SARGABLE queries (Search ARGument ABLE - optimizer can use indexes)
+   * 3. Avoids SQL functions like upper(trim(...)) that prevent index usage
+   * 
+   * ALTERNATIVE APPROACHES (NOT RECOMMENDED):
+   * - Text-based matching: eq(detectives.country, countries.name) - slower, no index on text
+   * - SQL functions: upper(trim(detectives.country)) - prevents ALL index usage, causes table scans
+   * - Functional indexes: CREATE INDEX ON detectives (lower(trim(city))) - requires maintenance
+   * 
+   * IMPORTANT: Uses innerJoin on ID columns which are guaranteed NOT NULL by the
+   * database schema. This means no valid records will be excluded - the schema enforces
+   * that every detective has valid (non-null) countryId, stateId, and cityId values.
+   * 
+   * @param limitCountries - Maximum countries to return (capped at 50)
+   * @param limitStates - Maximum states to return (capped at 50)
+   * @param limitCities - Maximum cities to return (capped at 50)
+   * @param countryJoinCondition - Optional join condition for countries (defaults to FK: detectives.countryId)
+   * @returns TopLocationsResult with aggregated countries, states, and cities
+   */
+  private async aggregateTopLocations(
+    limitCountries: number = 10,
+    limitStates: number = 10,
+    limitCities: number = 10,
+    countryJoinCondition?: any
+  ): Promise<TopLocationsResult> {
+    // Sanitize limits to prevent abuse
+    const safeCountryLimit = Math.min(limitCountries || 10, 50);
+    const safeStateLimit = Math.min(limitStates || 10, 50);
+    const safeCityLimit = Math.min(limitCities || 10, 50);
+
+    // Use provided join condition or default to FK-based join for performance
+    const defaultCountryJoin = eq(detectives.countryId, countries.id);
+    const actualCountryJoin = countryJoinCondition || defaultCountryJoin;
+
+    // Aggregate countries with detective counts
+    const topCountries = await db
+      .select({
+        name: countries.name,
+        slug: countries.slug,
+        detectiveCount: count(detectives.id),
+      })
+      .from(detectives)
+      .innerJoin(countries, actualCountryJoin)
+      .where(eq(detectives.status, "active"))
+      .groupBy(countries.id, countries.name, countries.slug)
+      .orderBy(desc(count(detectives.id)))
+      .limit(safeCountryLimit);
+
+    // Aggregate states with detective counts
+    const topStates = await db
+      .select({
+        name: states.name,
+        slug: states.slug,
+        countrySlug: countries.slug,
+        detectiveCount: count(detectives.id),
+      })
+      .from(detectives)
+      .innerJoin(countries, actualCountryJoin)
+      .innerJoin(
+        states,
+        and(
+          eq(states.id, detectives.stateId),
+          eq(states.countryId, countries.id)
+        )
+      )
+      .where(eq(detectives.status, "active"))
+      .groupBy(states.id, states.name, states.slug, countries.slug)
+      .orderBy(desc(count(detectives.id)))
+      .limit(safeStateLimit);
+
+    // Aggregate cities with detective counts
+    const topCities = await db
+      .select({
+        name: cities.name,
+        slug: cities.slug,
+        stateSlug: states.slug,
+        countrySlug: countries.slug,
+        detectiveCount: count(detectives.id),
+      })
+      .from(detectives)
+      .innerJoin(countries, actualCountryJoin)
+      .innerJoin(
+        states,
+        and(
+          eq(states.id, detectives.stateId),
+          eq(states.countryId, countries.id)
+        )
+      )
+      .innerJoin(
+        cities,
+        and(
+          eq(cities.id, detectives.cityId),
+          eq(cities.stateId, states.id)
+        )
+      )
+      .where(eq(detectives.status, "active"))
+      .groupBy(cities.id, cities.name, cities.slug, states.slug, countries.slug)
+      .orderBy(desc(count(detectives.id)))
+      .limit(safeCityLimit);
+
+    // Format response
+    const countriesData = topCountries
+      .map((row) => ({
+        name: row.name,
+        slug: row.slug,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }))
+      .filter((item) => item.detectiveCount > 0);
+
+    const statesData = topStates
+      .map((row) => ({
+        name: row.name,
+        slug: row.slug,
+        countrySlug: row.countrySlug,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }))
+      .filter((item) => item.detectiveCount > 0);
+
+    const citiesData = topCities
+      .map((row) => ({
+        name: row.name,
+        slug: row.slug,
+        stateSlug: row.stateSlug,
+        countrySlug: row.countrySlug,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }))
+      .filter((item) => item.detectiveCount > 0);
+
+    return {
+      countries: countriesData,
+      states: statesData,
+      cities: citiesData,
+    };
+  }
+
+  /**
+   * Get top locations with configurable limits
+   * Supports legacy country matching via FK-fallback for text-based data
+   * 
+   * @param limitCountries - Maximum countries (default 10, capped at 50)
+   * @param limitStates - Maximum states (default 10, capped at 50)
+   * @param limitCities - Maximum cities (default 10, capped at 50)
+   * @returns Top locations aggregated by detective count
+   */
+  async getTopLocations(
+    limitCountries: number = 10,
+    limitStates: number = 10,
+    limitCities: number = 10
+  ): Promise<TopLocationsResult> {
+    // Use default FK-based join for performance
+    return this.aggregateTopLocations(limitCountries, limitStates, limitCities);
+  }
+
+  /**
+   * Get top locations for homepage display
+   * Uses FK-based joins for optimal query performance with indexed lookups
+   * Fixed limits (8 each) optimized for homepage location grid layout
+   * 
+   * Performance: Direct ID equality checks (countryId, stateId, cityId) enable B-tree index
+   * usage instead of full table scans. No function calls on join columns maintains sargability.
+   * 
+   * Data Safety: Database enforces .notNull() on all ID columns, so innerJoin won't exclude
+   * valid records despite ResolvedLocationIds interface permitting nulls for resolution logic.
+   */
+  async getTopLocationsForHomepage(): Promise<TopLocationsResult> {
+    // Fixed limits for homepage: 8 countries, 8 states, 8 cities
+    return this.aggregateTopLocations(8, 8, 8);
+  }
+
+  /**
+   * Process detective profile file updates (logo, business documents, identity documents)
+   * Handles file URL validation, uploads new data: URLs, deletes old files, and updates URLs in validatedData
+   * All file paths include detective ID for user-specific directory isolation
+   * This method encapsulates all file manipulation logic to keep routes focused on HTTP concerns
+   */
+  async processDetectiveFileUpdates(detective: Detective, validatedData: Record<string, any>): Promise<void> {
+    // Import file utilities
+    const { uploadDataUrl } = await import("../supabase.ts");
+    const { safeDeletePublicUrl } = await import("../supabase.ts");
+
+    // Helper to validate file URLs
+    const validateFileUrl = (fileUrl: string, existingUrls: string[]): boolean => {
+      if (!fileUrl) return true; // Empty is ok
+      if (fileUrl.startsWith("data:")) return true; // Data URLs are ok (will be uploaded)
+      
+      // Check if this URL already exists in the detective's current profile
+      if (existingUrls.includes(fileUrl)) return true;
+      
+      // If it's a new URL (not data: and not in existing profile), reject it
+      // This prevents attackers from setting their profile to victim's URLs
+      console.warn("[SECURITY] Attempted to set profile to external URL:", fileUrl);
+      return false;
+    };
+
+    // Collect all existing file URLs from current detective profile
+    const existingFileUrls: string[] = [
+      detective.logo,
+      ...(Array.isArray(detective.businessDocuments) ? detective.businessDocuments : []),
+      ...(Array.isArray(detective.identityDocuments) ? detective.identityDocuments : [])
+    ].filter(Boolean) as string[];
+
+    // SECURITY: Owner-based directory isolation for all uploads/deletes
+    // Canonical owner path uses userId, with detectiveId kept as legacy delete fallback.
+    const ownerPathPrefix = `detectives/${detective.userId}/`;
+    const legacyDetectivePathPrefix = `detectives/${detective.id}/`;
+    const allowedDeletePrefixes = [ownerPathPrefix, legacyDetectivePathPrefix];
+    const allowedBuckets = ["detective-assets"];
+
+    /**
+     * Consolidated helper to validate, upload, and delete document arrays
+     * Eliminates repeated patterns across businessDocuments and identityDocuments
+     */
+    const processDocumentArray = async (
+      fieldName: string,
+      subdir: string,
+      currentDocs: any[] | undefined,
+      newDocs: any
+    ): Promise<void> => {
+      // Validate all documents (both existing and new)
+      if (Array.isArray(newDocs)) {
+        for (const doc of newDocs) {
+          if (doc && !validateFileUrl(doc, existingFileUrls)) {
+            throw new Error(`Invalid ${fieldName} URL. Only data URLs or existing profile URLs are allowed.`);
+          }
+        }
+      }
+
+      // Upload new data: URLs in parallel
+      if (Array.isArray(newDocs)) {
+        validatedData[fieldName] = await Promise.all(
+          newDocs.map(async (d: string, i: number) => {
+            return d && d.startsWith("data:") 
+              ? await uploadDataUrl("detective-assets", `${ownerPathPrefix}${subdir}/${Date.now()}-${i}.pdf`, d) 
+              : d;
+          })
+        );
+      }
+
+      // Delete removed documents in parallel (improves latency vs sequential awaits)
+      if (Array.isArray(newDocs) && Array.isArray(currentDocs)) {
+        const filesToDelete = currentDocs.filter(prev => !newDocs.includes(prev));
+        if (filesToDelete.length > 0) {
+          await Promise.all(
+            filesToDelete.map(prev => safeDeletePublicUrl(prev, allowedBuckets, allowedDeletePrefixes))
+          );
+        }
+      }
+    };
+
+    // SECURITY: Validate logo URL
+    if (validatedData.logo && !validateFileUrl(validatedData.logo, existingFileUrls)) {
+      throw new Error("Invalid logo URL. Only data URLs or existing profile URLs are allowed.");
+    }
+
+    // Process document arrays (businessDocuments and identityDocuments)
+    await processDocumentArray("businessDocuments", "documents", detective.businessDocuments, validatedData.businessDocuments);
+    await processDocumentArray("identityDocuments", "identity", detective.identityDocuments, validatedData.identityDocuments);
+
+    // Upload new logo data: URL
+    if (typeof validatedData.logo === "string" && validatedData.logo.startsWith("data:")) {
+      validatedData.logo = await uploadDataUrl("detective-assets", `${ownerPathPrefix}logos/${Date.now()}-${Math.random()}.png`, validatedData.logo);
+    }
+
+    // Delete old logo if changed
+    if (validatedData.logo && detective.logo && validatedData.logo !== detective.logo) {
+      await safeDeletePublicUrl(detective.logo as any, allowedBuckets, allowedDeletePrefixes);
+    }
+  }
+
   async getAdminDashboardSummary(): Promise<{
     totalDetectives: number;
     activeDetectives: number;

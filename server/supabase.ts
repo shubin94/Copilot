@@ -123,6 +123,83 @@ export async function deletePublicUrl(u: string) {
   await supabase.storage.from(parsed.bucket).remove([parsed.path]);
 }
 
+/**
+ * SECURITY: Safe deletion that validates URL ownership before deletion
+ * Prevents attackers from deleting arbitrary files by setting their profile URLs to victim's files
+ * 
+ * @param u - URL to delete
+ * @param allowedBuckets - Array of bucket names that are allowed for deletion (optional)
+ * @param expectedPathPrefixes - Expected path prefix(es) (e.g., "detectives/userId-123/") to validate ownership (optional)
+ * @returns true if deleted, false if validation failed
+ */
+export async function safeDeletePublicUrl(
+  u: string,
+  allowedBuckets?: string[],
+  expectedPathPrefixes?: string | string[]
+): Promise<boolean> {
+  if (!supabase) {
+    if (config.env.isProd) throw new Error("Supabase not configured");
+    return false;
+  }
+  
+  // Parse and validate the URL
+  const parsed = parsePublicUrl(u);
+  if (!parsed) {
+    console.warn("[SECURITY] Attempted to delete invalid or external URL:", u);
+    return false;
+  }
+  
+  // Validate URL is from our Supabase storage (using module-level url constant)
+  const supabaseUrl = process.env.SUPABASE_URL;
+  if (supabaseUrl) {
+    try {
+      const expectedHost = new URL(supabaseUrl).host;
+      if (!u.includes(expectedHost)) {
+        console.warn("[SECURITY] Attempted to delete URL from different domain:", { url: u, expected: supabaseUrl });
+        return false;
+      }
+    } catch (error) {
+      console.error("[SECURITY] Failed to parse Supabase URL:", error);
+      return false;
+    }
+  }
+  
+  // Validate bucket is in allowed list
+  if (allowedBuckets && !allowedBuckets.includes(parsed.bucket)) {
+    console.warn("[SECURITY] Attempted to delete file from unauthorized bucket:", { 
+      url: u, 
+      bucket: parsed.bucket, 
+      allowed: allowedBuckets 
+    });
+    return false;
+  }
+
+  // SECURITY: Validate file path belongs to expected owner (path prefix must match)
+  // This prevents users from deleting files they don't own
+  const prefixes = Array.isArray(expectedPathPrefixes)
+    ? expectedPathPrefixes.filter(Boolean)
+    : (expectedPathPrefixes ? [expectedPathPrefixes] : []);
+
+  if (prefixes.length > 0 && !prefixes.some((prefix) => parsed.path.startsWith(prefix))) {
+    console.warn("[SECURITY] Attempted to delete file with mismatched ownership:", { 
+      url: u,
+      path: parsed.path,
+      expectedPrefixes: prefixes
+    });
+    return false;
+  }
+  
+  // Perform deletion
+  try {
+    await supabase.storage.from(parsed.bucket).remove([parsed.path]);
+    return true;
+  } catch (error) {
+    console.error("[SECURITY] Failed to delete file:", { url: u, error });
+    return false;
+  }
+}
+
+
 // Allowed MIME types for data-URL uploads (defense-in-depth; path is server-generated)
 const UPLOAD_DATAURL_ALLOWED_TYPES = new Set([
   "image/png",

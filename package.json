@@ -15,6 +15,8 @@
     "db:audit": "cross-env NODE_ENV=development tsx scripts/db-audit.ts",
     "db:normalize-detectives": "cross-env NODE_ENV=development tsx scripts/normalize-detective-location-data.ts",
     "db:normalize-detectives:apply": "cross-env NODE_ENV=development tsx scripts/normalize-detective-location-data.ts --apply",
+    "check:location-fk-coverage": "cross-env NODE_ENV=development tsx scripts/check-location-fk-coverage.ts",
+    "migrate:populate-location-fks": "cross-env NODE_ENV=development tsx scripts/migrate-populate-location-fks.ts",
     "seed-app-secrets": "cross-env NODE_ENV=development tsx scripts/seed-app-secrets.ts",
     "batch-index": "cross-env NODE_ENV=production tsx scripts/batch-index-all.ts",
     "perf:budget": "tsx scripts/check-performance-budgets.ts",
