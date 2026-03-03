@@ -8,17 +8,17 @@
  * - Caching strategies for location data
  */
 
-import { db } from "../../db/index.ts";
+import { db } from "../../db/index.js";
 import { eq, and, or, desc, count, sql } from "drizzle-orm";
 import {
   detectives,
   countries,
   states,
   cities,
-} from "../../shared/schema.ts";
+} from "../../shared/schema.js";
 import { Country, State, City } from "country-state-city";
-import { generateSlug } from "../lib/slug-utils.ts";
-import * as cache from "../lib/cache.ts";
+import { generateSlug } from "../lib/slug-utils.js";
+import * as cache from "../lib/cache.js";
 
 // ========================================
 // TYPE DEFINITIONS

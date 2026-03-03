@@ -11,8 +11,8 @@ import connectPgSimple from "connect-pg-simple";
 import pkg from "pg";
 const { Pool } = pkg;
 // NOTE: registerRoutes is imported INSIDE runApp() to ensure environment is loaded first
-import { config } from "./config.ts";
-import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.ts";
+import { config } from "./config.js";
+import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.js";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

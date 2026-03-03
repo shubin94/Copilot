@@ -9,14 +9,14 @@ import express from "express";
 import type { Express, Request, Response } from "express";
 import { renderLocationApp } from "../client/src/ssr-entry.tsx";
 
-import runApp from "./app.ts";
-import { config, validateConfig } from "./config.ts";
-import { loadSecretsFromDatabase } from "./lib/secretsLoader.ts";
-import { validateDatabase } from "./startup.ts";
-import { initializeEnv } from "./lib/loadEnv.ts";
-import { getEnvironmentBadge } from "../db/validateDatabase.ts";
-import { ensureLocationSeoTable } from "./lib/init-location-seo-table.ts";
-import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.ts";
+import runApp from "./app.js";
+import { config, validateConfig } from "./config.js";
+import { loadSecretsFromDatabase } from "./lib/secretsLoader.js";
+import { validateDatabase } from "./startup.js";
+import { initializeEnv } from "./lib/loadEnv.js";
+import { getEnvironmentBadge } from "../db/validateDatabase.js";
+import { ensureLocationSeoTable } from "./lib/init-location-seo-table.js";
+import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
 import {
   extractDetectiveRouteParams,
   getDetectiveBySlugForSEO,
@@ -26,7 +26,7 @@ import {
   injectLocationSeoTags,
   injectDetectiveLocationAuthorityLink,
 } from "./lib/seo-injection.ts";
-import { storage } from "./storage.ts";
+import { storage } from "./storage.js";
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 

@@ -11,7 +11,7 @@
  * Wrapped with serverless-http to convert to serverless format
  */
 
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 

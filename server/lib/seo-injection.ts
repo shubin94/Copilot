@@ -46,11 +46,11 @@ export function buildHomepageAuthorityHtml(
  * - JSON-LD structured data (LocalBusiness schema)
  */
 
-import { db, pool } from "../../db/index.ts";
-import { detectives, reviews, services, subscriptionPlans, countries, states, cities } from "../../shared/schema.ts";
+import { db, pool } from "../../db/index.js";
+import { detectives, reviews, services, subscriptionPlans, countries, states, cities } from "../../shared/schema.js";
 import { eq, and, isNotNull, sql, or } from "drizzle-orm";
 import { avg, count } from "drizzle-orm";
-import { computeEffectiveBadges } from "../services/entitlements.ts";
+import { computeEffectiveBadges } from "../services/entitlements.js";
 
 export async function getDetectiveBySlugForSEO(
   country: string,
