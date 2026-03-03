@@ -1,6 +1,7 @@
 import "../server/lib/loadEnv";
 import { storage } from "../server/storage.ts";
 import type { InsertUser, InsertDetective, InsertService } from "../shared/schema.ts";
+import * as LocationService from "../server/services/locationService.ts";
 
 async function main() {
   const existing = await storage.getAllDetectives(1, 0);
@@ -17,11 +18,17 @@ async function main() {
   } as any;
   const createdUser1 = await storage.createUser(user1);
 
+  // Resolve location IDs for US
+  const locationIds1 = await LocationService.resolveLocationIds("US", "Not specified", "Not specified");
+
   const det1: InsertDetective = {
     userId: createdUser1.id,
     businessName: "Seed Detective Agency",
     bio: "Professional detective ready to help with your case.",
     country: "US",
+    countryId: locationIds1.countryId!,
+    stateId: locationIds1.stateId!,
+    cityId: locationIds1.cityId!,
     status: "active",
     isVerified: true,
     isClaimed: true,
@@ -49,11 +56,17 @@ async function main() {
   } as any;
   const createdUser2 = await storage.createUser(user2);
 
+  // Resolve location IDs for US
+  const locationIds2 = await LocationService.resolveLocationIds("US", "Not specified", "Not specified");
+
   const det2: InsertDetective = {
     userId: createdUser2.id,
     businessName: "Investigation Pros",
     bio: "Trusted investigations for legal and personal matters.",
     country: "US",
+    countryId: locationIds2.countryId!,
+    stateId: locationIds2.stateId!,
+    cityId: locationIds2.cityId!,
     status: "active",
     isVerified: true,
     isClaimed: true,

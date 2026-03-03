@@ -7,26 +7,22 @@
   },
   "functions": {
     "api/index.ts": {
-      "memory": 3008,
-      "maxDuration": 60,
-      "runtime": "nodejs20.x"
+      "memory": 2048,
+      "maxDuration": 60
     }
   },
-  "routes": [
+  "rewrites": [
     {
-      "src": "^/api/(.*)",
-      "dest": "api/index.ts"
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
     },
     {
-      "src": "^/assets/(.*)$",
-      "dest": "/assets/$1",
-      "headers": {
-        "Cache-Control": "public, max-age=31536000, immutable"
-      }
+      "source": "/assets/(.*)",
+      "destination": "/assets/$1"
     },
     {
-      "src": ".*",
-      "dest": "api/index.ts"
+      "source": "/(.*)",
+      "destination": "/api/index.ts"
     }
   ],
   "headers": [

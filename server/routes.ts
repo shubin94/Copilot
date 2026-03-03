@@ -8,7 +8,6 @@ import { sendClaimApprovedEmail } from "./email.ts";
 import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.ts";
 import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.ts";
 import bcrypt from "bcrypt";
-import Razorpay from "razorpay";
 import { db, pool } from "../db/index.ts";
 import { eq, and, or, desc, avg, count, min, ilike, sql, isNotNull } from "drizzle-orm";
 import {
@@ -46,9 +45,9 @@ import {
 } from "../shared/schema.ts";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.ts";
 import { config } from "./config.ts";
 import { bodyParsers } from "./app.ts";
+import * as LocationService from "./services/locationService.ts";
 import * as cache from "./lib/cache.ts";
 import { runSmartSearch } from "./lib/smart-search.ts";
 import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.ts";
@@ -58,9 +57,10 @@ import pkg from "pg";
 const { Pool } = pkg;
 import { requirePolicy } from "./policy.ts";
 import { requireAuth, requireRole } from "./authMiddleware.ts";
-import { getPaymentGateway, isPaymentGatewayEnabled } from "./services/paymentGateway.ts";
-import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
+import { generateSlug } from "./lib/slug-utils.ts";
 import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
+import { registerLocationRoutes } from "./routes/locationRoutes.ts";
+import { registerPaymentRoutes } from "./routes/paymentRoutes.ts";
 import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.ts";
 import adminCmsRouter from "./routes/admin-cms.ts";
 import adminFinanceRouter from "./routes/admin-finance.ts";
@@ -77,16 +77,6 @@ import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.ts";
 import { googleIndexing } from "./services/google-indexing-service.ts";
 
 // Utility function to generate URL-safe slugs from text
-const generateSlug = (text: string): string => {
-  if (!text) return "unknown";
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "") // Remove special chars
-    .replace(/\s+/g, "-") // Replace spaces with hyphens
-    .replace(/-+/g, "-") // Replace multiple hyphens with single
-    .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
-};
 
 // Country code to name mapping for URL handling
 const COUNTRY_CODE_MAP: Record<string, string> = {
@@ -149,30 +139,7 @@ function getCountryCode(countryNameOrSlug: string): string {
   return countryNameOrSlug.toUpperCase();
 }
 
-// Initialize Razorpay with env fallback (will be overridden by DB config)
-let razorpayClient = new Razorpay({
-  key_id: config.razorpay.keyId || "dummy",
-  key_secret: config.razorpay.keySecret || "dummy",
-});
-
-// Helper to get/refresh Razorpay client from database
-async function getRazorpayClient() {
-  const gateway = await getPaymentGateway('razorpay');
-  
-  if (!gateway) {
-    console.warn('[Razorpay] Gateway not enabled, falling back to env config');
-    return razorpayClient;
-  }
-  
-  // Reinitialize with DB config
-  const dbClient = new Razorpay({
-    key_id: gateway.config.keyId || config.razorpay.keyId,
-    key_secret: gateway.config.keySecret || config.razorpay.keySecret,
-  });
-  
-  console.log(`[Razorpay] Using ${gateway.is_test_mode ? 'TEST' : 'LIVE'} mode from database`);
-  return dbClient;
-}
+// Razorpay client initialization has been moved to server/routes/paymentRoutes.ts
 
 // Extend Express Session
 declare module "express-session" {
@@ -253,50 +220,7 @@ async function applyPendingDowngrades(detective: any): Promise<any> {
 
 import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.ts";
 
-// GUARD: Enforce no duplicate Blue Tick add-on purchases
-// Block if detective already has Blue Tick (from add-on OR subscription)
-async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: string): Promise<void> {
-  const detective = await storage.getDetective(detectiveId);
-  
-  if (!detective) {
-    throw new Error(`Detective not found: ${detectiveId}`);
-  }
-  
-  const hasAddon = (detective as any).blueTickAddon === true;
-  const hasFromPackage = detective.hasBlueTick === true;
-  if (hasAddon || hasFromPackage) {
-    console.error(`[BLUE_TICK_GUARD] Duplicate attempt blocked`, {
-      detectiveId,
-      provider,
-      blueTickAddon: hasAddon,
-      hasBlueTick: hasFromPackage,
-    });
-    
-    const error = new Error("Blue Tick already active");
-    (error as any).statusCode = 409; // Conflict
-    throw error;
-  }
-  
-  const existingOrder = await storage.getPaymentOrdersByDetectiveId?.(detectiveId)
-    ?.then((orders: any[]) => 
-      orders.find((o: any) => 
-        o.status !== "verified" && 
-        (o.plan === "blue_tick_addon" || o.plan === "blue-tick" || o.packageId === "blue-tick")
-      )
-    ) || null;
-  
-  if (existingOrder) {
-    console.warn(`[BLUE_TICK_GUARD] Existing unpaid Blue Tick order found`, {
-      detectiveId,
-      orderId: existingOrder.id,
-      status: existingOrder.status,
-    });
-    
-    const error = new Error("Blue Tick payment already in progress");
-    (error as any).statusCode = 409; // Conflict
-    throw error;
-  }
-}
+// Blue Tick validation helper has been moved to server/routes/paymentRoutes.ts
 
 export async function registerRoutes(app: Express): Promise<Server> {
   console.log('[DEBUG] registerRoutes() called');
@@ -1641,22 +1565,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/subscription-limits", async (_req: Request, res: Response) => {
-    try {
-      const plans = await storage.getAllSubscriptionPlans(true);
-      const limits: Record<string, number> = {};
-      for (const p of plans) {
-        limits[p.name] = Number(p.serviceLimit || 0);
-      }
-      res.json({ limits });
-    } catch {
-      if (config.env.isProd) {
-        res.status(500).json({ error: "Subscription limits not configured" });
-      } else {
-        res.json({ limits: {} });
-      }
-    }
-  });
+  // Payment routes have been moved to server/routes/paymentRoutes.ts
+  // Includes: /api/subscription-limits, /api/subscription-plans and all variants
 
   app.get("/api/admin/db-check", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
@@ -1669,367 +1579,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/location-seo/countries", requireRole("admin", "employee"), async (_req: Request, res: Response) => {
-    try {
-      console.log("[Admin Location SEO] Fetching countries...");
-      
-      const result = await pool.query(`
-        SELECT
-          c.id,
-          c.name,
-          c.slug AS country_slug,
-          COUNT(d.id) FILTER (WHERE d.status = 'active')::int AS total_detectives,
-          COUNT(d.id)::int AS total_all_detectives,
-          lso.meta_title,
-          lso.meta_description,
-          lso.h1,
-          (lso.id IS NOT NULL) as has_override,
-          lso.updated_at
-        FROM countries c
-        LEFT JOIN detectives d ON d.country_id = c.id
-        LEFT JOIN location_seo_overrides lso
-          ON lso.entity_type = 'country'
-          AND lso.entity_id = c.id::text
-        WHERE c.is_active = true
-        GROUP BY
-          c.id,
-          c.name,
-          c.slug,
-          lso.meta_title,
-          lso.meta_description,
-          lso.h1,
-          lso.id,
-          lso.updated_at
-        ORDER BY c.slug ASC
-      `);
-
-      // ✅ Generate system SEO for rows without overrides
-      const enrichedData = result.rows.map(row => {
-        const year = new Date().getFullYear();
-        return {
-          country_slug: row.country_slug,
-          total_detectives: row.total_detectives,
-          total_all_detectives: row.total_all_detectives,
-          custom_title: row.meta_title || `Top Private Detectives in ${row.name} | Verified Investigators (${year})`,
-          custom_meta_description: row.meta_description || `Find trusted private detectives in ${row.name}. Browse ${row.total_detectives} verified investigators offering background checks, surveillance, and investigation services.`,
-          custom_h1: row.h1 || `Private Detectives in ${row.name}`,
-          has_override: row.has_override,
-          updated_at: row.updated_at
-        };
-      });
-
-      console.log(`[Admin Location SEO] Fetched ${enrichedData.length} countries with system-generated fallbacks`);
-      res.json({ success: true, data: enrichedData });
-    } catch (error: any) {
-      console.error("[Admin Location SEO] Countries ERROR:", error);
-      console.error("[Admin Location SEO] Countries Message:", error?.message);
-      console.error("[Admin Location SEO] Countries Stack:", error?.stack);
-      res.status(500).json({ success: false, error: error?.message || "Failed to fetch country SEO overrides" });
-    }
-  });
-
-  app.get("/api/admin/location-seo/states", requireRole("admin", "employee"), async (req: Request, res: Response) => {
-    try {
-      console.log("[Admin Location SEO] Fetching states...");
-      const result = await pool.query(`
-        SELECT
-          c.name AS country_name,
-          c.slug AS country_slug,
-          s.name AS state_name,
-          s.slug AS state_slug,
-          COUNT(d.id) FILTER (WHERE d.status = 'active')::int AS total_detectives,
-          lso.meta_title,
-          lso.meta_description,
-          lso.h1,
-          (lso.id IS NOT NULL) as has_override,
-          lso.updated_at
-        FROM states s
-        INNER JOIN countries c ON s.country_id = c.id
-        LEFT JOIN detectives d ON d.state_id = s.id
-        LEFT JOIN location_seo_overrides lso
-          ON lso.entity_type = 'state'
-          AND lso.entity_id = s.id::text
-        WHERE s.is_active = true
-          AND c.is_active = true
-        GROUP BY
-          c.id,
-          c.name,
-          c.slug,
-          s.id,
-          s.name,
-          s.slug,
-          lso.meta_title,
-          lso.meta_description,
-          lso.h1,
-          lso.id,
-          lso.updated_at
-        ORDER BY c.slug ASC, s.slug ASC
-      `);
-
-      // ✅ Generate system SEO for rows without overrides
-      const year = new Date().getFullYear();
-      const enrichedData = result.rows.map(row => ({
-        country_slug: row.country_slug,
-        state_slug: row.state_slug,
-        total_detectives: row.total_detectives,
-        custom_title: row.meta_title || `Top Private Detectives in ${row.state_name}, ${row.country_name} | Verified Investigators (${year})`,
-        custom_meta_description: row.meta_description || `Find trusted private detectives in ${row.state_name}, ${row.country_name}. Browse ${row.total_detectives} verified investigators offering background checks, surveillance, and investigation services.`,
-        custom_h1: row.h1 || `Private Detectives in ${row.state_name}, ${row.country_name}`,
-        has_override: row.has_override,
-        updated_at: row.updated_at
-      }));
-
-      console.log(`[Admin Location SEO] Fetched ${enrichedData.length} states with system-generated fallbacks`);
-      res.json({ success: true, data: enrichedData });
-    } catch (error: any) {
-      console.error("[Admin Location SEO] States ERROR:", error);
-      console.error("[Admin Location SEO] States Message:", error?.message);
-      console.error("[Admin Location SEO] States Stack:", error?.stack);
-      res.status(500).json({ success: false, error: error?.message || "Failed to fetch state SEO overrides" });
-    }
-  });
-
-  app.get("/api/admin/location-seo/cities", requireRole("admin", "employee"), async (req: Request, res: Response) => {
-    try {
-      console.log("[Admin Location SEO] Fetching cities...");
-      
-      const result = await pool.query(`
-        SELECT
-          c.name AS country_name,
-          c.slug AS country_slug,
-          s.name AS state_name,
-          s.slug AS state_slug,
-          ci.name AS city_name,
-          ci.slug AS city_slug,
-          COUNT(d.id) FILTER (WHERE d.status = 'active')::int AS total_detectives,
-          lso.meta_title,
-          lso.meta_description,
-          lso.h1,
-          (lso.id IS NOT NULL) as has_override,
-          lso.updated_at
-        FROM cities ci
-        INNER JOIN states s ON ci.state_id = s.id
-        INNER JOIN countries c ON ci.country_id = c.id
-        LEFT JOIN detectives d ON d.city_id = ci.id
-        LEFT JOIN location_seo_overrides lso
-          ON lso.entity_type = 'city'
-          AND lso.entity_id = ci.id::text
-        WHERE ci.is_active = true
-          AND s.is_active = true
-          AND c.is_active = true
-        GROUP BY
-          c.id,
-          c.name,
-          c.slug,
-          s.id,
-          s.name,
-          s.slug,
-          ci.id,
-          ci.name,
-          ci.slug,
-          lso.meta_title,
-          lso.meta_description,
-          lso.h1,
-          lso.id,
-          lso.updated_at
-        ORDER BY
-          c.slug ASC,
-          s.slug ASC,
-          ci.slug ASC
-      `);
-
-      // ✅ Generate system SEO for rows without overrides
-      const year = new Date().getFullYear();
-      const enrichedData = result.rows.map(row => ({
-        country_slug: row.country_slug,
-        state_slug: row.state_slug,
-        city_slug: row.city_slug,
-        total_detectives: row.total_detectives,
-        custom_title: row.meta_title || `Top 10 Best Private Detectives in ${row.city_name}, ${row.state_name} (${year})`,
-        custom_meta_description: row.meta_description || `Find trusted private detectives in ${row.city_name}, ${row.state_name}. Browse ${row.total_detectives} verified investigators offering background checks, surveillance, and investigation services.`,
-        custom_h1: row.h1 || `Private Detectives in ${row.city_name}, ${row.state_name}`,
-        has_override: row.has_override,
-        updated_at: row.updated_at
-      }));
-
-      console.log(`[Admin Location SEO] Fetched ${enrichedData.length} cities with system-generated fallbacks`);
-      res.json({ success: true, data: enrichedData });
-    } catch (error: any) {
-      console.error("[Admin Location SEO] Cities ERROR:", error);
-      console.error("[Admin Location SEO] Cities Message:", error?.message);
-      console.error("[Admin Location SEO] Cities Stack:", error?.stack);
-      res.status(500).json({ success: false, error: error?.message || "Failed to fetch city SEO overrides" });
-    }
-  });
-
-  // POST endpoint to save/update location SEO overrides
-  app.post("/api/admin/location-seo/override", requireRole("admin", "employee"), async (req: Request, res: Response) => {
-    try {
-      const { country_slug, state_slug, city_slug, custom_title, custom_meta_description, custom_h1 } = req.body;
-
-      console.log("[Admin Location SEO Override] ========== NEW REQUEST ==========");
-      console.log("[Admin Location SEO Override] Received request:", {
-        country_slug,
-        state_slug,
-        city_slug,
-        has_custom_title: !!custom_title,
-        has_custom_meta_description: !!custom_meta_description,
-        has_custom_h1: !!custom_h1,
-        custom_h1_preview: custom_h1?.substring(0, 50)
-      });
-
-      // Validate required fields
-      if (!country_slug) {
-        console.log("[Admin Location SEO Override] ❌ Validation failed: country_slug is required");
-        return res.status(400).json({ success: false, error: "country_slug is required" });
-      }
-
-      // Determine entity type and resolve entity ID
-      let entityType: 'country' | 'state' | 'city';
-      let entityId: string;
-
-      if (city_slug && state_slug) {
-        // City-level override
-        entityType = 'city';
-        console.log("[Admin Location SEO Override] Resolving city ID for:", { city_slug, state_slug, country_slug });
-        const cityResult = await pool.query(
-          `SELECT ci.id FROM cities ci
-           INNER JOIN states s ON ci.state_id = s.id
-           INNER JOIN countries c ON ci.country_id = c.id
-           WHERE ci.slug = $1 AND s.slug = $2 AND c.slug = $3
-           LIMIT 1`,
-          [city_slug, state_slug, country_slug]
-        );
-        if (cityResult.rows.length === 0) {
-          console.log("[Admin Location SEO Override] ❌ City not found");
-          return res.status(404).json({ success: false, error: "City not found" });
-        }
-        entityId = cityResult.rows[0].id.toString();
-        console.log("[Admin Location SEO Override] ✅ City ID resolved:", entityId);
-      } else if (state_slug) {
-        // State-level override
-        entityType = 'state';
-        console.log("[Admin Location SEO Override] Resolving state ID for:", { state_slug, country_slug });
-        const stateResult = await pool.query(
-          `SELECT s.id FROM states s
-           INNER JOIN countries c ON s.country_id = c.id
-           WHERE s.slug = $1 AND c.slug = $2
-           LIMIT 1`,
-          [state_slug, country_slug]
-        );
-        if (stateResult.rows.length === 0) {
-          console.log("[Admin Location SEO Override] ❌ State not found");
-          return res.status(404).json({ success: false, error: "State not found" });
-        }
-        entityId = stateResult.rows[0].id.toString();
-        console.log("[Admin Location SEO Override] ✅ State ID resolved:", entityId);
-      } else {
-        // Country-level override
-        entityType = 'country';
-        console.log("[Admin Location SEO Override] Resolving country ID for:", { country_slug });
-        const countryResult = await pool.query(
-          `SELECT id FROM countries WHERE slug = $1 LIMIT 1`,
-          [country_slug]
-        );
-        if (countryResult.rows.length === 0) {
-          console.log("[Admin Location SEO Override] ❌ Country not found");
-          return res.status(404).json({ success: false, error: "Country not found" });
-        }
-        entityId = countryResult.rows[0].id.toString();
-        console.log("[Admin Location SEO Override] ✅ Country ID resolved:", entityId);
-      }
-
-      console.log(`[Admin Location SEO Override] Final entity: type=${entityType}, id=${entityId}`);
-
-      // Upsert the override (INSERT or UPDATE if exists)
-      console.log("[Admin Location SEO Override] Executing UPSERT query...");
-      const result = await pool.query(
-        `INSERT INTO location_seo_overrides (entity_type, entity_id, meta_title, meta_description, h1)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (entity_type, entity_id)
-         DO UPDATE SET
-           meta_title = EXCLUDED.meta_title,
-           meta_description = EXCLUDED.meta_description,
-           h1 = EXCLUDED.h1,
-           updated_at = NOW()
-         RETURNING id, updated_at`,
-        [entityType, entityId, custom_title || null, custom_meta_description || null, custom_h1 || null]
-      );
-
-      console.log(`[Admin Location SEO Override] ✅ Successfully saved override for ${entityType} ${entityId}`);
-      console.log(`[Admin Location SEO Override] Row ID: ${result.rows[0].id}, Updated at: ${result.rows[0].updated_at}`);
-      console.log("[Admin Location SEO Override] ========== REQUEST COMPLETE ==========\n");
-      
-      res.json({ 
-        success: true, 
-        message: "SEO override saved successfully",
-        data: {
-          id: result.rows[0].id,
-          updated_at: result.rows[0].updated_at
-        }
-      });
-
-    } catch (error: any) {
-      console.error("[Admin Location SEO Override] ========== ERROR ==========");
-      console.error("[Admin Location SEO Override] Error type:", error?.constructor?.name);
-      console.error("[Admin Location SEO Override] Error code:", error?.code);
-      console.error("[Admin Location SEO Override] Error message:", error?.message);
-      console.error("[Admin Location SEO Override] Error detail:", error?.detail);
-      console.error("[Admin Location SEO Override] Full error:", error);
-      console.error("[Admin Location SEO Override] Stack:", error?.stack);
-      console.error("[Admin Location SEO Override] ========== ERROR END ==========\n");
-      
-      res.status(500).json({ 
-        success: false, 
-        error: error?.message || "Failed to save SEO override",
-        detail: error?.detail || null
-      });
-    }
-  });
-
-  // DEBUG: Check countries table for duplicates
-  app.get("/api/admin/debug/countries-check", requireRole("admin", "employee"), async (_req: Request, res: Response) => {
-    try {
-      // Get all countries
-      const countriesResult = await pool.query(`
-        SELECT id, name, slug 
-        FROM countries 
-        ORDER BY id
-      `);
-
-      // Get detective counts per country
-      const detectiveCountsResult = await pool.query(`
-        SELECT 
-          c.id,
-          c.name,
-          c.slug,
-          COUNT(d.id) as detective_count
-        FROM countries c
-        LEFT JOIN detectives d ON d.country_id = c.id
-        GROUP BY c.id, c.name, c.slug
-        ORDER BY c.id
-      `);
-
-      // Check for detectives with country_id = 2
-      const id2CountResult = await pool.query(`
-        SELECT COUNT(*) as count
-        FROM detectives 
-        WHERE country_id = 2
-      `);
-
-      res.json({
-        success: true,
-        data: {
-          countries: countriesResult.rows,
-          detective_counts: detectiveCountsResult.rows,
-          detectives_with_country_id_2: parseInt(id2CountResult.rows[0].count)
-        }
-      });
-    } catch (error: any) {
-      console.error("[Debug Countries Check] Error:", error);
-      res.status(500).json({ success: false, error: error?.message || "Failed to check countries" });
-    }
-  });
+  // Admin Location SEO routes have been moved to server/routes/locationRoutes.ts
+  // Includes:
+  // - /api/admin/location-seo/countries
+  // - /api/admin/location-seo/states
+  // - /api/admin/location-seo/cities
+  // - /api/admin/location-seo/override
+  // - /api/admin/debug/countries-check (debug utility)
 
   // OPTIMIZED: Admin Dashboard Summary - single query with conditional aggregation
   // Returns only summary statistics (no full records, <100ms execution target)
@@ -2987,6 +2543,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Payment Gateway Routes (public endpoint for checking enabled gateways)
   app.use("/api/payment-gateways", paymentGatewayRoutes);
+
+  // Location Routes - geographic hierarchy and top locations aggregation
+  registerLocationRoutes(app);
+
+  // Payment Routes - subscription plans, Razorpay, PayPal, Blue Tick, admin payment management
+  // All payment-related endpoints are now registered via registerPaymentRoutes() function
+  registerPaymentRoutes(app);
 
   // Public Pages Routes (read-only access to published pages)
   app.use("/api/public/pages", publicPagesRouter);
@@ -4060,422 +3623,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   // Location Wizard API - Get all countries (using library)
-  app.get("/api/locations/countries", async (_req: Request, res: Response) => {
-    try {
-      const allCountries = Country.getAllCountries()
-        .map(c => ({
-          id: c.isoCode,
-          code: c.isoCode,
-          name: c.name,
-          slug: generateSlug(c.name)
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      
-      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
-      res.json({ countries: allCountries });
-    } catch (error) {
-      console.error("Get countries error:", error);
-      res.status(500).json({ error: "Failed to fetch countries" });
-    }
-  });
-
-  // Location Wizard API - Get states for a country (using library)
-  app.get("/api/locations/states/:countryId", async (req: Request, res: Response) => {
-    try {
-      const { countryId } = req.params;
-      
-      const countryStates = (State.getStatesOfCountry(countryId) || [])
-        .map(s => ({
-          id: s.isoCode,
-          countryId: countryId,
-          name: s.name,
-          slug: generateSlug(s.name)
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      
-      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
-      res.json({ states: countryStates });
-    } catch (error) {
-      console.error("Get states error:", error);
-      res.status(500).json({ error: "Failed to fetch states" });
-    }
-  });
-
-  // Location Wizard API - Get cities for a state (using library)
-  app.get("/api/locations/cities/:stateId", async (req: Request, res: Response) => {
-    try {
-      const { stateId } = req.params;
-      const { countryId } = req.query;
-      
-      if (!countryId || typeof countryId !== 'string') {
-        return res.status(400).json({ error: "Country ID is required" });
-      }
-
-      const stateCities = (City.getCitiesOfState(countryId, stateId) || [])
-        .map(c => ({
-          id: c.name,
-          stateId: stateId,
-          name: c.name,
-          slug: generateSlug(c.name)
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      
-      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
-      res.json({ cities: stateCities });
-    } catch (error) {
-      console.error("Get cities error:", error);
-      res.status(500).json({ error: "Failed to fetch cities" });
-    }
-  });
-
-  // Public API - Get top locations with detective counts
-  // Aggregates detectives by country, state, and city with joins to normalized tables
-  // Query params: limitCountries, limitStates, limitCities (defaults: 10 each)
-  app.get("/api/locations/top", async (req: Request, res: Response) => {
-    try {
-      const limitCountries = Math.min(Number(req.query.limitCountries) || 10, 50);
-      const limitStates = Math.min(Number(req.query.limitStates) || 10, 50);
-      const limitCities = Math.min(Number(req.query.limitCities) || 10, 50);
-
-      const countryJoinCondition = or(
-        eq(detectives.country, countries.code),
-        eq(detectives.country, countries.name),
-        eq(detectives.country, countries.slug)
-      )!;
-
-      // Aggregate countries with detective counts
-      const topCountries = await db
-        .select({
-          name: countries.name,
-          slug: countries.slug,
-          detectiveCount: count(detectives.id),
-        })
-        .from(detectives)
-        .innerJoin(
-          countries,
-          countryJoinCondition
-        )
-        .where(eq(detectives.status, "active"))
-        .groupBy(countries.id, countries.name, countries.slug)
-        .orderBy(desc(count(detectives.id)))
-        .limit(limitCountries);
-
-      // Aggregate states with detective counts (from detective records)
-      const topStates = await db
-        .select({
-          normalizedName: states.name,
-          normalizedSlug: states.slug,
-          rawName: detectives.state,
-          countrySlug: countries.slug,
-          detectiveCount: count(detectives.id),
-        })
-        .from(detectives)
-        .innerJoin(
-          countries,
-          countryJoinCondition
-        )
-        .leftJoin(
-          states,
-          and(
-            eq(states.countryId, countries.id),
-            or(
-              eq(detectives.state, states.name),
-              eq(detectives.state, states.slug)
-            )
-          )
-        )
-        .where(
-          and(
-            eq(detectives.status, "active"),
-            sql`trim(${detectives.state}) <> ''`,
-            sql`lower(trim(${detectives.state})) <> 'n/a'`,
-            sql`lower(trim(${detectives.state})) <> 'not specified'`
-          )
-        )
-        .groupBy(states.name, states.slug, detectives.state, countries.slug)
-        .orderBy(desc(count(detectives.id)))
-        .limit(limitStates);
-
-      // Aggregate cities with detective counts (from detective records)
-      const topCities = await db
-        .select({
-          normalizedName: cities.name,
-          normalizedSlug: cities.slug,
-          normalizedStateSlug: states.slug,
-          rawName: detectives.city,
-          rawStateName: detectives.state,
-          countrySlug: countries.slug,
-          detectiveCount: count(detectives.id),
-        })
-        .from(detectives)
-        .innerJoin(
-          countries,
-          countryJoinCondition
-        )
-        .leftJoin(
-          states,
-          and(
-            eq(states.countryId, countries.id),
-            or(
-              eq(detectives.state, states.name),
-              eq(detectives.state, states.slug)
-            )
-          )
-        )
-        .leftJoin(
-          cities,
-          and(
-            eq(cities.stateId, states.id),
-            or(
-              eq(detectives.city, cities.name),
-              eq(detectives.city, cities.slug)
-            )
-          )
-        )
-        .where(
-          and(
-            eq(detectives.status, "active"),
-            sql`trim(${detectives.state}) <> ''`,
-            sql`trim(${detectives.city}) <> ''`,
-            sql`lower(trim(${detectives.state})) <> 'n/a'`,
-            sql`lower(trim(${detectives.city})) <> 'n/a'`,
-            sql`lower(trim(${detectives.state})) <> 'not specified'`,
-            sql`lower(trim(${detectives.city})) <> 'not specified'`
-          )
-        )
-        .groupBy(cities.name, cities.slug, states.slug, detectives.city, detectives.state, countries.slug)
-        .orderBy(desc(count(detectives.id)))
-        .limit(limitCities);
-
-      // Filter out zero counts and format response
-      const countriesData = topCountries
-        .map((row) => ({
-          name: row.name,
-          slug: row.slug,
-          detectiveCount: Number(row.detectiveCount) || 0,
-        }))
-        .filter((item) => item.detectiveCount > 0);
-
-      const statesData = topStates
-        .map((row) => ({
-          name: String(row.normalizedName || row.rawName || "").trim(),
-          slug: String(row.normalizedSlug || generateSlug(String(row.normalizedName || row.rawName || ""))),
-          countrySlug: row.countrySlug,
-          detectiveCount: Number(row.detectiveCount) || 0,
-        }))
-        .filter((item) => item.detectiveCount > 0 && item.name.length > 0 && item.slug.length > 0);
-
-      const citiesData = topCities
-        .map((row) => ({
-          name: String(row.normalizedName || row.rawName || "").trim(),
-          slug: String(row.normalizedSlug || generateSlug(String(row.normalizedName || row.rawName || ""))),
-          stateSlug: String(row.normalizedStateSlug || generateSlug(String(row.rawStateName || ""))),
-          countrySlug: row.countrySlug,
-          detectiveCount: Number(row.detectiveCount) || 0,
-        }))
-        .filter((item) => item.detectiveCount > 0 && item.name.length > 0 && item.slug.length > 0 && item.stateSlug.length > 0);
-
-      // Cache for 24 hours (top locations don't change frequently)
-      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
-      res.json({ countries: countriesData, states: statesData, cities: citiesData });
-    } catch (error) {
-      console.error("[API /api/locations/top] Error:", error);
-      res.status(500).json({ 
-        error: "Failed to fetch top locations",
-        countries: [],
-        states: [],
-        cities: [],
-      });
-    }
-  });
-
-  // Homepage API - Get top locations for the homepage location grid section
-  // Uses /api/locations/top logic with homepage-specific limits (8 each)
-  // Returns: top countries, states, and cities with backward-compatible keys
-  // SSR-friendly, cached for performance
-  app.get("/api/homepage/top-locations", async (req: Request, res: Response) => {
-    try {
-      const limitCountries = 8;
-      const limitStates = 8;
-      const limitCities = 8;
-
-      // Aggregate countries with detective counts
-      const topCountries = await db
-        .select({
-          name: countries.name,
-          slug: countries.slug,
-          detectiveCount: count(detectives.id),
-        })
-        .from(detectives)
-        .innerJoin(
-          countries,
-          sql`upper(trim(${detectives.country})) = upper(trim(${countries.code}))`
-        )
-        .where(eq(detectives.status, "active"))
-        .groupBy(countries.id, countries.name, countries.slug)
-        .orderBy(desc(count(detectives.id)))
-        .limit(limitCountries);
-
-      // Aggregate states with detective counts
-      const topStates = await db
-        .select({
-          name: states.name,
-          slug: states.slug,
-          countrySlug: countries.slug,
-          detectiveCount: count(detectives.id),
-        })
-        .from(detectives)
-        .innerJoin(
-          countries,
-          sql`upper(trim(${detectives.country})) = upper(trim(${countries.code}))`
-        )
-        .innerJoin(
-          states,
-          and(
-            eq(states.countryId, countries.id),
-            sql`lower(trim(${detectives.state})) = lower(trim(${states.name}))`
-          )
-        )
-        .where(
-          and(
-            eq(detectives.status, "active"),
-            sql`lower(trim(${detectives.state})) <> 'not specified'`
-          )
-        )
-        .groupBy(states.id, states.name, states.slug, countries.slug)
-        .orderBy(desc(count(detectives.id)))
-        .limit(limitStates);
-
-      // Aggregate cities with detective counts
-      const topCities = await db
-        .select({
-          name: cities.name,
-          slug: cities.slug,
-          stateSlug: states.slug,
-          countrySlug: countries.slug,
-          detectiveCount: count(detectives.id),
-        })
-        .from(detectives)
-        .innerJoin(
-          countries,
-          sql`upper(trim(${detectives.country})) = upper(trim(${countries.code}))`
-        )
-        .innerJoin(
-          states,
-          and(
-            eq(states.countryId, countries.id),
-            sql`lower(trim(${detectives.state})) = lower(trim(${states.name}))`
-          )
-        )
-        .innerJoin(
-          cities,
-          and(
-            eq(cities.stateId, states.id),
-            sql`lower(trim(${detectives.city})) = lower(trim(${cities.name}))`
-          )
-        )
-        .where(
-          and(
-            eq(detectives.status, "active"),
-            sql`lower(trim(${detectives.state})) <> 'not specified'`,
-            sql`lower(trim(${detectives.city})) <> 'not specified'`
-          )
-        )
-        .groupBy(cities.id, cities.name, cities.slug, states.slug, countries.slug)
-        .orderBy(desc(count(detectives.id)))
-        .limit(limitCities);
-
-      // Filter out zero counts and format response (backward compatible)
-      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
-      res.json({
-        topCountries: topCountries
-          .map((row) => ({
-            name: row.name,
-            slug: row.slug,
-            detectiveCount: Number(row.detectiveCount) || 0,
-          }))
-          .filter((item) => item.detectiveCount > 0),
-        topStates: topStates
-          .map((row) => ({
-            name: row.name,
-            slug: row.slug,
-            countrySlug: row.countrySlug,
-            detectiveCount: Number(row.detectiveCount) || 0,
-          }))
-          .filter((item) => item.detectiveCount > 0),
-        topCities: topCities
-          .map((row) => ({
-            name: row.name,
-            slug: row.slug,
-            stateSlug: row.stateSlug,
-            countrySlug: row.countrySlug,
-            detectiveCount: Number(row.detectiveCount) || 0,
-          }))
-          .filter((item) => item.detectiveCount > 0),
-      });
-    } catch (error) {
-      console.error("[Homepage API] Error fetching top locations:", error);
-      res.status(500).json({ 
-        error: "Failed to fetch top locations",
-        topCountries: [],
-        topCities: [],
-        topStates: [],
-      });
-    }
-  });
-
-  // Location Wizard API - Update detective location
-  app.patch("/api/detectives/me/location", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.userId!;
-      
-      // Verify detective ownership
-      const detective = await storage.getDetectiveByUserId(userId);
-      if (!detective) {
-        return res.status(404).json({ error: "Detective profile not found" });
-      }
-
-      // Validate request body
-      const { countryId, stateId, cityId } = req.body;
-      if (!countryId || !stateId || !cityId) {
-        return res.status(400).json({ 
-          error: "Invalid location selection",
-          details: "countryId, stateId, and cityId are required"
-        });
-      }
-
-      // Update location (includes validation and auto-slug)
-      const updated = await storage.updateDetectiveLocation(detective.id, {
-        countryId,
-        stateId,
-        cityId
-      });
-
-      if (!updated) {
-        return res.status(500).json({ error: "Failed to update location" });
-      }
-
-      res.json({ 
-        success: true,
-        detective: updated
-      });
-    } catch (error) {
-      console.error("Update detective location error:", error);
-      
-      // Handle validation errors from storage
-      if (error instanceof Error && error.message.includes("Invalid")) {
-        return res.status(400).json({ 
-          error: "Invalid location selection",
-          details: error.message
-        });
-      }
-      
-      res.status(500).json({ 
-        error: "Failed to update location",
-        details: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
+  // Location routes are now registered via registerLocationRoutes() function
+  // See server/routes/locationRoutes.ts for location wizard, top locations, and SEO routes
 
   app.get("/api/detectives/:id/public-service-count", async (req: Request, res: Response) => {
     try {
@@ -4623,45 +3772,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Detective not found" });
       }
 
-      // Mask sensitive fields
-      const detailsJSON = detective.detailsJSON ? JSON.parse(detective.detailsJSON) : {};
-      const maskSensitiveFields = (obj: any) => {
-        const masked: any = { ...obj };
-        ["password", "token", "secret", "apiKey"].forEach((key) => {
-          if (masked[key]) masked[key] = "***";
-        });
-        return masked;
-      };
+      // SECURITY: Apply contact masking based on subscription plan
+      // This ensures only detectives with paid plans that include contact features
+      // will have their contact information (phone, whatsapp, email, website) exposed
+      const maskedDetective = await maskDetectiveContactsPublic(detective as any);
 
       const payload = {
         detective: {
-          id: detective.id,
-          businessName: detective.businessName,
-          bio: detective.bio,
-          logo: detective.logo,
-          location: detective.location,
-          country: detective.country,
-          state: detective.state,
-          city: detective.city,
-          slug: detective.slug,
-          phone: detective.phone,
-          whatsapp: detective.whatsapp,
-          contactEmail: detective.contactEmail,
-          languages: detective.languages,
-          yearsExperience: detective.yearsExperience,
-          businessWebsite: detective.businessWebsite,
-          recognitions: detective.recognitions,
-          memberSince: detective.memberSince,
-          isVerified: detective.isVerified,
-          level: detective.level,
-          hasBlueTick: detective.hasBlueTick,
-          blueTickAddon: detective.blueTickAddon,
-          status: detective.status,
-          createdAt: detective.createdAt,
-          updatedAt: detective.updatedAt,
+          id: maskedDetective.id,
+          businessName: maskedDetective.businessName,
+          bio: maskedDetective.bio,
+          logo: maskedDetective.logo,
+          location: maskedDetective.location,
+          country: maskedDetective.country,
+          state: maskedDetective.state,
+          city: maskedDetective.city,
+          slug: maskedDetective.slug,
+          phone: maskedDetective.phone,
+          whatsapp: maskedDetective.whatsapp,
+          contactEmail: maskedDetective.contactEmail,
+          languages: maskedDetective.languages,
+          yearsExperience: maskedDetective.yearsExperience,
+          businessWebsite: maskedDetective.businessWebsite,
+          recognitions: maskedDetective.recognitions,
+          memberSince: maskedDetective.memberSince,
+          isVerified: maskedDetective.isVerified,
+          level: maskedDetective.level,
+          hasBlueTick: maskedDetective.hasBlueTick,
+          blueTickAddon: maskedDetective.blueTickAddon,
+          status: maskedDetective.status,
+          createdAt: maskedDetective.createdAt,
+          updatedAt: maskedDetective.updatedAt,
           effectiveBadges: {
-            blueTick: detective.hasBlueTick || detective.blueTickAddon,
-            pro: detective.level === 'pro',
+            blueTick: maskedDetective.hasBlueTick || maskedDetective.blueTickAddon,
+            pro: maskedDetective.level === 'pro',
             recommended: false
           }
         }
@@ -4730,7 +3874,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Detective profile already exists" });
       }
 
-      const detective = await storage.createDetective(validatedData);
+      // Resolve location IDs (REQUIRED - database has NOT NULL constraints)
+      let locationIds: LocationService.ResolvedLocationIds;
+      try {
+        locationIds = await LocationService.resolveLocationIds(
+          validatedData.country,
+          validatedData.state,
+          validatedData.city
+        );
+      } catch (error) {
+        console.error("[Detective Creation] Location resolution failed, using defaults:", error);
+        locationIds = await LocationService.getDefaultLocationIds();
+      }
+
+      const detective = await storage.createDetective({
+        ...validatedData,
+        countryId: locationIds.countryId!,
+        stateId: locationIds.stateId!,
+        cityId: locationIds.cityId!,
+      });
       
       // Update user role to detective using privileged method
       await storage.updateUserRole(req.session.userId!, "detective");
@@ -4803,36 +3965,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      if (typeof (validatedData as any).logo === "string" && (validatedData as any).logo.startsWith("data:")) {
-        (validatedData as any).logo = await uploadDataUrl("detective-assets", `logos/${Date.now()}-${Math.random()}.png`, (validatedData as any).logo);
-      }
-      if (Array.isArray((validatedData as any).businessDocuments)) {
-        (validatedData as any).businessDocuments = await Promise.all(((validatedData as any).businessDocuments || []).map(async (d: string, i: number) => {
-          return d && d.startsWith("data:") ? await uploadDataUrl("detective-assets", `documents/${Date.now()}-${i}.pdf`, d) : d;
-        }));
-      }
-      if (Array.isArray((validatedData as any).identityDocuments)) {
-        (validatedData as any).identityDocuments = await Promise.all(((validatedData as any).identityDocuments || []).map(async (d: string, i: number) => {
-          return d && d.startsWith("data:") ? await uploadDataUrl("detective-assets", `identity/${Date.now()}-${i}.pdf`, d) : d;
-        }));
-      }
-      if ((validatedData as any).logo && detective.logo && (validatedData as any).logo !== detective.logo) {
-        await deletePublicUrl(detective.logo as any);
-      }
-      if (Array.isArray((validatedData as any).businessDocuments) && Array.isArray(detective.businessDocuments)) {
-        for (const prev of (detective.businessDocuments as any[])) {
-          if (!(validatedData as any).businessDocuments.includes(prev)) {
-            await deletePublicUrl(prev as any);
-          }
-        }
-      }
-      if (Array.isArray((validatedData as any).identityDocuments) && Array.isArray(detective.identityDocuments)) {
-        for (const prev of (detective.identityDocuments as any[])) {
-          if (!(validatedData as any).identityDocuments.includes(prev)) {
-            await deletePublicUrl(prev as any);
-          }
-        }
-      }
+      // SECURITY: Validate file URLs before processing
+      // This call handles validation, uploads, and deletion of detective profile files
+      await storage.processDetectiveFileUpdates(detective, validatedData);
+      
       const updatedDetective = await storage.updateDetective(req.params.id, validatedData);
       
       // Lazy-populate country code in background (non-blocking)
@@ -6527,6 +5663,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           let detective = await storage.getDetectiveByUserId(user!.id);
           if (!detective) {
+            // Resolve location IDs (REQUIRED - database has NOT NULL constraints)
+            let locationIds: LocationService.ResolvedLocationIds;
+            try {
+              locationIds = await LocationService.resolveLocationIds(
+                application.country || "US",
+                stateValue,
+                cityValue
+              );
+            } catch (error) {
+              console.error("[Application Approval] Location resolution failed, using defaults:", error);
+              locationIds = await LocationService.getDefaultLocationIds();
+            }
+
             detective = await storage.createDetective({
               userId: user!.id,
               businessName: application.companyName || application.fullName,
@@ -6543,6 +5692,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               country: application.country || "US",
               state: stateValue,
               city: cityValue,
+              countryId: locationIds.countryId!,
+              stateId: locationIds.stateId!,
+              cityId: locationIds.cityId!,
               location: location,
               address: (application as any).fullAddress || undefined,
               pincode: (application as any).pincode || undefined,

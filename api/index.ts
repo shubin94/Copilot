@@ -21,7 +21,7 @@ if (global.gc) {
 export default async (req: any, res: any) => {
   try {
     // OPTIMIZATION: Lazy import serverless handler to defer route loading
-    const { produceServerHandler } = await import('../../server/vercel-handler');
+    const { produceServerHandler } = await import('../server/vercel-handler');
     const handler = await produceServerHandler();
     
     // Mark the response to enable compression if not already set
