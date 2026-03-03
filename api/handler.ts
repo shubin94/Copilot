@@ -14,7 +14,6 @@
 import "../server/lib/loadEnv";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
-import { type Server } from "node:http";
 
 import { loadSecretsFromDatabase } from "../server/lib/secretsLoader";
 import { config, validateConfig } from "../server/config";
@@ -27,7 +26,6 @@ import serverless from "serverless-http";
 // Track initialization state
 let initPromise: Promise<any> | null = null;
 let cachedHandler: any = null;
-let appInstance: any = null;
 
 export async function produceServerHandler() {
   // Return cached handler if already initialized
@@ -88,7 +86,7 @@ async function initializeServerApp() {
         integrations: [nodeProfilingIntegration()],
         tracesSampleRate: 0.1,
         profilesSampleRate: 0.05, // Reduced from 0.1 to save memory
-        beforeSend(event, hint) {
+        beforeSend(event, _hint) {
           if (event.request) {
             if (event.request.headers) {
               delete event.request.headers['authorization'];
@@ -123,11 +121,10 @@ async function initializeServerApp() {
     // OPTIMIZATION: Lazy load Express app and routes
     // Import app.ts which sets up middleware but NOT routes yet
     const { app } = await import("../server/app");
-    appInstance = app;
     
     console.log('⚙️  Registering routes (this may take a moment)...');
     const { registerRoutes } = await import("../server/routes");
-    const httpServer = await registerRoutes(app);
+    await registerRoutes(app);
     
     // Wrap the Express app with serverless-http for Vercel
     console.log('🚀 Wrapping with serverless-http...');
