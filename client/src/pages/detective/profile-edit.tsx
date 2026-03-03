@@ -427,8 +427,8 @@ export default function DetectiveProfileEdit() {
                   <SelectContent>
                     {statesData?.states && statesData.states.length > 0 ? (
                       statesData.states.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
+                        <SelectItem key={s.id} value={s.name}>
+                          {s.name}
                         </SelectItem>
                       ))
                     ) : (
@@ -449,9 +449,9 @@ export default function DetectiveProfileEdit() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {countriesData?.countries.map((countryCode) => (
-                      <SelectItem key={countryCode} value={countryCode}>
-                        {COUNTRY_CODE_TO_NAME[countryCode] || countryCode}
+                    {countriesData?.countries.map((country) => (
+                      <SelectItem key={country.id} value={country.code}>
+                        {country.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

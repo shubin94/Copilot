@@ -103,10 +103,12 @@ export function Hero() {
           <img
             src={heroImage}
             alt=""
-            fetchpriority="low"
-            loading="lazy"
-            decoding="async"
             className="object-cover w-full h-full"
+            {...({
+              fetchpriority: "low",
+              loading: "lazy",
+              decoding: "async",
+            } as React.ImgHTMLAttributes<HTMLImageElement>)}
           />
         ) : (
           <picture>
@@ -114,10 +116,12 @@ export function Hero() {
             <img
               src={heroBgPng}
               alt=""
-              fetchpriority="low"
-              loading="lazy"
-              decoding="async"
               className="object-cover w-full h-full"
+              {...({
+                fetchpriority: "low",
+                loading: "lazy",
+                decoding: "async",
+              } as React.ImgHTMLAttributes<HTMLImageElement>)}
             />
           </picture>
         )}

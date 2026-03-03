@@ -134,14 +134,14 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
       isOnEnquiry={svc.isOnEnquiry}
       category={svc.category}
       badgeState={badgeState}
-      phone={svc.detective.phone || undefined}
-      whatsapp={svc.detective.whatsapp || undefined}
-      contactEmail={svc.detective.contactEmail}
-      countryCode={svc.detective.country || undefined}
-      detectiveCountry={svc.detective.country}
-      detectiveState={svc.detective.state}
-      detectiveCity={svc.detective.city}
-      detectiveSlug={svc.detective.slug}
+      phone={svc.detective.phone ?? undefined}
+      whatsapp={svc.detective.whatsapp ?? undefined}
+      contactEmail={svc.detective.contactEmail ?? undefined}
+      countryCode={svc.detective.country ?? undefined}
+      detectiveCountry={svc.detective.country ?? undefined}
+      detectiveState={svc.detective.state ?? undefined}
+      detectiveCity={svc.detective.city ?? undefined}
+      detectiveSlug={svc.detective.slug ?? undefined}
     />
   );
 }

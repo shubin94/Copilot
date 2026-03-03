@@ -353,7 +353,7 @@ export const api = {
           keepalive: true,
           signal: controller.signal,
         });
-        const data = await handleResponse(response);
+        const data = await handleResponse<{ user?: User; applicant?: { email: string; status: string }; csrfToken?: string }>(response);
         // Session regeneration invalidates CSRF token; force refresh on next mutation
         clearCsrfToken();
         return data;
@@ -373,7 +373,7 @@ export const api = {
         headers: { "X-Requested-With": "XMLHttpRequest" },
         credentials: "include",
       });
-      const result = await handleResponse(response);
+      const result = await handleResponse<{ message: string }>(response);
       clearCsrfToken();
       return result;
     },
@@ -392,7 +392,7 @@ export const api = {
           return { user: null } as any;
         }
         
-        const result = await handleResponse(response);
+        const result = await handleResponse<{ user?: User | null }>(response);
         console.debug('[api.auth.me] Auth successful - user data:', (result as any)?.user?.email || 'no email');
         return result;
       } catch (err: any) {
@@ -412,7 +412,7 @@ export const api = {
         body: JSON.stringify({ currentPassword, newPassword }),
         credentials: "include",
       });;
-      return handleResponse(response);
+      return handleResponse<{ message: string }>(response);
     },
 
     setPassword: async (newPassword: string): Promise<{ message: string }> => {
@@ -423,11 +423,11 @@ export const api = {
         credentials: "include",
       });;
       if (!response.ok) {
-        return handleResponse(response);
+        return handleResponse<{ message: string }>(response);
       }
       const ct = response.headers.get("content-type") || "";
       if (ct.includes("application/json")) {
-        return handleResponse(response);
+        return handleResponse<{ message: string }>(response);
       }
       const text = await response.text();
       return { message: text || "Password set successfully" };
@@ -440,7 +440,7 @@ export const api = {
         body: JSON.stringify({ email, password, name }),
         credentials: "include",
       });
-      const data = await handleResponse(response);
+      const data = await handleResponse<{ user: User }>(response);
       // After register, the backend regenerates the session and issues a new CSRF token
       // Always clear cache and let next request fetch fresh token
       clearCsrfToken();

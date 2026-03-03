@@ -110,7 +110,7 @@ export default function AdminServices() {
       title: service.title,
       description: service.description,
       category: service.category,
-      basePrice: service.basePrice,
+      basePrice: service.basePrice || "",
       offerPrice: service.offerPrice || "",
       detectiveId: service.detectiveId,
     });

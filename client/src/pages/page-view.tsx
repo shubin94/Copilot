@@ -125,11 +125,11 @@ export default function PageView() {
     <div className="min-h-screen flex flex-col bg-white">
       <SEO 
         title={page.metaTitle || page.title} 
-        description={page.metaDescription}
+        description={page.metaDescription || page.title}
         canonical={canonicalUrl}
         breadcrumbs={breadcrumbs}
-        publishedTime={page.createdAt}
-        modifiedTime={page.updatedAt}
+        publishedTime={page.createdAt || ""}
+        modifiedTime={page.updatedAt || ""}
         image={page.bannerImage}
         author={page.author ? {
           name: page.author.name,

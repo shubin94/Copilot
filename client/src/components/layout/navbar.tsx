@@ -458,16 +458,16 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                       <div className="absolute left-0 top-full mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-20 text-gray-800">
                         {suggestions.map((s, i) => (
                           <button
-                            key={s}
+                            key={s.value}
                             onMouseDown={() => {
                               const params = new URLSearchParams();
-                              params.set("q", s);
+                              params.set("q", s.label);
                               if (selectedCountry.code !== "ALL") params.set("country", selectedCountry.code);
                               setLocation(`/search?${params.toString()}`);
                             }}
                             className={`w-full text-left px-3 py-2 hover:bg-gray-100 ${activeIdx === i ? 'bg-gray-100' : ''} text-gray-800`}
                           >
-                            {s}
+                            {s.label}
                           </button>
                         ))}
                       </div>

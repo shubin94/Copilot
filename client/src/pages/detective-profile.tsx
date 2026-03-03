@@ -369,8 +369,8 @@ export default function DetectiveProfile() {
           },
           faqs: serviceFaqs
         }}
-        publishedTime={service.createdAt}
-        modifiedTime={service.updatedAt}
+        publishedTime={service.createdAt instanceof Date ? service.createdAt.toISOString() : service.createdAt}
+        modifiedTime={service.updatedAt instanceof Date ? service.updatedAt.toISOString() : service.updatedAt}
       />
       <Navbar />
       

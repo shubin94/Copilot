@@ -462,7 +462,7 @@ export function useAdminUpdateService() {
 
 export function useAdminUpdateServicePricing() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<{ service: any }, Error, { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }>({
     mutationFn: ({ id, data }: { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }) =>
       api.services.adminUpdatePricing(id, data),
     onSuccess: async (_: any, variables: { id: string }) => {

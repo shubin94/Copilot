@@ -30,7 +30,7 @@ export function RelatedServices({ services, isLoading, currentServiceTitle }: Re
       <h2 className="text-2xl font-bold mb-6">Similar Services You May Like</h2>
       <ServiceCardGrid
         services={services}
-        isLoading={isLoading}
+        isLoading={isLoading ?? false}
         emptyMessage="No related services found."
       />
     </div>

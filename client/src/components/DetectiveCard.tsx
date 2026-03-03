@@ -39,7 +39,7 @@ interface Detective {
 }
 
 interface DetectiveCardProps {
-  detective: Detective;
+  detective: Detective | Record<string, any>;
   variant?: "city" | "homeFeatured" | "newsFeatured";
 }
 

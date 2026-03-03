@@ -21,20 +21,21 @@ interface ServiceCardProps {
   detectiveCity?: string;
   images?: string[];
   image?: string; // Backward compatibility
-  detectiveAvatar: string | null;
-  detectiveName: string;
-  level: string;
+  detectiveAvatar?: string | null;
+  detectiveName?: string;
+  level?: string;
   category?: string;
   badgeState?: ServiceBadgeState;
-  title: string;
-  avgRating: number;
-  reviewCount: number;
-  priceDisplay: string;
+  title?: string;
+  avgRating?: number;
+  reviewCount?: number;
+  priceDisplay?: string;
   isOnEnquiry?: boolean;
   isUnclaimed?: boolean;
   phone?: string;
   whatsapp?: string;
   contactEmail?: string;
+  [key: string]: any;
 }
 
 import { useUserSafe } from "@/lib/user-context";

@@ -21,14 +21,14 @@ interface SEOProps {
   };
   structuredData?: {
     service?: {
-      price?: number;
-      offerPrice?: number;
+      price?: number | null;
+      offerPrice?: number | null;
       isOnEnquiry?: boolean;
-      category?: string;
-      city?: string;
-      country?: string;
-      detectiveName?: string;
-      detectiveLogo?: string;
+      category?: string | null;
+      city?: string | null;
+      country?: string | null;
+      detectiveName?: string | null;
+      detectiveLogo?: string | null;
     };
     faqs?: Array<{ question: string; answer: string }>;
     offers?: Array<Record<string, any>>;
