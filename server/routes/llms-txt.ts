@@ -282,7 +282,7 @@ Top-rated detectives by client reviews and investigation outcomes:
           for (const state of topStatesInCountry) {
             markdown += `- [\`${state.name}\`](/detectives/${countrySlug}/${state.slug}/) `;
             if (state.cities && Array.isArray(state.cities) && state.cities.length > 0) {
-              const cityLinks = state.cities
+              const cityLinks = (state.cities as any[])
                 .map((c: any) => `[\`${c.name}\`](/detectives/${countrySlug}/${state.slug}/${c.slug}/)`)
                 .join(", ");
               markdown += `- Cities: ${cityLinks}`;
