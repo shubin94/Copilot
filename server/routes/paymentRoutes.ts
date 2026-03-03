@@ -4,16 +4,16 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { pool } from "../../db/index.ts";
-import { storage } from "../storage.ts";
-import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "../services/smtpEmailService.ts";
-import { getPaymentGateway } from "../services/paymentGateway.ts";
-import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "../services/paypal.ts";
-import { applyPackageEntitlements } from "../services/entitlements.ts";
-import { clearFreePlanCache } from "../services/freePlan.ts";
-import * as cache from "../lib/cache.ts";
-import { config } from "../config.ts";
-import { requireRole } from "../authMiddleware.ts";
+import { pool } from "../../db/index.js";
+import { storage } from "../storage.js";
+import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "../services/smtpEmailService.js";
+import { getPaymentGateway } from "../services/paymentGateway.js";
+import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "../services/paypal.js";
+import { applyPackageEntitlements } from "../services/entitlements.js";
+import { clearFreePlanCache } from "../services/freePlan.js";
+import * as cache from "../lib/cache.js";
+import { config } from "../config.js";
+import { requireRole } from "../authMiddleware.js";
 
 // ============== HELPER FUNCTIONS ==============
 

@@ -4,12 +4,12 @@ import crypto from "crypto";
 import { createServer, type Server } from "http";
 import Razorpay from "razorpay";
 import rateLimit from "express-rate-limit";
-import { storage, generateSlug } from "./storage.ts";
-import { sendClaimApprovedEmail } from "./email.ts";
-import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.ts";
-import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.ts";
+import { storage, generateSlug } from "./storage.js";
+import { sendClaimApprovedEmail } from "./email.js";
+import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.js";
+import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.js";
 import bcrypt from "bcrypt";
-import { db, pool } from "../db/index.ts";
+import { db, pool } from "../db/index.js";
 import { eq, and, or, desc, avg, count, ilike, sql, isNotNull } from "drizzle-orm";
 import {
   detectives,
@@ -41,39 +41,39 @@ import {
   updateServiceCategorySchema,
   updateSiteSettingsSchema,
   type Detective
-} from "../shared/schema.ts";
+} from "../shared/schema.js";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { config } from "./config.ts";
-import { bodyParsers } from "./app.ts";
-import * as LocationService from "./services/locationService.ts";
-import * as cache from "./lib/cache.ts";
-import { runSmartSearch } from "./lib/smart-search.ts";
-import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.ts";
+import { config } from "./config.js";
+import { bodyParsers } from "./app.js";
+import * as LocationService from "./services/locationService.js";
+import * as cache from "./lib/cache.js";
+import { runSmartSearch } from "./lib/smart-search.js";
+import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.js";
 // import pkg from "pg"; // Unused
-import { requirePolicy } from "./policy.ts";
-import { requireAuth, requireRole } from "./authMiddleware.ts";
-import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
-import { registerLocationRoutes } from "./routes/locationRoutes.ts";
-import { registerPaymentRoutes } from "./routes/paymentRoutes.ts";
-import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.ts";
-import { getPaymentGateway } from "./services/paymentGateway.ts";
-import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
-import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.ts";
-import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.ts";
-import adminCmsRouter from "./routes/admin-cms.ts";
-import adminFinanceRouter from "./routes/admin-finance.ts";
-import adminEmployeesRouter from "./routes/admin/employees.ts";
-import publicPagesRouter from "./routes/public-pages.ts";
-import publicCategoriesRouter from "./routes/public-categories.ts";
-import publicTagsRouter from "./routes/public-tags.ts";
-// import sitemapRouter from "./routes/sitemap.ts"; // Unused
-// import rssRouter from "./routes/rss.ts"; // Unused
-import llmsTxtRouter from "./routes/llms-txt.ts";
-import featuredHomeServicesRouter from "./routes/featured-home-services.ts";
+import { requirePolicy } from "./policy.js";
+import { requireAuth, requireRole } from "./authMiddleware.js";
+import { paymentGatewayRoutes } from "./routes/paymentGateways.js";
+import { registerLocationRoutes } from "./routes/locationRoutes.js";
+import { registerPaymentRoutes } from "./routes/paymentRoutes.js";
+import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.js";
+import { getPaymentGateway } from "./services/paymentGateway.js";
+import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.js";
+import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.js";
+import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.js";
+import adminCmsRouter from "./routes/admin-cms.js";
+import adminFinanceRouter from "./routes/admin-finance.js";
+import adminEmployeesRouter from "./routes/admin/employees.js";
+import publicPagesRouter from "./routes/public-pages.js";
+import publicCategoriesRouter from "./routes/public-categories.js";
+import publicTagsRouter from "./routes/public-tags.js";
+// import sitemapRouter from "./routes/sitemap.js"; // Unused
+// import rssRouter from "./routes/rss.js"; // Unused
+import llmsTxtRouter from "./routes/llms-txt.js";
+import featuredHomeServicesRouter from "./routes/featured-home-services.js";
 import { buildServiceCardDTO } from "../utils/buildServiceCardDTO";
-import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.ts";
-import { googleIndexing } from "./services/google-indexing-service.ts";
+import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.js";
+import { googleIndexing } from "./services/google-indexing-service.js";
 
 // Utility function to generate URL-safe slugs from text
 

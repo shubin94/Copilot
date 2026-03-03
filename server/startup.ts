@@ -1,8 +1,8 @@
-import { db, pool } from "../db/index.ts";
-import { appPolicies, siteSettings, appSecrets } from "../shared/schema.ts";
+import { db, pool } from "../db/index.js";
+import { appPolicies, siteSettings, appSecrets } from "../shared/schema.js";
 import { inArray, sql } from "drizzle-orm";
-import { config } from "./config.ts";
-import { getPaymentGateway } from "./services/paymentGateway.ts";
+import { config } from "./config.js";
+import { getPaymentGateway } from "./services/paymentGateway.js";
 
 const REQUIRED_TABLES = ["app_secrets", "app_policies", "site_settings"] as const;
 

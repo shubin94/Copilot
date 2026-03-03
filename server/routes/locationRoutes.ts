@@ -1,8 +1,8 @@
 import type { Express, Request, Response } from "express";
-import { pool } from "../../db/index.ts";
-import { storage } from "../storage.ts";
-import { requireAuth, requireRole } from "../authMiddleware.ts";
-import * as LocationService from "../services/locationService.ts";
+import { pool } from "../../db/index.js";
+import { storage } from "../storage.js";
+import { requireAuth, requireRole } from "../authMiddleware.js";
+import * as LocationService from "../services/locationService.js";
 
 /**
  * Register all location-related routes

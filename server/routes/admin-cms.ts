@@ -1,14 +1,14 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { pool } from "../../db/index.ts";
-import { uploadDataUrl } from "../supabase.ts";
-import { requireRole } from "../authMiddleware.ts";
+import { pool } from "../../db/index.js";
+import { uploadDataUrl } from "../supabase.js";
+import { requireRole } from "../authMiddleware.js";
 import {
   isImageBlock,
   parseContentBlocks,
   stringifyContentBlocks,
-} from "../../client/src/shared/content-blocks.ts";
+} from "../../client/src/shared/content-blocks.js";
 import {
   getCategories,
   getCategoryById,
@@ -23,8 +23,8 @@ import {
   createPage,
   updatePage,
   deletePage,
-} from "../storage/cms.ts";
-import * as cache from "../lib/cache.ts";
+} from "../storage/cms.js";
+import * as cache from "../lib/cache.js";
 
 const router = Router();
 

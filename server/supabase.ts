@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { config } from "./config.ts";
+import { config } from "./config.js";
 
 /**
  * Supabase Configuration - Environment Variables ONLY

@@ -1,6 +1,6 @@
-import { pool } from "../../db/index.ts";
+import { pool } from "../../db/index.js";
 import { v4 as uuidv4 } from "uuid";
-import { ContentBlock, parseContentBlocks } from "../../client/src/shared/content-blocks.ts";
+import { ContentBlock, parseContentBlocks } from "../../client/src/shared/content-blocks.js";
 
 // ============== CATEGORIES ==============
 
