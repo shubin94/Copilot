@@ -109,7 +109,13 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
   const avatar = svc.detective.logo || "";
   const level = svc.detective.level ? (svc.detective.level === "pro" ? "Pro Level" : (svc.detective.level as string).replace("level", "Level ")) : "Level 1";
   
-  const badgeState = svc.badgeState;
+  // Compute badge state from detective properties
+  const badgeState = {
+    showBlueTick: svc.detective.hasBlueTick || false,
+    showPro: svc.detective.level === 'pro' || svc.detective.level === 'level2' || false,
+    showRecommended: false,
+    blueTickLabel: svc.detective.hasBlueTick ? 'Verified' : 'Unverified'
+  };
   
   return (
     <ServiceCard
@@ -128,14 +134,14 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
       isOnEnquiry={svc.isOnEnquiry}
       category={svc.category}
       badgeState={badgeState}
-      phone={svc.detective.phone || undefined}
-      whatsapp={svc.detective.whatsapp || undefined}
-      contactEmail={svc.detective.contactEmail}
-      countryCode={svc.detective.country || undefined}
-      detectiveCountry={svc.detective.country}
-      detectiveState={svc.detective.state}
-      detectiveCity={svc.detective.city}
-      detectiveSlug={svc.detective.slug}
+      phone={svc.detective.phone ?? undefined}
+      whatsapp={svc.detective.whatsapp ?? undefined}
+      contactEmail={svc.detective.contactEmail ?? undefined}
+      countryCode={svc.detective.country ?? undefined}
+      detectiveCountry={svc.detective.country ?? undefined}
+      detectiveState={svc.detective.state ?? undefined}
+      detectiveCity={svc.detective.city ?? undefined}
+      detectiveSlug={svc.detective.slug ?? undefined}
     />
   );
 }

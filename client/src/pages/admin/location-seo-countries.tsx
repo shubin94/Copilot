@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Edit2, AlertCircle, Loader2 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";

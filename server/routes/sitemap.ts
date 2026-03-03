@@ -48,31 +48,31 @@ router.get(/\.xml$/, async (req: Request, res: Response) => {
 });
 
 // Static pages sitemap - /sitemap-static.xml
-router.get(/-static\.xml$/, async (req: Request, res: Response) => {
+router.get(/-static\.xml$/, async (_req: Request, res: Response) => {
   console.log(`[Sitemap] Serving static sitemap`);
   await sendSitemap(res, generateStaticSitemap);
 });
 
 // Countries sitemap - /sitemap-countries.xml
-router.get(/-countries\.xml$/, async (req: Request, res: Response) => {
+router.get(/-countries\.xml$/, async (_req: Request, res: Response) => {
   console.log(`[Sitemap] Serving countries sitemap`);
   await sendSitemap(res, generateCountriesSitemap);
 });
 
 // States sitemap - /sitemap-states.xml
-router.get(/-states\.xml$/, async (req: Request, res: Response) => {
+router.get(/-states\.xml$/, async (_req: Request, res: Response) => {
   console.log(`[Sitemap] Serving states sitemap`);
   await sendSitemap(res, generateStatesSitemap);
 });
 
 // Cities sitemap - /sitemap-cities.xml
-router.get(/-cities\.xml$/, async (req: Request, res: Response) => {
+router.get(/-cities\.xml$/, async (_req: Request, res: Response) => {
   console.log(`[Sitemap] Serving cities sitemap`);
   await sendSitemap(res, generateCitiesSitemap);
 });
 
 // Detectives sitemap - /sitemap-detectives.xml
-router.get(/-detectives\.xml$/, async (req: Request, res: Response) => {
+router.get(/-detectives\.xml$/, async (_req: Request, res: Response) => {
   console.log(`[Sitemap] Serving detectives sitemap`);
   await sendSitemap(res, generateDetectivesSitemap);
 });
@@ -103,7 +103,7 @@ router.get(/-services-(\d+)\.xml$/, async (req: Request, res: Response) => {
 });
 
 // Status endpoint - get sitemap statistics
-router.get(/-status\.json$/, async (req: Request, res: Response) => {
+router.get(/-status\.json$/, async (_req: Request, res: Response) => {
   try {
     const { pool } = await import("../../db/index.ts");
     

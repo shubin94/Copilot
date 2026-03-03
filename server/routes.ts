@@ -2,14 +2,15 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createHash, randomBytes } from "node:crypto";
 import crypto from "crypto";
 import { createServer, type Server } from "http";
+import Razorpay from "razorpay";
 import rateLimit from "express-rate-limit";
-import { storage } from "./storage.ts";
+import { storage, generateSlug } from "./storage.ts";
 import { sendClaimApprovedEmail } from "./email.ts";
 import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.ts";
 import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.ts";
 import bcrypt from "bcrypt";
 import { db, pool } from "../db/index.ts";
-import { eq, and, or, desc, avg, count, min, ilike, sql, isNotNull } from "drizzle-orm";
+import { eq, and, or, desc, avg, count, ilike, sql, isNotNull } from "drizzle-orm";
 import {
   detectives,
   countries,
@@ -19,7 +20,6 @@ import {
   users,
   claimTokens,
   passwordResetTokens,
-  emailTemplates,
   detectiveSnippets,
   appSecrets,
   services,
@@ -34,14 +34,13 @@ import {
   insertDetectiveApplicationSchema,
   insertProfileClaimSchema,
   insertServiceCategorySchema,
-  updateUserSchema,
   updateDetectiveSchema,
   updateServiceSchema,
   updateReviewSchema,
   updateOrderSchema,
   updateServiceCategorySchema,
   updateSiteSettingsSchema,
-  type User
+  type Detective
 } from "../shared/schema.ts";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
@@ -51,25 +50,25 @@ import * as LocationService from "./services/locationService.ts";
 import * as cache from "./lib/cache.ts";
 import { runSmartSearch } from "./lib/smart-search.ts";
 import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.ts";
-import { WORLD_COUNTRIES } from "../client/src/lib/world-countries.ts";
-import { Country, State, City } from "country-state-city";
-import pkg from "pg";
-const { Pool } = pkg;
+// import pkg from "pg"; // Unused
 import { requirePolicy } from "./policy.ts";
 import { requireAuth, requireRole } from "./authMiddleware.ts";
-import { generateSlug } from "./lib/slug-utils.ts";
 import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
 import { registerLocationRoutes } from "./routes/locationRoutes.ts";
 import { registerPaymentRoutes } from "./routes/paymentRoutes.ts";
 import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.ts";
+import { getPaymentGateway } from "./services/paymentGateway.ts";
+import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
+import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.ts";
+import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.ts";
 import adminCmsRouter from "./routes/admin-cms.ts";
 import adminFinanceRouter from "./routes/admin-finance.ts";
 import adminEmployeesRouter from "./routes/admin/employees.ts";
 import publicPagesRouter from "./routes/public-pages.ts";
 import publicCategoriesRouter from "./routes/public-categories.ts";
 import publicTagsRouter from "./routes/public-tags.ts";
-import sitemapRouter from "./routes/sitemap.ts";
-import rssRouter from "./routes/rss.ts";
+// import sitemapRouter from "./routes/sitemap.ts"; // Unused
+// import rssRouter from "./routes/rss.ts"; // Unused
 import llmsTxtRouter from "./routes/llms-txt.ts";
 import featuredHomeServicesRouter from "./routes/featured-home-services.ts";
 import { buildServiceCardDTO } from "../utils/buildServiceCardDTO";
@@ -141,15 +140,33 @@ function getCountryCode(countryNameOrSlug: string): string {
 
 // Razorpay client initialization has been moved to server/routes/paymentRoutes.ts
 
-// Extend Express Session
-declare module "express-session" {
-  interface SessionData {
-    userId: string;
-    userRole: string;
-    csrfToken?: string;
-    csrfTokenGeneratedAt?: number;
-    oauthState?: string;
-    oauthStateGeneratedAt?: number;
+let razorpayClient = new Razorpay({
+  key_id: config.razorpay.keyId || "dummy",
+  key_secret: config.razorpay.keySecret || "dummy",
+});
+
+async function getRazorpayClient() {
+  const gateway = await getPaymentGateway("razorpay");
+  if (!gateway) {
+    return razorpayClient;
+  }
+
+  return new Razorpay({
+    key_id: gateway.config.keyId || config.razorpay.keyId,
+    key_secret: gateway.config.keySecret || config.razorpay.keySecret,
+  });
+}
+
+async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: string): Promise<void> {
+  const detective = await storage.getDetective(detectiveId);
+  if (!detective) {
+    throw new Error(`Detective not found: ${detectiveId}`);
+  }
+
+  if (detective.blueTickAddon || detective.hasBlueTick) {
+    const conflictError = new Error("Blue Tick already active");
+    Object.assign(conflictError, { statusCode: 409, provider });
+    throw conflictError;
   }
 }
 
@@ -217,8 +234,6 @@ async function applyPendingDowngrades(detective: any): Promise<any> {
   
   return detective;
 }
-
-import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.ts";
 
 // Blue Tick validation helper has been moved to server/routes/paymentRoutes.ts
 
@@ -325,7 +340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return 2;
   }
 
-  async function maskDetectiveContactsPublic(d: any, planCache?: { get: (name: string) => Promise<any> }): Promise<any> {
+  async function maskDetectiveContactsPublic(d: any, _planCache?: { get: (name: string) => Promise<any> }): Promise<any> {
     try {
       // TODO: Remove in v3.0 - This is a legacy plan name check that will be removed
       // Runtime assertion: Detect legacy plan name usage
@@ -496,7 +511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     max: 30,
     standardHeaders: true,
     legacyHeaders: false,
-    handler: (req: Request, res: Response) => {
+    handler: (_req: Request, res: Response) => {
       res.status(429).json({ error: "Too many token requests" });
     },
   });
@@ -513,8 +528,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Express-session creates req.session automatically; if missing, middleware failed
       if (!req.session) {
-        console.error("[CSRF-TOKEN] Session object missing; session middleware may have failed");
-        return res.status(403).json({ error: "Session unavailable" });
+        const fallbackToken = randomBytes(32).toString("hex");
+        const isProd = config.env.isProd || process.env.VERCEL === "1";
+        setNoStore(res);
+        res.cookie("csrfToken", fallbackToken, {
+          httpOnly: true,
+          secure: isProd,
+          sameSite: isProd ? "none" : "lax",
+          maxAge: config.session.ttlMs,
+          domain: config.session.cookieDomain || undefined,
+          path: "/",
+        });
+        console.warn("[CSRF-TOKEN] Session unavailable - using cookie fallback token");
+        return res.status(200).json({ csrfToken: fallbackToken, session: false });
       }
       
       // Generate or reuse CSRF token
@@ -528,7 +554,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Explicitly save session (required when saveUninitialized: false)
       // This ensures the session cookie is sent even on first request
-      req.session.save((err) => {
+      req.session.save((err: any) => {
         if (err) {
           console.error("[CSRF-TOKEN] Failed to save session:", err);
           // Prevent double response if headers already sent
@@ -544,7 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[CSRF-TOKEN] Saved session ${sessionId.substring(0, 20)}... with token ${req.session.csrfToken?.substring(0, 16)}...`);
 
         // Set CSRF token cookie for double-submit validation (fallback when session token is missing)
-        const isProd = config.env.isProd;
+        const isProd = config.env.isProd || process.env.VERCEL === "1";
         res.cookie("csrfToken", req.session.csrfToken, {
           httpOnly: true,
           secure: isProd,
@@ -888,7 +914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.info("[auth] Login successful", { userId: user.id, email, role: user.role });
             return res.json({ user: userWithoutPassword });
           } catch (resErr) {
-            console.error("[auth] Error sending login response", { userId: user.id, err: resErr?.message });
+            console.error("[auth] Error sending login response", { userId: user.id, err: (resErr instanceof Error ? resErr.message : String(resErr)) });
             return res.status(500).json({ error: "Failed to log in" });
           }
         });
@@ -1316,21 +1342,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
     timestamp: Date.now(),
   };
-  const RATES_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
   const RATES_UPDATE_INTERVAL = 30 * 60 * 1000; // Update every 30 minutes
   const MIN_BASE_PRICE_INR = 1000; // Minimum base price in INR (applies to all countries)
-
-  // Fallback rates (used if API fails)
-  function getFallbackRates(): Record<string, number> {
-    return {
-      USD: 1,
-      GBP: 0.79,
-      INR: 83.5,
-      CAD: 1.35,
-      AUD: 1.52,
-      EUR: 0.92,
-    };
-  }
 
   function convertCurrency(amount: number, from: string, to: string): number {
     if (from === to) return amount;
@@ -1871,7 +1884,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           pendingBillingCycle: null,
         } as any);
         
-        const updated = await storage.getDetective(detective.id);
+        // Updated detective has been fetched (but variable not needed for response)
+        await storage.getDetective(detective.id);
         return res.json({ 
           scheduled: false,
           applied: true,
@@ -1929,10 +1943,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Validate request body
-      const { packageId, billingCycle } = z.object({ 
+      const parsed = z.object({ 
         packageId: z.string().min(1, "Package ID is required"),
         billingCycle: z.enum(["monthly", "yearly"], { errorMap: () => ({ message: "Billing cycle must be 'monthly' or 'yearly'" }) })
       }).parse(req.body);
+      
+      const packageId: string = parsed.packageId;
+      const billingCycle: "monthly" | "yearly" = parsed.billingCycle;
       
       console.log(`[create-order] Fetching package ID: ${packageId}, billing: ${billingCycle}`);
       
@@ -1981,7 +1998,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rzpClient = await getRazorpayClient();
       
       // Create Razorpay order (receipt max 40 chars)
-      const order = await rzpClient.orders.create({
+      const orderResult = await rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `sub_${Date.now()}`.substring(0, 40),
@@ -1990,10 +2007,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           packageName: packageRecord.name,
           billingCycle,
           detectiveId: detective.id, 
-          userId: req.session.userId 
+          userId: req.session.userId!
         },
       });
-
+      
+      const order = orderResult as unknown as { id: string };
       console.log(`[create-order] Razorpay order created: ${order.id}`);
 
       // Save payment order to database
@@ -2002,7 +2020,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         detectiveId: detective.id,
         plan: packageRecord.name as any,
         packageId: packageId,
-        billingCycle: billingCycle,
+        billingCycle: billingCycle as unknown as string,
         amount: String(priceINR.toFixed(2)),
         currency: "INR",
         provider: "razorpay",
@@ -2354,7 +2372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Verify ownership
-      if (paymentOrder.user_id !== req.session.userId) {
+      if (paymentOrder.userId !== req.session.userId) {
         console.error("[paypal-capture] Forbidden: user does not own order");
         return res.status(403).json({ error: "Forbidden" });
       }
@@ -2371,8 +2389,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[paypal-capture] PayPal order captured: ${body.paypalOrderId}`);
 
       // Read packageId and billingCycle from payment_order
-      const packageId = paymentOrder.package_id;
-      const billingCycle = paymentOrder.billing_cycle;
+      const packageId = paymentOrder.packageId;
+      const billingCycle = paymentOrder.billingCycle;
 
       if (!packageId) {
         console.error(`[paypal-capture] Payment order missing packageId: ${body.paypalOrderId}`);
@@ -2397,7 +2415,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // GUARD: Block duplicate Blue Tick (check BEFORE any update)
       if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
         try {
-          await assertBlueTickNotAlreadyActive(paymentOrder.detective_id, 'paypal');
+          await assertBlueTickNotAlreadyActive(paymentOrder.detectiveId, 'paypal');
         } catch (guardError: any) {
           if (guardError.statusCode === 409) {
             console.warn(`[paypal-capture] Duplicate Blue Tick attempt rejected:`, guardError.message);
@@ -2418,20 +2436,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Package is no longer active" });
       }
 
-      console.log(`[paypal-capture] Activating package ${packageId} for detective ${paymentOrder.detective_id}`);
+      console.log(`[paypal-capture] Activating package ${packageId} for detective ${paymentOrder.detectiveId}`);
 
       // Handle Blue Tick addon vs regular subscription
       if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
         // Blue Tick add-on: set add-on flag only (subscription-granted Blue Tick stays in hasBlueTick via applyPackageEntitlements)
-        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+        await storage.updateDetectiveAdmin(paymentOrder.detectiveId, {
           blueTickAddon: true,
           blueTickActivatedAt: new Date(),
         } as any);
         
-        console.log(`[paypal-capture] Blue Tick add-on activated for detective ${paymentOrder.detective_id}`);
+        console.log(`[paypal-capture] Blue Tick add-on activated for detective ${paymentOrder.detectiveId}`);
       } else {
         // Regular subscription: update subscription fields only
-        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+        await storage.updateDetectiveAdmin(paymentOrder.detectiveId, {
           subscriptionPackageId: packageId,
           billingCycle: billingCycle,
           subscriptionActivatedAt: new Date(),
@@ -2439,20 +2457,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Note: subscriptionPlan and planActivatedAt are LEGACY fields - not updated during payment
         } as any);
         
-        console.log(`[paypal-capture] Subscription activated for detective ${paymentOrder.detective_id}`);
+        console.log(`[paypal-capture] Subscription activated for detective ${paymentOrder.detectiveId}`);
 
         // APPLY ENTITLEMENTS: Use centralized entitlement system
         // This function reads package.badges and applies/removes entitlements (Blue Tick, Pro, etc.)
-        await applyPackageEntitlements(paymentOrder.detective_id, 'activation');
+        await applyPackageEntitlements(paymentOrder.detectiveId, 'activation');
         
         console.log(`[paypal-capture] Entitlements applied`);
       }
 
       // Fetch updated detective to return to client
-      const updatedDetective = await storage.getDetective(paymentOrder.detective_id);
+      const updatedDetective = await storage.getDetective(paymentOrder.detectiveId);
       
       if (!updatedDetective) {
-        console.error(`[paypal-capture] Could not fetch updated detective: ${paymentOrder.detective_id}`);
+        console.error(`[paypal-capture] Could not fetch updated detective: ${paymentOrder.detectiveId}`);
         return res.status(500).json({ error: "Failed to fetch updated detective" });
       }
 
@@ -2485,6 +2503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           // Send regular subscription success email
           const expiryDate = calculateExpiryDate(new Date(), billingCycle);
+          const paymentOrderFull = paymentOrder as any;
           smtpEmailService.sendTransactionalEmail(
             user.email,
             EMAIL_TEMPLATE_KEYS.PAYMENT_SUCCESS,
@@ -2493,8 +2512,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               email: user.email,
               packageName: packageToActivate.name,
               billingCycle: billingCycle,
-              amount: String(paymentOrder.amount || ""),
-              currency: paymentOrder.currency || "USD",
+              amount: String(paymentOrderFull.amount || ""),
+              currency: paymentOrderFull.currency || "USD",
               subscriptionExpiryDate: expiryDate ? new Date(expiryDate).toLocaleDateString() : "N/A",
               supportEmail: "support@askdetectives.com",
             }
@@ -2507,8 +2526,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               detectiveName: updatedDetective.businessName || user.name,
               email: user.email,
               packageName: packageToActivate.name,
-              amount: String(paymentOrder.amount || ""),
-              currency: paymentOrder.currency || "USD",
+              amount: String(paymentOrderFull.amount || ""),
+              currency: paymentOrderFull.currency || "USD",
               supportEmail: "support@askdetectives.com",
             }
           ).catch(err => console.error("[Email] Failed to send admin payment notification:", err));
@@ -2599,37 +2618,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   // Main sitemap index - /sitemap.xml
-  app.get(/\/sitemap\.xml$/, async (req: Request, res: Response) => {
+  app.get(/\/sitemap\.xml$/, async (_req: Request, res: Response) => {
     console.log(`[Sitemap] Handling sitemap index request`);
     await sendSitemap(res, generateSitemapIndex);
   });
 
   // Static pages sitemap - /sitemap-static.xml
-  app.get(/\/sitemap-static\.xml$/, async (req: Request, res: Response) => {
+  app.get(/\/sitemap-static\.xml$/, async (_req: Request, res: Response) => {
     console.log(`[Sitemap] Serving static sitemap`);
     await sendSitemap(res, generateStaticSitemap);
   });
 
   // Countries sitemap - /sitemap-countries.xml
-  app.get(/\/sitemap-countries\.xml$/, async (req: Request, res: Response) => {
+  app.get(/\/sitemap-countries\.xml$/, async (_req: Request, res: Response) => {
     console.log(`[Sitemap] Serving countries sitemap`);
     await sendSitemap(res, generateCountriesSitemap);
   });
 
   // States sitemap - /sitemap-states.xml
-  app.get(/\/sitemap-states\.xml$/, async (req: Request, res: Response) => {
+  app.get(/\/sitemap-states\.xml$/, async (_req: Request, res: Response) => {
     console.log(`[Sitemap] Serving states sitemap`);
     await sendSitemap(res, generateStatesSitemap);
   });
 
   // Cities sitemap - /sitemap-cities.xml
-  app.get(/\/sitemap-cities\.xml$/, async (req: Request, res: Response) => {
+  app.get(/\/sitemap-cities\.xml$/, async (_req: Request, res: Response) => {
     console.log(`[Sitemap] Serving cities sitemap`);
     await sendSitemap(res, generateCitiesSitemap);
   });
 
   // Detectives sitemap - /sitemap-detectives.xml
-  app.get(/\/sitemap-detectives\.xml$/, async (req: Request, res: Response) => {
+  app.get(/\/sitemap-detectives\.xml$/, async (_req: Request, res: Response) => {
     console.log(`[Sitemap] Serving detectives sitemap`);
     await sendSitemap(res, generateDetectivesSitemap);
   });
@@ -2661,7 +2680,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Status endpoint - /sitemap-status.json
-  app.get(/\/sitemap-status\.json$/, async (req: Request, res: Response) => {
+  app.get(/\/sitemap-status\.json$/, async (_req: Request, res: Response) => {
     try {
       const r = await pool.query(`
         SELECT COUNT(*) as count FROM services s
@@ -2796,7 +2815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/admin/finance", requireRole("admin", "employee"), adminFinanceRouter);
 
   // DEBUG Image Routes - Check image URLs and storage issues
-  app.get("/api/debug/images/services", async (req: Request, res: Response) => {
+  app.get("/api/debug/images/services", async (_req: Request, res: Response) => {
     try {
       const result = await db.select({
         id: services.id,
@@ -2834,7 +2853,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/debug/images/detectives", async (req: Request, res: Response) => {
+  app.get("/api/debug/images/detectives", async (_req: Request, res: Response) => {
     try {
       const result = await db.select({
         id: detectives.id,
@@ -2938,7 +2957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // DIAGNOSTIC - Test Supabase connectivity and image availability
-  app.get("/api/diagnostic/supabase", async (req: Request, res: Response) => {
+  app.get("/api/diagnostic/supabase", async (_req: Request, res: Response) => {
     try {
       console.log("[DIAGNOSTICS] Starting Supabase connectivity test...");
 
@@ -3230,9 +3249,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Validate request body
-      const { billingCycle } = z.object({ 
+      const parsed = z.object({ 
         billingCycle: z.enum(["monthly", "yearly"], { errorMap: () => ({ message: "Billing cycle must be 'monthly' or 'yearly'" }) })
       }).parse(req.body);
+      
+      const billingCycle: "monthly" | "yearly" = parsed.billingCycle;
       
       console.log(`[blue-tick-order] Creating Blue Tick order for detective: ${detective.id}, cycle: ${billingCycle}`);
 
@@ -3266,7 +3287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Create Razorpay order
-      const order = await rzpClient.orders.create({
+      const orderResult = await rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `bluetick_${Date.now()}`.substring(0, 40),
@@ -3274,10 +3295,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: "blue_tick_addon",
           billingCycle,
           detectiveId: detective.id, 
-          userId: req.session.userId 
+          userId: req.session.userId!
         },
       });
-
+      
+      const order = orderResult as unknown as { id: string };
       console.log(`[blue-tick-order] Razorpay order created: ${order.id}`);
 
       // Save to a tracking table or note field
@@ -3586,8 +3608,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Step 3: Apply pending downgrades if expiry has passed
       detective = await applyPendingDowngrades(detective);
 
+      if (!detective) {
+        return res.status(500).json({
+          error: "Profile incomplete",
+          code: "PROFILE_FETCH_ERROR",
+          message: "Unable to retrieve detective profile"
+        });
+      }
+
       // Step 4: Compute effective badges
-      const effectiveBadges = computeEffectiveBadges(detective, (detective as any).subscriptionPackage);
+      const effectiveBadges = computeEffectiveBadges(detective);
       
       // Step 5: Return complete profile with validation flags
       res.json({ 
@@ -3874,6 +3904,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Detective profile already exists" });
       }
 
+      // DEFENSIVE CHECK: Business name is required for slug generation
+      if (!validatedData.businessName || validatedData.businessName.trim() === "") {
+        return res.status(400).json({ error: "Business name is required" });
+      }
+
+      // Generate unique slug from business name
+      const baseSlug = generateSlug(validatedData.businessName);
+      const uniqueSlug = await storage.ensureUniqueDetectiveSlug(baseSlug);
+
       // Resolve location IDs (REQUIRED - database has NOT NULL constraints)
       let locationIds: LocationService.ResolvedLocationIds;
       try {
@@ -3889,6 +3928,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const detective = await storage.createDetective({
         ...validatedData,
+        slug: uniqueSlug,
         countryId: locationIds.countryId!,
         stateId: locationIds.stateId!,
         cityId: locationIds.cityId!,
@@ -3900,7 +3940,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Lazy-populate country code in background (non-blocking)
       if (validatedData.country) {
-        const { ensureCountryCode } = await import("../utils/countryCodeMapper.ts");
+        const { ensureCountryCode } = await import("./utils/countryCodeMapper.ts");
         ensureCountryCode(validatedData.country).catch(err => {
           console.error("[Country Mapper] Failed to populate code:", err);
         });
@@ -3973,7 +4013,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Lazy-populate country code in background (non-blocking)
       if (validatedData.country && updatedDetective) {
-        const { ensureCountryCode } = await import("../utils/countryCodeMapper.ts");
+        const { ensureCountryCode } = await import("./utils/countryCodeMapper.ts");
         ensureCountryCode(updatedDetective.country).catch(err => {
           console.error("[Country Mapper] Failed to populate code:", err);
         });
@@ -4047,7 +4087,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         planExpiresAt: z.string().datetime().optional(),
       }).parse(req.body);
 
-      const updatedDetective = await storage.updateDetectiveAdmin(req.params.id, allowedData);
+      const detectiveUpdates: Partial<Detective> = {
+        businessName: allowedData.businessName,
+        bio: allowedData.bio,
+        location: allowedData.location,
+        phone: allowedData.phone,
+        whatsapp: allowedData.whatsapp,
+        languages: allowedData.languages,
+        status: allowedData.status,
+        isVerified: allowedData.isVerified,
+        country: allowedData.country,
+        level: allowedData.level,
+        planActivatedAt: allowedData.planActivatedAt ? new Date(allowedData.planActivatedAt) : undefined,
+        planExpiresAt: allowedData.planExpiresAt ? new Date(allowedData.planExpiresAt) : undefined,
+      };
+
+      const updatedDetective = await storage.updateDetectiveAdmin(req.params.id, detectiveUpdates);
       
       // Trigger Google Indexing API for updated detective profile
       if (updatedDetective && updatedDetective.slug && updatedDetective.country && updatedDetective.state && updatedDetective.city) {
@@ -4294,7 +4349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (country.name.toLowerCase().includes(query)) {
           matchingLocations.push({
             type: "location",
-            label: `${country.flag} ${country.name}`,
+            label: country.name,
             value: `country:${country.code}`,
           });
         }
@@ -4359,23 +4414,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== SERVICE ROUTES ==============
 
-  // In-memory cache for ranked detectives (TTL: 2 minutes)
-  const RANKED_DETECTIVES_TTL_MS = 2 * 60 * 1000;
+  // In-memory cache for ranked detectives(cache initialized but functions removed)
   const rankedDetectivesCache = new Map<string, { expiresAt: number; data: any }>();
-  const getRankedDetectivesCache = (key: string) => {
-    const entry = rankedDetectivesCache.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
-      rankedDetectivesCache.delete(key);
-      return undefined;
-    }
-    return entry.data;
-  };
-  const setRankedDetectivesCache = (key: string, data: any) => {
-    rankedDetectivesCache.set(key, { expiresAt: Date.now() + RANKED_DETECTIVES_TTL_MS, data });
-  };
-
-  // In-memory cache for popular services pages (TTL: 30 seconds)
+  // getRankedDetectivesCache and setRankedDetectivesCache removed - unused
+  
   const SERVICES_POPULAR_TTL_MS = 30 * 1000;
   const servicesPopularCache = new Map<string, { expiresAt: number; data: any }>();
   const getServicesPopularCache = (key: string) => {
@@ -5643,6 +5685,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const phone = application.phoneCountryCode && application.phoneNumber 
             ? `${application.phoneCountryCode}${application.phoneNumber}`
             : undefined;
+          const agencyBusinessDocument = Array.isArray(application.businessDocuments)
+            ? application.businessDocuments[0]
+            : undefined;
+          const individualIdentityDocument = Array.isArray(application.documents)
+            ? application.documents[0]
+            : undefined;
 
           // Check if phone already exists in detectives table (phone uniqueness constraint)
           if (phone) {
@@ -5660,9 +5708,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Create detective profile with ALL application data
           // Determine if this is admin-created or self-registered
           const isAdminCreated = application.isClaimable === true;
+          const freePlanId = await getFreePlanId();
+          const postApprovalStatusPolicy = (await requirePolicy<{ value: string }>("post_approval_status"))?.value;
+          const postApprovalStatus: "pending" | "active" | "suspended" | "inactive" =
+            postApprovalStatusPolicy === "pending" || postApprovalStatusPolicy === "active" || postApprovalStatusPolicy === "suspended" || postApprovalStatusPolicy === "inactive"
+              ? postApprovalStatusPolicy
+              : "active";
           
           let detective = await storage.getDetectiveByUserId(user!.id);
           if (!detective) {
+            // DEFENSIVE CHECK: Business name is required for slug generation
+            const businessName = application.companyName || application.fullName;
+            if (!businessName || businessName.trim() === "") {
+              return res.status(400).json({ error: "Business/company name is required" });
+            }
+
+            // Generate unique slug from business name
+            const baseSlug = generateSlug(businessName);
+            const uniqueSlug = await storage.ensureUniqueDetectiveSlug(baseSlug);
+
             // Resolve location IDs (REQUIRED - database has NOT NULL constraints)
             let locationIds: LocationService.ResolvedLocationIds;
             try {
@@ -5678,13 +5742,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             detective = await storage.createDetective({
               userId: user!.id,
-              businessName: application.companyName || application.fullName,
+              businessName: businessName,
+              slug: uniqueSlug,
               bio: application.about || "Professional detective ready to help with your case.",
               logo: application.logo || undefined,
               defaultServiceBanner: (application as any).banner || undefined,
-              subscriptionPlan: "free", // TODO: Remove in v3.0 - legacy field only
-              subscriptionPackageId: null, // Explicitly NULL - user starts with FREE tier
-              status: (await requirePolicy<{ value: string }>("post_approval_status"))?.value || "active",
+              subscriptionPackageId: freePlanId,
+              status: postApprovalStatus,
               isVerified: true,
               isClaimed: false,
               isClaimable: isAdminCreated ? true : false,
@@ -5703,15 +5767,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               businessWebsite: application.businessWebsite || undefined,
               licenseNumber: application.licenseNumber || undefined,
               businessType: application.businessType || undefined,
-              businessDocuments: application.businessType === 'agency' ? application.businessDocuments || undefined : undefined,
-              identityDocuments: application.businessType === 'individual' ? (application as any).documents || undefined : undefined,
+              businessDocuments: application.businessType === 'agency' ? agencyBusinessDocument : undefined,
+              identityDocuments: application.businessType === 'individual' ? individualIdentityDocument : undefined,
               mustCompleteOnboarding: !(application.serviceCategories && application.categoryPricing && application.serviceCategories.length > 0),
               onboardingPlanSelected: false,
             });
           } else {
             await storage.updateDetectiveAdmin(detective.id, {
               defaultServiceBanner: (application as any).banner || detective.defaultServiceBanner || undefined,
-              status: (await requirePolicy<{ value: string }>("post_approval_status"))?.value || "active",
+              status: postApprovalStatus,
               isVerified: true,
               isClaimed: detective.isClaimed ?? false,
               isClaimable: isAdminCreated ? true : false,
@@ -5766,13 +5830,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 
                 // Create the service
                 try {
+                  const bannerImage = typeof (application as { banner?: unknown }).banner === "string"
+                    ? (application as { banner: string }).banner
+                    : undefined;
                   await storage.createService({
                     detectiveId: detective.id,
                     category,
+                    slug: generateSlug(`${detective.id}-${category}-services`),
                     title: `${category} Services`,
                     description: `Professional ${category.toLowerCase()} services by ${application.fullName}. Contact for detailed consultation.`,
                     basePrice: isOnEnquiry ? null : (pricing.price || null),
-                    images: (application as any).banner ? [(application as any).banner] : undefined,
+                    images: bannerImage ? [bannerImage] : undefined,
                     isActive: true,
                     isOnEnquiry: isOnEnquiry,
                   });
@@ -6315,6 +6383,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Replace detective.primaryEmail (from profile) or user.email with claimed email
       const claimedEmail = detective.contactEmail; // Set during Step 2 claim
 
+      if (!claimedEmail) {
+        return res.status(400).json({ error: "Claimed email missing" });
+      }
+
       // Ensure the new email is unique in users table
       const existingUser = await db
         .select()
@@ -6395,7 +6467,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== ADMIN EMAIL TEMPLATE ROUTES ==============
 
-  app.get("/api/admin/email-templates", requireRole("admin"), async (req: Request, res: Response) => {
+  app.get("/api/admin/email-templates", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       const { getAllEmailTemplates } = await import("./services/emailTemplateService");
       const templates = await getAllEmailTemplates();
@@ -6501,7 +6573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/email-templates/test-all", requireRole("admin"), async (req: Request, res: Response) => {
+  app.post("/api/admin/email-templates/test-all", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       const testEmail = "contact@askdetectives.com";
 
@@ -7237,7 +7309,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         country: countryRow.code,             // 2-letter country code (IN, US, GB)
         state: stateRow.name,                 // Full state name (Maharashtra)
         city: cityRow.name,                   // Full city name (Pune)
-      }, limit = 50, offset = 0, sortBy = 'popular');
+      }, 50, 0, 'popular');
 
       // Return 404 if no services found in this location
       if (!serviceResults || serviceResults.length === 0) {
@@ -7715,7 +7787,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/snippets - List all saved snippets
-  app.get("/api/snippets", requireRole("admin"), async (req: Request, res: Response) => {
+  app.get("/api/snippets", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       const snippets = await db
         .select()
@@ -7743,7 +7815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     // ✅ STEP 1: RESOLVE COUNTRY to country_id
-    let countryId: string | null = null;
+    let countryId: number | null = null;
     try {
       const countryResult = await db
         .select({ id: countries.id })
@@ -7770,7 +7842,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     // ✅ STEP 2: RESOLVE STATE to state_id (if provided)
-    let stateId: string | null = null;
+    let stateId: number | null = null;
     if (state) {
       try {
         const stateResult = await db
@@ -7801,7 +7873,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     // ✅ STEP 3: RESOLVE CITY to city_id (if provided)
-    let cityId: string | null = null;
+    let cityId: number | null = null;
     if (city && stateId) {
       try {
         const cityResult = await db
@@ -8016,7 +8088,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!hasState) {
         // ✅ STEP 1: Resolve country string to country_id
-        let countryId: string | null = null;
+        let countryId: number | null = null;
         try {
           const countryResult = await db
             .select({ id: countries.id })
@@ -8067,7 +8139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // ✅ STEP 1: Resolve country string to country_id
-      let countryId: string | null = null;
+      let countryId: number | null = null;
       try {
         const countryResult = await db
           .select({ id: countries.id })
@@ -8093,7 +8165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // ✅ STEP 2: Resolve state string to state_id
-      let stateId: string | null = null;
+      let stateId: number | null = null;
       try {
         const stateResult = await db
           .select({ id: states.id })
@@ -8160,7 +8232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // ✅ STEP 1: RESOLVE COUNTRY to country_id
-      let countryId: string | null = null;
+      let countryId: number | null = null;
       try {
         const countryResult = await db
           .select({ id: countries.id })
@@ -8186,7 +8258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // ✅ STEP 2: RESOLVE STATE to state_id (if provided)
-      let stateId: string | null = null;
+      let stateId: number | null = null;
       if (state) {
         try {
           const stateResult = await db
@@ -8216,7 +8288,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // ✅ STEP 3: RESOLVE CITY to city_id (if provided)
-      let cityId: string | null = null;
+      let cityId: number | null = null;
       if (city && stateId) {
         try {
           const cityResult = await db
@@ -8655,7 +8727,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Insert case study
       const result = await db
         .insert(caseStudies)
-        .values(validatedData)
+        .values({
+          ...validatedData,
+          publishedAt: new Date(validatedData.publishedAt),
+        })
         .returning();
 
       const newCaseStudy = result[0];
@@ -8712,6 +8787,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const validatedData = updateSchema.parse(req.body);
+      const updateValues: {
+        title?: string;
+        slug?: string;
+        content?: string;
+        excerptHtml?: string;
+        detectiveId?: string;
+        category?: string;
+        featured?: boolean;
+        thumbnail?: string;
+        publishedAt?: Date;
+        updatedAt: Date;
+      } = {
+        title: validatedData.title,
+        slug: validatedData.slug,
+        content: validatedData.content,
+        excerptHtml: validatedData.excerptHtml,
+        detectiveId: validatedData.detectiveId,
+        category: validatedData.category,
+        featured: validatedData.featured,
+        thumbnail: validatedData.thumbnail,
+        updatedAt: new Date(),
+      };
+
+      if (validatedData.publishedAt) {
+        updateValues.publishedAt = new Date(validatedData.publishedAt);
+      }
 
       // Check slug uniqueness if changed
       if (validatedData.slug && validatedData.slug !== existingStudy.slug) {
@@ -8729,7 +8830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update case study
       const result = await db
         .update(caseStudies)
-        .set({ ...validatedData, updatedAt: new Date() })
+        .set(updateValues)
         .where(eq(caseStudies.id, id))
         .returning();
 

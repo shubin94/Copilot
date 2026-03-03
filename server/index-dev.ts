@@ -21,7 +21,6 @@ import {
   extractDetectiveRouteParams,
   getDetectiveBySlugForSEO,
   injectSeoTags,
-  isLocationListingPath,
   extractLocationRouteParams,
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
@@ -31,10 +30,10 @@ import { storage } from "./storage";
 
 const viteLogger = createLogger();
 
-export async function setupVite(app: Express, server: Server) {
+export async function setupVite(app: Express, _server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    hmr: true,
     allowedHosts: true as const,
   };
 
@@ -88,6 +87,15 @@ export async function setupVite(app: Express, server: Server) {
         params.city
       );
       const detectives = locationSeoData.detectives;
+      const seoDetectives = detectives
+        .filter((d) => Boolean(d.slug) && Boolean(d.businessName))
+        .map((d) => ({
+          slug: d.slug as string,
+          businessName: d.businessName as string,
+          city: d.city,
+          state: d.state,
+          country: d.country,
+        }));
       const totalCount = locationSeoData.totalCount;
 
       // If no detectives found for this location, return 404
@@ -117,7 +125,7 @@ export async function setupVite(app: Express, server: Server) {
       
       console.log(`[DEV-SEO] Before injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
       
-      template = await injectLocationSeoTags(template, params, detectives, canonicalUrl, totalCount);
+      template = await injectLocationSeoTags(template, params, seoDetectives, canonicalUrl, totalCount);
       
       console.log(`[DEV-SEO] After injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
       console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${totalCount} total detectives, ${detectives.length} rendered)`);
@@ -164,8 +172,8 @@ export async function setupVite(app: Express, server: Server) {
               countrySlug,
               stateSlug,
               citySlug,
-              cityName: params.city,
-              stateName: params.state,
+              cityName: params.city ?? "",
+              stateName: params.state ?? "",
             }, true);
             console.log(`[DEV-SEO] Injected background check services link for ${params.city}, ${params.state}`);
           }
@@ -275,6 +283,88 @@ export async function setupVite(app: Express, server: Server) {
     }
   });
 
+  // SERVICE DETAIL PAGE ROUTE (Development)
+  // Intercepts /service/:country/:state/:city/:detectiveSlug/:serviceSlug
+  app.get(/^\/service\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {
+    try {
+      const requestPath = req.path;
+      const segments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
+      
+      // Validate we have exactly 6 segments (service + 5 params)
+      if (segments.length !== 6 || segments[0] !== 'service') {
+        return; // Fall through to other handlers
+      }
+
+      const [, country, state, city, detectiveSlug, serviceSlug] = segments;
+
+      console.log("[Service Detail Dev] Request matched:", {
+        country,
+        state,
+        city,
+        detectiveSlug,
+        serviceSlug,
+      });
+
+      // Serve with Vite transform for development
+      const clientTemplate = path.resolve(
+        import.meta.dirname,
+        "..",
+        "client",
+        "index.html",
+      );
+
+      let template = await fs.promises.readFile(clientTemplate, "utf-8");
+      template = template.replace(
+        `src="/src/main.tsx"`,
+        `src="/src/main.tsx?v=${nanoid()}"`,
+      );
+
+      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
+      
+      // Inject breadcrumb structured data
+      template = template.replace(
+        '</head>',
+        `<link rel="canonical" href="${canonicalUrl}" />
+       <script type="application/ld+json">
+       {
+         "@context": "https://schema.org",
+         "@type": "BreadcrumbList",
+         "itemListElement": [
+           {
+             "@type": "ListItem",
+             "position": 1,
+             "name": "Home",
+             "item": "https://www.askdetectives.com"
+           },
+           {
+             "@type": "ListItem",
+             "position": 2,
+             "name": "Service",
+             "item": "${canonicalUrl}"
+           }
+         ]
+       }
+       </script></head>`
+      );
+
+      console.log(`[Service Detail Dev] Serving service page: ${detectiveSlug}/${serviceSlug}`);
+
+      const page = await vite.transformIndexHtml(req.originalUrl, template);
+      res.setHeader("Cache-Control", "no-store");
+      res.set({ "Content-Type": "text/html; charset=utf-8" }).end(page);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[Service Detail Dev] Error:', {
+        url: req.originalUrl,
+        message: errorMsg,
+      });
+      return res.status(500).set({ "Content-Type": "text/html" }).send(
+        "<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1></body></html>"
+      );
+    }
+  });
+
   // SERVICE + LOCATION SEO INJECTION (Development)
   // Intercepts /services/background-checks/:country/:state/:city
   app.get(/^\/services\/background-checks\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {
@@ -312,12 +402,17 @@ export async function setupVite(app: Express, server: Server) {
       console.log("[Service SEO] Location resolved:", location);
 
       // Fetch background check services for this location
-      const serviceResults = await storage.searchServices({
-        category: "Background Check",
-        country: location.countryCode,
-        state: location.stateName,
-        city: location.cityName,
-      }, limit = 50, offset = 0, sortBy = 'popular');
+      const serviceResults = await storage.searchServices(
+        {
+          category: "Background Check",
+          country: location.countryCode,
+          state: location.stateName,
+          city: location.cityName,
+        },
+        50,
+        0,
+        "popular"
+      );
 
       // Return 404 if no services found
       if (!serviceResults || serviceResults.length === 0) {
@@ -378,7 +473,7 @@ export async function setupVite(app: Express, server: Server) {
   // ============================================================================
 
   // Debug: Log all requests before Vite middleware
-  app.use((req, res, next) => {
+  app.use((req, _res, next) => {
     console.log("[SEO DEBUG] Before Vite middleware:", req.originalUrl);
     next();
   });
@@ -547,7 +642,7 @@ async function attachViteTransform(
     validateConfig(secretsLoadedSuccessfully);
     await validateDatabase();
     await ensureLocationSeoTable();
-    const server = await runApp(setupVite);
+    await runApp(setupVite);
     console.log(`✅ Server fully started and listening on port ${config.server.port}`);
     
     // Keep the process alive - prevent premature exit

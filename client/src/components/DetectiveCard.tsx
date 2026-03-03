@@ -9,18 +9,19 @@ import { computeServiceBadges } from "@/lib/service-badges";
 
 interface Detective {
   id: string;
-  businessName?: string;
-  slug?: string;
-  logo?: string;
-  city?: string;
-  state?: string;
+  businessName?: string | null;
+  slug?: string | null;
+  logo?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
   isVerified?: boolean;
   effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean };
   level?: string;
-  phone?: string;
-  whatsapp?: string;
-  contactEmail?: string;
-  bio?: string;
+  phone?: string | null;
+  whatsapp?: string | null;
+  contactEmail?: string | null;
+  bio?: string | null;
   avgRating?: number;
   reviewCount?: number;
   badgeState?: {
@@ -36,6 +37,8 @@ interface Detective {
       recommended?: boolean;
     };
   };
+  // Allow additional properties from database/API responses
+  [key: string]: any;
 }
 
 interface DetectiveCardProps {
@@ -265,7 +268,7 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1">
               {[...Array(5)].map((_, i) => (
-                <span key={i} className={i < Math.round(detective.avgRating) ? "text-yellow-400" : "text-gray-300"}>
+                <span key={i} className={i < Math.round(detective.avgRating || 0) ? "text-yellow-400" : "text-gray-300"}>
                   ★
                 </span>
               ))}

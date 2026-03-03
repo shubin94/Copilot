@@ -30,7 +30,7 @@ function getExcerpt(content: string): string {
   return "";
 }
 
-export function RelatedPosts({ currentPostId, categoryId, tags = [] }: RelatedPostsProps) {
+export function RelatedPosts({ currentPostId, categoryId }: RelatedPostsProps) {
   const { data, isLoading } = useQuery<RelatedPost[]>({
     queryKey: ["related-posts", currentPostId, categoryId],
     queryFn: async () => {

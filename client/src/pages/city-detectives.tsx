@@ -115,7 +115,7 @@ export default function CityDetectivesPage() {
   // Support routes: /detectives/:country, /detectives/:country/:state, /detectives/:country/:state/:city
   const [match, params] = useRoute("/detectives/:country/:state/:city");
   const [matchState, paramsState] = useRoute("/detectives/:country/:state");
-  const [matchCountry, paramsCountry] = useRoute("/detectives/:country");
+  const [, paramsCountry] = useRoute("/detectives/:country");
   
   // Use the matched route params
   const matchedParams = match ? params : (matchState ? paramsState : paramsCountry);
@@ -147,8 +147,8 @@ export default function CityDetectivesPage() {
   const [expandedFAQs, setExpandedFAQs] = useState<{ [key: number]: boolean }>({ 0: false, 1: false, 2: false });
 
   const countrySlug = matchedParams?.country || "";
-  const stateSlug = matchedParams?.state || "";
-  const citySlug = matchedParams?.city || "";
+  const stateSlug = (matchedParams as any)?.state || "";
+  const citySlug = (matchedParams as any)?.city || "";
   const isCountryLevel = !!countrySlug && !stateSlug;
   const isStateLevel = !!countrySlug && !!stateSlug && !citySlug;
   const isCityLevel = !!countrySlug && !!stateSlug && !!citySlug;

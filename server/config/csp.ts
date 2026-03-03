@@ -43,7 +43,7 @@ export const CSP_POLICY = [
 /**
  * Middleware function to apply CSP headers to all responses
  */
-export function applyCspHeader(req: any, res: any, next: any) {
+export function applyCspHeader(_req: any, res: any, next: any) {
   res.setHeader('Content-Security-Policy', CSP_POLICY);
   next();
 }

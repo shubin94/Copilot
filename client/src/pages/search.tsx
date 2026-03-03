@@ -4,23 +4,20 @@ import { ServiceCardGrid } from "@/components/common/service-card-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Slider } from "@/components/ui/slider";
 import { Breadcrumb } from "@/components/breadcrumb";
-import { Search, MapPin, Filter, ChevronDown, Star, Check, Loader2, X } from "lucide-react";
+import { Filter, ChevronDown, Star, Check, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect, useRef, useReducer } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SEO } from "@/components/seo";
@@ -127,7 +124,7 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
 
 export default function SearchPage() {
   console.log("[search-page] Component initializing...");
-  const [location, setLocation] = useLocation();
+  const [location] = useLocation();
   
   // Initialize filter state from URL params
   const initialSearchParams = useRef(new URLSearchParams(window.location.search));
@@ -249,7 +246,9 @@ export default function SearchPage() {
     // If price filters set, check converted prices
     if (filters.minPrice === undefined && filters.maxPrice === undefined) return true;
     if (!selectedCountry || !convertPriceFromTo) return true;
-    const converted = convertPriceFromTo(s.price, s.countryCode, selectedCountry.code);
+    const sPrice = typeof s.basePrice === 'number' ? s.basePrice : (s.offerPrice ? Number(s.offerPrice) : 0);
+    const sCountry = s.detective?.country || selectedCountry.code;
+    const converted = convertPriceFromTo(sPrice, sCountry, selectedCountry.code);
     if (filters.minPrice !== undefined && converted < filters.minPrice) return false;
     if (filters.maxPrice !== undefined && converted > filters.maxPrice) return false;
     return true;
@@ -650,25 +649,25 @@ export default function SearchPage() {
       "position": index + 1,
       "item": {
         "@type": "Service",
-        "@id": service.canonicalUrl,
+        "@id": `https://www.askdetectives.com/services/${service.slug}`,
         "name": service.title,
-        "url": service.canonicalUrl,
+        "url": `https://www.askdetectives.com/services/${service.slug}`,
         "provider": {
           "@type": "Organization",
-          "name": service.name
+          "name": service.detective?.businessName || service.title
         },
         ...(service.isOnEnquiry ? {} : {
           "offers": {
             "@type": "Offer",
-            "price": service.offerPrice || service.price,
+            "price": service.offerPrice || service.basePrice,
             "priceCurrency": "INR"
           }
         }),
-        ...(service.rating && service.reviews > 0 && {
+        ...(service.avgRating && service.reviewCount && service.reviewCount > 0 && {
           "aggregateRating": {
             "@type": "AggregateRating",
-            "ratingValue": service.rating,
-            "reviewCount": service.reviews
+            "ratingValue": service.avgRating,
+            "reviewCount": service.reviewCount
           }
         })
       }

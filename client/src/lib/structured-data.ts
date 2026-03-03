@@ -5,26 +5,27 @@
 
 interface Detective {
   id: string;
-  businessName?: string;
-  firstName?: string;
-  lastName?: string;
-  phone?: string;
-  contactEmail?: string;
-  address?: string;
-  pincode?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  logo?: string;
-  bio?: string;
-  location?: string;
-  yearsOfExperience?: string;
-  licenseNumber?: string;
-  businessWebsite?: string;
-  languages?: string[];
-  isVerified?: boolean;
-  slug?: string;
-  businessType?: string;
+  businessName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  phone?: string | null;
+  contactEmail?: string | null;
+  address?: string | null;
+  pincode?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  logo?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  yearsOfExperience?: string | null;
+  licenseNumber?: string | null;
+  businessWebsite?: string | null;
+  languages?: string[] | null;
+  isVerified?: boolean | null;
+  slug?: string | null;
+  businessType?: string | null;
+  [key: string]: any; // Allow additional properties from database schema
 }
 
 interface Service {
@@ -50,8 +51,8 @@ interface CaseStudy {
  */
 export function generateLocalBusinessSchema(
   detective: Detective,
-  services: Service[] = [],
-  caseStudies: CaseStudy[] = [],
+  _services: Service[] = [],
+  _caseStudies: CaseStudy[] = [],
   canonicalUrl: string,
   countrySlug: string,
   stateSlug: string,
@@ -261,8 +262,7 @@ export function generateReviewSchema(
  * Critical for AIO (AI Optimized) queries
  */
 export function generateSpeakableSchema(
-  bioHtml: string,
-  aboutSectionHtml?: string
+  _bioHtml: string
 ): Record<string, any> {
   return {
     "@type": "SpeakableSpecification",

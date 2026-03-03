@@ -13,9 +13,7 @@ import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { 
-  generateCompleteDetectiveSchema,
-  generateBreadcrumbListSchema 
-} from "@/lib/structured-data";
+  generateCompleteDetectiveSchema} from "@/lib/structured-data";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { getCountryName } from "@/lib/slug-utils";
 import { useState, useEffect } from "react";
@@ -142,7 +140,7 @@ export default function DetectivePublicPage() {
   // Includes LocalBusiness, AggregateRating, BreadcrumbList, and Speakable for AI/voice assistants
   const detectiveSchemas = detective ? generateCompleteDetectiveSchema(
     detective,
-    detectiveServices,
+    detectiveServices as any[],
     [],
     breadcrumbs,
     canonicalUrl,
@@ -199,7 +197,7 @@ export default function DetectivePublicPage() {
               <dt>Primary Specialty</dt>
               <dd>{detectiveServices.length > 0 ? detectiveServices[0].category : 'Private Investigation'}</dd>
               <dt>Years of Experience</dt>
-              <dd>{detective.yearsOfExperience || 'Not specified'}</dd>
+              <dd>{detective.yearsExperience || 'Not specified'}</dd>
               <dt>License Status</dt>
               <dd>{detective.isVerified ? 'Active' : 'Unverified'}</dd>
               <dt>Services Count</dt>

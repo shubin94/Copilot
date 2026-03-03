@@ -82,9 +82,9 @@ export async function getDetectiveBySlugForSEO(
       'BR': 'Brazil', 'AR': 'Argentina', 'CL': 'Chile',
     };
 
-    const countryCode = country.toUpperCase().length === 2 
-      ? country.toUpperCase() 
-      : Object.entries(COUNTRY_CODE_MAP).find(([_, name]) => 
+    country.toUpperCase().length === 2
+      ? country.toUpperCase()
+      : Object.entries(COUNTRY_CODE_MAP).find(([_, name]) =>
           name.toLowerCase().replace(/\s+/g, "-") === country.toLowerCase()
         )?.[0] || country.toUpperCase();
 
@@ -1135,9 +1135,8 @@ export async function injectLocationSeoTags(
  */
 export async function generateLocationH1(
   location: { country: string; state?: string; city?: string },
-  totalCount: number
+  _totalCount: number
 ): Promise<string> {
-  const year = new Date().getFullYear();
 
   // ✅ STEP 1: Resolve location IDs (country, state, city)
   let countryId: number | null = null;
@@ -1317,9 +1316,6 @@ export async function resolveServiceLocation(
   citySlug: string
 ): Promise<{ countryCode: string; countryName: string; stateName: string; cityName: string } | null> {
   try {
-    // Import database tables
-    const { countries, states, cities } = await import("../../shared/schema.ts");
-    
     // Resolve country by slug
     const countryRows = await db
       .select({ id: countries.id, code: countries.code, name: countries.name })

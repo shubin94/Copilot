@@ -74,7 +74,7 @@ export class PerformanceMonitor {
       if ('PerformanceObserver' in window) {
         const lcpObserver = new PerformanceObserver((entryList) => {
           const entries = entryList.getEntries();
-          const lastEntry = entries[entries.length - 1];
+          const lastEntry = entries[entries.length - 1] as any;
           this.metrics.coreWebVitals = {
             ...this.metrics.coreWebVitals,
             lcp: lastEntry.renderTime || lastEntry.loadTime,
@@ -97,7 +97,7 @@ export class PerformanceMonitor {
       if ('PerformanceObserver' in window) {
         const fidObserver = new PerformanceObserver((entryList) => {
           const entries = entryList.getEntries();
-          const firstEntry = entries[0];
+          const firstEntry = entries[0] as any;
           this.metrics.coreWebVitals = {
             ...this.metrics.coreWebVitals,
             fid: firstEntry.processingDuration,

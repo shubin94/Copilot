@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import crypto from "crypto";
 import Razorpay from "razorpay";
 import { z } from "zod";
@@ -7,13 +7,13 @@ import { fromZodError } from "zod-validation-error";
 import { pool } from "../../db/index.ts";
 import { storage } from "../storage.ts";
 import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "../services/smtpEmailService.ts";
-import { getPaymentGateway, isPaymentGatewayEnabled } from "../services/paymentGateway.ts";
+import { getPaymentGateway } from "../services/paymentGateway.ts";
 import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "../services/paypal.ts";
 import { applyPackageEntitlements } from "../services/entitlements.ts";
-import { clearFreePlanCache, getFreePlanId } from "../services/freePlan.ts";
+import { clearFreePlanCache } from "../services/freePlan.ts";
 import * as cache from "../lib/cache.ts";
 import { config } from "../config.ts";
-import { requireRole, requireAuth } from "../authMiddleware.ts";
+import { requireRole } from "../authMiddleware.ts";
 
 // ============== HELPER FUNCTIONS ==============
 
@@ -107,13 +107,6 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
   }
 }
 
-// Helper to apply common no-store cache headers
-const setNoStore = (res: Response) => {
-  // Private, no-store, no-cache for authenticated/sensitive user data
-  res.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
-  res.set("Pragma", "no-cache");
-  res.set("Expires", "0");
-};
 
 // ============== PAYMENT ROUTES ==============
 
@@ -417,18 +410,18 @@ export async function registerPaymentRoutes(app: Express): Promise<void> {
       const rzpClient = await getRazorpayClient();
       
       // Create Razorpay order (receipt max 40 chars)
-      const order = await rzpClient.orders.create({
+      const order = await (rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `sub_${Date.now()}`.substring(0, 40),
-        notes: { 
-          packageId, 
+        notes: {
+          packageId,
           packageName: packageRecord.name,
           billingCycle,
-          detectiveId: detective.id, 
-          userId: req.session.userId 
+          detectiveId: detective.id,
+          userId: req.session.userId ?? "",
         },
-      });
+      }) as Promise<{ id: string }>);
 
       console.log(`[create-order] Razorpay order created: ${order.id}`);
 
@@ -788,7 +781,7 @@ export async function registerPaymentRoutes(app: Express): Promise<void> {
       }
 
       // Verify ownership
-      if (paymentOrder.user_id !== req.session.userId) {
+      if (paymentOrder.userId !== req.session.userId) {
         console.error("[paypal-capture] Forbidden: user does not own order");
         return res.status(403).json({ error: "Forbidden" });
       }
@@ -805,8 +798,8 @@ export async function registerPaymentRoutes(app: Express): Promise<void> {
       console.log(`[paypal-capture] PayPal order captured: ${body.paypalOrderId}`);
 
       // Read packageId and billingCycle from payment_order
-      const packageId = paymentOrder.package_id;
-      const billingCycle = paymentOrder.billing_cycle;
+      const packageId = paymentOrder.packageId;
+      const billingCycle = paymentOrder.billingCycle;
 
       if (!packageId) {
         console.error(`[paypal-capture] Payment order missing packageId: ${body.paypalOrderId}`);
@@ -831,7 +824,7 @@ export async function registerPaymentRoutes(app: Express): Promise<void> {
       // GUARD: Block duplicate Blue Tick (check BEFORE any update)
       if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
         try {
-          await assertBlueTickNotAlreadyActive(paymentOrder.detective_id, 'paypal');
+          await assertBlueTickNotAlreadyActive(paymentOrder.detectiveId, 'paypal');
         } catch (guardError: any) {
           if (guardError.statusCode === 409) {
             console.warn(`[paypal-capture] Duplicate Blue Tick attempt rejected:`, guardError.message);
@@ -852,39 +845,39 @@ export async function registerPaymentRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: "Package is no longer active" });
       }
 
-      console.log(`[paypal-capture] Activating package ${packageId} for detective ${paymentOrder.detective_id}`);
+      console.log(`[paypal-capture] Activating package ${packageId} for detective ${paymentOrder.detectiveId}`);
 
       // Handle Blue Tick addon vs regular subscription
       if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
         // Blue Tick add-on: set add-on flag only
-        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+        await storage.updateDetectiveAdmin(paymentOrder.detectiveId, {
           blueTickAddon: true,
           blueTickActivatedAt: new Date(),
         } as any);
         
-        console.log(`[paypal-capture] Blue Tick add-on activated for detective ${paymentOrder.detective_id}`);
+        console.log(`[paypal-capture] Blue Tick add-on activated for detective ${paymentOrder.detectiveId}`);
       } else {
         // Regular subscription: update subscription fields only
-        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+        await storage.updateDetectiveAdmin(paymentOrder.detectiveId, {
           subscriptionPackageId: packageId,
           billingCycle: billingCycle,
           subscriptionActivatedAt: new Date(),
           subscriptionExpiresAt: calculateExpiryDate(new Date(), billingCycle),
         } as any);
         
-        console.log(`[paypal-capture] Subscription activated for detective ${paymentOrder.detective_id}`);
+        console.log(`[paypal-capture] Subscription activated for detective ${paymentOrder.detectiveId}`);
 
         // APPLY ENTITLEMENTS
-        await applyPackageEntitlements(paymentOrder.detective_id, 'activation');
+        await applyPackageEntitlements(paymentOrder.detectiveId, 'activation');
         
         console.log(`[paypal-capture] Entitlements applied`);
       }
 
       // Fetch updated detective to return to client
-      const updatedDetective = await storage.getDetective(paymentOrder.detective_id);
+      const updatedDetective = await storage.getDetective(paymentOrder.detectiveId);
       
       if (!updatedDetective) {
-        console.error(`[paypal-capture] Could not fetch updated detective: ${paymentOrder.detective_id}`);
+        console.error(`[paypal-capture] Could not fetch updated detective: ${paymentOrder.detectiveId}`);
         return res.status(500).json({ error: "Failed to fetch updated detective" });
       }
 
@@ -924,8 +917,8 @@ export async function registerPaymentRoutes(app: Express): Promise<void> {
               email: user.email,
               packageName: packageToActivate.name,
               billingCycle: billingCycle,
-              amount: String(paymentOrder.amount || ""),
-              currency: paymentOrder.currency || "USD",
+              amount: String((paymentOrder as any).amount || ""),
+              currency: (paymentOrder as any).currency || "USD",
               subscriptionExpiryDate: expiryDate ? new Date(expiryDate).toLocaleDateString() : "N/A",
               supportEmail: "support@askdetectives.com",
             }
@@ -938,8 +931,8 @@ export async function registerPaymentRoutes(app: Express): Promise<void> {
               detectiveName: updatedDetective.businessName || user.name,
               email: user.email,
               packageName: packageToActivate.name,
-              amount: String(paymentOrder.amount || ""),
-              currency: paymentOrder.currency || "USD",
+              amount: String((paymentOrder as any).amount || ""),
+              currency: (paymentOrder as any).currency || "USD",
               supportEmail: "support@askdetectives.com",
             }
           ).catch(err => console.error("[Email] Failed to send admin payment notification:", err));
@@ -1041,17 +1034,17 @@ export async function registerPaymentRoutes(app: Express): Promise<void> {
       }
       
       // Create Razorpay order
-      const order = await rzpClient.orders.create({
+      const order = await (rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `bluetick_${Date.now()}`.substring(0, 40),
-        notes: { 
+        notes: {
           type: "blue_tick_addon",
           billingCycle,
-          detectiveId: detective.id, 
-          userId: req.session.userId 
+          detectiveId: detective.id,
+          userId: req.session.userId ?? "",
         },
-      });
+      }) as Promise<{ id: string }>);
 
       console.log(`[blue-tick-order] Razorpay order created: ${order.id}`);
       

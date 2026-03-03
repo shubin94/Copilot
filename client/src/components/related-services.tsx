@@ -1,6 +1,6 @@
 import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
 import { ServiceCardGrid } from "@/components/common/service-card-grid";
-import type { ServiceCardDTO } from "../../interfaces/ServiceCardDTO";
+import type { ServiceCardDTO } from "../interfaces/ServiceCardDTO";
 
 interface RelatedServicesProps {
   services: ServiceCardDTO[];
@@ -8,7 +8,7 @@ interface RelatedServicesProps {
   currentServiceTitle?: string;
 }
 
-export function RelatedServices({ services, isLoading, currentServiceTitle }: RelatedServicesProps) {
+export function RelatedServices({ services, isLoading }: RelatedServicesProps) {
   // Show skeletons during loading
   if (isLoading) {
     return (
@@ -30,7 +30,7 @@ export function RelatedServices({ services, isLoading, currentServiceTitle }: Re
       <h2 className="text-2xl font-bold mb-6">Similar Services You May Like</h2>
       <ServiceCardGrid
         services={services}
-        isLoading={isLoading}
+        isLoading={isLoading ?? false}
         emptyMessage="No related services found."
       />
     </div>

@@ -6,10 +6,6 @@ import * as path from "path";
 // Action types for Google Indexing API
 export type IndexingAction = "URL_UPDATED" | "URL_DELETED";
 
-interface IndexingRequest {
-  url: string;
-  type: IndexingAction;
-}
 
 interface IndexingResponse {
   success: boolean;

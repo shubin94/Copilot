@@ -1,4 +1,3 @@
-import React from "react";
 import { ShortcodeBlock } from "@/shared/content-blocks";
 import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 

@@ -167,10 +167,12 @@ export default function Login() {
           <img
             src={heroBgPng}
             alt=""
-            fetchpriority="low"
-            loading="lazy"
-            decoding="async"
             className="absolute inset-0 z-0 opacity-60 object-cover w-full h-full"
+            {...({
+              fetchpriority: "low",
+              loading: "lazy",
+              decoding: "async",
+            } as React.ImgHTMLAttributes<HTMLImageElement>)}
           />
         </picture>
         <div className="relative z-10 p-12 text-white max-w-xl">

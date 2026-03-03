@@ -41,7 +41,7 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [location, setLocation] = useLocation();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [] = useState(false);
   const [expandedMenu, setExpandedMenu] = useState<string | null>("Location SEO");
   const { user, isLoading, isAuthenticated, logout } = useUser();
   const { data: detectiveData } = useCurrentDetective(user?.role === "detective");
@@ -383,7 +383,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                   {role === "admin" ? "Super Admin" : role === "detective" ? (detective?.businessName || "Detective") : "John Doe"}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {role === "admin" ? "System Owner" : role === "detective" ? `${(detective?.subscriptionPlan || "free").charAt(0).toUpperCase() + (detective?.subscriptionPlan || "free").slice(1)} Member` : "Member"}
+                  {role === "admin" ? "System Owner" : role === "detective" ? `${(detective?.subscriptionPackage?.name || "free").charAt(0).toUpperCase() + (detective?.subscriptionPackage?.name || "free").slice(1)} Member` : "Member"}
                 </div>
               </div>
               <Avatar>

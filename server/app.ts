@@ -6,7 +6,6 @@ import helmet from "helmet";
 import compression from "compression";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
-import { randomBytes } from "node:crypto";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pkg from "pg";
@@ -14,7 +13,6 @@ const { Pool } = pkg;
 // NOTE: registerRoutes is imported INSIDE runApp() to ensure environment is loaded first
 import { config } from "./config.ts";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.ts";
-import { CSP_POLICY } from "./config/csp.ts";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -30,7 +28,7 @@ export function log(message: string, source = "express") {
 export const app = express();
 
 // Trust first proxy in production (Vercel, ALB, nginx) so req.secure and X-Forwarded-* are correct
-if (config.env.isProd) {
+if (config.env.isProd || process.env.VERCEL === "1") {
   app.set("trust proxy", 1);
 }
 
@@ -292,11 +290,12 @@ export function getSessionMiddleware() {
   const sessionMiddleware = session({
     store: sessionStore,
     secret: config.session.secret,
+    proxy: config.env.isProd || process.env.VERCEL === "1",
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: isDev ? false : true, // Always false in dev for HTTP
+      secure: isDev ? false : "auto",
       sameSite: isDev ? "lax" : "none",
       maxAge: config.session.ttlMs,
       domain: undefined,  // NO DOMAIN RESTRICTION
@@ -317,45 +316,8 @@ export function getSessionMiddleware() {
 // ✅ Create session middleware instance
 const sessionMiddleware = getSessionMiddleware();
 
-// ✅ Apply session middleware to protected route groups
-// CSRF token endpoint (needs session to generate token)
-
-app.use("/api/csrf-token", sessionMiddleware);
-
-// Authentication routes
-app.use("/api/auth", sessionMiddleware);
-
-// Detective profile routes
-app.use("/api/detectives/me", sessionMiddleware);
-
-// Employee dashboard routes (fix: ensure session is available)
-app.use("/api/employee", sessionMiddleware);
-
-// Admin panel routes
-app.use("/api/admin", sessionMiddleware);
-
-// Payment processing routes
-app.use("/api/payments", sessionMiddleware);
-
-// Authenticated data routes (GET/HEAD must have session)
-app.use("/api/applications", sessionMiddleware);
-app.use("/api/claims", sessionMiddleware);
-app.use("/api/orders", sessionMiddleware);
-app.use("/api/favorites", sessionMiddleware);
-app.use("/api/users", sessionMiddleware);
-
-// ✅ CSRF protection for ALL mutations (require session for token validation)
-// This ensures POST/PUT/PATCH/DELETE requests validate CSRF tokens
-const csrfProtectionByMethod = (req: Request, res: Response, next: NextFunction) => {
-  // Only apply session middleware to mutation methods
-  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
-    return sessionMiddleware(req, res, next);
-  }
-  return next();
-};
-
-// Apply CSRF protection globally to all routes
-app.use(csrfProtectionByMethod);
+// ✅ Apply session middleware to all API routes before CSRF/auth checks
+app.use("/api", sessionMiddleware);
 
 const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 

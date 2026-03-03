@@ -1,7 +1,7 @@
-import React, { ReactNode, Component, ErrorInfo } from 'react';
+import { ReactNode, Component, ErrorInfo } from 'react';
 import { AlertTriangle, RotateCcw, Home } from 'lucide-react';
-import { Button } from './ui/button';
-import { Card } from './ui/card';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 interface Props {
   children: ReactNode;
@@ -39,7 +39,7 @@ export class ErrorBoundary extends Component<Props, State> {
     };
   }
 
-  static getDerivedStateFromError(error: Error): Partial<State> {
+  static getDerivedStateFromError(_error: Error): Partial<State> {
     return { hasError: true };
   }
 
@@ -89,8 +89,8 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   render() {
-    const { hasError, error, errorInfo, errorCount } = this.state;
-    const { children, fallback, isolate } = this.props;
+    const { hasError, errorCount, error, errorInfo } = this.state;
+    const { fallback, children } = this.props;
 
     if (!hasError) {
       return children;

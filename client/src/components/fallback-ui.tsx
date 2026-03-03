@@ -1,5 +1,4 @@
-import React from 'react';
-import { AlertTriangle, Wifi, Clock, RefreshCw, Database } from 'lucide-react';
+import { AlertTriangle, Clock, RefreshCw, Database } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 

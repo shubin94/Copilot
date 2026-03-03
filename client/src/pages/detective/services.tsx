@@ -27,21 +27,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || response.statusText);
-  }
-  return response.json();
-}
 
 interface Service {
   id: string;
@@ -57,7 +42,6 @@ interface Service {
   images: string[] | null;
 }
 
-const SERVICE_CATEGORIES: string[] = [];
 
 // Minimum base price in INR (applies to all countries)
 const MIN_BASE_PRICE_INR = 1000;
@@ -102,7 +86,7 @@ export default function DetectiveServices() {
     enabled: !!detective?.id,
   });
 
-  const services = servicesData?.services || [];
+  const services: Service[] = (servicesData?.services || []) as Service[];
 
   // Create service mutation
   const createService = useMutation({
@@ -131,7 +115,7 @@ export default function DetectiveServices() {
       const res = await api.services.update(id, data);
       return res;
     },
-    onSuccess: (result: any, variables: { id: string; data: any }) => {
+    onSuccess: (_result: any, variables: { id: string; data: any }) => {
       // Invalidate all query variations for this specific service
       queryClient.invalidateQueries({ queryKey: ["services", variables.id] });
       queryClient.invalidateQueries({ queryKey: ["services", variables.id, "preview"] });
@@ -299,7 +283,7 @@ export default function DetectiveServices() {
       // Use live subscription package data from API, not hardcoded values
       const subscriptionPackage = (detective as any).subscriptionPackage;
       const serviceLimit = subscriptionPackage?.serviceLimit ?? 1; // Default to 1 if no package
-      const planName = subscriptionPackage?.displayName ?? detective.subscriptionPlan ?? "Free";
+      const planName = subscriptionPackage?.displayName ?? subscriptionPackage?.name ?? 'Free';
       
       if (services.length >= serviceLimit) {
         toast({
@@ -414,7 +398,7 @@ export default function DetectiveServices() {
   // Use live subscription package data from API, not hardcoded values
   const subscriptionPackage = (detective as any).subscriptionPackage;
   const serviceLimit = subscriptionPackage?.serviceLimit ?? 1; // Default to 1 if no package
-  const planName = subscriptionPackage?.displayName ?? detective.subscriptionPlan ?? "Free";
+  const planName = subscriptionPackage?.displayName ?? subscriptionPackage?.name ?? 'Free';
   const planLabel = `${planName} - ${serviceLimit} Service${serviceLimit > 1 ? 's' : ''}`;
   const canAddMore = services.length < serviceLimit;
 

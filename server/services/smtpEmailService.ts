@@ -25,12 +25,6 @@ interface EmailVariable {
   [key: string]: string | number | boolean | null | undefined;
 }
 
-interface SendEmailOptions {
-  to: string;
-  templateKey: string;
-  variables: EmailVariable;
-  replyTo?: string;
-}
 
 class SMTPEmailService {
   private templates: Map<string, { subject: string; body: string }> = new Map();
@@ -73,7 +67,7 @@ class SMTPEmailService {
     for (const [key, value] of Object.entries(variables)) {
       const placeholder = `{{${key}}}`;
       const replacement = value != null ? String(value) : "";
-      result = result.replaceAll(placeholder, replacement);
+      result = result.split(placeholder).join(replacement);
     }
 
     return result;

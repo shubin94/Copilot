@@ -11,7 +11,7 @@ import { Link } from "wouter";
 import { useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
 import type { ServiceCategory } from "@shared/schema";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
 
 export default function Home() {
@@ -39,6 +39,9 @@ export default function Home() {
   } | null>(null);
   const [topLocationsLoading, setTopLocationsLoading] = useState(true);
 
+  // Ref for categories scroll container (auto-scroll)
+  const categoriesScrollRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     let isMounted = true;
     const fetchTopLocations = async () => {
@@ -65,6 +68,40 @@ export default function Home() {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  // Auto-scroll categories container every 5 seconds
+  useEffect(() => {
+    const scrollContainer = categoriesScrollRef.current;
+    if (!scrollContainer) return;
+
+    const interval = setInterval(() => {
+      // Calculate card width based on viewport
+      const containerWidth = scrollContainer.offsetWidth;
+      // Card width: 33.333% on desktop (lg), 50% on tablet (md), 100% on mobile (sm)
+      let cardWidth = containerWidth / 3; // Default for desktop (lg)
+      
+      // Check if we're on mobile or tablet (this is a rough check)
+      if (window.innerWidth < 768) {
+        // Mobile: 100% width
+        cardWidth = containerWidth;
+      } else if (window.innerWidth < 1024) {
+        // Tablet: 50% width
+        cardWidth = containerWidth / 2;
+      }
+
+      const newScrollLeft = scrollContainer.scrollLeft + cardWidth;
+      const maxScroll = scrollContainer.scrollWidth - containerWidth;
+
+      // If reached end, reset to start
+      if (newScrollLeft >= maxScroll) {
+        scrollContainer.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        scrollContainer.scrollBy({ left: cardWidth, behavior: 'smooth' });
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const topCountries = (topLocations?.countries || []).filter((item) => item.detectiveCount > 0);
@@ -99,12 +136,16 @@ export default function Home() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div 
+            ref={categoriesScrollRef}
+            className="flex overflow-x-hidden scroll-smooth gap-6"
+            style={{ scrollBehavior: 'smooth' }}
+          >
             {isLoadingCategories
               ? Array.from({ length: 6 }).map((_, index) => (
                   <Card
                     key={`category-skeleton-${index}`}
-                    className="hover:shadow-lg transition-shadow"
+                    className="hover:shadow-lg transition-shadow flex-shrink-0 w-full sm:w-1/2 lg:w-1/3"
                   >
                     <CardContent className="p-6">
                       <div className="flex items-start gap-4">
@@ -121,6 +162,7 @@ export default function Home() {
                   <Link
                     key={category.id}
                     href={`/search?category=${encodeURIComponent(category.name)}`}
+                    className="flex-shrink-0 w-full sm:w-1/2 lg:w-1/3"
                   >
                     <Card className="hover:shadow-lg transition-all hover:border-green-500 cursor-pointer group h-full">
                       <CardContent className="p-6 flex flex-col h-full">

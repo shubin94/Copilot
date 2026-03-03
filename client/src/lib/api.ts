@@ -6,9 +6,6 @@ const VITE_PORT = VITE_ENV.VITE_PORT as string | undefined;
 const IS_PROD = !!VITE_ENV.PROD;
 
 // API Base URL configuration for different environments
-const DEFAULT_DEV_API_BASE_URL = typeof window !== "undefined"
-  ? `${window.location.protocol}//${window.location.hostname}:5000`
-  : "http://127.0.0.1:5000";
 
 // Fallback backend URL for production (used if proxy fails)
 const PRODUCTION_BACKEND_URL = "https://api.askdetectives.com";
@@ -352,9 +349,8 @@ export const api = {
           credentials: "include",
           keepalive: true,
           signal: controller.signal,
-          forceProxy: true,
         });
-        const data = await handleResponse(response);
+        const data = await handleResponse<{ user?: User; applicant?: { email: string; status: string }; csrfToken?: string }>(response);
         // Session regeneration invalidates CSRF token; force refresh on next mutation
         clearCsrfToken();
         return data;
@@ -373,9 +369,8 @@ export const api = {
         method: "POST",
         headers: { "X-Requested-With": "XMLHttpRequest" },
         credentials: "include",
-        forceProxy: true,
       });
-      const result = await handleResponse(response);
+      const result = await handleResponse<{ message: string }>(response);
       clearCsrfToken();
       return result;
     },
@@ -385,7 +380,6 @@ export const api = {
         console.debug('[api.auth.me] Calling /api/auth/me endpoint');
         const response = await csrfFetch("/api/auth/me", {
           credentials: "include",
-          forceProxy: true,
         });
         
         console.debug('[api.auth.me] Response status:', response.status);
@@ -395,8 +389,8 @@ export const api = {
           return { user: null } as any;
         }
         
-        const result = await handleResponse(response);
-        console.debug('[api.auth.me] Auth successful - user data:', result?.user?.email || 'no email');
+        const result = await handleResponse<{ user?: User | null }>(response);
+        console.debug('[api.auth.me] Auth successful - user data:', (result as any)?.user?.email || 'no email');
         return result;
       } catch (err: any) {
         if (err?.name === "AbortError" || /network|fetch|failed|suspend/i.test(String(err?.message || ""))) {
@@ -414,9 +408,8 @@ export const api = {
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ currentPassword, newPassword }),
         credentials: "include",
-        forceProxy: true,
       });;
-      return handleResponse(response);
+      return handleResponse<{ message: string }>(response);
     },
 
     setPassword: async (newPassword: string): Promise<{ message: string }> => {
@@ -425,14 +418,13 @@ export const api = {
         headers: { "Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ newPassword }),
         credentials: "include",
-        forceProxy: true,
       });;
       if (!response.ok) {
-        return handleResponse(response);
+        return handleResponse<{ message: string }>(response);
       }
       const ct = response.headers.get("content-type") || "";
       if (ct.includes("application/json")) {
-        return handleResponse(response);
+        return handleResponse<{ message: string }>(response);
       }
       const text = await response.text();
       return { message: text || "Password set successfully" };
@@ -444,9 +436,8 @@ export const api = {
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ email, password, name }),
         credentials: "include",
-        forceProxy: true,
       });
-      const data = await handleResponse(response);
+      const data = await handleResponse<{ user: User }>(response);
       // After register, the backend regenerates the session and issues a new CSRF token
       // Always clear cache and let next request fetch fresh token
       clearCsrfToken();
@@ -455,7 +446,11 @@ export const api = {
   },
 
   detectives: {
-    getCurrent: async (): Promise<{ detective: Detective & { email?: string } }> => {
+    getCurrent: async (): Promise<{ detective: Detective & { 
+      email?: string;
+      subscriptionPackage?: any;
+      pendingPackage?: any;
+    } }> => {
       const response = await csrfFetch(buildApiUrl("/api/detectives/me"), {
         credentials: "include",
       });
@@ -469,14 +464,14 @@ export const api = {
       return handleResponse(response);
     },
 
-    getById: async (id: string): Promise<{ detective: Detective }> => {
+    getById: async (id: string): Promise<{ detective: Detective & { subscriptionPackage?: any } }> => {
       const response = await csrfFetch(`/api/detectives/${id}`, {
         credentials: "include",
       });
       return handleResponse(response);
     },
 
-    getBySlug: async (country: string, state: string, city: string, slug: string): Promise<{ detective: Detective }> => {
+    getBySlug: async (country: string, state: string, city: string, slug: string): Promise<{ detective: Detective & { subscriptionPackage?: any } }> => {
       const response = await csrfFetch(`/api/detectives/${country}/${state}/${city}/${slug}`, {
         credentials: "include",
       });
@@ -513,7 +508,6 @@ export const api = {
           try {
             const adminResp = await csrfFetch(`/api/admin/detectives/raw`, {
               credentials: "include",
-              forceProxy: true,
             });
             if (adminResp.ok) {
               const adminData = await adminResp.json();
@@ -567,7 +561,6 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -577,7 +570,6 @@ export const api = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -586,7 +578,6 @@ export const api = {
       const response = await csrfFetch(`/api/admin/detectives/${id}`, {
         method: "DELETE",
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -611,7 +602,6 @@ export const api = {
     adminGetAll: async (): Promise<{ plans: any[] }> => {
       const response = await csrfFetch(`/api/admin/subscription-plans`, {
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -731,7 +721,6 @@ export const api = {
     adminGetByDetective: async (detectiveId: string): Promise<{ services: Service[] }> => {
       const response = await csrfFetch(`/api/admin/detectives/${detectiveId}/services`, {
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -752,7 +741,6 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -773,7 +761,6 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -943,14 +930,12 @@ export const api = {
       if (params?.offset !== undefined) qp.append("offset", String(params.offset));
       const response = await csrfFetch(`/api/applications?${qp.toString()}`, {
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
     getById: async (id: string): Promise<{ application: DetectiveApplication }> => {
       const response = await csrfFetch(`/api/applications/${id}`, {
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -975,7 +960,6 @@ export const api = {
           headers: { "Content-Type": "application/json" },
           body: jsonBody,
           credentials: "include",
-          forceProxy: true,
         }, 60000); // 60 second timeout for large file uploads
         console.log("API: Fetch completed with status:", response.status);
         return handleResponse(response);
@@ -993,7 +977,6 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },
@@ -1007,7 +990,6 @@ export const api = {
       try {
         const response = await csrfFetch(`/api/claims?${qs.toString()}`, {
           credentials: "include",
-          forceProxy: true,
         });
         return handleResponse(response);
       } catch (err: any) {
@@ -1021,7 +1003,6 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
         credentials: "include",
-        forceProxy: true,
       });
       return handleResponse(response);
     },

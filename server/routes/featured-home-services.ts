@@ -26,7 +26,7 @@ router.get("/", async (req: Request, res: Response) => {
     const cacheKey = country ? `featured_home:${country}` : "featured_home:GLOBAL";
     
     // ✅ IN-MEMORY CACHE: Check cache first (60-second TTL, public requests only)
-    if (!req.session?.userId) {
+    if (!(req as any).session?.userId) {
       const cached = cache.get<{ services: unknown[] }>(cacheKey);
       if (cached != null && Array.isArray(cached.services) && cached.services.length > 0) {
         const cacheTime = Date.now() - routeStartTime;
@@ -240,7 +240,7 @@ router.get("/", async (req: Request, res: Response) => {
 
     // ✅ IN-MEMORY CACHE: Store result with 60-second TTL (public requests only)
     // Only cache if we didn't use fallback (to avoid caching incomplete global results)
-    if (!req.session?.userId && !usedFallback) {
+    if (!(req as any).session?.userId && !usedFallback) {
       try {
         cache.set(cacheKey, { services }, 60);
       } catch (_) {

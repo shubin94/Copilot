@@ -158,7 +158,7 @@ export default function ArticlePage() {
     "description": seoDescription,
     "image": article.thumbnail || "https://www.askdetectives.com/favicon.png",
     "datePublished": article.publishedAt,
-    "dateModified": article.updatedAt,
+    "dateModified": (article as any).updatedAt || article.publishedAt,
     "author": article.detective
       ? {
           "@type": "Person",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, Eye, ArrowLeft } from "lucide-react";
@@ -313,7 +313,7 @@ export default function PageEdit() {
             <p className="text-sm text-gray-500 mb-6">/{formData.slug}</p>
             <div
               className="prose max-w-none"
-              dangerouslySetInnerHTML={{ __html: formData.content || "" }}
+              dangerouslySetInnerHTML={{ __html: stringifyContentBlocks(formData.blocks) || "<p>No content</p>" }}
             />
           </div>
         ) : (

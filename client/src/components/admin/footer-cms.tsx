@@ -5,9 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, GripVertical, Facebook, Instagram, Twitter, Linkedin, Youtube, Save, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Facebook, Instagram, Twitter, Linkedin, Youtube, Save, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 
 interface FooterLink {
@@ -198,13 +197,7 @@ export function FooterCMS({ initialSections, initialSocialLinks, initialCopyrigh
         }
       }
 
-      const payload = {
-        footerSections: sections,
-        socialLinks: socialLinks,
-        copyrightText: copyrightText,
-      };
 
-      const response = await api.settings.updateSite(payload);
       await queryClient.invalidateQueries({ queryKey: ["site-settings"] });
 
       toast({

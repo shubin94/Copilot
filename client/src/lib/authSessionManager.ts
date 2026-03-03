@@ -13,13 +13,12 @@
  */
 
 import { queryClient } from "./queryClient";
-import { buildApiUrl, clearCsrfToken } from "./api";
+import { clearCsrfToken } from "./api";
 
 // Flag to prevent multiple simultaneous logout triggers
 let isLoggingOut = false;
 
 // Track last known auth state for cross-tab detection
-let lastAuthState: boolean | null = null;
 
 /**
  * CENTRAL LOGOUT HANDLER

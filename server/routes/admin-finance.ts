@@ -9,10 +9,8 @@ router.get("/summary", async (req: Request, res: Response) => {
     const { startDate, endDate } = req.query;
 
     // Build date filter
-    let dateFilter = "";
     const params: any[] = [];
     if (startDate && endDate) {
-      dateFilter = "WHERE po.created_at BETWEEN $1 AND $2";
       params.push(startDate, endDate);
     }
 
@@ -290,7 +288,7 @@ router.get("/detective/:id", async (req: Request, res: Response) => {
 });
 
 // GET /api/admin/finance/packages - Get all packages for filter dropdown
-router.get("/packages", async (req: Request, res: Response) => {
+router.get("/packages", async (_req: Request, res: Response) => {
   try {
     const packagesQuery = `
       SELECT id, name, display_name

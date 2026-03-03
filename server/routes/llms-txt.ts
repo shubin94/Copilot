@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "../../db/index.ts";
-import { detectives, caseStudies, countries, states, cities, services } from "../../shared/schema.ts";
+import { detectives, caseStudies, states } from "../../shared/schema.ts";
 import { count, desc, eq, and, isNotNull, sql } from "drizzle-orm";
 
 const router = Router();
@@ -10,7 +10,7 @@ const router = Router();
  * This markdown file helps AI chatbots and agents understand the site structure,
  * navigation patterns, and available content.
  */
-router.get("/", async (req: Request, res: Response) => {
+router.get("/", async (_req: Request, res: Response) => {
   try {
     // Set cache headers - recompute daily
     res.set("Cache-Control", "public, max-age=86400");
@@ -45,7 +45,7 @@ router.get("/", async (req: Request, res: Response) => {
           isNotNull(detectives.businessName)
         ),
         limit: 5,
-        orderBy: [desc(detectives.rating)],
+        orderBy: [desc(detectives.createdAt)],
         with: {
           city: {
             with: {
@@ -281,8 +281,8 @@ Top-rated detectives by client reviews and investigation outcomes:
           markdown += `**Top Regions:**\n`;
           for (const state of topStatesInCountry) {
             markdown += `- [\`${state.name}\`](/detectives/${countrySlug}/${state.slug}/) `;
-            if (state.cities && Array.isArray(state.cities) && state.cities.length > 0) {
-              const cityLinks = state.cities
+            if (state.cities && Array.isArray(state.cities) && (state.cities as any[]).length > 0) {
+              const cityLinks = (state.cities as any[])
                 .map((c: any) => `[\`${c.name}\`](/detectives/${countrySlug}/${state.slug}/${c.slug}/)`)
                 .join(", ");
               markdown += `- Cities: ${cityLinks}`;

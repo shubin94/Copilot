@@ -5,12 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Upload, Save, Loader2, AlertCircle, Lock, Plus, Trash2, Mail } from "lucide-react";
+import { Upload, Save, Loader2, AlertCircle, Lock, Plus, Trash2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { useCurrentDetective, useUpdateDetective, useCountries, useStates, useCities } from "@/lib/hooks";
+import { useCurrentDetective, useUpdateDetective, useCountries, useStates } from "@/lib/hooks";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -56,15 +56,14 @@ export default function DetectiveProfileEdit() {
   });
 
   // Location hooks for dynamic data
-  const { data: countriesData, isLoading: countriesLoading } = useCountries();
-  const { data: statesData, isLoading: statesLoading } = useStates(formData.country || undefined);
-  const { data: citiesData, isLoading: citiesLoading } = useCities(formData.country || undefined, formData.state || undefined);
+  const { data: countriesData } = useCountries();
+  const { data: statesData } = useStates(formData.country || undefined);
   
-  const [countryQuery, setCountryQuery] = useState("");
-  const [stateQuery, setStateQuery] = useState("");
+  const [] = useState("");
+  const [] = useState("");
 
   const [recognitions, setRecognitions] = useState<Recognition[]>([]);
-  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -285,7 +284,7 @@ export default function DetectiveProfileEdit() {
 
   // Get actual subscription package name (not legacy field)
   const subscriptionPackage = (detective as any).subscriptionPackage;
-  const subscriptionPlanName = subscriptionPackage?.displayName || subscriptionPackage?.name || detective.subscriptionPlan || "Free";
+  const subscriptionPlanName = subscriptionPackage?.displayName || subscriptionPackage?.name || 'Free';
   // PAID FEATURE CHECK: Use subscriptionPackageId presence, NOT plan name
   // If subscriptionPackageId is set, detective has paid package
   const hasPaidPackage = !!detective.subscriptionPackageId;
@@ -427,8 +426,8 @@ export default function DetectiveProfileEdit() {
                   <SelectContent>
                     {statesData?.states && statesData.states.length > 0 ? (
                       statesData.states.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
+                        <SelectItem key={s.id} value={s.name}>
+                          {s.name}
                         </SelectItem>
                       ))
                     ) : (
@@ -449,9 +448,9 @@ export default function DetectiveProfileEdit() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {countriesData?.countries.map((countryCode) => (
-                      <SelectItem key={countryCode} value={countryCode}>
-                        {COUNTRY_CODE_TO_NAME[countryCode] || countryCode}
+                    {countriesData?.countries.map((country) => (
+                      <SelectItem key={country.id} value={country.code}>
+                        {country.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -1,4 +1,3 @@
-import { env } from "process";
 import { config } from "./config.ts";
 import nodemailer from "nodemailer";
 

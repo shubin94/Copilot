@@ -5,7 +5,7 @@ import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
 export type ServiceCardGridItem = ComponentProps<typeof ServiceCard>;
 
 interface ServiceCardGridProps {
-  services: ServiceCardGridItem[];
+  services: ServiceCardGridItem[] | any[];
   isLoading: boolean;
   emptyMessage: string;
 }

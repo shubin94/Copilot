@@ -18,11 +18,9 @@ import { getEnvironmentBadge } from "../db/validateDatabase.ts";
 import { ensureLocationSeoTable } from "./lib/init-location-seo-table.ts";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.ts";
 import {
-  isDetectiveProfilePath,
   extractDetectiveRouteParams,
   getDetectiveBySlugForSEO,
   injectSeoTags,
-  isLocationListingPath,
   extractLocationRouteParams,
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
@@ -32,7 +30,7 @@ import { storage } from "./storage.ts";
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 
-export async function serveStatic(app: Express, server: Server) {
+export async function serveStatic(app: Express, _server: Server) {
   const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
 
   if (!fs.existsSync(distPath)) {
@@ -84,6 +82,15 @@ export async function serveStatic(app: Express, server: Server) {
         params.city
       );
       const detectives = locationSeoData.detectives;
+      const seoDetectives = detectives
+        .filter((d) => Boolean(d.slug) && Boolean(d.businessName))
+        .map((d) => ({
+          slug: d.slug as string,
+          businessName: d.businessName as string,
+          city: d.city,
+          state: d.state,
+          country: d.country,
+        }));
       const totalCount = locationSeoData.totalCount;
 
       if (!detectives || detectives.length === 0) {
@@ -107,7 +114,7 @@ export async function serveStatic(app: Express, server: Server) {
 
       console.log(`[PROD-SEO] Before injectLocationSeoTags - template length: ${cachedIndexHtml.length}, has SSR_H1_INJECTION_POINT: ${cachedIndexHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
 
-      const seoHtml = await injectLocationSeoTags(cachedIndexHtml, params, detectives, canonicalUrl, totalCount);
+      const seoHtml = await injectLocationSeoTags(cachedIndexHtml, params, seoDetectives, canonicalUrl, totalCount);
 
       console.log(`[PROD-SEO] After injectLocationSeoTags - template length: ${seoHtml.length}, has SSR_H1_INJECTION_POINT: ${seoHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
 
@@ -121,12 +128,16 @@ export async function serveStatic(app: Express, server: Server) {
           const citySlug = pathSegments[3];
 
           // Lightweight check for background check services (limit = 1, just existence check)
-          const servicesCheckResult = await storage.searchServices({
-            category: "Background Check",
-            country: params.country,
-            state: params.state,
-            city: params.city,
-          }, limit = 1, offset = 0);
+          const servicesCheckResult = await storage.searchServices(
+            {
+              category: "Background Check",
+              country: params.country,
+              state: params.state,
+              city: params.city,
+            },
+            1,
+            0
+          );
 
           const servicesExist = servicesCheckResult && servicesCheckResult.length > 0;
           
@@ -135,8 +146,8 @@ export async function serveStatic(app: Express, server: Server) {
               countrySlug,
               stateSlug,
               citySlug,
-              cityName: params.city,
-              stateName: params.state,
+              cityName: params.city ?? "",
+              stateName: params.state ?? "",
             }, true);
             console.log(`[SEO] Injected background check services link for ${params.city}, ${params.state}`);
           }
@@ -268,6 +279,82 @@ export async function serveStatic(app: Express, server: Server) {
     }
   });
 
+  // SERVICE DETAIL PAGE ROUTE (Production)
+  // Intercepts /service/:country/:state/:city/:detectiveSlug/:serviceSlug
+  app.get(/^\/service\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {
+    try {
+      const requestPath = req.path;
+      const segments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
+      
+      // Validate we have exactly 5 segments after /service
+      if (segments.length !== 6 || segments[0] !== 'service') {
+        return; // Fall through to static file serving
+      }
+
+      const [, country, state, city, detectiveSlug, serviceSlug] = segments;
+      
+      console.log("[Service Detail] Request matched:", {
+        country,
+        state,
+        city,
+        detectiveSlug,
+        serviceSlug,
+      });
+
+      // Optionally, you could fetch service + detective data for SEO injection here
+      // For now, serve with generic HTML that allows client-side routing to take over
+      if (!cachedIndexHtml) {
+        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
+      }
+
+      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
+      
+      // Inject breadcrumb and basic service page meta tags
+      let seoHtml = cachedIndexHtml;
+      seoHtml = seoHtml.replace(
+        '</head>',
+        `<link rel="canonical" href="${canonicalUrl}" />
+       <script type="application/ld+json">
+       {
+         "@context": "https://schema.org",
+         "@type": "BreadcrumbList",
+         "itemListElement": [
+           {
+             "@type": "ListItem",
+             "position": 1,
+             "name": "Home",
+             "item": "https://www.askdetectives.com"
+           },
+           {
+             "@type": "ListItem",
+             "position": 2,
+             "name": "Service",
+             "item": "${canonicalUrl}"
+           }
+         ]
+       }
+       </script></head>`
+      );
+
+      console.log(`[Service Detail] Serving service page: ${detectiveSlug}/${serviceSlug}`);
+
+      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(seoHtml);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[Service Detail] Error:', {
+        url: req.originalUrl,
+        message: errorMsg,
+      });
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(500).send(
+        '<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1></body></html>'
+      );
+    }
+  });
+
   // SERVICE + LOCATION SEO INJECTION (Production)
   // Intercepts /services/background-checks/:country/:state/:city
   app.get(/^\/services\/background-checks\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {
@@ -301,12 +388,17 @@ export async function serveStatic(app: Express, server: Server) {
       console.log("[Service SEO] Location resolved:", location);
 
       // Fetch background check services for this location
-      const serviceResults = await storage.searchServices({
-        category: "Background Check",
-        country: location.countryCode,
-        state: location.stateName,
-        city: location.cityName,
-      }, limit = 50, offset = 0, sortBy = 'popular');
+      const serviceResults = await storage.searchServices(
+        {
+          category: "Background Check",
+          country: location.countryCode,
+          state: location.stateName,
+          city: location.cityName,
+        },
+        50,
+        0,
+        "popular"
+      );
 
       // Return 404 if no services found
       if (!serviceResults || serviceResults.length === 0) {
@@ -357,7 +449,7 @@ export async function serveStatic(app: Express, server: Server) {
   });
 
   // Homepage route - serves client index.html
-  app.get("/", async (req: Request, res: Response) => {
+  app.get("/", async (_req: Request, res: Response) => {
     try {
       // Read index.html once and cache it
       if (!cachedIndexHtml) {
@@ -517,7 +609,7 @@ async function main() {
         integrations: [nodeProfilingIntegration()],
         tracesSampleRate: 0.1, // 10% of requests for performance monitoring
         profilesSampleRate: 0.1, // 10% profiling
-        beforeSend(event, hint) {
+        beforeSend(event, _hint) {
           // PII scrubbing: redact sensitive fields
           if (event.request) {
             // Redact sensitive headers
@@ -528,10 +620,11 @@ async function main() {
             }
             // Redact sensitive body fields
             if (event.request.data && typeof event.request.data === 'object') {
+              const data = event.request.data as Record<string, unknown>;
               const sensitiveKeys = ['password', 'temporaryPassword', 'token', 'apiKey', 'creditCard', 'ssn', 'passport', 'csrfToken', 'session_secret'];
               for (const key of sensitiveKeys) {
-                if (key in event.request.data) {
-                  event.request.data[key] = '[REDACTED]';
+                if (key in data) {
+                  data[key] = '[REDACTED]';
                 }
               }
             }
