@@ -237,14 +237,6 @@ async function calculateReviewStats(detectiveId: string): Promise<{ totalReviews
   }
 }
 
-/**
- * Calculate review score (0-500) from totalReviews and avgRating
- * Used by ranking functions to convert stats into visibility score
- */
-async function calculateReviewScore(detectiveId: string): Promise<number> {
-  const stats = await calculateReviewStats(detectiveId);
-  return calculateReviewScoreFromData(stats.totalReviews, stats.avgRating);
-}
 
 /**
  * Get ranked detectives for display

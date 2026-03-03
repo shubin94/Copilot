@@ -1,11 +1,9 @@
 {
-  "include": ["client/src/**/*", "shared/**/*"],
+  "include": ["server", "client"],
   "exclude": [
     "node_modules",
     "build",
     "dist",
-    "server",
-    "server/**/*",
     "db",
     "db/**/*",
     "scripts",

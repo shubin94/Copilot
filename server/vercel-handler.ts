@@ -11,23 +11,21 @@
  * Wrapped with serverless-http to convert to serverless format
  */
 
-import "./lib/loadEnv";
+import "./lib/loadEnv.js";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
-import { type Server } from "node:http";
 
-import { loadSecretsFromDatabase } from "./lib/secretsLoader";
-import { config, validateConfig } from "./config";
-import { validateDatabase } from "./startup";
-import { initializeEnv } from "./lib/loadEnv";
-import { getEnvironmentBadge } from "../db/validateDatabase";
-import { ensureLocationSeoTable } from "./lib/init-location-seo-table";
+import { loadSecretsFromDatabase } from "./lib/secretsLoader.js";
+import { config, validateConfig } from "./config.js";
+import { validateDatabase } from "./startup.js";
+import { initializeEnv } from "./lib/loadEnv.js";
+import { getEnvironmentBadge } from "../db/validateDatabase.js";
+import { ensureLocationSeoTable } from "./lib/init-location-seo-table.js";
 import serverless from "serverless-http";
 
 // Track initialization state
 let initPromise: Promise<any> | null = null;
 let cachedHandler: any = null;
-let appInstance: any = null;
 
 export async function produceServerHandler() {
   // Return cached handler if already initialized
@@ -66,13 +64,13 @@ async function initializeServerApp() {
     console.log('🔐 Loading auth/secrets from database...');
     await loadSecretsFromDatabase();
     
-    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader");
+    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.js");
     
     // OPTIMIZATION: Defer database migrations to reduce startup time
     console.log('📊 Scheduling database migrations...');
     const migrateInBackground = async () => {
       try {
-        const { runMigrations } = await import('../db/run-migrations');
+        const { runMigrations } = await import('../db/run-migrations.js');
         await runMigrations();
       } catch (migrationError) {
         console.error('❌ Migration error (background):', migrationError);
@@ -88,7 +86,7 @@ async function initializeServerApp() {
         integrations: [nodeProfilingIntegration()],
         tracesSampleRate: 0.1,
         profilesSampleRate: 0.05, // Reduced from 0.1 to save memory
-        beforeSend(event, hint) {
+        beforeSend(event, _hint) {
           if (event.request) {
             if (event.request.headers) {
               delete event.request.headers['authorization'];
@@ -122,12 +120,11 @@ async function initializeServerApp() {
 
     // OPTIMIZATION: Lazy load Express app and routes
     // Import app.ts which sets up middleware but NOT routes yet
-    const { app } = await import("./app");
-    appInstance = app;
-    
+    const { app } = await import("./app.js");
+
     console.log('⚙️  Registering routes (this may take a moment)...');
-    const { registerRoutes } = await import("./routes");
-    const httpServer = await registerRoutes(app);
+    const { registerRoutes } = await import("./routes.js");
+    await registerRoutes(app);
     
     // Wrap the Express app with serverless-http for Vercel
     console.log('🚀 Wrapping with serverless-http...');

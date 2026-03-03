@@ -1,16 +1,7 @@
 import type { Express, Request, Response } from "express";
-import { db, pool } from "../../db/index.ts";
-import { eq, and, or, desc, count, sql } from "drizzle-orm";
-import {
-  detectives,
-  countries,
-  states,
-  cities,
-} from "../../shared/schema.ts";
+import { pool } from "../../db/index.ts";
 import { storage } from "../storage.ts";
-import { Country, State, City } from "country-state-city";
 import { requireAuth, requireRole } from "../authMiddleware.ts";
-import * as cache from "../lib/cache.ts";
 import * as LocationService from "../services/locationService.ts";
 
 /**
@@ -119,7 +110,7 @@ export function registerLocationRoutes(app: Express): void {
    * Uses location aggregation with homepage-specific limits (8 each)
    * SSR-friendly, cached for performance
    */
-  app.get("/api/homepage/top-locations", async (req: Request, res: Response) => {
+  app.get("/api/homepage/top-locations", async (_req: Request, res: Response) => {
     try {
       const { countries: topCountries, states: topStates, cities: topCities } = 
         await storage.getTopLocationsForHomepage();
@@ -271,7 +262,7 @@ export function registerLocationRoutes(app: Express): void {
    * Get states with SEO metadata for admin management
    * Shows custom SEO overrides and system-generated fallbacks
    */
-  app.get("/api/admin/location-seo/states", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+  app.get("/api/admin/location-seo/states", requireRole("admin", "employee"), async (_req: Request, res: Response) => {
     try {
       console.log("[Admin Location SEO] Fetching states...");
       const result = await pool.query(`
@@ -334,7 +325,7 @@ export function registerLocationRoutes(app: Express): void {
    * Get cities with SEO metadata for admin management
    * Shows custom SEO overrides and system-generated fallbacks
    */
-  app.get("/api/admin/location-seo/cities", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+  app.get("/api/admin/location-seo/cities", requireRole("admin", "employee"), async (_req: Request, res: Response) => {
     try {
       console.log("[Admin Location SEO] Fetching cities...");
       

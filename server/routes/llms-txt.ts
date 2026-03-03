@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "../../db/index.ts";
-import { detectives, caseStudies } from "../../shared/schema.ts";
+import { detectives, caseStudies, states } from "../../shared/schema.ts";
 import { count, desc, eq, and, isNotNull, sql } from "drizzle-orm";
 
 const router = Router();

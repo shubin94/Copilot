@@ -1,7 +1,7 @@
 import { db } from "../db/index.ts";
 import { randomBytes } from "node:crypto";
 import { 
-  users, detectives, services, servicePackages, reviews, orders, favorites, 
+  users, detectives, services, reviews, orders, favorites, 
   detectiveApplications, profileClaims, billingHistory, serviceCategories,
   countries, states, cities,
   type User, type InsertUser,
@@ -17,7 +17,6 @@ import {
   type ServiceCategory, type InsertServiceCategory,
   siteSettings, type SiteSettings,
   searchStats,
-  appPolicies,
   subscriptionPlans
 } from "../shared/schema.ts";
 import { eq, and, desc, sql, count, avg, or, ilike, inArray, isNotNull, ne, asc } from "drizzle-orm";
@@ -60,7 +59,7 @@ export interface IStorage {
   createDetective(detective: InsertDetective): Promise<Detective>;
   updateDetective(id: string, updates: Partial<Detective>): Promise<Detective | undefined>;
   updateDetectiveAdmin(id: string, updates: Partial<Detective>): Promise<Detective | undefined>;
-  updateDetectiveLocation(id: string, data: { countryId: string, stateId: string, cityId: string }): Promise<Detective | undefined>;
+  updateDetectiveLocation(id: string, data: { countryId: number, stateId: number, cityId: number }): Promise<Detective | undefined>;
   resetDetectivePassword(userId: string, newPassword: string): Promise<User | undefined>;
   setUserPassword(userId: string, newPassword: string, mustChangePassword?: boolean): Promise<User | undefined>;
   getAllDetectives(limit?: number, offset?: number): Promise<Detective[]>;
@@ -180,9 +179,9 @@ export interface IStorage {
   getTopCitiesGlobally(limit?: number): Promise<Array<{ country: string; state: string; city: string; detectiveCount: number }>>;
 
   // Location hierarchy APIs (FK-based with caching)
-  getAllCountries(): Promise<Array<{ id: string; code: string; name: string; slug: string }>>;
-  getStatesForCountry(countryId: string): Promise<Array<{ id: string; countryId: string; name: string; slug: string }>>;
-  getCitiesForState(countryId: string, stateId: string): Promise<Array<{ id: string; stateId: string; name: string; slug: string }>>;
+  getAllCountries(): Promise<Array<{ id: number; code: string; name: string; slug: string }>>;
+  getStatesForCountry(countryId: number): Promise<Array<{ id: number; countryId: number; name: string; slug: string }>>;
+  getCitiesForState(countryId: number, stateId: number): Promise<Array<{ id: number; stateId: number; name: string; slug: string }>>;
 
   // Location aggregation APIs (FK-based optimized queries)
   getTopLocations(limitCountries?: number, limitStates?: number, limitCities?: number): Promise<TopLocationsResult>;
@@ -357,8 +356,8 @@ export class DatabaseStorage implements IStorage {
     if (!result) return undefined;
     
     // AUTO-REPAIR: Generate slug if missing
-    if (!result.detective.slug && result.detective.business_name) {
-      const newSlug = generateSlug(result.detective.business_name);
+    if (!result.detective.slug && result.detective.businessName) {
+      const newSlug = generateSlug(result.detective.businessName);
       console.log(`[AUTO-REPAIR] Detective ${result.detective.id} missing slug, generating: ${newSlug}`);
       
       try {
@@ -393,7 +392,7 @@ export class DatabaseStorage implements IStorage {
     }
     
     // VALIDATION: Flag if location is incomplete
-    const requireLocationUpdate = !result.detective.city_id;
+    const requireLocationUpdate = !result.detective.cityId;
     
     return {
       ...result.detective,
@@ -508,7 +507,7 @@ export class DatabaseStorage implements IStorage {
     return {
       detective: {
         id: result.detectiveId,
-        businessName: result.businessName || undefined,
+        businessName: result.businessName || null,
         status: result.status,
         location: result.location,
         city: result.city,
@@ -570,7 +569,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     try {
-      const [detective] = await db.insert(detectives).values(insertDetective).returning();
+      const [detective] = await db.insert(detectives).values(insertDetective as any).returning();
       return detective;
     } catch (err: any) {
       console.error('[createDetective] INSERT detectives failed — full error:', {
@@ -612,7 +611,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Update detective location with ID validation and auto-slug generation
-  async updateDetectiveLocation(id: string, data: { countryId: string, stateId: string, cityId: string }): Promise<Detective | undefined> {
+  async updateDetectiveLocation(id: string, data: { countryId: number, stateId: number, cityId: number }): Promise<Detective | undefined> {
     // Step 1: Fetch detective for slug check
     const [detective] = await db.select().from(detectives).where(eq(detectives.id, id)).limit(1);
     if (!detective) {
@@ -957,8 +956,8 @@ export class DatabaseStorage implements IStorage {
       
       if (countryResult.length > 0) {
         // Convert varchar UUID to integer (assuming ID mapping exists)
-        const idNum = parseInt(countryResult[0].id, 10);
-        if (!isNaN(idNum)) {
+        const idNum = Number(countryResult[0].id);
+        if (!Number.isNaN(idNum)) {
           countryId = idNum;
           console.log(`[searchServices] Resolved country "${filters.country}" to country_id=${countryId} (FK filtering)`);
         } else {
@@ -982,8 +981,8 @@ export class DatabaseStorage implements IStorage {
         .limit(1);
       
       if (stateResult.length > 0) {
-        const idNum = parseInt(stateResult[0].id, 10);
-        if (!isNaN(idNum)) {
+        const idNum = Number(stateResult[0].id);
+        if (!Number.isNaN(idNum)) {
           stateId = idNum;
           console.log(`[searchServices] Resolved state "${filters.state}" to state_id=${stateId} (FK filtering)`);
         } else {
@@ -1007,8 +1006,8 @@ export class DatabaseStorage implements IStorage {
         .limit(1);
       
       if (cityResult.length > 0) {
-        const idNum = parseInt(cityResult[0].id, 10);
-        if (!isNaN(idNum)) {
+        const idNum = Number(cityResult[0].id);
+        if (!Number.isNaN(idNum)) {
           cityId = idNum;
           console.log(`[searchServices] Resolved city "${filters.city}" to city_id=${cityId} (FK filtering)`);
         } else {
@@ -1031,7 +1030,7 @@ export class DatabaseStorage implements IStorage {
     // search_vector is automatically maintained by trigger on title/description/category changes
     if (filters.searchQuery) {
       conditions.push(
-        sql`${services.searchVector} @@ plainto_tsquery('simple', ${filters.searchQuery})`
+        sql`to_tsvector('simple', coalesce(${services.title}, '') || ' ' || coalesce(${services.description}, '') || ' ' || coalesce(${services.category}, '')) @@ plainto_tsquery('simple', ${filters.searchQuery})`
       );
     }
 
@@ -1083,10 +1082,7 @@ export class DatabaseStorage implements IStorage {
 
     // ✅ Filter to ensure services have at least one image (in SQL, not post-pagination)
     conditions.push(
-      and(
-        sql`${services.images} IS NOT NULL`,
-        sql`array_length(${services.images}, 1) > 0`
-      )
+      sql`${services.images} IS NOT NULL AND array_length(${services.images}, 1) > 0`
     );
 
     // Use subquery for reviews aggregation to avoid cartesian product
@@ -1154,7 +1150,7 @@ export class DatabaseStorage implements IStorage {
         .from(services)
         .where(
           and(
-            and(...conditions),
+            and(...conditions) ?? sql`true`,
             // Only include services that are in the materialized view (best per detective)
             sql`${services.id} IN (SELECT service_id FROM popular_service_per_detective)`
           )
@@ -1173,7 +1169,7 @@ export class DatabaseStorage implements IStorage {
         .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
         .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
         .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
-        .where(and(...conditions));
+        .where(and(...conditions) ?? sql`true`);
 
       // rating filter uses WHERE on aggregated values
       if (filters.ratingMin !== undefined) {
@@ -1631,11 +1627,11 @@ export class DatabaseStorage implements IStorage {
    * Get all countries with slugs
    * Cached in memory for 24 hours to avoid recomputing on every request
    */
-  async getAllCountries(): Promise<Array<{ id: string; code: string; name: string; slug: string }>> {
+  async getAllCountries(): Promise<Array<{ id: number; code: string; name: string; slug: string }>> {
     try {
       const cacheKey = "location:countries:all";
       const cached = cache.get(cacheKey);
-      if (cached) return JSON.parse(cached);
+      if (cached) return JSON.parse(String(cached));
 
       const allCountries = await db
         .select({
@@ -1645,7 +1641,6 @@ export class DatabaseStorage implements IStorage {
           slug: countries.slug,
         })
         .from(countries)
-        .where(eq(countries.isActive, true))
         .orderBy(asc(countries.name));
 
       // Cache for 24 hours
@@ -1661,11 +1656,11 @@ export class DatabaseStorage implements IStorage {
    * Get states for a specific country
    * Cached in memory per country to avoid recomputing on every request
    */
-  async getStatesForCountry(countryId: string): Promise<Array<{ id: string; countryId: string; name: string; slug: string }>> {
+  async getStatesForCountry(countryId: number): Promise<Array<{ id: number; countryId: number; name: string; slug: string }>> {
     try {
       const cacheKey = `location:states:country_${countryId}`;
       const cached = cache.get(cacheKey);
-      if (cached) return JSON.parse(cached);
+      if (cached) return JSON.parse(String(cached));
 
       const countryStates = await db
         .select({
@@ -1675,10 +1670,7 @@ export class DatabaseStorage implements IStorage {
           slug: states.slug,
         })
         .from(states)
-        .where(and(
-          eq(states.countryId, countryId as any),
-          eq(states.isActive, true)
-        ))
+        .where(eq(states.countryId, countryId))
         .orderBy(asc(states.name));
 
       // Cache for 24 hours
@@ -1694,11 +1686,11 @@ export class DatabaseStorage implements IStorage {
    * Get cities for a specific state
    * Cached in memory per state to avoid recomputing on every request
    */
-  async getCitiesForState(countryId: string, stateId: string): Promise<Array<{ id: string; stateId: string; name: string; slug: string }>> {
+  async getCitiesForState(_countryId: number, stateId: number): Promise<Array<{ id: number; stateId: number; name: string; slug: string }>> {
     try {
       const cacheKey = `location:cities:state_${stateId}`;
       const cached = cache.get(cacheKey);
-      if (cached) return JSON.parse(cached);
+      if (cached) return JSON.parse(String(cached));
 
       const stateCities = await db
         .select({
@@ -1708,10 +1700,7 @@ export class DatabaseStorage implements IStorage {
           slug: cities.slug,
         })
         .from(cities)
-        .where(and(
-          eq(cities.stateId, stateId as any),
-          eq(cities.isActive, true)
-        ))
+        .where(eq(cities.stateId, stateId))
         .orderBy(asc(cities.name));
 
       // Cache for 24 hours
@@ -1910,8 +1899,8 @@ export class DatabaseStorage implements IStorage {
    */
   async processDetectiveFileUpdates(detective: Detective, validatedData: Record<string, any>): Promise<void> {
     // Import file utilities
-    const { uploadDataUrl } = await import("../supabase.ts");
-    const { safeDeletePublicUrl } = await import("../supabase.ts");
+    const { uploadDataUrl } = await import("./supabase.ts");
+    const { safeDeletePublicUrl } = await import("./supabase.ts");
 
     // Helper to validate file URLs
     const validateFileUrl = (fileUrl: string, existingUrls: string[]): boolean => {
@@ -1988,8 +1977,8 @@ export class DatabaseStorage implements IStorage {
     }
 
     // Process document arrays (businessDocuments and identityDocuments)
-    await processDocumentArray("businessDocuments", "documents", detective.businessDocuments, validatedData.businessDocuments);
-    await processDocumentArray("identityDocuments", "identity", detective.identityDocuments, validatedData.identityDocuments);
+    await processDocumentArray("businessDocuments", "documents", detective.businessDocuments ?? undefined, validatedData.businessDocuments);
+    await processDocumentArray("identityDocuments", "identity", detective.identityDocuments ?? undefined, validatedData.identityDocuments);
 
     // Upload new logo data: URL
     if (typeof validatedData.logo === "string" && validatedData.logo.startsWith("data:")) {
@@ -2377,7 +2366,7 @@ export class DatabaseStorage implements IStorage {
 
   async createProfileClaim(claim: InsertProfileClaim): Promise<ProfileClaim> {
     const [newClaim] = await db.insert(profileClaims)
-      .values(claim)
+      .values(claim as any)
       .returning();
     return newClaim;
   }
@@ -2731,7 +2720,7 @@ export class DatabaseStorage implements IStorage {
 
 const rawStorage = new DatabaseStorage();
 
-function fallbackFor(method: string, args: IArguments | any[]): any {
+function fallbackFor(method: string, _args: IArguments | any[]): any {
   if (method.startsWith("getAll") || method.startsWith("search") || method.startsWith("getReviewsBy") || method.startsWith("getOrdersBy") || method.startsWith("getFavoritesBy") || method.startsWith("getPopular") || method.endsWith("Categories") || method.endsWith("Claims") || method.endsWith("Services")) {
     return [];
   }

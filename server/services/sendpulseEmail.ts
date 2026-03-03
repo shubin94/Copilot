@@ -17,17 +17,6 @@ interface EmailVariable {
   [key: string]: string | number | boolean | null | undefined;
 }
 
-interface EmailOptions {
-  to: string;
-  templateId: number;
-  variables: EmailVariable;
-  replyTo?: string;
-}
-
-interface AdminEmailOptions {
-  templateId: number;
-  variables: EmailVariable;
-}
 
 interface SendPulseTokenResponse {
   access_token: string;
@@ -134,7 +123,7 @@ class SendPulseEmailService {
       // Check if SendPulse is enabled
       if (!this.enabled) {
         console.log("[SendPulse] ⚠️ SendPulse is disabled in config. Skipping email.");
-        return { success: true, mocked: true };
+        return { success: true };
       }
 
       const token = await this.getAccessToken();

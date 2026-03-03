@@ -6,7 +6,7 @@
 import { pool } from "../../db/index.ts";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { gzipSync } from "zlib";
+
 
 const SITEMAP_CACHE_DIR = "./.sitemap-cache";
 const CACHE_MAX_AGE = 86400; // 24 hours in seconds

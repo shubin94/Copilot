@@ -21,7 +21,6 @@ import {
   extractDetectiveRouteParams,
   getDetectiveBySlugForSEO,
   injectSeoTags,
-  isLocationListingPath,
   extractLocationRouteParams,
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
@@ -31,10 +30,10 @@ import { storage } from "./storage";
 
 const viteLogger = createLogger();
 
-export async function setupVite(app: Express, server: Server) {
+export async function setupVite(app: Express, _server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    hmr: true,
     allowedHosts: true as const,
   };
 
@@ -88,6 +87,15 @@ export async function setupVite(app: Express, server: Server) {
         params.city
       );
       const detectives = locationSeoData.detectives;
+      const seoDetectives = detectives
+        .filter((d) => Boolean(d.slug) && Boolean(d.businessName))
+        .map((d) => ({
+          slug: d.slug as string,
+          businessName: d.businessName as string,
+          city: d.city,
+          state: d.state,
+          country: d.country,
+        }));
       const totalCount = locationSeoData.totalCount;
 
       // If no detectives found for this location, return 404
@@ -117,7 +125,7 @@ export async function setupVite(app: Express, server: Server) {
       
       console.log(`[DEV-SEO] Before injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
       
-      template = await injectLocationSeoTags(template, params, detectives, canonicalUrl, totalCount);
+      template = await injectLocationSeoTags(template, params, seoDetectives, canonicalUrl, totalCount);
       
       console.log(`[DEV-SEO] After injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
       console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${totalCount} total detectives, ${detectives.length} rendered)`);
@@ -164,8 +172,8 @@ export async function setupVite(app: Express, server: Server) {
               countrySlug,
               stateSlug,
               citySlug,
-              cityName: params.city,
-              stateName: params.state,
+              cityName: params.city ?? "",
+              stateName: params.state ?? "",
             }, true);
             console.log(`[DEV-SEO] Injected background check services link for ${params.city}, ${params.state}`);
           }
@@ -394,12 +402,17 @@ export async function setupVite(app: Express, server: Server) {
       console.log("[Service SEO] Location resolved:", location);
 
       // Fetch background check services for this location
-      const serviceResults = await storage.searchServices({
-        category: "Background Check",
-        country: location.countryCode,
-        state: location.stateName,
-        city: location.cityName,
-      }, limit = 50, offset = 0, sortBy = 'popular');
+      const serviceResults = await storage.searchServices(
+        {
+          category: "Background Check",
+          country: location.countryCode,
+          state: location.stateName,
+          city: location.cityName,
+        },
+        50,
+        0,
+        "popular"
+      );
 
       // Return 404 if no services found
       if (!serviceResults || serviceResults.length === 0) {
@@ -460,7 +473,7 @@ export async function setupVite(app: Express, server: Server) {
   // ============================================================================
 
   // Debug: Log all requests before Vite middleware
-  app.use((req, res, next) => {
+  app.use((req, _res, next) => {
     console.log("[SEO DEBUG] Before Vite middleware:", req.originalUrl);
     next();
   });
@@ -629,7 +642,7 @@ async function attachViteTransform(
     validateConfig(secretsLoadedSuccessfully);
     await validateDatabase();
     await ensureLocationSeoTable();
-    const server = await runApp(setupVite);
+    await runApp(setupVite);
     console.log(`✅ Server fully started and listening on port ${config.server.port}`);
     
     // Keep the process alive - prevent premature exit
