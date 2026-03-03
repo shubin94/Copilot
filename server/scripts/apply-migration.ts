@@ -7,7 +7,7 @@ const envPath = resolve(".env.local");
 dotenv.config({ path: envPath });
 
 // Now import pool after env is loaded
-const { pool } = await import("../../db/index.ts");
+const { pool } = await import("../../db/index.js");
 
 async function runMigration() {
   try {

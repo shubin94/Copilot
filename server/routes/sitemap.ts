@@ -105,7 +105,7 @@ router.get(/-services-(\d+)\.xml$/, async (req: Request, res: Response) => {
 // Status endpoint - get sitemap statistics
 router.get(/-status\.json$/, async (_req: Request, res: Response) => {
   try {
-    const { pool } = await import("../../db/index.ts");
+    const { pool } = await import("../../db/index.js");
     
     const r = await pool.query(`
       SELECT COUNT(*) as count FROM services s

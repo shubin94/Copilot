@@ -1,5 +1,5 @@
-import { db } from "./index";
-import { emailTemplates } from "../shared/schema.ts";
+import { db } from "./index.js";
+import { emailTemplates } from "../shared/schema.js";
 
 /**
  * Seed default email templates

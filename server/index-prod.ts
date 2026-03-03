@@ -7,7 +7,7 @@ import path from "node:path";
 
 import express from "express";
 import type { Express, Request, Response } from "express";
-import { renderLocationApp } from "../client/src/ssr-entry.tsx";
+import { renderLocationApp } from "../client/src/ssr-entry.js";
 
 import runApp from "./app.js";
 import { config, validateConfig } from "./config.js";
@@ -25,7 +25,7 @@ import {
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
   injectDetectiveLocationAuthorityLink,
-} from "./lib/seo-injection.ts";
+} from "./lib/seo-injection.js";
 import { storage } from "./storage.js";
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
@@ -365,7 +365,7 @@ export async function serveStatic(app: Express, _server: Server) {
         extractServiceLocationRouteParams,
         resolveServiceLocation,
         injectServiceLocationSeoTags,
-      } = await import("./lib/seo-injection.ts");
+      } = await import("./lib/seo-injection.js");
 
       const params = extractServiceLocationRouteParams(requestPath);
       if (!params) {
@@ -589,12 +589,12 @@ async function main() {
     console.log('🔐 Loading auth/secrets from database...');
     await loadSecretsFromDatabase();
     
-    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.ts");
+    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.js");
     
     // Run database migrations
     console.log('📊 Running database migrations...');
     try {
-      const { runMigrations } = await import('../db/run-migrations.ts');
+      const { runMigrations } = await import('../db/run-migrations.js');
       await runMigrations();
     } catch (migrationError) {
       console.error('❌ Migration error:', migrationError);

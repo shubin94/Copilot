@@ -168,14 +168,14 @@ async function seedData() {
         // Resolve location IDs for India/Karnataka
         let locationIds;
         try {
-          locationIds = await (await import("../services/locationService.ts")).resolveLocationIds(
+          locationIds = await (await import("../services/locationService.js")).resolveLocationIds(
             "IN",
             "Karnataka",
             seed.city
           );
         } catch (error) {
           console.error("[Admin Flow Test] Location resolution failed:", error);
-          locationIds = await (await import("../services/locationService.ts")).getDefaultLocationIds();
+          locationIds = await (await import("../services/locationService.js")).getDefaultLocationIds();
         }
 
         detective = await storage.createDetective({

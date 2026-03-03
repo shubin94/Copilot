@@ -1,5 +1,5 @@
-import { db } from "./index";
-import { users, detectives, services, reviews, orders, serviceCategories } from "../shared/schema.ts";
+import { db } from "./index.js";
+import { users, detectives, services, reviews, orders, serviceCategories } from "../shared/schema.js";
 import bcrypt from "bcrypt";
 import { nanoid } from "nanoid";
 

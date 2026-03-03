@@ -2,7 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pkg from "pg";
 const { Pool } = pkg;
 import { eq } from "drizzle-orm";
-import * as schema from "../shared/schema";
+import * as schema from "../shared/schema.js";
 import { randomBytes } from "crypto";
 
 const DATABASE_URL = process.env.DATABASE_URL;
