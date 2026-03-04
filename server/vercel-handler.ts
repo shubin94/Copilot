@@ -141,19 +141,21 @@ async function initializeServerApp() {
 
     console.log("✅ Serverless function initialized");
 
-    // 9️⃣ Run migrations in background (never block cold start)
+    // 9️⃣ Migrations DISABLED on serverless (run manually via scripts/run-migration-once.ts)
+    // CRITICAL: DO NOT enable AUTO_MIGRATE on Vercel! CREATE INDEX CONCURRENTLY takes
+    //           30-120+ seconds to build indexes, causing 504 timeouts on cold starts.
+    // To run migrations: npm run migrate:vercel (one-time via Vercel CLI)
     if (config.env.isProd) {
-      (async () => {
-        try {
-          const { runMigrations } = await import(
-            "../db/run-migrations.js"
-          );
-          await runMigrations();
-        } catch (err) {
-          console.error("Background migration error:", err);
-          if (config.sentryDsn) Sentry.captureException(err);
-        }
-      })();
+      const autoMigrate = process.env.AUTO_MIGRATE;
+      if (autoMigrate === 'true') {
+        console.error("❌ CRITICAL: AUTO_MIGRATE is enabled on Vercel!");
+        console.error("   This WILL cause 504 timeouts during cold starts.");
+        console.error("   Migrations are BLOCKED. Run manually: npm run migrate:vercel");
+        console.error("   Then remove AUTO_MIGRATE environment variable from Vercel.");
+        // DO NOT run migrations - they block serverless for 30-120+ seconds
+      } else {
+        console.log("✅ Auto-migrations disabled (correct for Vercel serverless)");
+      }
     }
 
     return cachedHandler;
