@@ -6767,8 +6767,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/detectives/location/:countrySlug/:stateSlug?/:citySlug?', async (req: Request, res: Response) => {
     try {
       const { countrySlug, stateSlug, citySlug } = req.params as { countrySlug: string; stateSlug?: string; citySlug?: string };
-      const limit = Number(req.query.limit) || 15;
-      const offset = Number(req.query.offset) || 0;
+      const parsedLimit = Number(req.query.limit);
+      const parsedOffset = Number(req.query.offset);
+      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(30, Math.floor(parsedLimit))) : 15;
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.floor(parsedOffset)) : 0;
 
       // City-level URLs must include a state segment
       if (citySlug && !stateSlug) {
@@ -6780,12 +6782,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // ✅ FETCH LOCATION DETECTIVES USING OPTIMIZED SINGLE QUERY
-      const result = await getLocationDetectivesForSEO(
-        countrySlug,
-        stateSlug,
-        citySlug,
-        limit + 1  // limit+1 for hasMore detection
-      );
+      // Add an internal timeout so requests fail fast and avoid Vercel 60s timeout.
+      const LOCATION_QUERY_TIMEOUT_MS = 20000;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let result: Awaited<ReturnType<typeof getLocationDetectivesForSEO>>;
+      try {
+        result = await Promise.race([
+          getLocationDetectivesForSEO(
+            countrySlug,
+            stateSlug,
+            citySlug,
+            limit + 1  // limit+1 for hasMore detection
+          ),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('LOCATION_QUERY_TIMEOUT')), LOCATION_QUERY_TIMEOUT_MS);
+          })
+        ]);
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
 
       // ✅ MANUAL PAGINATION USING OFFSET
       const startIdx = Math.max(0, Math.min(offset, result.detectives.length));
@@ -6793,17 +6810,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hasMore = result.detectives.length > (startIdx + limit);
 
       // ✅ MASK SENSITIVE FIELDS
-      const maskedDetectives = await Promise.all(
-        paginatedDetectives.map(async (d) => {
-          const masked = await maskDetectiveContactsPublic(d);
-          masked.userId = undefined;
-          masked.businessDocuments = undefined;
-          masked.identityDocuments = undefined;
-          masked.slug = masked.slug || "pending-generation";
-          masked.requireLocationUpdate = !masked.cityId;
-          return masked;
-        })
-      );
+      // Keep this endpoint lightweight: avoid per-item async plan lookups.
+      const maskedDetectives = paginatedDetectives.map((d: any) => ({
+        ...d,
+        phone: undefined,
+        whatsapp: undefined,
+        contactEmail: undefined,
+        userId: undefined,
+        businessDocuments: undefined,
+        identityDocuments: undefined,
+        slug: d.slug || "pending-generation",
+        requireLocationUpdate: false,
+      }));
+
+      const estimatedTotal = hasMore
+        ? offset + maskedDetectives.length + 1
+        : offset + maskedDetectives.length;
 
       // ✅ FETCH SEO METADATA (Optional - can be optimized to move into getLocationDetectivesForSEO)
       let seoMetadata: { metaTitle: string | null; metaDescription: string | null; h1: string | null } = {
@@ -6833,6 +6855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // ✅ RETURN RESPONSE
+      res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
       res.json({
         meta: {
           country: result.location.country,
@@ -6844,12 +6867,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         relatedType: result.location.state ? 'cities' : 'states',
         relatedLocations: [],  // Can be populated from getLocationDetectivesForSEO if needed
         detectives: maskedDetectives,
-        total: maskedDetectives.length,
+        total: estimatedTotal,
         hasMore,
         limit,
         offset
       });
     } catch (error) {
+      if (error instanceof Error && error.message.includes('LOCATION_QUERY_TIMEOUT')) {
+        return res.status(504).json({
+          error: 'Location fetch timed out',
+          code: 'LOCATION_FETCH_TIMEOUT',
+          message: 'The location query took too long. Please try again.'
+        });
+      }
+
       console.error('[api/detectives/location] error:', error);
       res.status(500).json({
         error: 'Failed to fetch detectives by location',
