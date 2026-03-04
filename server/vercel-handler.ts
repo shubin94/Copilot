@@ -12,7 +12,6 @@ import { config, validateConfig } from "./config.js";
 import { validateDatabase } from "./startup.js";
 import { initializeEnv } from "./lib/loadEnv.js";
 import { getEnvironmentBadge } from "../db/validateDatabase.js";
-import { ensureLocationSeoTable } from "./lib/init-location-seo-table.js";
 import serverless from "serverless-http";
 
 // --------------------------------------------------
@@ -116,11 +115,6 @@ async function initializeServerApp() {
 
       validateDatabase().catch((err) => {
         console.error("Database validation failed:", err);
-        if (config.sentryDsn) Sentry.captureException(err);
-      });
-
-      ensureLocationSeoTable().catch((err) => {
-        console.error("Location SEO check failed:", err);
         if (config.sentryDsn) Sentry.captureException(err);
       });
     }
