@@ -142,7 +142,11 @@ async function initializeServerApp() {
     console.log("✅ Serverless function initialized");
 
     // 9️⃣ Run migrations in background (never block cold start)
-    if (config.env.isProd) {
+    // DISABLED: Migrations with CONCURRENT INDEX creation take too long on serverless
+    // Run migrations manually via: node --loader ts-node/esm db/run-migrations.ts
+    // Or set AUTO_MIGRATE=true environment variable to enable
+    if (config.env.isProd && process.env.AUTO_MIGRATE === 'true') {
+      console.log("⚠️  AUTO_MIGRATE enabled - running migrations in background");
       (async () => {
         try {
           const { runMigrations } = await import(
@@ -154,6 +158,8 @@ async function initializeServerApp() {
           if (config.sentryDsn) Sentry.captureException(err);
         }
       })();
+    } else if (config.env.isProd) {
+      console.log("ℹ️  Auto-migrations disabled (set AUTO_MIGRATE=true to enable)");
     }
 
     return cachedHandler;
