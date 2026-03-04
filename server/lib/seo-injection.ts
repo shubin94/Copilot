@@ -52,6 +52,22 @@ import { eq, and, isNotNull, desc } from "drizzle-orm";
 import { avg, count } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.js";
 
+/**
+ * ✅ OPTIMIZATION: In-memory cache for location resolution (country/state/city IDs)
+ * Key format: "${country.toLowerCase()}-${state?.toLowerCase() || ''}-${city?.toLowerCase() || ''}"
+ * This prevents redundant database queries for duplicate locations on the same page
+ * Cache is persistent across requests within the same Lambda instance (warm start)
+ */
+interface LocationResolution {
+  countryId: number | null;
+  stateId: number | null;
+  cityId: number | null;
+  countryName: string;
+  stateName: string;
+  cityName: string;
+}
+const locationCache = new Map<string, LocationResolution>();
+
 export async function getDetectiveBySlugForSEO(
   country: string,
   state: string,
@@ -790,22 +806,35 @@ export async function getLocationDetectivesForSEO(
 }
 
 /**
- * Generates SEO meta tags for location listing pages
+ * ✅ OPTIMIZATION: Resolves location IDs with in-memory caching
+ * Cache key: "${country.toLowerCase()}-${state?.toLowerCase() || ''}-${city?.toLowerCase() || ''}"
+ * On cache hit: Returns immediately without database queries
+ * On cache miss: Queries countries/states/cities, stores in cache, returns result
+ * This is especially effective on SSR pages where the same location may be queried multiple times
  */
-export async function generateLocationSeoMetaTags(
-  location: { country: string; state?: string; city?: string },
-  totalCount: number,
-  canonicalUrl: string
-): Promise<{ html: string; title: string; description: string; h1: string }> {
-  const year = new Date().getFullYear();
+export async function resolveLocationIds(
+  location: { country: string; state?: string; city?: string }
+): Promise<LocationResolution> {
+  // Build cache key
+  const cacheKey = `${location.country.toLowerCase()}-${location.state?.toLowerCase() || ''}-${location.city?.toLowerCase() || ''}`;
+  
+  // ✅ CACHE HIT: Return immediately
+  if (locationCache.has(cacheKey)) {
+    console.log(`[Location Cache] HIT for ${cacheKey}`);
+    return locationCache.get(cacheKey)!;
+  }
 
-  // ✅ STEP 1: Resolve location IDs (country, state, city)
-  let countryId: number | null = null;
-  let stateId: number | null = null;
-  let cityId: number | null = null;
-  let countryName = location.country;
-  let stateName = location.state || "";
-  let cityName = location.city || "";
+  console.log(`[Location Cache] MISS for ${cacheKey}, querying database...`);
+
+  // Initialize result with defaults
+  const result: LocationResolution = {
+    countryId: null,
+    stateId: null,
+    cityId: null,
+    countryName: location.country,
+    stateName: location.state || "",
+    cityName: location.city || "",
+  };
 
   try {
     // Resolve country ID and name
@@ -817,48 +846,77 @@ export async function generateLocationSeoMetaTags(
       .limit(1);
     
     if (countryResult.length > 0) {
-      countryId = countryResult[0].id;
-      countryName = countryResult[0].name;
+      result.countryId = countryResult[0].id;
+      result.countryName = countryResult[0].name;
     }
 
     // Resolve state ID and name if state exists
-    if (location.state && countryId) {
+    if (location.state && result.countryId) {
       const stateSlug = location.state.toLowerCase();
       const stateResult = await db
         .select({ id: states.id, name: states.name })
         .from(states)
         .where(and(
           eq(states.slug, stateSlug),
-          eq(states.countryId, countryId)
+          eq(states.countryId, result.countryId)
         ))
         .limit(1);
       
       if (stateResult.length > 0) {
-        stateId = stateResult[0].id;
-        stateName = stateResult[0].name;
+        result.stateId = stateResult[0].id;
+        result.stateName = stateResult[0].name;
       }
     }
 
     // Resolve city ID and name if city exists
-    if (location.city && stateId) {
+    if (location.city && result.stateId) {
       const citySlug = location.city.toLowerCase();
       const cityResult = await db
         .select({ id: cities.id, name: cities.name })
         .from(cities)
         .where(and(
           eq(cities.slug, citySlug),
-          eq(cities.stateId, stateId)
+          eq(cities.stateId, result.stateId)
         ))
         .limit(1);
       
       if (cityResult.length > 0) {
-        cityId = cityResult[0].id;
-        cityName = cityResult[0].name;
+        result.cityId = cityResult[0].id;
+        result.cityName = cityResult[0].name;
       }
     }
-  } catch (resolutionError) {
-    console.error('[SEO SSR] Location ID resolution error:', resolutionError);
+  } catch (error) {
+    console.error('[Location Cache] Error resolving location IDs:', error);
+    // Continue with null IDs and display names
   }
+
+  // ✅ CACHE MISS: Store in cache for future requests
+  locationCache.set(cacheKey, result);
+  console.log(`[Location Cache] STORED ${cacheKey}`);
+
+  return result;
+}
+
+/**
+ * Generates SEO meta tags for location listing pages
+ */
+export async function generateLocationSeoMetaTags(
+  location: { country: string; state?: string; city?: string },
+  totalCount: number,
+  canonicalUrl: string,
+  resolvedLocation?: LocationResolution
+): Promise<{ html: string; title: string; description: string; h1: string }> {
+  const year = new Date().getFullYear();
+
+  // ✅ OPTIMIZATION: Use provided resolved location, or resolve if not provided
+  // This allows callers to resolve location once and reuse across multiple functions
+  const locationIds = resolvedLocation || await resolveLocationIds(location);
+  const countryId = locationIds.countryId;
+  const stateId = locationIds.stateId;
+  const cityId = locationIds.cityId;
+  const countryName = locationIds.countryName;
+  const stateName = locationIds.stateName;
+  const cityName = locationIds.cityName;
 
   // ✅ STEP 2: Query location_seo_overrides table (Priority: Override > System Generated > Fallback)
   let title = "";
@@ -1068,13 +1126,26 @@ export async function injectLocationSeoTags(
   location: { country: string; state?: string; city?: string },
   detectives: Array<{ slug: string; businessName: string; city: string; state: string; country: string }>,
   canonicalUrl: string,
-  totalCount?: number
+  totalCount?: number | LocationResolution,
+  resolvedLocation?: LocationResolution
 ): Promise<string> {
+  // Handle backwards compatibility: resolvedLocation may be passed as totalCount parameter
+  let actualTotalCount = detectives.length;
+  let passedResolvedLocation = resolvedLocation;
+  
+  if (typeof totalCount === 'number') {
+    actualTotalCount = totalCount;
+  } else if (totalCount && typeof totalCount === 'object' && 'countryId' in totalCount) {
+    // totalCount is actually the resolvedLocation (when called with 5 args)
+    passedResolvedLocation = totalCount;
+  }
+
   // STEP 1: Remove all existing default meta tags
   let modified = removeDefaultMetaTags(htmlContent);
 
   // STEP 2: Inject new SEO tags (now async with override support)
-  const seoData = await generateLocationSeoMetaTags(location, totalCount ?? detectives.length, canonicalUrl);
+  // ✅ Pass resolved location to avoid duplicate queries
+  const seoData = await generateLocationSeoMetaTags(location, actualTotalCount, canonicalUrl, passedResolvedLocation);
   const metaTagsArray = seoData.html.split('\n');
   const titleTag = metaTagsArray[0];
   const otherTags = metaTagsArray.slice(1).join('\n    ');
@@ -1108,7 +1179,7 @@ export async function injectLocationSeoTags(
         description: ${JSON.stringify(seoData.description)},
         h1: ${JSON.stringify(seoData.h1)},
         location: ${JSON.stringify(location)},
-        totalCount: ${totalCount ?? detectives.length}
+        totalCount: ${actualTotalCount}
       };
     </script>`;
   

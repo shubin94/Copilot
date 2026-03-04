@@ -925,7 +925,7 @@ export class DatabaseStorage implements IStorage {
     ratingMin?: number;
     planName?: string;
     level?: string;
-  }, limit: number = 50, offset: number = 0, sortBy: string = 'recent'): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number, planName?: string }>> {
+  }, limit: number = 50, offset: number = 0, sortBy: string = 'recent', skipAggregation: boolean = false, resolvedLocation?: { countryId: number | null; stateId: number | null; cityId: number | null; countryName: string; stateName: string; cityName: string }): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number, planName?: string }>> {
     
     // ONLY filter by active services - NO visibility restrictions
     const conditions = [ eq(services.isActive, true) ];
@@ -937,87 +937,96 @@ export class DatabaseStorage implements IStorage {
     console.log('[searchServices] Base conditions (isActive only):', conditions.length);
     
     // ✅ RESOLVE LOCATION IDs (FK-based filtering with text fallback)
+    // ✅ OPTIMIZATION: Skip if pre-resolved location IDs provided (avoids redundant queries)
     let countryId: number | null = null;
     let stateId: number | null = null;
     let cityId: number | null = null;
 
-    if (filters.country) {
-      const countryResult = await db
-        .select({ id: countries.id })
-        .from(countries)
-        .where(
-          or(
-            eq(countries.slug, filters.country.toLowerCase()),
-            eq(sql`LOWER(${countries.name})`, filters.country.toLowerCase()),
-            eq(countries.code, filters.country.toUpperCase())
-          )!
-        )
-        .limit(1);
-      
-      if (countryResult.length > 0) {
-        // Convert varchar UUID to integer (assuming ID mapping exists)
-        const idNum = Number(countryResult[0].id);
-        if (!Number.isNaN(idNum)) {
-          countryId = idNum;
-          console.log(`[searchServices] Resolved country "${filters.country}" to country_id=${countryId} (FK filtering)`);
+    if (resolvedLocation && (resolvedLocation.countryId || resolvedLocation.stateId || resolvedLocation.cityId)) {
+      // ✅ Use pre-resolved location IDs (from caller)
+      countryId = resolvedLocation.countryId;
+      stateId = resolvedLocation.stateId;
+      cityId = resolvedLocation.cityId;
+      console.log(`[searchServices] Using pre-resolved location IDs: country=${countryId}, state=${stateId}, city=${cityId}`);
+    } else {
+      // Fall back to resolving location from filters if not pre-resolved
+      if (filters.country) {
+        const countryResult = await db
+          .select({ id: countries.id })
+          .from(countries)
+          .where(
+            or(
+              eq(countries.slug, filters.country.toLowerCase()),
+              eq(sql`LOWER(${countries.name})`, filters.country.toLowerCase()),
+              eq(countries.code, filters.country.toUpperCase())
+            )!
+          )
+          .limit(1);
+        
+        if (countryResult.length > 0) {
+          // Convert varchar UUID to integer (assuming ID mapping exists)
+          const idNum = Number(countryResult[0].id);
+          if (!Number.isNaN(idNum)) {
+            countryId = idNum;
+            console.log(`[searchServices] Resolved country "${filters.country}" to country_id=${countryId} (FK filtering)`);
+          } else {
+            console.log(`[searchServices] Country "${filters.country}" ID is not numeric, using text fallback`);
+          }
         } else {
-          console.log(`[searchServices] Country "${filters.country}" ID is not numeric, using text fallback`);
+          console.log(`[searchServices] Country "${filters.country}" not found in normalized tables, using text fallback`);
         }
-      } else {
-        console.log(`[searchServices] Country "${filters.country}" not found in normalized tables, using text fallback`);
       }
-    }
 
-    if (filters.state) {
-      const stateResult = await db
-        .select({ id: states.id })
-        .from(states)
-        .where(
-          or(
-            eq(states.slug, filters.state.toLowerCase()),
-            eq(sql`LOWER(${states.name})`, filters.state.toLowerCase())
-          )!
-        )
-        .limit(1);
-      
-      if (stateResult.length > 0) {
-        const idNum = Number(stateResult[0].id);
-        if (!Number.isNaN(idNum)) {
-          stateId = idNum;
-          console.log(`[searchServices] Resolved state "${filters.state}" to state_id=${stateId} (FK filtering)`);
+      if (filters.state) {
+        const stateResult = await db
+          .select({ id: states.id })
+          .from(states)
+          .where(
+            or(
+              eq(states.slug, filters.state.toLowerCase()),
+              eq(sql`LOWER(${states.name})`, filters.state.toLowerCase())
+            )!
+          )
+          .limit(1);
+        
+        if (stateResult.length > 0) {
+          const idNum = Number(stateResult[0].id);
+          if (!Number.isNaN(idNum)) {
+            stateId = idNum;
+            console.log(`[searchServices] Resolved state "${filters.state}" to state_id=${stateId} (FK filtering)`);
+          } else {
+            console.log(`[searchServices] State "${filters.state}" ID is not numeric, using text fallback`);
+          }
         } else {
-          console.log(`[searchServices] State "${filters.state}" ID is not numeric, using text fallback`);
+          console.log(`[searchServices] State "${filters.state}" not found in normalized tables, using text fallback`);
         }
-      } else {
-        console.log(`[searchServices] State "${filters.state}" not found in normalized tables, using text fallback`);
       }
-    }
 
-    if (filters.city) {
-      const cityResult = await db
-        .select({ id: cities.id })
-        .from(cities)
-        .where(
-          or(
-            eq(cities.slug, filters.city.toLowerCase()),
-            eq(sql`LOWER(${cities.name})`, filters.city.toLowerCase())
-          )!
-        )
-        .limit(1);
-      
-      if (cityResult.length > 0) {
-        const idNum = Number(cityResult[0].id);
-        if (!Number.isNaN(idNum)) {
-          cityId = idNum;
-          console.log(`[searchServices] Resolved city "${filters.city}" to city_id=${cityId} (FK filtering)`);
+      if (filters.city) {
+        const cityResult = await db
+          .select({ id: cities.id })
+          .from(cities)
+          .where(
+            or(
+              eq(cities.slug, filters.city.toLowerCase()),
+              eq(sql`LOWER(${cities.name})`, filters.city.toLowerCase())
+            )!
+          )
+          .limit(1);
+        
+        if (cityResult.length > 0) {
+          const idNum = Number(cityResult[0].id);
+          if (!Number.isNaN(idNum)) {
+            cityId = idNum;
+            console.log(`[searchServices] Resolved city "${filters.city}" to city_id=${cityId} (FK filtering)`);
+          } else {
+            console.log(`[searchServices] City "${filters.city}" ID is not numeric, using text fallback`);
+          }
         } else {
-          console.log(`[searchServices] City "${filters.city}" ID is not numeric, using text fallback`);
+          console.log(`[searchServices] City "${filters.city}" not found in normalized tables, using text fallback`);
         }
-      } else {
-        console.log(`[searchServices] City "${filters.city}" not found in normalized tables, using text fallback`);
       }
     }
-    
     // ✅ STRICT CATEGORY MATCHING - When category is selected, it's authoritative
     // Smart Search determines the category; we enforce EXACT match (not fuzzy)
     // Ranking applies ONLY within the selected category

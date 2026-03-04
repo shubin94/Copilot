@@ -31,8 +31,11 @@ const sslConfig = !isLocalDb
 
 const pool = new Pool({
   connectionString: url,
-  // Main application pool sizing - handles all API queries and transactions
-  max: 15,                     // Max connections (prevents pool exhaustion on Supabase pooler)
+  // ✅ OPTIMIZATION: Main application pool - created ONCE globally, reused across all requests
+  // Pool sizing balances connection availability with resource constraints
+  // Each connection uses ~5-10MB RAM + database resources
+  // Supabase default pooler: 25 connections, so we use 10 to avoid connection pool limits
+  max: 10,                     // Max connections (optimized for Supabase pooler limits)
   min: 2,                      // Keep 2 warm connections for faster cold requests
   idleTimeoutMillis: 30000,    // Close idle connections after 30s to free resources
   connectionTimeoutMillis: 5000, // Fail fast if pool is saturated (5s timeout)
