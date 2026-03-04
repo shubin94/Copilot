@@ -15,7 +15,6 @@ import { loadSecretsFromDatabase } from "./lib/secretsLoader.js";
 import { validateDatabase } from "./startup.js";
 import { initializeEnv } from "./lib/loadEnv.js";
 import { getEnvironmentBadge } from "../db/validateDatabase.js";
-import { ensureLocationSeoTable } from "./lib/init-location-seo-table.js";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
 import {
   extractDetectiveRouteParams,
@@ -651,7 +650,6 @@ async function main() {
 
     console.log('🔍 Validating database connection...');
     await validateDatabase();
-    await ensureLocationSeoTable();
 
     console.log('⚙️  Starting Express app...');
     console.log('[DEBUG] About to call runApp(serveStatic)...');

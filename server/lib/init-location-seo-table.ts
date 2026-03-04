@@ -1,8 +1,16 @@
 import { pool } from "../../db/index.js";
 
 /**
- * Ensures location_seo_overrides table exists with correct schema
- * Called at server startup to auto-create table if missing
+ * @deprecated This function should NOT be used in production runtime.
+ * 
+ * MIGRATION-ONLY: The location_seo_overrides table should be created via
+ * database migration scripts (supabase/migrations/*.sql), not during application startup.
+ * 
+ * This file is kept for reference and manual migration purposes only.
+ * Do NOT call this function from server startup code (routes.ts, app.ts, handler.ts).
+ * 
+ * If the table does not exist, the application should fail gracefully with clear error messages,
+ * prompting the admin to run database migrations.
  */
 export async function ensureLocationSeoTable(): Promise<void> {
   try {

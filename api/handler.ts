@@ -20,7 +20,6 @@ import { config, validateConfig } from "../server/config.js";
 import { validateDatabase } from "../server/startup.js";
 import { initializeEnv } from "../server/lib/loadEnv.js";
 import { getEnvironmentBadge } from "../db/validateDatabase.js";
-import { ensureLocationSeoTable } from "../server/lib/init-location-seo-table.js";
 import serverless from "serverless-http";
 
 // Track initialization state
@@ -116,7 +115,6 @@ async function initializeServerApp() {
 
     console.log('🔍 Validating database connection...');
     await validateDatabase();
-    await ensureLocationSeoTable();
 
     // OPTIMIZATION: Lazy load Express app and routes
     // Import app.ts which sets up middleware but NOT routes yet

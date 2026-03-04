@@ -15,7 +15,6 @@ import { loadSecretsFromDatabase } from "./lib/secretsLoader";
 import { validateDatabase } from "./startup";
 import { initializeEnv } from "./lib/loadEnv";
 import { getEnvironmentBadge } from "../db/validateDatabase";
-import { ensureLocationSeoTable } from "./lib/init-location-seo-table";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest";
 import {
   extractDetectiveRouteParams,
@@ -642,7 +641,6 @@ async function attachViteTransform(
     const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.js");
     validateConfig(secretsLoadedSuccessfully);
     await validateDatabase();
-    await ensureLocationSeoTable();
     await runApp(setupVite);
     console.log(`✅ Server fully started and listening on port ${config.server.port}`);
     
