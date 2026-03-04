@@ -59,15 +59,3 @@ ON states(slug, country_id);
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cities_slug_state 
 ON cities(slug, state_id);
-
--- Verify indexes were created successfully
-DO $$
-BEGIN
-    RAISE NOTICE '✅ SSR Performance Indexes created successfully!';
-    RAISE NOTICE '📊 Expected Performance Improvements:';
-    RAISE NOTICE '   • Detective queries: 2-5s → 50-200ms (10-100x faster)';
-    RAISE NOTICE '   • SEO override queries: 50-200ms → 5-10ms (5-20x faster)';
-    RAISE NOTICE '   • Services queries: 500ms-2s → 100-300ms (5-10x faster)';
-    RAISE NOTICE '   • Total page load: 3-8s → 100-500ms';
-    RAISE NOTICE '   • TTFB: 50-100ms → 5-10ms (with streaming SSR)';
-END $$;
