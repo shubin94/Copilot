@@ -54,6 +54,15 @@ export async function serveStatic(app: Express, _server: Server) {
   const indexHtmlPath = path.resolve(distPath, "index.html");
   let cachedIndexHtml: string | null = null;
 
+  // Cache middleware for location listing pages
+  app.use((req: Request, res: Response, next: Function) => {
+    // Apply cache headers only to GET requests for location listing pages
+    if (req.method === 'GET' && /^\/detectives\/[^\/]+(?:\/[^\/]+)?(?:\/[^\/]+)?\/?$/.test(req.path)) {
+      res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    }
+    next();
+  });
+
   // LOCATION LISTING SEO INJECTION
   // Intercepts /detectives/:country, /detectives/:country/:state, /detectives/:country/:state/:city
   // and injects SEO meta tags with detective listings
@@ -91,7 +100,7 @@ export async function serveStatic(app: Express, _server: Server) {
           state: d.state,
           country: d.country,
         }));
-      const totalCount = locationSeoData.totalCount;
+      const hasMore = locationSeoData.hasMore;
 
       if (!detectives || detectives.length === 0) {
         // No detectives found - return 404
@@ -102,7 +111,7 @@ export async function serveStatic(app: Express, _server: Server) {
         );
       }
 
-      console.log(`[SEO] Found ${totalCount} total detectives for location (${detectives.length} rendered)`);
+      console.log(`[SEO] Found ${detectives.length} detectives for location (hasMore: ${hasMore})`);
 
       // Generate canonical URL
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
@@ -114,7 +123,8 @@ export async function serveStatic(app: Express, _server: Server) {
 
       console.log(`[PROD-SEO] Before injectLocationSeoTags - template length: ${cachedIndexHtml.length}, has SSR_H1_INJECTION_POINT: ${cachedIndexHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
 
-      const seoHtml = await injectLocationSeoTags(cachedIndexHtml, params, seoDetectives, canonicalUrl, totalCount);
+      // Inject SEO tags (totalCount defaults to detectives.length in function)
+      const seoHtml = await injectLocationSeoTags(cachedIndexHtml, params, seoDetectives, canonicalUrl);
 
       console.log(`[PROD-SEO] After injectLocationSeoTags - template length: ${seoHtml.length}, has SSR_H1_INJECTION_POINT: ${seoHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
 

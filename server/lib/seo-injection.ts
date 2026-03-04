@@ -47,8 +47,8 @@ export function buildHomepageAuthorityHtml(
  */
 
 import { db, pool } from "../../db/index.js";
-import { detectives, reviews, services, subscriptionPlans, countries, states, cities } from "../../shared/schema.js";
-import { eq, and, isNotNull, sql, or } from "drizzle-orm";
+import { detectives, reviews, services, countries, states, cities } from "../../shared/schema.js";
+import { eq, and, isNotNull, desc } from "drizzle-orm";
 import { avg, count } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.js";
 
@@ -640,7 +640,8 @@ export async function getLocationDetectivesForSEO(
     level: string | null;
     effectiveBadges: { blueTick: boolean; pro: boolean; recommended: boolean };
   }>;
-  totalCount: number;
+  hasMore: boolean;
+  location: { country: string; state?: string; city?: string };
 }> {
   try {
     // Convert slug to title case
@@ -691,18 +692,12 @@ export async function getLocationDetectivesForSEO(
     let conditions = [eq(detectives.status, "active")];
     const limitValue = typeof limit === "number" && limit > 0 ? limit : 15;
 
-    // Try country code first, then fallback to title case name
+    // Normalize country to single value for index-friendly query
     const countryCode = countrySlugToCode[country.toLowerCase()];
-    const countryName = slugToTitleCase(country);
+    const normalizedCountry = countryCode || slugToTitleCase(country);
     
-    // Add condition that matches either code OR name (flexibility for both formats)
-    if (countryCode) {
-      conditions.push(
-        or(eq(detectives.country, countryCode), eq(detectives.country, countryName))!
-      );
-    } else {
-      conditions.push(eq(detectives.country, countryName));
-    }
+    // Use single equality condition (index-friendly, no OR)
+    conditions.push(eq(detectives.country, normalizedCountry));
 
     // Convert and add state filter if provided
     if (state) {
@@ -717,21 +712,12 @@ export async function getLocationDetectivesForSEO(
     }
 
     console.log("[Location SEO] Querying detectives for location:", {
-      countryCode: countryCode || "not-mapped",
-      countryName: countryName,
+      normalizedCountry: normalizedCountry,
       state: state ? slugToTitleCase(state) : undefined,
       city: city ? slugToTitleCase(city) : undefined,
     });
 
-    // Query total count for this location (before limit)
-    const totalCountRows = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(detectives)
-      .where(and(...conditions));
-
-    const totalCount = Number(totalCountRows?.[0]?.count || 0);
-
-    // Query detectives for this location with subscription package for badges
+    // Query detectives with limit + 1 for efficient pagination (no COUNT needed)
     const rows = await db
       .select({
         id: detectives.id,
@@ -750,25 +736,25 @@ export async function getLocationDetectivesForSEO(
         subscriptionPackageId: detectives.subscriptionPackageId,
         subscriptionExpiresAt: detectives.subscriptionExpiresAt,
         blueTickAddon: detectives.blueTickAddon,
-        subscriptionPackage: subscriptionPlans,
       })
       .from(detectives)
-      .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
       .where(and(...conditions))
-      .limit(limitValue);
+      .orderBy(desc(detectives.lastActive))
+      .limit(limitValue + 1);
 
-    console.log("[Location SEO] Query returned", rows.length, "detectives for", {country, state, city});
+    // Determine if there are more results beyond the limit
+    const hasMore = rows.length > limitValue;
+    const limitedRows = hasMore ? rows.slice(0, limitValue) : rows;
+
+    console.log("[Location SEO] Query returned", limitedRows.length, "detectives (hasMore:", hasMore, ") for", {country, state, city});
 
     // Compute effectiveBadges for each detective
-    const detectivesWithBadges = rows.map((row) => {
-      const effectiveBadges = computeEffectiveBadges(
-        {
-          subscriptionPackageId: row.subscriptionPackageId,
-          subscriptionExpiresAt: row.subscriptionExpiresAt,
-          blueTickAddon: row.blueTickAddon,
-        },
-        row.subscriptionPackage
-      );
+    const detectivesWithBadges = limitedRows.map((row) => {
+      const effectiveBadges = computeEffectiveBadges({
+        subscriptionPackageId: row.subscriptionPackageId,
+        subscriptionExpiresAt: row.subscriptionExpiresAt,
+        blueTickAddon: row.blueTickAddon,
+      });
 
       return {
         id: row.id,
@@ -790,13 +776,15 @@ export async function getLocationDetectivesForSEO(
 
     return {
       detectives: detectivesWithBadges,
-      totalCount,
+      hasMore,
+      location: { country, state, city },
     };
   } catch (error) {
     console.error("[SEO] Error fetching location detectives:", error);
     return {
       detectives: [],
-      totalCount: 0,
+      hasMore: false,
+      location: { country, state, city },
     };
   }
 }
