@@ -8,12 +8,16 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 
 
-const SITEMAP_CACHE_DIR = "./.sitemap-cache";
+const SITEMAP_CACHE_DIR = "/tmp/.sitemap-cache";
 const CACHE_MAX_AGE = 86400; // 24 hours in seconds
 
-// Ensure cache directory exists
-if (!existsSync(SITEMAP_CACHE_DIR)) {
-  mkdirSync(SITEMAP_CACHE_DIR, { recursive: true });
+// Ensure cache directory exists (Vercel serverless: use /tmp for writable storage)
+try {
+  if (!existsSync(SITEMAP_CACHE_DIR)) {
+    mkdirSync(SITEMAP_CACHE_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.warn(`[Sitemap] Failed to create cache directory ${SITEMAP_CACHE_DIR}:`, err);
 }
 
 function toSlug(value: string | null | undefined): string {
