@@ -96,7 +96,7 @@ export async function setupVite(app: Express, _server: Server) {
           state: d.state,
           country: d.country,
         }));
-      const totalCount = locationSeoData.totalCount;
+      const hasMore = locationSeoData.hasMore;
 
       // If no detectives found for this location, return 404
       if (!detectives || detectives.length === 0) {
@@ -106,7 +106,7 @@ export async function setupVite(app: Express, _server: Server) {
         );
       }
 
-      console.log(`[SEO] Found ${detectives.length} detectives for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''}`);
+      console.log(`[SEO] Found ${detectives.length} detectives for location (hasMore: ${hasMore}): ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''}`);
 
       const clientTemplate = path.resolve(
         import.meta.dirname,
@@ -125,10 +125,11 @@ export async function setupVite(app: Express, _server: Server) {
       
       console.log(`[DEV-SEO] Before injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
       
-      template = await injectLocationSeoTags(template, params, seoDetectives, canonicalUrl, totalCount);
+      // Inject SEO tags (totalCount defaults to detectives.length in function)
+      template = await injectLocationSeoTags(template, params, seoDetectives, canonicalUrl);
       
       console.log(`[DEV-SEO] After injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
-      console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${totalCount} total detectives, ${detectives.length} rendered)`);
+      console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${detectives.length} detectives rendered, hasMore: ${hasMore})`);
 
       // Inject detective data as JSON for client-side rendering
       const cityPageData = {
@@ -138,7 +139,7 @@ export async function setupVite(app: Express, _server: Server) {
           city: params.city,
         },
         detectives: detectives,
-        count: totalCount,
+        count: detectives.length,
       };
 
       const dataScript = `<script>
