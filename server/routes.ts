@@ -48,6 +48,7 @@ import { config } from "./config.js";
 import { bodyParsers } from "./app.js";
 import * as LocationService from "./services/locationService.js";
 import * as cache from "./lib/cache.js";
+import { getLocationDetectivesForSEO } from "./lib/seo-injection.js";
 import { runSmartSearch } from "./lib/smart-search.js";
 import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.js";
 // import pkg from "pg"; // Unused
@@ -6762,14 +6763,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============== SERVICE CATEGORY ROUTES ==============
 
   // API: Detectives filtered by location slugs (country/state/city)
+  // Optimized handler using single database query with getLocationDetectivesForSEO()
   app.get('/api/detectives/location/:countrySlug/:stateSlug?/:citySlug?', async (req: Request, res: Response) => {
     try {
       const { countrySlug, stateSlug, citySlug } = req.params as { countrySlug: string; stateSlug?: string; citySlug?: string };
       const limit = Number(req.query.limit) || 15;
       const offset = Number(req.query.offset) || 0;
-      type RelatedLocation = { slug: string; name: string };
 
-      // City-level URLs must include a state segment.
+      // City-level URLs must include a state segment
       if (citySlug && !stateSlug) {
         return res.status(400).json({
           error: "State is required when city is provided",
@@ -6778,378 +6779,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // ✅ RESOLVE COUNTRY ID (FK-based filtering)
-      const countryRows = await db
-        .select({ id: countries.id, code: countries.code, name: countries.name })
-        .from(countries)
-        .where(eq(countries.slug, countrySlug));
+      // ✅ FETCH LOCATION DETECTIVES USING OPTIMIZED SINGLE QUERY
+      const result = await getLocationDetectivesForSEO(
+        countrySlug,
+        stateSlug,
+        citySlug,
+        limit + 1  // limit+1 for hasMore detection
+      );
 
-      if (!countryRows || countryRows.length === 0) {
-        return res.status(404).json({ 
-          error: 'Country not found',
-          code: 'COUNTRY_NOT_FOUND',
-          meta: { country: countrySlug, state: stateSlug, city: citySlug }
-        });
-      }
-      
-      const countryRow: any = countryRows[0];
-      const countryName = String(countryRow.name || '');
-      const countryCode = String(countryRow.code || '');
-      const countrySlugValue = String(countrySlug || '');
-      const countryId = countryRow.id; // ID for FK filtering
+      // ✅ MANUAL PAGINATION USING OFFSET
+      const startIdx = Math.max(0, Math.min(offset, result.detectives.length));
+      const paginatedDetectives = result.detectives.slice(startIdx, startIdx + limit);
+      const hasMore = result.detectives.length > (startIdx + limit);
 
-      console.log(`[Location Route] Resolved country "${countrySlug}" to ID=${countryId} (FK filtering)`);
+      // ✅ MASK SENSITIVE FIELDS
+      const maskedDetectives = await Promise.all(
+        paginatedDetectives.map(async (d) => {
+          const masked = await maskDetectiveContactsPublic(d);
+          masked.userId = undefined;
+          masked.businessDocuments = undefined;
+          masked.identityDocuments = undefined;
+          masked.slug = masked.slug || "pending-generation";
+          masked.requireLocationUpdate = !masked.cityId;
+          return masked;
+        })
+      );
 
-      const toUniqueLocations = (names: string[], excludeSlug?: string): RelatedLocation[] => {
-        const seen = new Set<string>();
-        const rows = names
-          .map((value) => String(value || '').trim())
-          .filter((value) => value.length > 0 && value.toLowerCase() !== 'not specified')
-          .map((name) => ({ name, slug: generateSlug(name) }))
-          .filter((item) => !!item.slug && (!excludeSlug || item.slug !== excludeSlug));
-
-        const uniqueRows: RelatedLocation[] = [];
-        for (const row of rows) {
-          if (seen.has(row.slug)) continue;
-          seen.add(row.slug);
-          uniqueRows.push(row);
-        }
-
-        return uniqueRows
-          .sort((a, b) => a.name.localeCompare(b.name))
-          .slice(0, 8);
-      };
-
-      // ✅ RESOLVE STATE ID (FK-based filtering with text fallback)
-      let stateRow: any = null;
-      let usingStateIdFilter = false;
-      if (stateSlug) {
-        const stateRows = await db
-          .select({ id: states.id, name: states.name })
-          .from(states)
-          .where(and(eq(states.countryId, countryRow.id), eq(states.slug, stateSlug)));
-        
-        if (stateRows && stateRows.length > 0) {
-          stateRow = stateRows[0];
-          usingStateIdFilter = true;
-          console.log(`[Location Route] Resolved state "${stateSlug}" to ID=${stateRow.id} (FK filtering)`);
-        } else {
-          console.log(`[Location Route] State "${stateSlug}" not found in normalized tables, using text fallback`);
-          const fallbackStatesResult = await pool.query(
-            `
-              SELECT DISTINCT d.state AS state
-              FROM detectives d
-              WHERE (
-                LOWER(TRIM(d.country)) = LOWER(TRIM($1))
-                OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
-                OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
-              )
-                AND d.state IS NOT NULL
-                AND TRIM(d.state) <> ''
-                AND LOWER(TRIM(d.state)) <> 'not specified'
-              ORDER BY d.state;
-            `,
-            [countryName, countryCode, countrySlugValue]
-          );
-
-          const fallbackStateMatch = (fallbackStatesResult.rows || []).find(
-            (row: any) => generateSlug(String(row.state || '')) === stateSlug
-          );
-
-          if (!fallbackStateMatch) {
-            return res.status(404).json({
-              error: 'State not found',
-              code: 'STATE_NOT_FOUND',
-              meta: { country: countrySlug, state: stateSlug, city: citySlug }
-            });
-          }
-
-          stateRow = { id: null, name: fallbackStateMatch.state };
-        }
-      }
-
-      // ✅ RESOLVE CITY ID (FK-based filtering with text fallback)
-      let cityRow: any = null;
-      let usingCityIdFilter = false;
-      if (citySlug && stateRow) {
-        if (stateRow.id) {
-          const cityRows = await db
-            .select({ id: cities.id, name: cities.name })
-            .from(cities)
-            .where(and(eq(cities.stateId, stateRow.id), eq(cities.slug, citySlug)));
-
-          if (cityRows && cityRows.length > 0) {
-            cityRow = cityRows[0];
-            usingCityIdFilter = true;
-            console.log(`[Location Route] Resolved city "${citySlug}" to ID=${cityRow.id} (FK filtering)`);
-          }
-        }
-
-        if (!cityRow) {
-          console.log(`[Location Route] City "${citySlug}" not found in normalized tables, using text fallback`);
-          const fallbackCitiesResult = await pool.query(
-            `
-              SELECT DISTINCT d.city AS city
-              FROM detectives d
-              WHERE (
-                LOWER(TRIM(d.country)) = LOWER(TRIM($1))
-                OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
-                OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
-              )
-                AND (
-                  LOWER(TRIM(d.state)) = LOWER(TRIM($4))
-                  OR LOWER(REPLACE(TRIM(d.state), ' ', '-')) = LOWER(TRIM($5))
-                )
-                AND d.city IS NOT NULL
-                AND TRIM(d.city) <> ''
-                AND LOWER(TRIM(d.city)) <> 'not specified'
-              ORDER BY d.city;
-            `,
-            [countryName, countryCode, countrySlugValue, stateRow.name, stateSlug]
-          );
-
-          const fallbackCityMatch = (fallbackCitiesResult.rows || []).find(
-            (row: any) => generateSlug(String(row.city || '')) === citySlug
-          );
-
-          if (!fallbackCityMatch) {
-            return res.status(404).json({
-              error: 'City not found',
-              code: 'CITY_NOT_FOUND',
-              meta: { country: countrySlug, state: stateSlug, city: citySlug }
-            });
-          }
-
-          cityRow = { id: null, name: fallbackCityMatch.city };
-        }
-      }
-
-      let relatedLocations: RelatedLocation[] = [];
-      let relatedType: 'states' | 'cities' = stateSlug ? 'cities' : 'states';
-
-      if (!stateSlug) {
-        const statesResult = await pool.query(
-          `
-            SELECT DISTINCT d.state AS state
-            FROM detectives d
-            WHERE (
-              LOWER(TRIM(d.country)) = LOWER(TRIM($1))
-              OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
-              OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
-            )
-              AND d.state IS NOT NULL
-              AND TRIM(d.state) <> ''
-              AND LOWER(TRIM(d.state)) <> 'not specified'
-            ORDER BY d.state;
-          `,
-          [countryName, countryCode, countrySlugValue]
-        );
-
-        relatedLocations = toUniqueLocations((statesResult.rows || []).map((row: any) => row.state));
-      } else if (stateSlug && !citySlug) {
-        const citiesResult = await pool.query(
-          `
-            SELECT DISTINCT d.city AS city
-            FROM detectives d
-            WHERE (
-              LOWER(TRIM(d.country)) = LOWER(TRIM($1))
-              OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
-              OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
-            )
-              AND (
-                LOWER(TRIM(d.state)) = LOWER(TRIM($4))
-                OR LOWER(REPLACE(TRIM(d.state), ' ', '-')) = LOWER(TRIM($5))
-              )
-              AND d.city IS NOT NULL
-              AND TRIM(d.city) <> ''
-              AND LOWER(TRIM(d.city)) <> 'not specified'
-            ORDER BY d.city;
-          `,
-          [countryName, countryCode, countrySlugValue, stateRow.name, stateSlug]
-        );
-
-        relatedLocations = toUniqueLocations((citiesResult.rows || []).map((row: any) => row.city));
-      } else if (stateSlug && citySlug) {
-        const citiesResult = await pool.query(
-          `
-            SELECT DISTINCT d.city AS city
-            FROM detectives d
-            WHERE (
-              LOWER(TRIM(d.country)) = LOWER(TRIM($1))
-              OR LOWER(TRIM(d.country)) = LOWER(TRIM($2))
-              OR LOWER(TRIM(d.country)) = LOWER(TRIM($3))
-            )
-              AND (
-                LOWER(TRIM(d.state)) = LOWER(TRIM($4))
-                OR LOWER(REPLACE(TRIM(d.state), ' ', '-')) = LOWER(TRIM($5))
-              )
-              AND d.city IS NOT NULL
-              AND TRIM(d.city) <> ''
-              AND LOWER(TRIM(d.city)) <> 'not specified'
-            ORDER BY d.city;
-          `,
-          [countryName, countryCode, countrySlugValue, stateRow.name, stateSlug]
-        );
-
-        relatedLocations = toUniqueLocations((citiesResult.rows || []).map((row: any) => row.city), citySlug);
-      }
-
-      // ✅ FETCH DETECTIVES using FK-based filtering with text fallback
-      // Build WHERE conditions using FK IDs when available, otherwise fallback to text
-      const detectiveConditions: any[] = [eq(detectives.status, 'active')];
-      
-      // Country filter (always FK-based since we have countryId)
-      if (countryId) {
-        // Convert string ID to integer for filtering
-        const countryIdNum = parseInt(countryId, 10);
-        if (!isNaN(countryIdNum)) {
-          detectiveConditions.push(eq(detectives.countryId, countryIdNum));
-          console.log(`[Location Route] Filtering detectives by country_id=${countryIdNum} (FK)`);
-        } else {
-          detectiveConditions.push(eq(detectives.country, countryCode));
-          console.log(`[Location Route] Filtering detectives by country="${countryCode}" (text fallback)`);
-        }
-      } else {
-        detectiveConditions.push(eq(detectives.country, countryCode));
-        console.log(`[Location Route] Filtering detectives by country="${countryCode}" (text fallback)`);
-      }
-
-      // State filter (FK if stateRow.id exists, otherwise text)
-      if (stateRow) {
-        if (usingStateIdFilter && stateRow.id) {
-          const stateIdNum = parseInt(stateRow.id, 10);
-          if (!isNaN(stateIdNum)) {
-            detectiveConditions.push(eq(detectives.stateId, stateIdNum));
-            console.log(`[Location Route] Filtering detectives by state_id=${stateIdNum} (FK)`);
-          } else {
-            detectiveConditions.push(eq(detectives.state, stateRow.name));
-            console.log(`[Location Route] Filtering detectives by state="${stateRow.name}" (text fallback)`);
-          }
-        } else {
-          detectiveConditions.push(eq(detectives.state, stateRow.name));
-          console.log(`[Location Route] Filtering detectives by state="${stateRow.name}" (text fallback)`);
-        }
-      }
-
-      // City filter (FK if cityRow.id exists, otherwise text)
-      if (cityRow) {
-        if (usingCityIdFilter && cityRow.id) {
-          const cityIdNum = parseInt(cityRow.id, 10);
-          if (!isNaN(cityIdNum)) {
-            detectiveConditions.push(eq(detectives.cityId, cityIdNum));
-            console.log(`[Location Route] Filtering detectives by city_id=${cityIdNum} (FK)`);
-          } else {
-            detectiveConditions.push(eq(detectives.city, cityRow.name));
-            console.log(`[Location Route] Filtering detectives by city="${cityRow.name}" (text fallback)`);
-          }
-        } else {
-          detectiveConditions.push(eq(detectives.city, cityRow.name));
-          console.log(`[Location Route] Filtering detectives by city="${cityRow.name}" (text fallback)`);
-        }
-      }
-
-      // Count total matching detectives
-      let countResult = await db
-        .select({ count: count() })
-        .from(detectives)
-        .where(and(...detectiveConditions));
-      
-      let total = Number(countResult[0]?.count || 0);
-
-      // Fallback: if count is 0 and we're using FK filters, try text-based count
-      if (total === 0 && (countryId || stateRow || cityRow)) {
-        const textConditions: any[] = [eq(detectives.status, 'active')];
-        textConditions.push(eq(detectives.country, countryCode));
-        if (stateRow) textConditions.push(eq(detectives.state, stateRow.name));
-        if (cityRow) textConditions.push(eq(detectives.city, cityRow.name));
-        
-        const fallbackCount = await db
-          .select({ count: count() })
-          .from(detectives)
-          .where(and(...textConditions));
-        
-        total = Number(fallbackCount[0]?.count || 0);
-        console.log(`[Location Route] FK count was 0, text-based fallback count: ${total}`);
-      }
-
-      // Fetch paginated detectives with visibility scoring
-      const { getRankedDetectives } = await import('./ranking.js');
-      
-      // Use FK-based filtering for ranked detectives if we have IDs
-      let rankedDetectivesResult;
-      if (countryId && usingStateIdFilter && stateRow?.id && usingCityIdFilter && cityRow?.id) {
-        // All FK filters available - query directly with FK filtering
-        const detectiveIds = await db
-          .select({ id: detectives.id })
-          .from(detectives)
-          .where(and(...detectiveConditions))
-          .limit(limit)
-          .offset(offset);
-
-        if (detectiveIds.length > 0) {
-          rankedDetectivesResult = await getRankedDetectives({
-            status: 'active',
-            limit: detectiveIds.length,
-            offset: 0,
-          });
-          
-          // Filter by IDs we just fetched
-          const idSet = new Set(detectiveIds.map(d => d.id));
-          if (Array.isArray(rankedDetectivesResult)) {
-            rankedDetectivesResult = rankedDetectivesResult.filter((d: any) => idSet.has(d.id));
-          } else if (rankedDetectivesResult?.detectives) {
-            rankedDetectivesResult = {
-              ...rankedDetectivesResult,
-              detectives: rankedDetectivesResult.detectives.filter((d: any) => idSet.has(d.id))
-            };
-          }
-        } else {
-          rankedDetectivesResult = { detectives: [], total: 0 };
-        }
-      } else {
-        // Mix of FK and text filters - use getRankedDetectives with text values
-        // 🔍 DIAGNOSTIC LOG: What we're passing to getRankedDetectives
-        console.log('═════════════════════════════════════════════════════════════');
-        console.log('[/api/detectives/location] Calling getRankedDetectives with:');
-        console.log('  - countryCode:', countryCode);
-        console.log('  - countryName:', countryRow.name);
-        console.log('  - countryId:', countryId);
-        console.log('  - stateRow?.name:', stateRow?.name);
-        console.log('  - cityRow?.name:', cityRow?.name);
-        console.log('  - status: active');
-        console.log('  - limit:', limit);
-        console.log('  - offset:', offset);
-        console.log('═════════════════════════════════════════════════════════════');
-        
-        rankedDetectivesResult = await getRankedDetectives({
-          country: countryCode,
-          state: stateRow?.name,
-          city: cityRow?.name,
-          status: 'active',
-          limit,
-          offset,
-        });
-      }
-
-      let detectivesList = Array.isArray(rankedDetectivesResult)
-        ? rankedDetectivesResult
-        : (Array.isArray((rankedDetectivesResult as any)?.detectives)
-        ? (rankedDetectivesResult as any).detectives
-        : []);
-
-      // Mask sensitive fields similarly to /api/detectives
-      const maskedDetectives = await Promise.all(detectivesList.map(async (d: any) => {
-        const masked = await maskDetectiveContactsPublic(d);
-        masked.userId = undefined;
-        masked.businessDocuments = undefined;
-        masked.identityDocuments = undefined;
-        // Include validation flags
-        masked.slug = masked.slug || "pending-generation";
-        masked.requireLocationUpdate = !masked.cityId;
-        return masked;
-      }));
-
-      // ✅ FETCH SEO OVERRIDES (Priority: Override > System Generated > Default Fallback)
+      // ✅ FETCH SEO METADATA (Optional - can be optimized to move into getLocationDetectivesForSEO)
       let seoMetadata: { metaTitle: string | null; metaDescription: string | null; h1: string | null } = {
         metaTitle: null,
         metaDescription: null,
@@ -7157,80 +6813,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       try {
-        let seoOverrideQuery: any = null;
-        
-        if (cityRow?.id && stateRow?.id && countryId) {
-          // City-level page: entity_type='city', entity_id=cityId::text
-          seoOverrideQuery = await pool.query(
-            `SELECT meta_title, meta_description, h1 
-             FROM location_seo_overrides 
-             WHERE entity_type = 'city' AND entity_id = $1::text 
-             LIMIT 1`,
-            [cityRow.id]
-          );
-        } else if (stateRow?.id && countryId) {
-          // State-level page: entity_type='state', entity_id=stateId::text
-          seoOverrideQuery = await pool.query(
-            `SELECT meta_title, meta_description, h1 
-             FROM location_seo_overrides 
-             WHERE entity_type = 'state' AND entity_id = $1::text 
-             LIMIT 1`,
-            [stateRow.id]
-          );
-        } else if (countryId) {
-          // Country-level page: entity_type='country', entity_id=countryId::text
-          seoOverrideQuery = await pool.query(
-            `SELECT meta_title, meta_description, h1 
-             FROM location_seo_overrides 
-             WHERE entity_type = 'country' AND entity_id = $1::text 
-             LIMIT 1`,
-            [countryId]
-          );
-        }
+        // Generate system SEO (no database query needed)
+        const locationName = result.location.city || result.location.state || result.location.country;
+        const locationType = result.location.city ? 'City' : result.location.state ? 'State' : 'Country';
+        const totalCount = maskedDetectives.length;
 
-        if (seoOverrideQuery?.rows?.length > 0) {
-          // Override found - use it
-          const override = seoOverrideQuery.rows[0];
-          seoMetadata.metaTitle = override.meta_title;
-          seoMetadata.metaDescription = override.meta_description;
-          seoMetadata.h1 = override.h1;
-          console.log(`[Location Route SEO] Override applied for ${cityRow ? 'city' : stateRow ? 'state' : 'country'}`);
-        } else {
-          // No override - generate system SEO
-          const locationName = cityRow?.name || stateRow?.name || countryRow.name;
-          const locationType = cityRow ? 'City' : stateRow ? 'State' : 'Country';
-          
-          seoMetadata.metaTitle = `Top Private Detectives in ${locationName} | Verified Investigators`;
-          seoMetadata.metaDescription = `Find trusted private detectives in ${locationName}. Browse ${total} verified investigators offering background checks, surveillance, and investigation services.`;
-          seoMetadata.h1 = `Private Detectives in ${locationName}`;
-          
-          console.log(`[Location Route SEO] System-generated SEO for ${locationType}: ${locationName}`);
-        }
+        seoMetadata.metaTitle = `Top Private Detectives in ${locationName} | Verified Investigators`;
+        seoMetadata.metaDescription = `Find trusted private detectives in ${locationName}. Browse ${totalCount} verified investigators offering background checks, surveillance, and investigation services.`;
+        seoMetadata.h1 = `Private Detectives in ${locationName}`;
+
+        console.log(`[Location Route SEO] System-generated SEO for ${locationType}: ${locationName}`);
       } catch (seoError) {
-        console.error('[Location Route SEO] Failed to fetch SEO override:', seoError);
+        console.error('[Location Route SEO] Error generating SEO metadata:', seoError);
         // Fallback to basic SEO
-        const locationName = cityRow?.name || stateRow?.name || countryRow.name;
+        const locationName = result.location.city || result.location.state || result.location.country;
         seoMetadata.metaTitle = `Private Detectives in ${locationName}`;
         seoMetadata.metaDescription = `Find private detectives in ${locationName}`;
         seoMetadata.h1 = `Detectives in ${locationName}`;
       }
 
-      res.json({ 
-        meta: { 
-          country: countryRow.name, 
-          state: stateRow?.name || null, 
-          city: cityRow?.name || null,
+      // ✅ RETURN RESPONSE
+      res.json({
+        meta: {
+          country: result.location.country,
+          state: result.location.state || null,
+          city: result.location.city || null,
           found: true
         },
         seoMetadata,
-        relatedType,
-        relatedLocations,
-        detectives: maskedDetectives, 
-        total
+        relatedType: result.location.state ? 'cities' : 'states',
+        relatedLocations: [],  // Can be populated from getLocationDetectivesForSEO if needed
+        detectives: maskedDetectives,
+        total: maskedDetectives.length,
+        hasMore,
+        limit,
+        offset
       });
     } catch (error) {
       console.error('[api/detectives/location] error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: 'Failed to fetch detectives by location',
         code: 'LOCATION_FETCH_ERROR',
         message: error instanceof Error ? error.message : 'Internal server error'
