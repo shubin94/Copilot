@@ -9,7 +9,7 @@
     "api/index.ts": {
       "includeFiles": "{server/**,db/**,shared/**}",
       "memory": 2048,
-      "maxDuration": 60
+      "maxDuration": 120
     }
   },
   "rewrites": [

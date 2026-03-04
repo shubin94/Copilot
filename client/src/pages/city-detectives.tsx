@@ -171,15 +171,25 @@ export default function CityDetectivesPage() {
     }
 
     const fetchLocationDetectives = async () => {
+      // Create AbortController for request timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout (backend has 20s internal timeout)
+      
       try {
         setLoading(true);
         setError(null);
 
-        const response = await fetch(`${locationApiPath}?limit=15&offset=0`);
+        const response = await fetch(`${locationApiPath}?limit=15&offset=0`, {
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           if (response.status === 404) {
             setError(`Location not found: ${[citySlug, stateSlug, countrySlug].filter(Boolean).join(", ")}`);
+          } else if (response.status === 504) {
+            setError("Request timed out. The location has too many detectives to load quickly. Please try again.");
           } else {
             setError("Failed to load detectives for this location");
           }
@@ -196,8 +206,13 @@ export default function CityDetectivesPage() {
         setRelatedLocations(Array.isArray(data.relatedLocations) ? data.relatedLocations : []);
         setSeoMetadata(data.seoMetadata || null);
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error("Error fetching location detectives:", err);
-        setError("An error occurred while loading detectives");
+        if (err instanceof Error && err.name === 'AbortError') {
+          setError("Request timed out. Please try again.");
+        } else {
+          setError("An error occurred while loading detectives");
+        }
       } finally {
         setLoading(false);
       }
@@ -213,11 +228,22 @@ export default function CityDetectivesPage() {
       return;
     }
 
+    // Create AbortController for request timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+
     try {
       setLoadingMore(true);
-      const response = await fetch(`${locationApiPath}?limit=15&offset=${currentOffset}`);
+      const response = await fetch(`${locationApiPath}?limit=15&offset=${currentOffset}`, {
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
+        if (response.status === 504) {
+          throw new Error("Request timed out. Please try again.");
+        }
         throw new Error("Failed to load more detectives");
       }
 
@@ -228,6 +254,7 @@ export default function CityDetectivesPage() {
       setCurrentOffset((prev) => prev + newDetectives.length);
       setTotalCount(typeof data.total === "number" ? data.total : totalCount);
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error("Error loading more detectives:", err);
     } finally {
       setLoadingMore(false);

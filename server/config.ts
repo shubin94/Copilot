@@ -156,3 +156,26 @@ export function validateConfig(secretsLoaded: boolean = true) {
   // Payment gateways: validated separately in validatePaymentGateways() after DB is available.
   // Gateways can be disabled via payment_gateways table; no hard requirement here.
 }
+
+// ✅ LAZY LOADING: Secrets (cache + promise deduplication)
+let _secretsLoadPromise: Promise<void> | null = null;
+
+export async function ensureSecrets(): Promise<void> {
+  // ✅ Promise caching: Prevent concurrent/duplicate loads
+  if (_secretsLoadPromise) {
+    return _secretsLoadPromise;
+  }
+
+  _secretsLoadPromise = (async () => {
+    try {
+      const { loadSecretsFromDatabase } = await import("./lib/secretsLoader.js");
+      await loadSecretsFromDatabase();
+      console.log("🔐 Secrets loaded (lazy pattern)");
+    } catch (error) {
+      console.error("[config] Failed to load secrets:", error);
+      // Don't throw - allow startup to continue with env fallbacks
+    }
+  })();
+
+  return _secretsLoadPromise;
+}

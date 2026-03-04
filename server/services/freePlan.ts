@@ -8,11 +8,16 @@ let cachedFreePlanId: string | null = null;
 /**
  * Get FREE plan ID (cached for performance)
  * FREE plan = price 0, active, acts as default fallback
+ * Ensures subscription plans exist in DB (lazy initialization)
  */
 export async function getFreePlanId(): Promise<string> {
   if (cachedFreePlanId) {
     return cachedFreePlanId;
   }
+
+  // ✅ Lazy-ensure subscription plans exist (creates defaults on first call)
+  const { ensurePlansSeeded } = await import("../storage.js");
+  await ensurePlansSeeded();
 
   const [freePlan] = await db
     .select()
