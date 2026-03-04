@@ -10,10 +10,10 @@
 -- ==============================================================================
 -- 1. CRITICAL: Detective location index
 -- This is the most important index for location listing pages
--- Supports fast filtering by status + country + state + city + ordering by lastActive
+-- Supports fast filtering by status + country + state + city + ordering by last_active
 -- ==============================================================================
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detectives_location 
-ON detectives(status, country, state, city, lastActive DESC);
+ON detectives(status, country, state, city, last_active DESC);
 
 -- ==============================================================================
 -- 2. Location SEO overrides index
@@ -29,20 +29,20 @@ ON location_seo_overrides(entity_type, entity_id);
 -- Used by searchServices() for city-level pages
 -- ==============================================================================
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_services_category_active 
-ON services(isActive, category);
+ON services(is_active, category);
 
 -- ==============================================================================
 -- 4. Detective country/state/city ID indexes
 -- These support fast location filtering in searchServices()
 -- ==============================================================================
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detectives_country_id 
-ON detectives(countryId) WHERE countryId IS NOT NULL;
+ON detectives(country_id) WHERE country_id IS NOT NULL;
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detectives_state_id 
-ON detectives(stateId) WHERE stateId IS NOT NULL;
+ON detectives(state_id) WHERE state_id IS NOT NULL;
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detectives_city_id 
-ON detectives(cityId) WHERE cityId IS NOT NULL;
+ON detectives(city_id) WHERE city_id IS NOT NULL;
 
 -- ==============================================================================
 -- 5. Countries/States/Cities slug indexes
@@ -55,10 +55,10 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_countries_code
 ON countries(code);
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_states_slug_country 
-ON states(slug, countryId);
+ON states(slug, country_id);
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cities_slug_state 
-ON cities(slug, stateId);
+ON cities(slug, state_id);
 
 -- Verify indexes were created successfully
 DO $$
