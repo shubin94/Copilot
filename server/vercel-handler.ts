@@ -7,7 +7,6 @@ import "./lib/loadEnv.js";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 
-import { loadSecretsFromDatabase } from "./lib/secretsLoader.js";
 import { config, validateConfig } from "./config.js";
 import { validateDatabase } from "./startup.js";
 import { initializeEnv } from "./lib/loadEnv.js";
@@ -79,13 +78,10 @@ async function initializeServerApp() {
       process.env.NODE_ENV = "production";
     }
 
-    // 2️⃣ Load secrets (timeout protected)
-    console.log("🔐 Loading secrets...");
-    await withTimeout(
-      loadSecretsFromDatabase(),
-      8000,
-      "Secrets loading"
-    );
+    // 2️⃣ Load secrets (DEFERRED to lazy pattern)
+    // Secrets are now lazy-loaded on first use instead of cold start
+    console.log("🔐 Secrets loading deferred to first use...");
+    // (secrets will be loaded by config.ts on first payment/email route)
 
     const { secretsLoadedSuccessfully } = await import(
       "./lib/secretsLoader.js"

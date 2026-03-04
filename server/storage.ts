@@ -2779,3 +2779,61 @@ function createSafeStorage<T extends object>(raw: T): T {
 }
 
 export const storage = createSafeStorage(rawStorage);
+// ✅ LAZY LOADED: Subscription Plans Cache + TTL (survives warm requests)
+let _planCache: any[] | null = null;
+let _planCacheTime: number = 0;
+const PLAN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Ensures default subscription plans exist in database.
+ * Uses in-memory cache with 5-minute TTL to avoid repeated DB queries.
+ * Called lazily from routes that need plans, NOT during cold start.
+ * 
+ * On first call: Creates default "pro" plan if none exist
+ * On subsequent calls (within 5min): Returns cached plans
+ * After TTL expires: Re-checks DB for changes admin may have made
+ */
+export async function ensurePlansSeeded(): Promise<void> {
+  const now = Date.now();
+  
+  // ✅ Cache HIT: Return immediately (survives warm instances)
+  if (_planCache && (now - _planCacheTime < PLAN_CACHE_TTL)) {
+    console.log("[Plan Cache] HIT - using cached subscription plans");
+    return;
+  }
+
+  console.log("[Plan Cache] MISS - loading from database...");
+
+  try {
+    // Query current plans
+    const plans = await storage.getAllSubscriptionPlans(false);
+    
+    // Create default plan if none exist
+    if (!plans || plans.length === 0) {
+      console.log("[Plan Seed] Creating default 'pro' plan...");
+      await storage.createSubscriptionPlan({
+        name: "pro",
+        displayName: "Pro",
+        monthlyPrice: "29",
+        yearlyPrice: "290",
+        description: "Enhanced tools and contact visibility.",
+        features: ["contact_email", "contact_phone", "contact_whatsapp"],
+        badges: { pro: true },
+        serviceLimit: 4,
+        isActive: true,
+      });
+      console.log("[Plan Seed] Created default subscription plan: pro");
+      
+      // Reload cache after insert
+      _planCache = await storage.getAllSubscriptionPlans(false);
+    } else {
+      _planCache = plans;
+    }
+    
+    _planCacheTime = now;
+  } catch (error) {
+    console.error("[Plan Seed] Error:", error);
+    // Don't throw - allow app to continue without caching guarantee
+    _planCacheTime = now; // Set TTL anyway to prevent hammer
+  }
+}

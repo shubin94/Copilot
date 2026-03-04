@@ -1,5 +1,5 @@
 import "../server/lib/loadEnv.js";
-import { db } from './index.js';
+import { db, pool } from './index.js';
 import { sql } from 'drizzle-orm';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
@@ -62,11 +62,20 @@ export async function runMigrations() {
       
       try {
         if (hasConcurrentIndex) {
-          // Execute outside transaction (required for CREATE INDEX CONCURRENTLY)
+          // Execute outside transaction using raw pool connection (required for CREATE INDEX CONCURRENTLY)
           console.log(`  ⚠️  Contains CONCURRENT INDEX - executing outside transaction`);
-          await db.execute(sql.raw(migrationSQL));
           
-          // Mark as executed separately
+          // Split SQL by statements but keep them together for concurrent index creation
+          // We'll use the raw pool.query() to bypass Drizzle's transaction wrapping
+          const client = await pool.connect();
+          try {
+            // Execute raw SQL directly (outside transaction)
+            await client.query(migrationSQL);
+          } finally {
+            client.release();
+          }
+          
+          // Mark as executed separately using Drizzle (safe single query)
           await db.execute(sql`INSERT INTO _migrations (filename) VALUES (${file})`);
         } else {
           // Use transaction for atomicity (normal migrations)

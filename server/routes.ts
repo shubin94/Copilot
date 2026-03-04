@@ -44,7 +44,7 @@ import {
 } from "../shared/schema.js";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { config } from "./config.js";
+import { config, ensureSecrets } from "./config.js";
 import { bodyParsers } from "./app.js";
 import * as LocationService from "./services/locationService.js";
 import * as cache from "./lib/cache.js";
@@ -454,27 +454,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       copy.businessWebsite = undefined;
       return copy;
     }
-  }
-  
-  // Seed a sample subscription plan if none exist
-  try {
-    const existingPlans = await storage.getAllSubscriptionPlans(false);
-    if (!Array.isArray(existingPlans) || existingPlans.length === 0) {
-      await storage.createSubscriptionPlan({
-        name: "pro",
-        displayName: "Pro",
-        monthlyPrice: "29",
-        yearlyPrice: "290",
-        description: "Enhanced tools and contact visibility.",
-        features: ["contact_email", "contact_phone", "contact_whatsapp"],
-        badges: { pro: true },
-        serviceLimit: 4,
-        isActive: true,
-      });
-      console.log("[seed] Created sample subscription plan: pro");
-    }
-  } catch (e) {
-    console.error("[seed] Failed to seed subscription plan:", e);
   }
   
   // ============== BODY PARSER APPLICATION - APPLIED PER-ROUTE ==============
@@ -1721,6 +1700,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/subscription-plans", async (req: Request, res: Response) => {
     try {
+      // ✅ Lazy-ensure subscription plans exist in DB (sets up defaults on first call)
+      const { ensurePlansSeeded } = await import("../server/storage.js");
+      await ensurePlansSeeded();
+      
       const includeInactive = (req.query.all === '1' || req.query.includeInactive === '1' || req.query.activeOnly === '0');
       const plans = await storage.getAllSubscriptionPlans(!includeInactive);
       res.set("Cache-Control", "no-store"); // Admin/list must always reflect current DB (subscription_plans table)
@@ -3221,6 +3204,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.post("/api/payments/create-blue-tick-order", requireRole("detective"), async (req: Request, res: Response) => {
     try {
+      // ✅ Lazy-load secrets from database on first payment request
+      await ensureSecrets();
+      
       if (!config.razorpay.keyId || !config.razorpay.keySecret) {
         console.error("[blue-tick-order] Razorpay not configured");
         return res.status(500).json({ error: "Payments not configured" });
@@ -6767,6 +6753,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/detectives/location/:countrySlug/:stateSlug?/:citySlug?', async (req: Request, res: Response) => {
     try {
       const { countrySlug, stateSlug, citySlug } = req.params as { countrySlug: string; stateSlug?: string; citySlug?: string };
+      
+      // ✅ INPUT VALIDATION: Validate slug format (alphanumeric, hyphens, max 100 chars)
+      const slugPattern = /^[a-z0-9-]{1,100}$/;
+      if (!slugPattern.test(countrySlug)) {
+        return res.status(400).json({
+          error: 'Invalid country slug format',
+          code: 'INVALID_COUNTRY_SLUG',
+          message: 'Country slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      if (stateSlug && !slugPattern.test(stateSlug)) {
+        return res.status(400).json({
+          error: 'Invalid state slug format',
+          code: 'INVALID_STATE_SLUG',
+          message: 'State slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      if (citySlug && !slugPattern.test(citySlug)) {
+        return res.status(400).json({
+          error: 'Invalid city slug format',
+          code: 'INVALID_CITY_SLUG',
+          message: 'City slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      
       const parsedLimit = Number(req.query.limit);
       const parsedOffset = Number(req.query.offset);
       const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(30, Math.floor(parsedLimit))) : 15;
@@ -6840,9 +6851,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const locationType = result.location.city ? 'City' : result.location.state ? 'State' : 'Country';
         const totalCount = maskedDetectives.length;
 
-        seoMetadata.metaTitle = `Top Private Detectives in ${locationName} | Verified Investigators`;
-        seoMetadata.metaDescription = `Find trusted private detectives in ${locationName}. Browse ${totalCount} verified investigators offering background checks, surveillance, and investigation services.`;
-        seoMetadata.h1 = `Private Detectives in ${locationName}`;
+        // Customize SEO based on whether detectives are available
+        if (totalCount > 0) {
+          seoMetadata.metaTitle = `Top Private Detectives in ${locationName} | Verified Investigators`;
+          seoMetadata.metaDescription = `Find trusted private detectives in ${locationName}. Browse ${totalCount} verified investigators offering background checks, surveillance, and investigation services.`;
+          seoMetadata.h1 = `Private Detectives in ${locationName}`;
+        } else {
+          seoMetadata.metaTitle = `Private Detectives in ${locationName} | Coming Soon`;
+          seoMetadata.metaDescription = `Looking for private detectives in ${locationName}? Check back soon for verified investigators offering background checks, surveillance, and investigation services.`;
+          seoMetadata.h1 = `Private Detectives in ${locationName}`;
+        }
 
         console.log(`[Location Route SEO] System-generated SEO for ${locationType}: ${locationName}`);
       } catch (seoError) {
@@ -6874,6 +6892,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       if (error instanceof Error && error.message.includes('LOCATION_QUERY_TIMEOUT')) {
+        // Cache 504 errors briefly to prevent rapid retry storms
+        res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=10');
         return res.status(504).json({
           error: 'Location fetch timed out',
           code: 'LOCATION_FETCH_TIMEOUT',
@@ -6882,6 +6902,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.error('[api/detectives/location] error:', error);
+      // Cache 5xx errors briefly to prevent hammering a failing endpoint
+      res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=5');
       res.status(500).json({
         error: 'Failed to fetch detectives by location',
         code: 'LOCATION_FETCH_ERROR',
