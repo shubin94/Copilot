@@ -12,10 +12,9 @@ import App from "./App";
  * This dramatically reduces Time to First Byte (TTFB).
  * 
  * Architecture:
- * 1. onShellReady: Called when initial shell HTML is ready → send headers + before-root HTML
+ * 1. onShellReady: Called when initial shell HTML is ready → send headers + root div opening
  * 2. Stream: React renders components into root div as data becomes available
- * 3. Stream finish: After stream completes → send after-root HTML and close response
- * 4. onError: Called if error occurs → log error but continue streaming fallback HTML
+ * 3. onError: Called if error occurs → log error but continue streaming fallback HTML
  */
 export function renderLocationApp(url: string, htmlShell: string, res: Response): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -28,44 +27,6 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
       hook: location.hook,
       searchHook: location.searchHook,
     } as unknown as { hook: typeof location.hook };
-
-    // ✅ FIX BUG #3: Correct HTML template splitting
-    // Find the root div's opening tag
-    const rootOpeningTag = '<div id="root">';
-    const rootStartIndex = htmlShell.indexOf(rootOpeningTag);
-    
-    if (rootStartIndex === -1) {
-      reject(new Error('Could not find <div id="root"> in HTML template'));
-      return;
-    }
-
-    // Find the MATCHING closing tag for root div
-    // Search AFTER the root opening tag + some buffer to skip any nested divs
-    const searchStartPos = rootStartIndex + rootOpeningTag.length + 50;
-    const rootEndIndex = htmlShell.indexOf('</div>', searchStartPos);
-    
-    if (rootEndIndex === -1) {
-      reject(new Error('Could not find closing </div> for root div in HTML template'));
-      return;
-    }
-
-    // Split template correctly:
-    // beforeRoot: Everything up to and including <div id="root">
-    // afterRoot: Everything from </div> (closing root div) onwards
-    const beforeRoot = htmlShell.substring(0, rootStartIndex + rootOpeningTag.length);
-    const afterRoot = htmlShell.substring(rootEndIndex);
-
-    // Safety timeout: Force close after 58 seconds to prevent Vercel timeout
-    const timeoutId = setTimeout(() => {
-      console.error('[SSR Timeout] Forcing response close after 58s');
-      if (!res.headersSent) {
-        res.status(504).send('<html><body><h1>504 - Request Timeout</h1></body></html>');
-      } else if (!res.writableEnded) {
-        res.write('<!-- SSR Timeout: Forcing close -->');
-        res.end();
-      }
-      reject(new Error('SSR streaming timeout after 58s'));
-    }, 58000);
 
     // Create the pipeable stream for the React app
     const stream = renderToPipeableStream(
@@ -85,23 +46,29 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
          * We immediately send this to the client for faster first paint.
          */
         onShellReady() {
-          try {
-            // Set response headers - critical for streaming
-            if (!res.headersSent) {
-              res.setHeader("Content-Type", "text/html; charset=utf-8");
-              // Don't set Cache-Control here; let the caller set it for consistency
-            }
-
-            // Send the initial HTML shell up to and including the root div opening tag
-            res.write(beforeRoot);
-
-            // ✅ FIX BUG #2: Use { end: false } to prevent auto-closing response
-            // This allows us to write afterRoot HTML after the stream completes
-            stream.pipe(res, { end: false });
-          } catch (error) {
-            console.error('[SSR onShellReady Error]', error);
-            reject(error);
+          // Set response headers - critical for streaming
+          if (!res.headersSent) {
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            // Don't set Cache-Control here; let the caller set it for consistency
           }
+
+          // Inject the React shell into the template
+          // Format: htmlShell already contains <div id="root">START_ROOT_CONTENT</div>
+          // We get the React-generated markup and inject it
+          const beforeRoot = htmlShell.substring(0, htmlShell.indexOf('<div id="root">') + '<div id="root">'.length);
+          const afterRoot = htmlShell.substring(htmlShell.indexOf('</div>'));
+
+          // Send the initial HTML shell up to the root div opening tag
+          res.write(beforeRoot);
+
+          // Start piping the React stream directly into the root div
+          stream.pipe(res);
+
+          // When the stream completes, close the root div and send the rest of the HTML
+          // This is handled by the stream's 'end' event
+          res.on('finish', () => {
+            res.write(afterRoot);
+          });
         },
 
         /**
@@ -111,7 +78,7 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
          */
         onAllReady() {
           // All content is ready - stream will finish naturally
-          // No action needed; we handle completion in stream.on('finish')
+          // No action needed; pipe will handle it
         },
 
         /**
@@ -133,9 +100,7 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
           // The shell has already been sent, so we can't change status code
           // Just ensure the stream is ended gracefully
           try {
-            if (!res.writableEnded) {
-              res.write('<!-- SSR Error: Check server logs for details -->');
-            }
+            res.write('<!-- SSR Error: Check server logs for details -->');
           } catch (writeErr) {
             // Response might be closed; that's okay
           }
@@ -143,63 +108,29 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
       }
     );
 
-    // ✅ FIX BUG #1, #4, #5: Write afterRoot at correct time and explicitly close response
-    // Handle stream completion - this fires when ALL React content has been written
-    stream.on('finish', () => {
-      try {
-        clearTimeout(timeoutId);
-        
-        // Write the closing HTML tags (includes </div> for root and rest of document)
-        if (!res.writableEnded) {
-          res.write(afterRoot);
-          
-          // ✅ CRITICAL: Explicitly end the response to ensure browser receives complete HTML
-          res.end();
-        }
-        
-        // ✅ FIX BUG #4: Resolve promise AFTER response is fully complete
-        resolve();
-      } catch (error) {
-        console.error('[SSR Stream Finish Error]', error);
-        reject(error);
-      }
+    // Handle stream completion
+    stream.on('end', () => {
+      resolve();
     });
 
     // Handle stream errors
     stream.on('error', (error: unknown) => {
-      clearTimeout(timeoutId);
-      
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[SSR Stream Pipe Error]', {
         message: errorMsg,
         url,
         stack: error instanceof Error ? error.stack : undefined,
       });
-      
-      // Try to close response gracefully
-      if (!res.writableEnded) {
-        try {
-          res.write('<!-- Stream Error -->');
-          res.end();
-        } catch (writeErr) {
-          // Response already closed
-        }
-      }
-      
       reject(error);
     });
 
-    // Handle response errors (connection closed by client, etc.)
+    // Ensure response is properly closed
     res.on('error', (error: unknown) => {
-      clearTimeout(timeoutId);
-      
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[SSR Response Error]', {
         message: errorMsg,
         url,
       });
-      
-      // Destroy the stream to stop rendering
       stream.destroy();
       reject(error);
     });

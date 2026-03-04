@@ -197,35 +197,28 @@ export async function serveStatic(app: Express, _server: Server) {
         
         // Set response headers early for streaming
         res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
         
         // Stream React component rendering directly to response
         // renderLocationApp handles onShellReady callback, streaming, and cleanup
-        // Promise resolves only after response is fully closed
         await renderLocationApp(req.originalUrl || requestPath, finalHtml, res);
         
         console.log('[SSR DEBUG] After renderLocationApp streaming completed');
-        
-        // ✅ Response is already handled and closed by renderLocationApp
-        // No need to call res.send() or res.end() again
-        return;
-        
       } catch (ssrError) {
         console.error('[SSR] Failed to stream location route:', ssrError);
-        
         // Fallback: if streaming failed and headers haven't been sent, try to send the template
         if (!res.headersSent) {
           res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
           res.setHeader("Content-Type", "text/html; charset=utf-8");
           return res.send(finalHtml);
         }
-        
-        // If headers already sent but response not closed, close it
-        if (!res.writableEnded) {
-          res.end();
-        }
-        
-        return;
+        // If headers already sent, just end the response
+        res.end();
       }
+
+      // Note: Response is already handled by renderLocationApp streaming
+      // No need to call res.send() again
+      return;
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
