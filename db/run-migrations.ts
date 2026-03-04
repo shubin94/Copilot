@@ -63,14 +63,28 @@ export async function runMigrations() {
       try {
         if (hasConcurrentIndex) {
           // Execute outside transaction using raw pool connection (required for CREATE INDEX CONCURRENTLY)
-          console.log(`  ⚠️  Contains CONCURRENT INDEX - executing outside transaction`);
+          console.log(`  ⚠️  Contains CONCURRENT INDEX - executing statements separately`);
           
-          // Split SQL by statements but keep them together for concurrent index creation
-          // We'll use the raw pool.query() to bypass Drizzle's transaction wrapping
+          // Split SQL into individual statements
+          // Remove comments and split by semicolons
+          const statements = migrationSQL
+            .split('\n')
+            .filter(line => !line.trim().startsWith('--'))  // Remove comments
+            .join('\n')
+            .split(';')
+            .map(stmt => stmt.trim())
+            .filter(stmt => stmt.length > 0 && !stmt.startsWith('DO $$'));  // Skip DO blocks and empty statements
+          
+          // Execute each CREATE INDEX CONCURRENTLY separately in autocommit mode
           const client = await pool.connect();
           try {
-            // Execute raw SQL directly (outside transaction)
-            await client.query(migrationSQL);
+            for (const statement of statements) {
+              if (statement.trim().length > 0) {
+                console.log(`  🔧 Executing: ${statement.substring(0, 60)}...`);
+                // Each query runs in autocommit mode (no transaction)
+                await client.query(statement);
+              }
+            }
           } finally {
             client.release();
           }
