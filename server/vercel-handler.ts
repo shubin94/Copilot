@@ -1,14 +1,6 @@
 /**
  * Vercel Handler - Reusable initialization logic
- * 
- * Handles all one-time initialization:
- * - Environment loading
- * - Database migrations
- * - Secrets loading
- * - Express app setup with all routes (lazy loaded)
- * 
- * OPTIMIZATION: Uses lazy loading & deferred imports to reduce cold start memory
- * Wrapped with serverless-http to convert to serverless format
+ * Optimized for cold start performance (prevents 504 timeouts)
  */
 
 import "./lib/loadEnv.js";
@@ -23,132 +15,157 @@ import { getEnvironmentBadge } from "../db/validateDatabase.js";
 import { ensureLocationSeoTable } from "./lib/init-location-seo-table.js";
 import serverless from "serverless-http";
 
-// Track initialization state
+// --------------------------------------------------
+// Timeout Utility (TOP LEVEL - accessible everywhere)
+// --------------------------------------------------
+
+const withTimeout = async <T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
+    ),
+  ]);
+};
+
+// --------------------------------------------------
+// Initialization State
+// --------------------------------------------------
+
 let initPromise: Promise<any> | null = null;
 let cachedHandler: any = null;
 
+// --------------------------------------------------
+// Public Entry Point
+// --------------------------------------------------
+
 export async function produceServerHandler() {
-  // Return cached handler if already initialized
   if (cachedHandler) {
     return cachedHandler;
   }
 
-  // Return existing promise if initialization is in progress
   if (initPromise) {
     await initPromise;
     return cachedHandler;
   }
 
-  // Start initialization
   initPromise = initializeServerApp();
   await initPromise;
-  
+
   if (!cachedHandler) {
-    throw new Error('Failed to initialize server handler');
+    throw new Error("Failed to initialize server handler");
   }
-  
+
   return cachedHandler;
 }
 
+// --------------------------------------------------
+// Core Initialization
+// --------------------------------------------------
+
 async function initializeServerApp() {
   try {
-    console.log(`\n${getEnvironmentBadge()} Environment (Vercel Serverless - Optimized)`);
-    
-    // Load environment variables
+    console.log(
+      `\n${getEnvironmentBadge()} Environment (Vercel Serverless Optimized)`
+    );
+
+    // 1️⃣ Load environment
     await initializeEnv();
 
     if (process.env.NODE_ENV !== "production") {
       process.env.NODE_ENV = "production";
     }
 
-    console.log('🔐 Loading auth/secrets from database...');
-    await loadSecretsFromDatabase();
-    
-    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.js");
-    
-    // OPTIMIZATION: Defer database migrations to reduce startup time
-    console.log('📊 Scheduling database migrations...');
-    const migrateInBackground = async () => {
-      try {
-        const { runMigrations } = await import('../db/run-migrations.js');
-        await runMigrations();
-      } catch (migrationError) {
-        console.error('❌ Migration error (background):', migrationError);
-      }
-    };
-    
-    // Initialize Sentry for error tracking
+    // 2️⃣ Load secrets (timeout protected)
+    console.log("🔐 Loading secrets...");
+    await withTimeout(
+      loadSecretsFromDatabase(),
+      8000,
+      "Secrets loading"
+    );
+
+    const { secretsLoadedSuccessfully } = await import(
+      "./lib/secretsLoader.js"
+    );
+
+    // 3️⃣ Initialize Sentry
     if (config.env.isProd && config.sentryDsn) {
-      console.log('📍 Initializing Sentry...');
+      console.log("📍 Initializing Sentry...");
       Sentry.init({
         dsn: config.sentryDsn,
         environment: "production",
         integrations: [nodeProfilingIntegration()],
         tracesSampleRate: 0.1,
-        profilesSampleRate: 0.05, // Reduced from 0.1 to save memory
-        beforeSend(event, _hint) {
-          if (event.request) {
-            if (event.request.headers) {
-              delete event.request.headers['authorization'];
-              delete event.request.headers['cookie'];
-              delete event.request.headers['x-api-key'];
-            }
-            if (event.request.data && typeof event.request.data === 'object') {
-              const sensitiveKeys = ['password', 'temporaryPassword', 'token', 'apiKey', 'creditCard', 'ssn', 'passport', 'csrfToken', 'session_secret'];
-              const data = event.request.data as Record<string, any>;
-              for (const key of sensitiveKeys) {
-                if (key in data) {
-                  data[key] = '[REDACTED]';
-                }
-              }
-            }
-          }
-          return event;
-        },
+        profilesSampleRate: 0.05,
       });
     }
 
-    // Validate production config
+    // 4️⃣ Validate config (fast check only)
     if (config.env.isProd) {
-      console.log('📋 Validating production config...');
+      console.log("📋 Validating production config...");
       validateConfig(secretsLoadedSuccessfully);
     }
 
-    console.log('🔍 Validating database connection...');
-    await validateDatabase();
-    await ensureLocationSeoTable();
-
-    // OPTIMIZATION: Lazy load Express app and routes
-    // Import app.ts which sets up middleware but NOT routes yet
-    const { app } = await import("./app.js");
-
-    console.log('⚙️  Registering routes (this may take a moment)...');
-    const { registerRoutes } = await import("./routes.js");
-    await registerRoutes(app);
-    
-    // Wrap the Express app with serverless-http for Vercel
-    console.log('🚀 Wrapping with serverless-http...');
-    cachedHandler = serverless(app);
-    
-    console.log('✅ Vercel serverless function initialized and ready');
-    
-    // Run migrations in background (don't block cold start)
+    // 5️⃣ NON-BLOCKING DB validation (do NOT await)
     if (config.env.isProd) {
-      migrateInBackground().catch(err => {
-        console.error('Background migration error:', err);
-        if (config.sentryDsn) {
-          Sentry.captureException(err);
-        }
+      console.log("🔍 Scheduling DB validation...");
+
+      validateDatabase().catch((err) => {
+        console.error("Database validation failed:", err);
+        if (config.sentryDsn) Sentry.captureException(err);
+      });
+
+      ensureLocationSeoTable().catch((err) => {
+        console.error("Location SEO check failed:", err);
+        if (config.sentryDsn) Sentry.captureException(err);
       });
     }
-    
+
+    // 6️⃣ Load Express app
+    const { app } = await import("./app.js");
+
+    // 7️⃣ Register routes (timeout protected)
+    console.log("⚙️ Registering routes...");
+    const { registerRoutes } = await import("./routes.js");
+    await withTimeout(
+      registerRoutes(app),
+      8000,
+      "Route registration"
+    );
+
+    // 8️⃣ Wrap with serverless
+    console.log("🚀 Wrapping Express with serverless-http...");
+    cachedHandler = serverless(app);
+
+    console.log("✅ Serverless function initialized");
+
+    // 9️⃣ Run migrations in background (never block cold start)
+    if (config.env.isProd) {
+      (async () => {
+        try {
+          const { runMigrations } = await import(
+            "../db/run-migrations.js"
+          );
+          await runMigrations();
+        } catch (err) {
+          console.error("Background migration error:", err);
+          if (config.sentryDsn) Sentry.captureException(err);
+        }
+      })();
+    }
+
     return cachedHandler;
-    
   } catch (error) {
-    console.error('❌ Failed to initialize Vercel handler:', error);
+    console.error("❌ Failed to initialize Vercel handler:", error);
+
     if (config.env.isProd && config.sentryDsn) {
       Sentry.captureException(error);
     }
+
     throw error;
   }
 }
