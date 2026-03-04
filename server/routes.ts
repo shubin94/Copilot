@@ -44,7 +44,7 @@ import {
 } from "../shared/schema.js";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { config, ensureSecrets } from "./config.js";
+import { config } from "./config.js";
 import { bodyParsers } from "./app.js";
 import * as LocationService from "./services/locationService.js";
 import * as cache from "./lib/cache.js";
@@ -3204,9 +3204,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.post("/api/payments/create-blue-tick-order", requireRole("detective"), async (req: Request, res: Response) => {
     try {
-      // ✅ Lazy-load secrets from database on first payment request
-      await ensureSecrets();
-      
       if (!config.razorpay.keyId || !config.razorpay.keySecret) {
         console.error("[blue-tick-order] Razorpay not configured");
         return res.status(500).json({ error: "Payments not configured" });

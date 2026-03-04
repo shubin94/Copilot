@@ -78,10 +78,18 @@ async function initializeServerApp() {
       process.env.NODE_ENV = "production";
     }
 
-    // 2️⃣ Load secrets (DEFERRED to lazy pattern)
-    // Secrets are now lazy-loaded on first use instead of cold start
-    console.log("🔐 Secrets loading deferred to first use...");
-    // (secrets will be loaded by config.ts on first payment/email route)
+    // 2️⃣ Load secrets (required for session middleware and validation)
+    // SESSION_SECRET needed immediately for session middleware on all requests
+    // Other secrets (payment, email) remain in DB and are loaded on first use
+    console.log("🔐 Loading critical secrets...");
+    await withTimeout(
+      (async () => {
+        const { loadSecretsFromDatabase } = await import("./lib/secretsLoader.js");
+        await loadSecretsFromDatabase();
+      })(),
+      8000,
+      "Secrets loading"
+    );
 
     const { secretsLoadedSuccessfully } = await import(
       "./lib/secretsLoader.js"
