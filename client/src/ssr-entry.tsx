@@ -53,13 +53,22 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
             // Don't set Cache-Control here; let the caller set it for consistency
           }
 
-          // Inject the React shell into the template
-          // Format: htmlShell already contains <div id="root">START_ROOT_CONTENT</div>
-          // We get the React-generated markup and inject it
-          const beforeRoot = htmlShell.substring(0, htmlShell.indexOf('<div id="root">') + '<div id="root">'.length);
-          const afterRoot = htmlShell.substring(htmlShell.indexOf('</div>'));
+          // Split HTML template safely using marker comment
+          // Template contains: <div id="root"><!--app-html--></div>
+          // This avoids matching wrong closing tags with indexOf
+          const [beforeRoot, afterRoot] = htmlShell.split('<!--app-html-->');
+          
+          if (!beforeRoot || !afterRoot) {
+            console.error('[SSR] Failed to split HTML template - missing <!--app-html--> marker');
+            // Fallback: send template as-is and abort
+            res.write(htmlShell);
+            res.end();
+            clearAbortTimeout();
+            reject(new Error('Template split failed - missing app-html marker'));
+            return;
+          }
 
-          // Write the initial HTML template (everything before the root div)
+          // Write the initial HTML template (everything before the React app)
           res.write(beforeRoot);
 
           // Create a Transform stream to intercept when React finishes streaming

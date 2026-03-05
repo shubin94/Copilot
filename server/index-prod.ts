@@ -69,6 +69,7 @@ export async function serveStatic(app: Express, _server: Server) {
   app.get(/^\/detectives\/[^\/]+(?:\/[^\/]+)?(?:\/[^\/]+)?\/?$/, async (req: Request, res: Response) => {
     try {
       const requestPath = req.path;
+      console.log("[SSR] Route start", { path: requestPath, timestamp: new Date().toISOString() });
       const params = extractLocationRouteParams(requestPath);
 
       // Check if this is actually a location listing page (2-4 segments)
@@ -99,15 +100,17 @@ export async function serveStatic(app: Express, _server: Server) {
 
       // ✅ OPTIMIZATION: Resolve location once to avoid duplicate queries
       // Prevents redundant lookups in both searchServices() and generateLocationSeoMetaTags()
+      console.log("[SSR] Resolving location IDs...", { country: params.country, state: params.state, city: params.city });
       const resolvedLocation = await resolveLocationIds({
         country: params.country,
         state: params.state,
         city: params.city,
       });
-      console.log(`[SSR] Resolved location: country=${resolvedLocation.countryId}, state=${resolvedLocation.stateId}, city=${resolvedLocation.cityId}`);
+      console.log("[SSR] Location resolved", resolvedLocation);
 
       // ✅ OPTIMIZATION: Run independent database calls in parallel
       // Detectives fetch + services existence check (city pages only) run concurrently
+      console.log("[SSR] Fetching detectives...", { country: params.country, state: params.state, city: params.city });
       const [locationSeoData, servicesCheckResult] = await Promise.all([
         // Always fetch detectives for location
         getLocationDetectivesForSEO(
@@ -130,6 +133,11 @@ export async function serveStatic(app: Express, _server: Server) {
           resolvedLocation  // ✅ Pass pre-resolved location IDs to skip redundant queries
         ) : Promise.resolve([])
       ]);
+
+      console.log("[SSR] Detectives fetched", { count: locationSeoData.detectives.length });
+      if (isCity) {
+        console.log("[SSR] Checking services...", { hasServices: servicesCheckResult && servicesCheckResult.length > 0 });
+      }
 
       const detectives = locationSeoData.detectives;
       const seoDetectives = detectives
@@ -161,6 +169,7 @@ export async function serveStatic(app: Express, _server: Server) {
 
       // Inject SEO tags (totalCount defaults to detectives.length in function)
       // ✅ Pass resolved location to avoid duplicate queries in generateLocationSeoMetaTags()
+      console.log("[SSR] Generating SEO...", { detectiveCount: seoDetectives.length, hasMore });
       const seoHtml = await injectLocationSeoTags(cachedIndexHtml, params, seoDetectives, canonicalUrl, resolvedLocation);
 
       console.log(`[PROD-SEO] After injectLocationSeoTags - template length: ${seoHtml.length}, has SSR_H1_INJECTION_POINT: ${seoHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
@@ -201,9 +210,10 @@ export async function serveStatic(app: Express, _server: Server) {
         
         // Stream React component rendering directly to response
         // renderLocationApp handles onShellReady callback, streaming, and cleanup
+        console.log("[SSR] Starting React render...", { url: req.originalUrl || requestPath });
         await renderLocationApp(req.originalUrl || requestPath, finalHtml, res);
         
-        console.log('[SSR DEBUG] After renderLocationApp streaming completed');
+        console.log("[SSR] SSR render completed", { url: req.originalUrl || requestPath });
       } catch (ssrError) {
         console.error('[SSR] Failed to stream location route:', ssrError);
         // Fallback: if streaming failed and headers haven't been sent, try to send the template
@@ -641,16 +651,10 @@ async function main() {
     
     const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.js");
     
-    // Run database migrations
-    console.log('📊 Running database migrations...');
-    try {
-      const { runMigrations } = await import('../db/run-migrations.js');
-      await runMigrations();
-    } catch (migrationError) {
-      console.error('❌ Migration error:', migrationError);
-      console.error('Exiting due to migration failure in production...');
-      process.exit(1);
-    }
+    // NOTE: Database migrations are NOT run in production serverless environments
+    // Migrations should be applied via CI/CD pipeline or separate migration job
+    // Running migrations on every cold start causes request timeouts
+    console.log('ℹ️  Skipping migrations (production assumes migrations pre-applied)');
     
     if (config.env.isProd && config.sentryDsn) {
       Sentry.init({
