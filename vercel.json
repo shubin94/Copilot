@@ -7,7 +7,7 @@
   },
   "functions": {
     "api/index.ts": {
-      "includeFiles": "{server/**,db/**,shared/**}",
+      "includeFiles": "{server/**,db/**,shared/**,dist/public/**}",
       "memory": 2048,
       "maxDuration": 120
     }
