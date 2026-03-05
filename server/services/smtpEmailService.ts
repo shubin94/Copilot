@@ -262,8 +262,15 @@ class SMTPEmailService {
   }
 }
 
-// Export singleton instance
-export const smtpEmailService = new SMTPEmailService();
+// Lazy factory pattern - only initialize when first accessed
+let smtpEmailServiceInstance: SMTPEmailService | null = null;
+
+export function getSmtpEmailService(): SMTPEmailService {
+  if (!smtpEmailServiceInstance) {
+    smtpEmailServiceInstance = new SMTPEmailService();
+  }
+  return smtpEmailServiceInstance;
+}
 
 /**
  * Template key constants (matches database email_templates.key column)

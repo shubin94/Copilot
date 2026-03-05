@@ -73,10 +73,20 @@ if (config.env.isDev && url) {
 }
 */
 
-export const supabase = (url && key) ? createClient(url, key) : null as any;
+// Lazy factory pattern - only initialize when first accessed
+let supabaseInstance: any = undefined;
+
+function getSupabaseClient() {
+  if (supabaseInstance === undefined) {
+    supabaseInstance = (url && key) ? createClient(url, key) : null;
+  }
+  return supabaseInstance;
+}
+
 const isLocalDev = !config.env.isProd && ((config.baseUrl || "").includes("localhost") || (config.baseUrl || "").includes("127.0.0.1"));
 
 export async function ensureBucket(name: string) {
+  const supabase = getSupabaseClient();
   if (!supabase) {
     if (config.env.isProd) throw new Error("Supabase not configured");
     return;
@@ -113,8 +123,7 @@ export function parsePublicUrl(u: string): { bucket: string; path: string } | nu
   }
 }
 
-export async function deletePublicUrl(u: string) {
-  if (!supabase) {
+export async function deletePublicUrl(u: string) {  const supabase = getSupabaseClient();  if (!supabase) {
     if (config.env.isProd) throw new Error("Supabase not configured");
     return;
   }
@@ -137,6 +146,7 @@ export async function safeDeletePublicUrl(
   allowedBuckets?: string[],
   expectedPathPrefixes?: string | string[]
 ): Promise<boolean> {
+  const supabase = getSupabaseClient();
   if (!supabase) {
     if (config.env.isProd) throw new Error("Supabase not configured");
     return false;
@@ -210,6 +220,7 @@ const UPLOAD_DATAURL_ALLOWED_TYPES = new Set([
 ]);
 
 export async function uploadDataUrl(bucket: string, path: string, dataUrl: string): Promise<string> {
+  const supabase = getSupabaseClient();
   if (!supabase) {
     if (config.env.isProd) throw new Error("Supabase not configured");
     return dataUrl;
@@ -245,6 +256,7 @@ export async function uploadDataUrl(bucket: string, path: string, dataUrl: strin
 }
 
 export async function uploadFromUrlOrDataUrl(bucket: string, path: string, source: string): Promise<string> {
+  const supabase = getSupabaseClient();
   if (!supabase) {
     if (require('./config.ts').config.env.isProd) throw new Error("Supabase not configured");
     return source;

@@ -1,4 +1,5 @@
 import { renderToPipeableStream } from "react-dom/server";
+import { Transform } from "stream";
 import type { Response } from "express";
 import { Router as WouterRouter } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -29,7 +30,7 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
     } as unknown as { hook: typeof location.hook };
 
     // Create the pipeable stream for the React app
-    const stream = renderToPipeableStream(
+    const { pipe, abort } = renderToPipeableStream(
       <WouterRouter {...routerProps}>
         <App />
       </WouterRouter>,
@@ -58,17 +59,46 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
           const beforeRoot = htmlShell.substring(0, htmlShell.indexOf('<div id="root">') + '<div id="root">'.length);
           const afterRoot = htmlShell.substring(htmlShell.indexOf('</div>'));
 
-          // Send the initial HTML shell up to the root div opening tag
+          // Write the initial HTML template (everything before the root div)
           res.write(beforeRoot);
 
-          // Start piping the React stream directly into the root div
-          stream.pipe(res);
-
-          // When the stream completes, close the root div and send the rest of the HTML
-          // This is handled by the stream's 'end' event
-          res.on('finish', () => {
-            res.write(afterRoot);
+          // Create a Transform stream to intercept when React finishes streaming
+          // This allows us to append the closing HTML template before ending the response
+          const transformStream = new Transform({
+            transform(chunk, _encoding, callback) {
+              // Pass through React's output unchanged
+              this.push(chunk);
+              callback();
+            }
           });
+
+          // When React finishes piping to the transform stream
+          transformStream.on('finish', () => {
+            // Write the closing HTML template
+            res.write(afterRoot);
+            // End the response cleanly
+            res.end();
+            // Resolve the promise
+            clearAbortTimeout();
+            resolve();
+          });
+
+          // Handle errors on the transform stream
+          transformStream.on('error', (error: unknown) => {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error('[SSR Transform Stream Error]', {
+              message: errorMsg,
+              url,
+              stack: error instanceof Error ? error.stack : undefined,
+            });
+            clearAbortTimeout();
+            abort();
+            reject(error);
+          });
+
+          // Pipe React's output through the transform stream to the response
+          pipe(transformStream);
+          transformStream.pipe(res);
         },
 
         /**
@@ -77,8 +107,8 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
          * This callback is informational; the response will be closed automatically.
          */
         onAllReady() {
-          // All content is ready - stream will finish naturally
-          // No action needed; pipe will handle it
+          // All content is ready - pipe will finish naturally
+          // No action needed; pipe will complete when all data is sent
         },
 
         /**
@@ -98,7 +128,7 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
           });
           
           // The shell has already been sent, so we can't change status code
-          // Just ensure the stream is ended gracefully
+          // Just ensure content ends gracefully
           try {
             res.write('<!-- SSR Error: Check server logs for details -->');
           } catch (writeErr) {
@@ -108,30 +138,30 @@ export function renderLocationApp(url: string, htmlShell: string, res: Response)
       }
     );
 
-    // Handle stream completion
-    stream.on('end', () => {
-      resolve();
+    // Safety timeout: abort streaming if React rendering hangs for too long
+    // This prevents requests from running until Vercel's 120s timeout
+    const ABORT_DELAY = 10000; // 10 seconds
+    const abortTimeout = setTimeout(() => {
+      console.warn("[SSR] Render timeout reached, aborting stream", { url });
+      abort();
+    }, ABORT_DELAY);
+
+    // Clear timeout when response is closed
+    const clearAbortTimeout = () => clearTimeout(abortTimeout);
+    res.on('close', () => {
+      clearAbortTimeout();
     });
 
-    // Handle stream errors
-    stream.on('error', (error: unknown) => {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error('[SSR Stream Pipe Error]', {
-        message: errorMsg,
-        url,
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      reject(error);
-    });
-
-    // Ensure response is properly closed
+    // Handle response errors
     res.on('error', (error: unknown) => {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[SSR Response Error]', {
         message: errorMsg,
         url,
       });
-      stream.destroy();
+      // Abort React streaming to prevent further operations
+      clearAbortTimeout();
+      abort();
       reject(error);
     });
   });

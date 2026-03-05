@@ -6,7 +6,7 @@ import Razorpay from "razorpay";
 import rateLimit from "express-rate-limit";
 import { storage, generateSlug } from "./storage.js";
 import { sendClaimApprovedEmail } from "./email.js";
-import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.js";
+import { getSmtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.js";
 import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.js";
 import bcrypt from "bcrypt";
 import { db, pool } from "../db/index.js";
@@ -74,7 +74,7 @@ import llmsTxtRouter from "./routes/llms-txt.js";
 import featuredHomeServicesRouter from "./routes/featured-home-services.js";
 import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
 import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.js";
-import { googleIndexing } from "./services/google-indexing-service.js";
+import { getGoogleIndexing } from "./services/google-indexing-service.js";
 
 // Utility function to generate URL-safe slugs from text
 
@@ -141,15 +141,22 @@ function getCountryCode(countryNameOrSlug: string): string {
 
 // Razorpay client initialization has been moved to server/routes/paymentRoutes.ts
 
-let razorpayClient = new Razorpay({
-  key_id: config.razorpay.keyId || "dummy",
-  key_secret: config.razorpay.keySecret || "dummy",
-});
+let razorpayClient: Razorpay | null = null;
+
+function getDefaultRazorpayClient(): Razorpay {
+  if (!razorpayClient) {
+    razorpayClient = new Razorpay({
+      key_id: config.razorpay.keyId || "dummy",
+      key_secret: config.razorpay.keySecret || "dummy",
+    });
+  }
+  return razorpayClient;
+}
 
 async function getRazorpayClient() {
   const gateway = await getPaymentGateway("razorpay");
   if (!gateway) {
-    return razorpayClient;
+    return getDefaultRazorpayClient();
   }
 
   return new Razorpay({
@@ -240,6 +247,9 @@ async function applyPendingDowngrades(detective: any): Promise<any> {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   console.log('[DEBUG] registerRoutes() called');
+  
+  // Initialize email service lazily
+  const smtpEmailService = getSmtpEmailService();
   
   const setNoStore = (res: Response) => {
     // Private, no-store, no-cache for authenticated/sensitive user data
@@ -1371,9 +1381,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
-  // Start background rate updates
-  updateExchangeRatesInBackground();
-  setInterval(updateExchangeRatesInBackground, RATES_UPDATE_INTERVAL);
+  // Defer background rate updates to not block route registration
+  // This prevents the 8-second external API call from delaying cold start
+  setTimeout(() => {
+    updateExchangeRatesInBackground();
+    setInterval(updateExchangeRatesInBackground, RATES_UPDATE_INTERVAL);
+  }, 0);
 
   // Get live exchange rates endpoint (serves cached rates immediately)
   app.get("/api/currency-rates", (_req: Request, res: Response) => {
@@ -4011,7 +4024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const profileUrl = `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/${updatedDetective.slug}/`;
         
         // Asynchronously notify Google (don't wait for response)
-        googleIndexing.submitUrl(profileUrl, "URL_UPDATED").catch(err => {
+        getGoogleIndexing().submitUrl(profileUrl, "URL_UPDATED").catch(err => {
           console.error("Failed to notify Google of detective profile update:", err);
         });
       }
@@ -4096,7 +4109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const profileUrl = `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/${updatedDetective.slug}/`;
         
         // Asynchronously notify Google (don't wait for response)
-        googleIndexing.submitUrl(profileUrl, "URL_UPDATED").catch(err => {
+        getGoogleIndexing().submitUrl(profileUrl, "URL_UPDATED").catch(err => {
           console.error("Failed to notify Google of detective profile update:", err);
         });
       }
@@ -8411,7 +8424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const publishDate = new Date(validatedData.publishedAt);
         if (publishDate <= new Date()) {
           const articleUrl = `https://www.askdetectives.com/news/${newCaseStudy.slug}`;
-          googleIndexing.submitUrl(articleUrl, "URL_UPDATED").catch(err => {
+          getGoogleIndexing().submitUrl(articleUrl, "URL_UPDATED").catch(err => {
             console.error("Failed to notify Google of new case study:", err);
           });
         }
@@ -8510,7 +8523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Trigger Google Indexing
       if (updatedStudy && updatedStudy.slug) {
         const articleUrl = `https://www.askdetectives.com/news/${updatedStudy.slug}`;
-        googleIndexing.submitUrl(articleUrl, "URL_UPDATED").catch(err => {
+        getGoogleIndexing().submitUrl(articleUrl, "URL_UPDATED").catch(err => {
           console.error("Failed to notify Google of case study update:", err);
         });
       }
@@ -8549,7 +8562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Notify Google of deletion
       if (study && study.slug) {
         const articleUrl = `https://www.askdetectives.com/news/${study.slug}`;
-        googleIndexing.submitUrl(articleUrl, "URL_DELETED").catch(err => {
+        getGoogleIndexing().submitUrl(articleUrl, "URL_DELETED").catch(err => {
           console.error("Failed to notify Google of case study deletion:", err);
         });
       }

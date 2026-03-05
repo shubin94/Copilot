@@ -6,7 +6,7 @@ import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import { pool } from "../../db/index.js";
 import { storage } from "../storage.js";
-import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "../services/smtpEmailService.js";
+import { getSmtpEmailService, EMAIL_TEMPLATE_KEYS } from "../services/smtpEmailService.js";
 import { getPaymentGateway } from "../services/paymentGateway.js";
 import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "../services/paypal.js";
 import { applyPackageEntitlements } from "../services/entitlements.js";
@@ -17,11 +17,18 @@ import { requireRole } from "../authMiddleware.js";
 
 // ============== HELPER FUNCTIONS ==============
 
-// Initialize Razorpay with env fallback (will be overridden by DB config)
-let razorpayClient = new Razorpay({
-  key_id: config.razorpay.keyId || "dummy",
-  key_secret: config.razorpay.keySecret || "dummy",
-});
+// Initialize Razorpay lazily - only when first accessed
+let razorpayClient: Razorpay | null = null;
+
+function getDefaultRazorpayClient(): Razorpay {
+  if (!razorpayClient) {
+    razorpayClient = new Razorpay({
+      key_id: config.razorpay.keyId || "dummy",
+      key_secret: config.razorpay.keySecret || "dummy",
+    });
+  }
+  return razorpayClient;
+}
 
 // Helper to get/refresh Razorpay client from database
 async function getRazorpayClient() {
@@ -29,7 +36,7 @@ async function getRazorpayClient() {
   
   if (!gateway) {
     console.warn('[Razorpay] Gateway not enabled, falling back to env config');
-    return razorpayClient;
+    return getDefaultRazorpayClient();
   }
   
   // Reinitialize with DB config
@@ -112,6 +119,9 @@ async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: str
 
 export async function registerPaymentRoutes(app: Express): Promise<void> {
   console.log('[Payment Routes] Registering payment routes');
+
+  // Initialize email service lazily
+  const smtpEmailService = getSmtpEmailService();
 
   // ============== PUBLIC SUBSCRIPTION ENDPOINTS ==============
 

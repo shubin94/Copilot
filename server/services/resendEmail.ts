@@ -126,4 +126,12 @@ class ResendEmailService {
   }
 }
 
-export const resendEmail = new ResendEmailService();
+// Lazy factory pattern - only initialize when first accessed
+let resendEmailInstance: ResendEmailService | null = null;
+
+export function getResendEmail(): ResendEmailService {
+  if (!resendEmailInstance) {
+    resendEmailInstance = new ResendEmailService();
+  }
+  return resendEmailInstance;
+}
