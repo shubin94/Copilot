@@ -10,6 +10,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pkg from "pg";
 const { Pool } = pkg;
+type PgPool = InstanceType<typeof Pool>;
 // NOTE: registerRoutes is imported INSIDE runApp() to ensure environment is loaded first
 import { config } from "./config.js";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.js";
@@ -207,7 +208,7 @@ const corsConfig = {
 
 // ✅ GLOBAL REQUEST LOGGER - Runs FIRST before any other middleware
 // Logs every incoming request to track execution flow and timing
-app.use((req: Request, res: Response, next: NextFunction) => {
+app.use((req: Request, _res: Response, next: NextFunction) => {
   console.log("[REQUEST START]", req.method, req.originalUrl || req.path, new Date().toISOString());
   next();
 });
@@ -311,9 +312,9 @@ console.log("[MIDDLEWARE] after rate limiters");
 // - connectionTimeoutMillis: 5000 (fail fast if pool exhausted)
 // 
 // This prevents per-request pool creation overhead
-let sessionStorePool: typeof Pool | null = null;
+let sessionStorePool: PgPool | null = null;
 
-function getSessionStorePool() {
+function getSessionStorePool(): PgPool {
   if (sessionStorePool) {
     return sessionStorePool;  // Return existing global pool
   }
@@ -414,7 +415,7 @@ if (!sessionSecret) {
 // - Prevents session database lookups on API requests
 // - API routes use CSRF tokens, not session cookies
 // - Reduces cold start time and request latency
-app.use((req: Request, res: Response, next: Function) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   // Skip session middleware for all /api routes
   if (req.path.startsWith("/api")) {
     return next();
@@ -593,7 +594,7 @@ app.use("/api", (req, res, next) => {
 console.log("[MIDDLEWARE] after api logger");
 
 // ✅ DIAGNOSTICS: Add request flow tracer before route matching
-app.use((req: Request, res: Response, next: NextFunction) => {
+app.use((req: Request, _res: Response, next: NextFunction) => {
   console.log("[ROUTE MATCHING START]", req.method, req.url);
   next();
 });

@@ -1,5 +1,5 @@
-import { db } from "../../db/index.ts";
-import { siteSettings } from "../../shared/schema.ts";
+import { db } from "../../db/index.js";
+import { siteSettings } from "../../shared/schema.js";
 import { eq } from "drizzle-orm";
 
 async function clearSiteImages() {

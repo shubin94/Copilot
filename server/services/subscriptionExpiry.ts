@@ -8,8 +8,8 @@
 import { db } from "../../db/index.js";
 import { detectives } from "../../shared/schema.js";
 import { sql } from "drizzle-orm";
-import { getFreePlanId } from "./freePlan";
-import { applyPackageEntitlements } from "./entitlements";
+import { getFreePlanId } from "./freePlan.js";
+import { applyPackageEntitlements } from "./entitlements.js";
 
 /**
  * Check and downgrade expired subscriptions to FREE plan

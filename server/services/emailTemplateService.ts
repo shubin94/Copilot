@@ -5,9 +5,9 @@
  */
 
 import { eq } from "drizzle-orm";
-import { db } from "../../db/index";
-import { emailTemplates } from "../../shared/schema";
-import type { EmailTemplate } from "../../shared/schema";
+import { db } from "../../db/index.js";
+import { emailTemplates } from "../../shared/schema.js";
+import type { EmailTemplate } from "../../shared/schema.js";
 
 export interface EmailTemplateResolved {
   id: string;

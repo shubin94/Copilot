@@ -1,5 +1,5 @@
-import { db } from "../db/index";
-import { detectives, detectiveVisibility, services, reviews, subscriptionPlans } from "../shared/schema";
+import { db } from "../db/index.js";
+import { detectives, detectiveVisibility, services, reviews, subscriptionPlans } from "../shared/schema.js";
 import { eq, desc, and, avg, count, sql, inArray } from "drizzle-orm";
 
 /**

@@ -17,8 +17,8 @@
 
 import nodemailer from "nodemailer";
 import { config } from "../config.js";
-import { db } from "../../db/index";
-import { emailTemplates } from "../../shared/schema";
+import { db } from "../../db/index.js";
+import { emailTemplates } from "../../shared/schema.js";
 import { eq } from "drizzle-orm";
 
 interface EmailVariable {

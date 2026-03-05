@@ -925,7 +925,7 @@ export class DatabaseStorage implements IStorage {
     ratingMin?: number;
     planName?: string;
     level?: string;
-  }, limit: number = 50, offset: number = 0, sortBy: string = 'recent', skipAggregation: boolean = false, resolvedLocation?: { countryId: number | null; stateId: number | null; cityId: number | null; countryName: string; stateName: string; cityName: string }): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number, planName?: string }>> {
+  }, limit: number = 50, offset: number = 0, sortBy: string = 'recent', _skipAggregation: boolean = false, resolvedLocation?: { countryId: number | null; stateId: number | null; cityId: number | null; countryName: string; stateName: string; cityName: string }): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number, planName?: string }>> {
     
     // ONLY filter by active services - NO visibility restrictions
     const conditions = [ eq(services.isActive, true) ];

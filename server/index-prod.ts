@@ -7,7 +7,6 @@ import path from "node:path";
 
 import express from "express";
 import type { Express, Request, Response } from "express";
-import { renderLocationApp } from "../client/src/ssr-entry";
 
 import runApp from "./app.js";
 import { config, validateConfig } from "./config.js";
@@ -45,7 +44,7 @@ export async function serveStatic(app: Express, _server: Server) {
 
   // ✅ GLOBAL REQUEST LOGGER - Runs before all routes and middleware
   // Logs every incoming request to track execution flow
-  app.use((req: Request, res: Response, next: Function) => {
+  app.use((req: Request, _res: Response, next: Function) => {
     console.log("[REQUEST]", req.method, req.originalUrl, new Date().toISOString());
     next();
   });
@@ -192,39 +191,11 @@ export async function serveStatic(app: Express, _server: Server) {
         }
       }
 
-      // ✅ OPTIMIZATION: Stream SSR with renderToPipeableStream
-      // Sends HTML to the browser as soon as the React shell is ready,
-      // dramatically reducing Time to First Byte (TTFB).
-      // Non-critical content (Suspense-deferred data) streams afterward.
-      try {
-        console.log('[SSR DEBUG] Before renderLocationApp streaming:', req.originalUrl || requestPath);
-        console.log('[SSR DEBUG] Root placeholder present:', finalHtml.includes('<div id="root"></div>'));
-        
-        // Set response headers early for streaming
-        res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        
-        // Stream React component rendering directly to response
-        // renderLocationApp handles onShellReady callback, streaming, and cleanup
-        console.log("[SSR] Starting React render...", { url: req.originalUrl || requestPath });
-        await renderLocationApp(req.originalUrl || requestPath, finalHtml, res);
-        
-        console.log("[SSR] SSR render completed", { url: req.originalUrl || requestPath });
-      } catch (ssrError) {
-        console.error('[SSR] Failed to stream location route:', ssrError);
-        // Fallback: if streaming failed and headers haven't been sent, try to send the template
-        if (!res.headersSent) {
-          res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          return res.send(finalHtml);
-        }
-        // If headers already sent, just end the response
-        res.end();
-      }
-
-      // Note: Response is already handled by renderLocationApp streaming
-      // No need to call res.send() again
-      return;
+      // In serverless deployments, avoid importing client SSR modules at runtime.
+      // Serve SEO-injected HTML directly and let the client hydrate.
+      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(finalHtml);
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

@@ -1,5 +1,5 @@
-import { db } from "../db/index";
-import { appPolicies } from "../shared/schema";
+import { db } from "../db/index.js";
+import { appPolicies } from "../shared/schema.js";
 import { eq } from "drizzle-orm";
 import { config } from "./config.js";
 
