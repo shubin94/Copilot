@@ -1,4 +1,4 @@
-import "./lib/loadEnv.js";
+import "./lib/loadEnv";
 
 type NodeEnv = "production" | "development" | "test" | undefined;
 

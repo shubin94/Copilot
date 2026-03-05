@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index-dev.ts",
     "build": "vite build",
+    "build:server": "node scripts/build-vercel.js",
     "build:full": "vite build && tsx scripts/prerender-seo-templates.ts",
     "start": "cross-env NODE_ENV=production tsx server/index-prod.ts",
     "migrate": "tsx db/run-migrations.ts",

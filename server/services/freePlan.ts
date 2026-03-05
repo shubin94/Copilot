@@ -1,6 +1,6 @@
 // Free Plan Service - Ensures every detective has a subscription
-import { db } from "../../db/index.js";
-import { subscriptionPlans } from "../../shared/schema.js";
+import { db } from "../../db/index";
+import { subscriptionPlans } from "../../shared/schema";
 import { eq, and } from "drizzle-orm";
 
 let cachedFreePlanId: string | null = null;

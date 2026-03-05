@@ -1,4 +1,4 @@
-import { db } from "../../db/index.js";
+import { db } from "../../db/index";
 import { services } from "@shared/schema";
 import { eq } from "drizzle-orm";
 

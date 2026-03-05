@@ -1,4 +1,4 @@
-import { pool } from "../../db/index.js";
+import { pool } from "../../db/index";
 
 /**
  * @deprecated This function should NOT be used in production runtime.

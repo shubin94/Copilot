@@ -10,7 +10,7 @@ import {
   generateServicesSitemap,
   getServiceSitemapCount,
   CACHE_MAX_AGE,
-} from "../services/sitemapService.js";
+} from "../services/sitemapService";
 
 const router = Router();
 
