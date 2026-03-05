@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { readFileSync } from "node:fs";
 import { pool } from "../db/index.ts";
 

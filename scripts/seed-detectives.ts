@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { storage } from "../server/storage.ts";
 import type { InsertUser, InsertDetective, InsertService } from "../shared/schema.ts";
 import * as LocationService from "../server/services/locationService.ts";

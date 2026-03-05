@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
-import { pool } from "../../db/index";
-import * as cache from "../lib/cache";
-import { buildServiceCardDTO } from "../../utils/buildServiceCardDTO";
+import { pool } from "../../db/index.js";
+import * as cache from "../lib/cache.js";
+import { buildServiceCardDTO } from "../../utils/buildServiceCardDTO.js";
 
 const router = Router();
 

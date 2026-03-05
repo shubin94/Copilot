@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { Pool } from "pg";
 
 async function addGoogleIdColumn() {
