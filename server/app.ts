@@ -347,7 +347,7 @@ function getSessionStorePool() {
 
 // OPTIMIZED: Create session middleware but apply selectively to authenticated routes only
 // This avoids unnecessary database lookups on public APIs
-export function getSessionMiddleware() {
+export function getSessionMiddleware(sessionSecret: string) {
   const useMemorySession = config.session.useMemory;
 
   let sessionStore;
@@ -372,7 +372,7 @@ export function getSessionMiddleware() {
   const isDev = !config.env.isProd;
   const sessionMiddleware = session({
     store: sessionStore,
-    secret: config.session.secret,
+    secret: sessionSecret,
     proxy: config.env.isProd || process.env.VERCEL === "1",
     resave: false,
     saveUninitialized: false,
@@ -396,11 +396,19 @@ export function getSessionMiddleware() {
 // Session store lookups are expensive (database queries for session data)
 // API routes (/api/*) don't need session data - they use CSRF tokens instead
 // SSR routes (/detectives/*) and static files don't need session data
-// const globalSessionMiddleware = getSessionMiddleware();
+// const globalSessionMiddleware = getSessionMiddleware(process.env.SESSION_SECRET!);
 // app.use(globalSessionMiddleware);
 
-// ✅ Create session middleware instance (creates global session store pool once)
-const sessionMiddleware = getSessionMiddleware();
+const sessionSecret = process.env.SESSION_SECRET;
+let sessionMiddleware: ReturnType<typeof getSessionMiddleware> | null = null;
+
+if (!sessionSecret) {
+  console.warn("[SESSION] SESSION_SECRET missing, skipping session middleware");
+} else {
+  // ✅ Create session middleware instance (creates global session store pool once)
+  sessionMiddleware = getSessionMiddleware(sessionSecret);
+  console.log("[SESSION] Session middleware enabled");
+}
 
 // ✅ Apply session middleware conditionally - SKIP /api routes (CRITICAL OPTIMIZATION)
 // - Prevents session database lookups on API requests
@@ -411,6 +419,12 @@ app.use((req: Request, res: Response, next: Function) => {
   if (req.path.startsWith("/api")) {
     return next();
   }
+
+  // If session middleware is unavailable, continue safely
+  if (!sessionMiddleware) {
+    return next();
+  }
+
   // Run session middleware for HTML pages and other routes
   sessionMiddleware(req, res, next);
 });
