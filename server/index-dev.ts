@@ -9,8 +9,8 @@ import { createServer as createViteServer, createLogger } from "vite";
 
 import runApp from "./app";
 
-import viteConfig from "../vite.config";
-import { config, validateConfig } from "./config";
+import viteConfig from "../vite.config.js";
+import { config, validateConfig } from "./config.js";
 import { loadSecretsFromDatabase } from "./lib/secretsLoader";
 import { validateDatabase } from "./startup";
 import { initializeEnv } from "./lib/loadEnv.js";

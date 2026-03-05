@@ -11,7 +11,7 @@
  */
 import { db } from "../../db/index";
 import { appSecrets } from "../../shared/schema";
-import { config } from "../config";
+import { config } from "../config.js";
 
 // Track if secrets were loaded successfully (used for dev fallbacks)
 export let secretsLoadedSuccessfully = false;

@@ -12,7 +12,7 @@ import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "../s
 import { applyPackageEntitlements } from "../services/entitlements";
 import { clearFreePlanCache } from "../services/freePlan";
 import * as cache from "../lib/cache";
-import { config } from "../config";
+import { config } from "../config.js";
 import { requireRole } from "../authMiddleware";
 
 // ============== HELPER FUNCTIONS ==============

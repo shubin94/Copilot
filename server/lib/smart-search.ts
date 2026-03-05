@@ -14,7 +14,7 @@
 
 import { resolveLocation } from "./geo";
 import { matchCategorySemanticDeepseek, type CategoryWithDesc, type DeepseekSemanticResult } from "./deepseek-category";
-import { config } from "../config";
+import { config } from "../config.js";
 
 const PROHIBITED_KEYWORDS = [
   "phone tap", "phone tapping", "tap phone", "tap his phone", "tap her phone",
