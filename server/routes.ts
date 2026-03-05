@@ -6758,10 +6758,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== SERVICE CATEGORY ROUTES ==============
 
+  // API: Detectives filtered by location slugs (country + state, no city)
+  // STATE-LEVEL HANDLER - Must be placed before city-level route to match first
+  app.get('/api/detectives/location/:countrySlug/:stateSlug', async (req: Request, res: Response) => {
+    try {
+      console.log("[API] detectives/location (state-level) route start", { countrySlug: req.params.countrySlug, stateSlug: req.params.stateSlug });
+      const { countrySlug, stateSlug } = req.params as { countrySlug: string; stateSlug: string };
+      
+      // ✅ INPUT VALIDATION: Validate slug format (alphanumeric, hyphens, max 100 chars)
+      const slugPattern = /^[a-z0-9-]{1,100}$/;
+      if (!slugPattern.test(countrySlug)) {
+        return res.status(400).json({
+          error: 'Invalid country slug format',
+          code: 'INVALID_COUNTRY_SLUG',
+          message: 'Country slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      if (!slugPattern.test(stateSlug)) {
+        return res.status(400).json({
+          error: 'Invalid state slug format',
+          code: 'INVALID_STATE_SLUG',
+          message: 'State slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      
+      const parsedLimit = Number(req.query.limit);
+      const parsedOffset = Number(req.query.offset);
+      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(30, Math.floor(parsedLimit))) : 15;
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.floor(parsedOffset)) : 0;
+
+      // ✅ FETCH STATE-LEVEL DETECTIVES (NO CITY FILTER)
+      const LOCATION_QUERY_TIMEOUT_MS = 20000;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let result: Awaited<ReturnType<typeof getLocationDetectivesForSEO>>;
+      try {
+        result = await Promise.race([
+          getLocationDetectivesForSEO(
+            countrySlug,
+            stateSlug,
+            undefined,  // NO CITY - state-level query
+            limit + 1  // limit+1 for hasMore detection
+          ),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('LOCATION_QUERY_TIMEOUT')), LOCATION_QUERY_TIMEOUT_MS);
+          })
+        ]);
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      console.log("[API] detectives fetched (state-level)", { count: result.detectives.length, location: result.location });
+
+      // ✅ MANUAL PAGINATION USING OFFSET
+      const startIdx = Math.max(0, Math.min(offset, result.detectives.length));
+      const paginatedDetectives = result.detectives.slice(startIdx, startIdx + limit);
+      const hasMore = result.detectives.length > (startIdx + limit);
+
+      console.log("[API] masking contacts...", { detectivesToMask: paginatedDetectives.length });
+
+      // ✅ MASK SENSITIVE FIELDS
+      const maskedDetectives = paginatedDetectives.map((d: any) => ({
+        ...d,
+        phone: undefined,
+        whatsapp: undefined,
+        contactEmail: undefined,
+        userId: undefined,
+        businessDocuments: undefined,
+        identityDocuments: undefined,
+        slug: d.slug || "pending-generation",
+        requireLocationUpdate: false,
+      }));
+
+      console.log("[API] masking finished", { maskedCount: maskedDetectives.length });
+
+      const estimatedTotal = hasMore
+        ? offset + maskedDetectives.length + 1
+        : offset + maskedDetectives.length;
+
+      console.log("[API] sending response (state-level)", { detectiveCount: maskedDetectives.length, estimatedTotal, hasMore });
+
+      // ✅ RETURN RESPONSE
+      res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+      res.json({
+        meta: {
+          country: result.location.country,
+          state: result.location.state || null,
+          city: null,  // No city for state-level queries
+          found: true
+        },
+        detectives: maskedDetectives,
+        total: estimatedTotal,
+        hasMore,
+        limit,
+        offset
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('LOCATION_QUERY_TIMEOUT')) {
+        res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=10');
+        return res.status(504).json({
+          error: 'Location fetch timed out',
+          code: 'LOCATION_FETCH_TIMEOUT',
+          message: 'The location query took too long. Please try again.'
+        });
+      }
+
+      console.error('[api/detectives/location (state-level)] error:', error);
+      res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=5');
+      res.status(500).json({
+        error: 'Failed to fetch detectives by location',
+        code: 'LOCATION_FETCH_ERROR',
+        message: error instanceof Error ? error.message : 'Internal server error'
+      });
+    }
+  });
+
   // API: Detectives filtered by location slugs (country/state/city)
+  // CITY-LEVEL HANDLER - Handles full location path with city
   // Optimized handler using single database query with getLocationDetectivesForSEO()
   app.get('/api/detectives/location/:countrySlug/:stateSlug?/:citySlug?', async (req: Request, res: Response) => {
     try {
+      console.log("[API] detectives/location route start", { countrySlug: req.params.countrySlug, stateSlug: req.params.stateSlug, citySlug: req.params.citySlug });
       const { countrySlug, stateSlug, citySlug } = req.params as { countrySlug: string; stateSlug?: string; citySlug?: string };
       
       // ✅ INPUT VALIDATION: Validate slug format (alphanumeric, hyphens, max 100 chars)
@@ -6825,10 +6943,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      console.log("[API] detectives fetched", { count: result.detectives.length, location: result.location });
+
       // ✅ MANUAL PAGINATION USING OFFSET
       const startIdx = Math.max(0, Math.min(offset, result.detectives.length));
       const paginatedDetectives = result.detectives.slice(startIdx, startIdx + limit);
       const hasMore = result.detectives.length > (startIdx + limit);
+
+      console.log("[API] masking contacts...", { detectivesToMask: paginatedDetectives.length });
 
       // ✅ MASK SENSITIVE FIELDS
       // Keep this endpoint lightweight: avoid per-item async plan lookups.
@@ -6843,6 +6965,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         slug: d.slug || "pending-generation",
         requireLocationUpdate: false,
       }));
+
+      console.log("[API] masking finished", { maskedCount: maskedDetectives.length });
 
       const estimatedTotal = hasMore
         ? offset + maskedDetectives.length + 1
@@ -6881,6 +7005,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         seoMetadata.metaDescription = `Find private detectives in ${locationName}`;
         seoMetadata.h1 = `Detectives in ${locationName}`;
       }
+
+      console.log("[API] sending response", { detectiveCount: maskedDetectives.length, estimatedTotal, hasMore });
 
       // ✅ RETURN RESPONSE
       res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');

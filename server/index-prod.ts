@@ -39,20 +39,16 @@ export async function serveStatic(app: Express, _server: Server) {
     );
   }
 
-  console.log('[DEBUG] Setting up express.static middleware for:', distPath);
-  app.use(express.static(distPath, {
-    maxAge: "1y",
-    immutable: true,
-    setHeaders: (res, filePath) => {
-      if (filePath.endsWith("index.html")) {
-        res.setHeader("Cache-Control", "no-store");
-      }
-    }
-  }));
-
   const fallback404File = path.resolve(distPath, "404.html");
   const indexHtmlPath = path.resolve(distPath, "index.html");
   let cachedIndexHtml: string | null = null;
+
+  // ✅ GLOBAL REQUEST LOGGER - Runs before all routes and middleware
+  // Logs every incoming request to track execution flow
+  app.use((req: Request, res: Response, next: Function) => {
+    console.log("[REQUEST]", req.method, req.originalUrl, new Date().toISOString());
+    next();
+  });
 
   // Cache middleware for location listing pages
   app.use((req: Request, res: Response, next: Function) => {
@@ -529,6 +525,20 @@ export async function serveStatic(app: Express, _server: Server) {
       res.status(500).type("text/plain").send("Error loading page");
     }
   });
+
+  // ✅ OPTIMIZATION: Register static file middleware AFTER SSR routes
+  // This prevents filesystem lookups from blocking SSR route handlers
+  // SSR routes match immediately, static assets still serve correctly
+  console.log('[DEBUG] Setting up express.static middleware for:', distPath);
+  app.use(express.static(distPath, {
+    maxAge: "1y",
+    immutable: true,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith("index.html")) {
+        res.setHeader("Cache-Control", "no-store");
+      }
+    }
+  }));
 
   // Route-aware SPA fallback: unknown routes return true HTTP 404
   app.use("*", (req, res) => {
