@@ -1,6 +1,7 @@
 {
   "buildCommand": "npm run build",
   "installCommand": "npm ci --production=false",
+  "outputDirectory": "dist/public",
   "framework": null,
   "env": {
     "NODE_ENV": "production"
