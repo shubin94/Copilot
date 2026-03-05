@@ -4,7 +4,7 @@
  * Does NOT touch blueTickAddon — add-on is independent and survives expiry/downgrade.
  */
 
-import { storage } from "../storage.js";
+import { storage } from "../storage";
 
 export interface EffectiveBadges {
   blueTick: boolean;

@@ -3,14 +3,14 @@
  * Optimized for cold start performance (prevents 504 timeouts)
  */
 
-import "./lib/loadEnv.js";
+import "./lib/loadEnv";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 
-import { config, validateConfig } from "./config.js";
-import { validateDatabase } from "./startup.js";
-import { initializeEnv } from "./lib/loadEnv.js";
-import { getEnvironmentBadge } from "../db/validateDatabase.js";
+import { config, validateConfig } from "./config";
+import { validateDatabase } from "./startup";
+import { initializeEnv } from "./lib/loadEnv";
+import { getEnvironmentBadge } from "../db/validateDatabase";
 import serverless from "serverless-http";
 
 // --------------------------------------------------
@@ -91,9 +91,7 @@ async function initializeServerApp() {
       "Secrets loading"
     );
 
-    const { secretsLoadedSuccessfully } = await import(
-      "./lib/secretsLoader.js"
-    );
+    const { secretsLoadedSuccessfully } = await import("./lib/secretsLoader.js");
 
     // 3️⃣ Initialize Sentry
     if (config.env.isProd && config.sentryDsn) {

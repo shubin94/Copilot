@@ -9,9 +9,9 @@
  * Only DATABASE_URL and Supabase credentials are required in env;
  * all other secrets can live in DB.
  */
-import { db } from "../../db/index.js";
-import { appSecrets } from "../../shared/schema.js";
-import { config } from "../config.js";
+import { db } from "../../db/index";
+import { appSecrets } from "../../shared/schema";
+import { config } from "../config";
 
 // Track if secrets were loaded successfully (used for dev fallbacks)
 export let secretsLoadedSuccessfully = false;

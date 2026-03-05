@@ -12,9 +12,9 @@
  * 5. Return top match with confidence scores
  */
 
-import { resolveLocation } from "./geo.js";
-import { matchCategorySemanticDeepseek, type CategoryWithDesc, type DeepseekSemanticResult } from "./deepseek-category.js";
-import { config } from "../config.js";
+import { resolveLocation } from "./geo";
+import { matchCategorySemanticDeepseek, type CategoryWithDesc, type DeepseekSemanticResult } from "./deepseek-category";
+import { config } from "../config";
 
 const PROHIBITED_KEYWORDS = [
   "phone tap", "phone tapping", "tap phone", "tap his phone", "tap her phone",

@@ -1,5 +1,5 @@
 // Payment Gateway Service - Dynamically fetches gateway configs from database
-import { pool } from "../../db/index.js";
+import { pool } from "../../db/index";
 
 export interface PaymentGatewayConfig {
   id: number;

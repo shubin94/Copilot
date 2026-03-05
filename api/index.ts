@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv.js";
+import "../server/lib/loadEnv";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 

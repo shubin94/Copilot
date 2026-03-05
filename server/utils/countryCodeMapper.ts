@@ -4,7 +4,7 @@
  * Lazy-populates the countries table when needed
  */
 
-import { pool } from "../../db/index.js";
+import { pool } from "../../db/index";
 
 // Complete ISO 3166-1 alpha-2 country code mapping
 export const COUNTRY_CODE_MAP: Record<string, string> = {

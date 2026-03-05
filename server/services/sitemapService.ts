@@ -3,7 +3,7 @@
  * Handles caching, compression, and proper HTTP headers
  */
 
-import { pool } from "../../db/index.js";
+import { pool } from "../../db/index";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 

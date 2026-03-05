@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
-import { pool } from "../../db/index.js";
-import * as cache from "../lib/cache.js";
+import { pool } from "../../db/index";
+import * as cache from "../lib/cache";
 
 const router = Router();
 const CMS_PAGE_TTL_SECONDS = 300; // 5 minutes

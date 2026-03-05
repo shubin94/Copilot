@@ -9,7 +9,7 @@ import { sendClaimApprovedEmail } from "./email.js";
 import { getSmtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.js";
 import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.js";
 import bcrypt from "bcrypt";
-import { db, pool } from "../db/index.js";
+import { db, pool } from "../db/index";
 import { eq, and, or, desc, avg, count, ilike, sql, isNotNull } from "drizzle-orm";
 import {
   detectives,
@@ -41,40 +41,40 @@ import {
   updateServiceCategorySchema,
   updateSiteSettingsSchema,
   type Detective
-} from "../shared/schema.js";
+} from "../shared/schema";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { config } from "./config.js";
-import { bodyParsers } from "./app.js";
-import * as LocationService from "./services/locationService.js";
-import * as cache from "./lib/cache.js";
-import { getLocationDetectivesForSEO } from "./lib/seo-injection.js";
-import { runSmartSearch } from "./lib/smart-search.js";
-import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.js";
+import { config } from "./config";
+import { bodyParsers } from "./app";
+import * as LocationService from "./services/locationService";
+import * as cache from "./lib/cache";
+import { getLocationDetectivesForSEO } from "./lib/seo-injection";
+import { runSmartSearch } from "./lib/smart-search";
+import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map";
 // import pkg from "pg"; // Unused
-import { requirePolicy } from "./policy.js";
-import { requireAuth, requireRole } from "./authMiddleware.js";
-import { paymentGatewayRoutes } from "./routes/paymentGateways.js";
-import { registerLocationRoutes } from "./routes/locationRoutes.js";
-import { registerPaymentRoutes } from "./routes/paymentRoutes.js";
-import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.js";
-import { getPaymentGateway } from "./services/paymentGateway.js";
-import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.js";
-import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.js";
-import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.js";
-import adminCmsRouter from "./routes/admin-cms.js";
-import adminFinanceRouter from "./routes/admin-finance.js";
-import adminEmployeesRouter from "./routes/admin/employees.js";
-import publicPagesRouter from "./routes/public-pages.js";
-import publicCategoriesRouter from "./routes/public-categories.js";
-import publicTagsRouter from "./routes/public-tags.js";
-// import sitemapRouter from "./routes/sitemap.js"; // Unused
-// import rssRouter from "./routes/rss.js"; // Unused
-import llmsTxtRouter from "./routes/llms-txt.js";
-import featuredHomeServicesRouter from "./routes/featured-home-services.js";
-import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
-import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.js";
-import { getGoogleIndexing } from "./services/google-indexing-service.js";
+import { requirePolicy } from "./policy";
+import { requireAuth, requireRole } from "./authMiddleware";
+import { paymentGatewayRoutes } from "./routes/paymentGateways";
+import { registerLocationRoutes } from "./routes/locationRoutes";
+import { registerPaymentRoutes } from "./routes/paymentRoutes";
+import { clearFreePlanCache, getFreePlanId } from "./services/freePlan";
+import { getPaymentGateway } from "./services/paymentGateway";
+import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal";
+import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements";
+import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase";
+import adminCmsRouter from "./routes/admin-cms";
+import adminFinanceRouter from "./routes/admin-finance";
+import adminEmployeesRouter from "./routes/admin/employees";
+import publicPagesRouter from "./routes/public-pages";
+import publicCategoriesRouter from "./routes/public-categories";
+import publicTagsRouter from "./routes/public-tags";
+// import sitemapRouter from "./routes/sitemap"; // Unused
+// import rssRouter from "./routes/rss"; // Unused
+import llmsTxtRouter from "./routes/llms-txt";
+import featuredHomeServicesRouter from "./routes/featured-home-services";
+import { buildServiceCardDTO } from "../utils/buildServiceCardDTO";
+import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO";
+import { getGoogleIndexing } from "./services/google-indexing-service";
 
 // Utility function to generate URL-safe slugs from text
 

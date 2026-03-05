@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcrypt";
-import { pool } from "../../../db/index.js";
-import { requireRole } from "../../authMiddleware.js";
+import { pool } from "../../../db/index";
+import { requireRole } from "../../authMiddleware";
 
 const router = Router();
 
