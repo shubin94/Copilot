@@ -352,8 +352,15 @@ class SendPulseEmailService {
   }
 }
 
-// Export singleton instance
-export const sendpulseEmail = new SendPulseEmailService();
+// Lazy factory pattern - only initialize when first accessed
+let sendpulseEmailInstance: SendPulseEmailService | null = null;
+
+export function getSendpulseEmail(): SendPulseEmailService {
+  if (!sendpulseEmailInstance) {
+    sendpulseEmailInstance = new SendPulseEmailService();
+  }
+  return sendpulseEmailInstance;
+}
 
 /**
  * Email Template IDs (managed in SendPulse dashboard)

@@ -208,5 +208,12 @@ export class GoogleIndexingService {
   }
 }
 
-// Export singleton instance
-export const googleIndexing = new GoogleIndexingService();
+// Lazy factory pattern - only initialize when first accessed
+let googleIndexingInstance: GoogleIndexingService | null = null;
+
+export function getGoogleIndexing(): GoogleIndexingService {
+  if (!googleIndexingInstance) {
+    googleIndexingInstance = new GoogleIndexingService();
+  }
+  return googleIndexingInstance;
+}
