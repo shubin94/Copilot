@@ -50,7 +50,7 @@ import * as LocationService from "./services/locationService.js";
 import * as cache from "./lib/cache.js";
 import { getLocationDetectivesForSEO } from "./lib/seo-injection.js";
 import { runSmartSearch } from "./lib/smart-search.js";
-import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.js";
+import { getCurrencyForCountry, getEffectiveCurrency } from "../shared/country-currency-map.js";
 // import pkg from "pg"; // Unused
 import { requirePolicy } from "./policy.js";
 import { requireAuth, requireRole } from "./authMiddleware.js";
@@ -4368,7 +4368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("🔍 [Autocomplete API] Found detectives:", matchingDetectives.length);
 
       // Search locations (countries, states, cities from WORLD_COUNTRIES)
-      const { WORLD_COUNTRIES } = await import("../client/src/lib/world-countries.js");
+      const { WORLD_COUNTRIES } = await import("../shared/world-countries.js");
       const matchingLocations: Array<{ type: "location"; label: string; value: string }> = [];
       
       for (const country of WORLD_COUNTRIES) {
