@@ -8,7 +8,7 @@ import {
   isImageBlock,
   parseContentBlocks,
   stringifyContentBlocks,
-} from "../../client/src/shared/content-blocks";
+} from "../../shared/content-blocks.js";
 import {
   getCategories,
   getCategoryById,

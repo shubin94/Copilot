@@ -1,4 +1,4 @@
-import { ContentBlock, stringifyContentBlocks } from "../../client/src/shared/content-blocks.js";
+import { ContentBlock, stringifyContentBlocks } from "../../shared/content-blocks.js";
 
 /**
  * Migrate existing plain-text or HTML content to JSON block format.

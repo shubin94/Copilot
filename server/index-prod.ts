@@ -45,7 +45,7 @@ export async function serveStatic(app: Express, _server: Server) {
 
   // ✅ GLOBAL REQUEST LOGGER - Runs before all routes and middleware
   // Logs every incoming request to track execution flow
-  app.use((req: Request, res: Response, next: Function) => {
+  app.use((req: Request, _res: Response, next: Function) => {
     console.log("[REQUEST]", req.method, req.originalUrl, new Date().toISOString());
     next();
   });
