@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { db, pool } from "../db/index.ts";
 import { appSecrets } from "../shared/schema.ts";
 import { inArray } from "drizzle-orm";

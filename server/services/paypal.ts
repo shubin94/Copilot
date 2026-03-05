@@ -1,5 +1,5 @@
 // PayPal Payment Gateway Service
-import { config } from "../config";
+import { config } from "../config.js";
 import { getPaymentGateway } from "./paymentGateway";
 
 // Dynamic import for PayPal SDK (CommonJS module)

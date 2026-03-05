@@ -1,7 +1,7 @@
 /**
  * site_settings must have at least one row for production.
  */
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { db } from "../db/index.ts";
 import { siteSettings } from "../shared/schema.ts";
 

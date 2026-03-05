@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { pool } from "../db/index.ts";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../db/index.ts";

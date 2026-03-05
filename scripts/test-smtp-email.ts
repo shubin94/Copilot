@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import nodemailer from "nodemailer";
 import { loadSecretsFromDatabase } from "../server/lib/secretsLoader.ts";
 import { config } from "../server/config.ts";

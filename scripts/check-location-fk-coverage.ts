@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { db } from "../db/index.ts";
 import { count, eq, isNull } from "drizzle-orm";
 import { detectives } from "../shared/schema.ts";

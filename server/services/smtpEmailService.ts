@@ -16,7 +16,7 @@
  */
 
 import nodemailer from "nodemailer";
-import { config } from "../config";
+import { config } from "../config.js";
 import { db } from "../../db/index";
 import { emailTemplates } from "../../shared/schema";
 import { eq } from "drizzle-orm";

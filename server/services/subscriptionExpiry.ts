@@ -5,8 +5,8 @@
  * Ensures platform rule: Every detective MUST always have a subscription
  */
 
-import { db } from "../../db/index";
-import { detectives } from "../../shared/schema";
+import { db } from "../../db/index.js";
+import { detectives } from "../../shared/schema.js";
 import { sql } from "drizzle-orm";
 import { getFreePlanId } from "./freePlan";
 import { applyPackageEntitlements } from "./entitlements";

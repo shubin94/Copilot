@@ -1,4 +1,4 @@
-import "./lib/loadEnv";
+import "./lib/loadEnv.js";
 import fs from "node:fs";
 import { type Server } from "node:http";
 import path from "node:path";
@@ -9,11 +9,11 @@ import { createServer as createViteServer, createLogger } from "vite";
 
 import runApp from "./app";
 
-import viteConfig from "../vite.config";
-import { config, validateConfig } from "./config";
+import viteConfig from "../vite.config.js";
+import { config, validateConfig } from "./config.js";
 import { loadSecretsFromDatabase } from "./lib/secretsLoader";
 import { validateDatabase } from "./startup";
-import { initializeEnv } from "./lib/loadEnv";
+import { initializeEnv } from "./lib/loadEnv.js";
 import { getEnvironmentBadge } from "../db/validateDatabase";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest";
 import {

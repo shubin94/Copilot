@@ -1,4 +1,4 @@
-import { db } from "../db/index";
+import { db } from "../db/index.js";
 import { randomBytes } from "node:crypto";
 import { 
   users, detectives, services, reviews, orders, favorites, 
@@ -18,11 +18,11 @@ import {
   siteSettings, type SiteSettings,
   searchStats,
   subscriptionPlans
-} from "../shared/schema";
+} from "../shared/schema.js";
 import { eq, and, desc, sql, count, avg, or, ilike, inArray, isNotNull, ne, asc } from "drizzle-orm";
 import bcrypt from "bcrypt";
-import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan";
-import * as cache from "./lib/cache";
+import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan.js";
+import * as cache from "./lib/cache.js";
 
 const SALT_ROUNDS = 10;
 
