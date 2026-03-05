@@ -8,6 +8,7 @@ import { validateDatabase } from "../server/startup.js";
 import { initializeEnv } from "../server/lib/loadEnv.js";
 import { getEnvironmentBadge } from "../db/validateDatabase.js";
 import { registerRoutes } from "../server/routes.js";
+import { serveStatic } from "../server/index-prod.js";
 
 const withTimeout = async <T>(
   promise: Promise<T>,
@@ -78,6 +79,18 @@ async function initializeVercelExpressApp() {
 
   console.log("⚙️ Registering routes...");
   await withTimeout(registerRoutes(app), 8000, "Route registration");
+
+  // ✅ Register SSR handlers for /detectives/* pages (location listings and profiles)
+  console.log("⚙️ Registering SSR static handlers...");
+  try {
+    await serveStatic(app, null as any);
+    console.log("✅ SSR static handlers registered successfully");
+  } catch (error) {
+    console.error("❌ Error registering SSR static handlers:", error);
+    if (error instanceof Error) {
+      console.error("Error details:", error.message);
+    }
+  }
 
   initialized = true;
   console.log("✅ Native Vercel Express app initialized");
