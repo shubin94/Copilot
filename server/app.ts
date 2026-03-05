@@ -201,6 +201,13 @@ const corsConfig = {
 // PERFORMANCE IMPACT: ~50-100ms saved per SSR request
 // ============================================================================
 
+// ✅ GLOBAL REQUEST LOGGER - Runs FIRST before any other middleware
+// Logs every incoming request to track execution flow and timing
+app.use((req: Request, res: Response, next: NextFunction) => {
+  console.log("[REQUEST START]", req.method, req.originalUrl || req.path, new Date().toISOString());
+  next();
+});
+
 // Apply CORS middleware FIRST - before any other middleware
 app.use(cors(corsConfig));
 
@@ -365,8 +372,9 @@ export function getSessionMiddleware() {
   return sessionMiddleware;
 }
 
-// ✅ OPTIMIZATION: Apply session middleware ONLY to API routes
+// ✅ OPTIMIZATION: Apply session middleware ONLY to non-API routes
 // Session store lookups are expensive (database queries for session data)
+// API routes (/api/*) don't need session data - they use CSRF tokens instead
 // SSR routes (/detectives/*) and static files don't need session data
 // const globalSessionMiddleware = getSessionMiddleware();
 // app.use(globalSessionMiddleware);
@@ -374,11 +382,18 @@ export function getSessionMiddleware() {
 // ✅ Create session middleware instance (creates global session store pool once)
 const sessionMiddleware = getSessionMiddleware();
 
-// ✅ Apply session middleware ONLY to /api routes (CRITICAL OPTIMIZATION)
-// - Prevents session database lookups on SSR page requests
-// - SSR routes (/detectives/:country/:state/:city) bypass session overhead
-// - Static assets (CSS, JS, images) don't pay session cost
-app.use("/api", sessionMiddleware);
+// ✅ Apply session middleware conditionally - SKIP /api routes (CRITICAL OPTIMIZATION)
+// - Prevents session database lookups on API requests
+// - API routes use CSRF tokens, not session cookies
+// - Reduces cold start time and request latency
+app.use((req: Request, res: Response, next: Function) => {
+  // Skip session middleware for all /api routes
+  if (req.path.startsWith("/api")) {
+    return next();
+  }
+  // Run session middleware for HTML pages and other routes
+  sessionMiddleware(req, res, next);
+});
 
 const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
