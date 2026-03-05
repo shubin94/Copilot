@@ -63,18 +63,18 @@ import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./se
 import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.js";
 import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.js";
 import adminCmsRouter from "./routes/admin-cms.js";
-import adminFinanceRouter from "./routes/admin-finance";
-import adminEmployeesRouter from "./routes/admin/employees";
-import publicPagesRouter from "./routes/public-pages";
-import publicCategoriesRouter from "./routes/public-categories";
-import publicTagsRouter from "./routes/public-tags";
-// import sitemapRouter from "./routes/sitemap"; // Unused
-// import rssRouter from "./routes/rss"; // Unused
-import llmsTxtRouter from "./routes/llms-txt";
-import featuredHomeServicesRouter from "./routes/featured-home-services";
-import { buildServiceCardDTO } from "../utils/buildServiceCardDTO";
-import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO";
-import { getGoogleIndexing } from "./services/google-indexing-service";
+import adminFinanceRouter from "./routes/admin-finance.js";
+import adminEmployeesRouter from "./routes/admin/employees.js";
+import publicPagesRouter from "./routes/public-pages.js";
+import publicCategoriesRouter from "./routes/public-categories.js";
+import publicTagsRouter from "./routes/public-tags.js";
+// import sitemapRouter from "./routes/sitemap.js"; // Unused
+// import rssRouter from "./routes/rss.js"; // Unused
+import llmsTxtRouter from "./routes/llms-txt.js";
+import featuredHomeServicesRouter from "./routes/featured-home-services.js";
+import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
+import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.js";
+import { getGoogleIndexing } from "./services/google-indexing-service.js";
 
 // Utility function to generate URL-safe slugs from text
 

@@ -46,11 +46,11 @@ export function buildHomepageAuthorityHtml(
  * - JSON-LD structured data (LocalBusiness schema)
  */
 
-import { db, pool } from "../../db/index";
-import { detectives, reviews, services, countries, states, cities } from "../../shared/schema";
+import { db, pool } from "../../db/index.js";
+import { detectives, reviews, services, countries, states, cities } from "../../shared/schema.js";
 import { eq, and, isNotNull, desc } from "drizzle-orm";
 import { avg, count } from "drizzle-orm";
-import { computeEffectiveBadges } from "../services/entitlements";
+import { computeEffectiveBadges } from "../services/entitlements.js";
 
 /**
  * ✅ OPTIMIZATION: In-memory cache for location resolution (country/state/city IDs)

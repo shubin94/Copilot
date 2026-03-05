@@ -1,6 +1,6 @@
 // Payment Gateway Routes - Public endpoint for checking enabled gateways
 import { Router, Request, Response } from "express";
-import { pool } from "../../db/index";
+import { pool } from "../../db/index.js";
 
 export const paymentGatewayRoutes = Router();
 

@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { pool } from "../../db/index";
-import { uploadDataUrl } from "../supabase";
-import { requireRole } from "../authMiddleware";
+import { pool } from "../../db/index.js";
+import { uploadDataUrl } from "../supabase.js";
+import { requireRole } from "../authMiddleware.js";
 import {
   isImageBlock,
   parseContentBlocks,
@@ -23,8 +23,8 @@ import {
   createPage,
   updatePage,
   deletePage,
-} from "../storage/cms";
-import * as cache from "../lib/cache";
+} from "../storage/cms.js";
+import * as cache from "../lib/cache.js";
 
 const router = Router();
 

@@ -7,15 +7,15 @@ import type { Express, Request, Response } from "express";
 import { nanoid } from "nanoid";
 import { createServer as createViteServer, createLogger } from "vite";
 
-import runApp from "./app";
+import runApp from "./app.js";
 
 import viteConfig from "../vite.config.js";
 import { config, validateConfig } from "./config.js";
-import { loadSecretsFromDatabase } from "./lib/secretsLoader";
-import { validateDatabase } from "./startup";
+import { loadSecretsFromDatabase } from "./lib/secretsLoader.js";
+import { validateDatabase } from "./startup.js";
 import { initializeEnv } from "./lib/loadEnv.js";
-import { getEnvironmentBadge } from "../db/validateDatabase";
-import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest";
+import { getEnvironmentBadge } from "../db/validateDatabase.js";
+import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
 import {
   extractDetectiveRouteParams,
   getDetectiveBySlugForSEO,
@@ -24,8 +24,8 @@ import {
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
   injectDetectiveLocationAuthorityLink,
-} from "./lib/seo-injection";
-import { storage } from "./storage";
+} from "./lib/seo-injection.js";
+import { storage } from "./storage.js";
 
 const viteLogger = createLogger();
 

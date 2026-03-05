@@ -7,7 +7,7 @@ import path from "node:path";
 
 import express from "express";
 import type { Express, Request, Response } from "express";
-import { renderLocationApp } from "../client/src/ssr-entry";
+import { renderLocationApp } from "../client/src/ssr-entry.js";
 
 import runApp from "./app.js";
 import { config, validateConfig } from "./config.js";

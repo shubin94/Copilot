@@ -12,8 +12,8 @@
  * 5. Return top match with confidence scores
  */
 
-import { resolveLocation } from "./geo";
-import { matchCategorySemanticDeepseek, type CategoryWithDesc, type DeepseekSemanticResult } from "./deepseek-category";
+import { resolveLocation } from "./geo.js";
+import { matchCategorySemanticDeepseek, type CategoryWithDesc, type DeepseekSemanticResult } from "./deepseek-category.js";
 import { config } from "../config.js";
 
 const PROHIBITED_KEYWORDS = [

@@ -2,9 +2,9 @@
   Admin flow test & sample data seed
   Safe for dev/test only. Run with: npx tsx server/scripts/admin-flow-test.ts
 */
-import { db } from "../../db/index.ts";
-import { storage } from "../storage.ts";
-import { subscriptionPlans } from "../../shared/schema.ts";
+import { db } from "../../db/index.js";
+import { storage } from "../storage.js";
+import { subscriptionPlans } from "../../shared/schema.js";
 import { eq } from "drizzle-orm";
 
 const BASE_URL = process.env.ADMIN_FLOW_BASE_URL || "http://localhost:5000";
