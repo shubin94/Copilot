@@ -476,7 +476,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== BODY PARSER FOR AUTH ENDPOINTS ==============
   // Apply auth-specific body parser (10KB limit) to all /api/auth routes
-  app.use("/api/auth", bodyParsers.auth.json, bodyParsers.auth.urlencoded);
+  // Skip body parsing for GET/HEAD requests (no request body to parse)
+  app.use("/api/auth", (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === "GET" || req.method === "HEAD") {
+      return next();
+    }
+    bodyParsers.auth.json(req, res, (err) => {
+      if (err) return next(err);
+      bodyParsers.auth.urlencoded(req, res, next);
+    });
+  });
 
   // Disable caching for all auth endpoints (admin/employee/detective login)
   app.use("/api/auth", (_req, res, next) => {
@@ -487,7 +496,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============== BODY PARSER FOR PUBLIC AND GENERAL ROUTES ==============
   // Apply public body parser (1MB limit) to all /api routes by default
   // This handles contact forms, searches, and other general endpoints
-  app.use("/api", bodyParsers.public.json, bodyParsers.public.urlencoded);
+  // Skip body parsing for GET/HEAD requests (no request body to parse)
+  app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === "GET" || req.method === "HEAD") {
+      return next();
+    }
+    bodyParsers.public.json(req, res, (err) => {
+      if (err) return next(err);
+      bodyParsers.public.urlencoded(req, res, next);
+    });
+  });
   
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
