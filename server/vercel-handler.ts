@@ -137,7 +137,16 @@ async function initializeServerApp() {
 
     // 8️⃣ Wrap with serverless
     console.log("🚀 Wrapping Express with serverless-http...");
+    const wrapStart = Date.now();
+    
+    console.log("[HANDLER] Before serverless() call");
     cachedHandler = serverless(app);
+    console.log("[HANDLER] After serverless() call");
+    
+    const wrapDuration = Date.now() - wrapStart;
+    console.log(`[HANDLER] serverless-http wrapping took ${wrapDuration}ms`);
+    console.log("[HANDLER] Verifying handler type:", typeof cachedHandler);
+    console.log("[HANDLER] Handler is callable:", typeof cachedHandler === 'function');
 
     console.log("✅ Serverless function initialized");
 
