@@ -82,7 +82,15 @@ async function initializeVercelExpressApp() {
 
   // ✅ Register SSR handlers for /detectives/* pages (location listings and profiles)
   console.log("⚙️ Registering SSR static handlers...");
-  await serveStatic(app, null as any);
+  try {
+    await serveStatic(app, null as any);
+    console.log("✅ SSR static handlers registered successfully");
+  } catch (error) {
+    console.error("❌ Error registering SSR static handlers:", error);
+    if (error instanceof Error) {
+      console.error("Error details:", error.message);
+    }
+  }
 
   initialized = true;
   console.log("✅ Native Vercel Express app initialized");
