@@ -183,10 +183,14 @@ const corsConfig = {
 // 
 // GLOBAL middlewares (all requests):
 //   - helmet (security headers) - lightweight, always needed
-//   - compression - applied early, beneficial for all responses
 //   - CORS - enabled for all requests
 //   - rate limiters (auth, claim endpoints) - specific paths only
 //   - request logging - conditional logging only for /api
+// 
+// SCOPED middlewares (NOT on /api routes):
+//   ✅ compression - skipped for /api/* to prevent timeouts on large JSON (serverless optimization)
+//     - SSR routes (/detectives/*) use compression
+//     - Static assets use compression
 // 
 // API-ONLY middlewares (bypasses SSR - /detectives/*, static assets):
 //   ✅ Session middleware - avoided on SSR requests (expensive DB lookup)
@@ -211,6 +215,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // Apply CORS middleware FIRST - before any other middleware
 app.use(cors(corsConfig));
 
+console.log("[MIDDLEWARE] after cors");
 
 // Explicit preflight handler for OPTIONS
 app.options('*', cors(corsConfig));
@@ -241,7 +246,21 @@ app.use(helmet({
     preload: true,
   } : false,
 }));
-app.use(compression());
+console.log("[MIDDLEWARE] after helmet");
+
+// ✅ OPTIMIZATION: Conditional compression - skip /api routes to prevent timeouts
+// API responses should be fast and small; compression adds latency in serverless environments
+// SSR routes (/detectives/*) and static assets still use compression
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Skip compression for API routes - they're typically small JSON responses
+  // Compression overhead outweighs benefits in serverless (cold starts, memory pressure)
+  if (req.path.startsWith("/api")) {
+    return next();
+  }
+  // Apply compression to SSR pages and static assets
+  compression()(req, res, next);
+});
+console.log("[MIDDLEWARE] after compression");
 
 // SECURITY: Auth endpoints must always be rate-limited to prevent brute force attacks.
 // Strict limits: 10 failed attempts per 15 minutes per IP (successful requests don't count)
@@ -276,6 +295,7 @@ const claimSubmissionLimiter = rateLimit({
   message: { error: "Too many claim submissions. Please try again later." },
 });
 app.use("/api/claims", claimSubmissionLimiter);
+console.log("[MIDDLEWARE] after rate limiters");
 
 // ============================================================================
 // ✅ OPTIMIZATION: Global Session Store Pool
@@ -394,9 +414,7 @@ app.use((req: Request, res: Response, next: Function) => {
   // Run session middleware for HTML pages and other routes
   sessionMiddleware(req, res, next);
 });
-
-const CSRF_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-
+console.log("[MIDDLEWARE] after session");
 
 // Public endpoints that should work without authentication (incognito mode, mobile, etc.)
 const CSRF_EXEMPT_PATHS = [
@@ -421,14 +439,20 @@ function getCookieValue(req: Request, name: string): string | undefined {
   return undefined;
 }
 
-// ✅ OPTIMIZATION: CSRF validation middleware ONLY on /api routes
+// ✅ OPTIMIZATION: CSRF validation middleware ONLY on /api routes for mutation requests
+// - Skips CSRF entirely for safe methods (GET, HEAD, OPTIONS) - no validation overhead
 // - Avoids CSRF checking overhead on SSR requests (/detectives/*)
 // - Avoids CSRF checking overhead on static assets
 // - Body parsers used here are already scoped to /api in routes.ts
 app.use("/api", (req, res, next) => {
-  if (!CSRF_METHODS.has(req.method)) return next();
-  if (req.method === "OPTIONS") return next();
-  
+  // Skip CSRF validation entirely for safe methods (read-only operations)
+  // These methods cannot mutate state, so no CSRF risk
+  const method = req.method.toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+    return next();
+  }
+
+  // CSRF validation only for mutation methods: POST, PUT, PATCH, DELETE
   // Skip CSRF validation for public endpoints
   if (CSRF_EXEMPT_PATHS.includes(req.path)) {
     return next();
@@ -507,6 +531,7 @@ app.use("/api", (req, res, next) => {
 
   return next();
 });
+console.log("[MIDDLEWARE] after csrf");
 
 // ✅ OPTIMIZATION: Request logging ONLY on /api routes
 // SSR routes are logged separately and infrequently (cached by short-term middleware)
@@ -549,6 +574,13 @@ app.use("/api", (req, res, next) => {
     log(logLine);
   });
 
+  next();
+});
+console.log("[MIDDLEWARE] after api logger");
+
+// ✅ DIAGNOSTICS: Add request flow tracer before route matching
+app.use((req: Request, res: Response, next: NextFunction) => {
+  console.log("[ROUTE MATCHING START]", req.method, req.url);
   next();
 });
 

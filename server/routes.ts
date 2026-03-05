@@ -248,8 +248,15 @@ async function applyPendingDowngrades(detective: any): Promise<any> {
 export async function registerRoutes(app: Express): Promise<Server> {
   console.log('[DEBUG] registerRoutes() called');
   
-  // Initialize email service lazily
-  const smtpEmailService = getSmtpEmailService();
+  // Keep startup non-blocking: defer SMTP service creation until first email send
+  const smtpEmailService = {
+    sendTransactionalEmail: (
+      ...args: Parameters<ReturnType<typeof getSmtpEmailService>["sendTransactionalEmail"]>
+    ) => getSmtpEmailService().sendTransactionalEmail(...args),
+    sendAdminEmail: (
+      ...args: Parameters<ReturnType<typeof getSmtpEmailService>["sendAdminEmail"]>
+    ) => getSmtpEmailService().sendAdminEmail(...args),
+  };
   
   const setNoStore = (res: Response) => {
     // Private, no-store, no-cache for authenticated/sensitive user data
@@ -604,6 +611,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Health check for proxy validation and uptime monitors
   app.get("/api/health", (_req: Request, res: Response) => {
+      console.log("[ROUTE EXECUTED] /api/health");
     res.status(200).json({ ok: true });
   });
 
@@ -2591,40 +2599,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/tags", publicTagsRouter);
 
   // Sitemap Routes - dynamic generation from database with multiple XML files
-  // Import the service functions
-  const {
-    generateSitemapIndex,
-    generateStaticSitemap,
-    generateCountriesSitemap,
-    generateStatesSitemap,
-    generateCitiesSitemap,
-    generateDetectivesSitemap,
-    generateServicesSitemap,
-    getServiceSitemapCount,
-    CACHE_MAX_AGE,
-  } = await import("./services/sitemapService.js");
-  const { gzipSync } = await import("zlib");
-
-  // Helper to send XML with proper headers and compression
+  // CRITICAL: Keep registerRoutes startup non-blocking. All heavy imports are lazy inside handlers.
   const sendSitemap = async (
     res: Response,
-    xmlGenerator: () => Promise<string>
+    xmlGenerator: () => Promise<string>,
+    cacheMaxAge: number,
   ) => {
     try {
-      const xml = await xmlGenerator();
+      const [{ gzipSync }, xml] = await Promise.all([
+        import("zlib"),
+        xmlGenerator(),
+      ]);
       const compressed = gzipSync(xml);
 
       res.header("Content-Type", "application/xml");
       res.header("Content-Encoding", "gzip");
-      res.header("Cache-Control", `public, max-age=${CACHE_MAX_AGE}`);
+      res.header("Cache-Control", `public, max-age=${cacheMaxAge}`);
       res.header(
         "ETag",
-        `"${Buffer.from(xml).toString("base64").slice(0, 32)}"`
+        `"${Buffer.from(xml).toString("base64").slice(0, 32)}"`,
       );
 
       res.send(compressed);
       console.log(
-        `[Sitemap] Served ${compressed.length} bytes (gzipped) for ${xml.length} bytes (uncompressed)`
+        `[Sitemap] Served ${compressed.length} bytes (gzipped) for ${xml.length} bytes (uncompressed)`,
       );
     } catch (error) {
       console.error("[Sitemap] Error generating sitemap:", error);
@@ -2634,38 +2632,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Main sitemap index - /sitemap.xml
   app.get(/\/sitemap\.xml$/, async (_req: Request, res: Response) => {
-    console.log(`[Sitemap] Handling sitemap index request`);
-    await sendSitemap(res, generateSitemapIndex);
+    console.log("[Sitemap] Handling sitemap index request");
+    const { generateSitemapIndex, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateSitemapIndex, CACHE_MAX_AGE);
   });
 
   // Static pages sitemap - /sitemap-static.xml
   app.get(/\/sitemap-static\.xml$/, async (_req: Request, res: Response) => {
-    console.log(`[Sitemap] Serving static sitemap`);
-    await sendSitemap(res, generateStaticSitemap);
+    console.log("[Sitemap] Serving static sitemap");
+    const { generateStaticSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateStaticSitemap, CACHE_MAX_AGE);
   });
 
   // Countries sitemap - /sitemap-countries.xml
   app.get(/\/sitemap-countries\.xml$/, async (_req: Request, res: Response) => {
-    console.log(`[Sitemap] Serving countries sitemap`);
-    await sendSitemap(res, generateCountriesSitemap);
+    console.log("[Sitemap] Serving countries sitemap");
+    const { generateCountriesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateCountriesSitemap, CACHE_MAX_AGE);
   });
 
   // States sitemap - /sitemap-states.xml
   app.get(/\/sitemap-states\.xml$/, async (_req: Request, res: Response) => {
-    console.log(`[Sitemap] Serving states sitemap`);
-    await sendSitemap(res, generateStatesSitemap);
+    console.log("[Sitemap] Serving states sitemap");
+    const { generateStatesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateStatesSitemap, CACHE_MAX_AGE);
   });
 
   // Cities sitemap - /sitemap-cities.xml
   app.get(/\/sitemap-cities\.xml$/, async (_req: Request, res: Response) => {
-    console.log(`[Sitemap] Serving cities sitemap`);
-    await sendSitemap(res, generateCitiesSitemap);
+    console.log("[Sitemap] Serving cities sitemap");
+    const { generateCitiesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateCitiesSitemap, CACHE_MAX_AGE);
   });
 
   // Detectives sitemap - /sitemap-detectives.xml
   app.get(/\/sitemap-detectives\.xml$/, async (_req: Request, res: Response) => {
-    console.log(`[Sitemap] Serving detectives sitemap`);
-    await sendSitemap(res, generateDetectivesSitemap);
+    console.log("[Sitemap] Serving detectives sitemap");
+    const { generateDetectivesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateDetectivesSitemap, CACHE_MAX_AGE);
   });
 
   // Services sitemaps (paginated) - /sitemap-services-1.xml, /sitemap-services-2.xml, etc.
@@ -2680,6 +2684,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
+      const {
+        getServiceSitemapCount,
+        generateServicesSitemap,
+        CACHE_MAX_AGE,
+      } = await import("./services/sitemapService.js");
+
       const totalPages = await getServiceSitemapCount();
       if (page > totalPages) {
         return res
@@ -2687,7 +2697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .json({ error: `Page ${page} does not exist` });
       }
 
-      await sendSitemap(res, () => generateServicesSitemap(page));
+      await sendSitemap(res, () => generateServicesSitemap(page), CACHE_MAX_AGE);
     } catch (error) {
       console.error("[Sitemap] Error with services page:", error);
       res.status(500).json({ error: "Failed to generate services sitemap" });
@@ -2697,6 +2707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Status endpoint - /sitemap-status.json
   app.get(/\/sitemap-status\.json$/, async (_req: Request, res: Response) => {
     try {
+      const { CACHE_MAX_AGE } = await import("./services/sitemapService.js");
       const r = await pool.query(`
         SELECT COUNT(*) as count FROM services s
         INNER JOIN detectives d ON s.detective_id = d.id

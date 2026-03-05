@@ -1,57 +1,88 @@
-/**
- * Vercel Serverless Function Entry Point
- * 
- * Routes all HTTP requests through the Express app, bypassing Vercel's
- * static file serving and 404 page. This ensures:
- * - All requests handled by Express app
- * - Database initialization on cold start
- * - SSR route handling (/detectives/:country/:state/:city/:agency)
- * - Static file serving from dist/public via Express
- * - API proxy routing
- * - Client-side SPA fallback
- * 
- * OPTIMIZED: Uses lazy loading & memory optimization to fit within 2048MB limit
- * OPTIMIZED: Handler caching prevents re-initialization on warm requests
- */
+import "../server/lib/loadEnv.js";
+import * as Sentry from "@sentry/node";
+import { nodeProfilingIntegration } from "@sentry/profiling-node";
 
-import { produceServerHandler } from "../server/vercel-handler.js";
+import { app } from "../server/app.js";
+import { config, validateConfig } from "../server/config.js";
+import { validateDatabase } from "../server/startup.js";
+import { initializeEnv } from "../server/lib/loadEnv.js";
+import { getEnvironmentBadge } from "../db/validateDatabase.js";
+import { registerRoutes } from "../server/routes.js";
 
-// ✅ Module-level cache: Persistent across requests in a warm instance
-let cachedHandler: any = null;
+const withTimeout = async <T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms),
+    ),
+  ]);
+};
 
-// Enable garbage collection between invocations
-if (global.gc) {
-  global.gc();
+let initialized = false;
+
+async function initializeVercelExpressApp() {
+  if (initialized) return;
+
+  console.log(`\n${getEnvironmentBadge()} Environment (Vercel Native Express)`);
+
+  await initializeEnv();
+
+  if (process.env.NODE_ENV !== "production") {
+    process.env.NODE_ENV = "production";
+  }
+
+  console.log("🔐 Loading critical secrets...");
+  await withTimeout(
+    (async () => {
+      const { loadSecretsFromDatabase } = await import("../server/lib/secretsLoader.js");
+      await loadSecretsFromDatabase();
+    })(),
+    8000,
+    "Secrets loading",
+  );
+
+  const { secretsLoadedSuccessfully } = await import("../server/lib/secretsLoader.js");
+
+  if (config.env.isProd && config.sentryDsn) {
+    console.log("📍 Initializing Sentry...");
+    Sentry.init({
+      dsn: config.sentryDsn,
+      environment: "production",
+      integrations: [nodeProfilingIntegration()],
+      tracesSampleRate: 0.1,
+      profilesSampleRate: 0.05,
+    });
+  }
+
+  if (config.env.isProd) {
+    console.log("📋 Validating production config...");
+    validateConfig(secretsLoadedSuccessfully);
+  }
+
+  if (config.env.isProd) {
+    console.log("🔍 Scheduling DB validation...");
+    validateDatabase().catch((err) => {
+      console.error("Database validation failed:", err);
+      if (config.sentryDsn) Sentry.captureException(err);
+    });
+  }
+
+  app.use((req, _res, next) => {
+    console.log("[ROUTE MATCHING START]", req.method, req.url);
+    next();
+  });
+
+  console.log("⚙️ Registering routes...");
+  await withTimeout(registerRoutes(app), 8000, "Route registration");
+
+  initialized = true;
+  console.log("✅ Native Vercel Express app initialized");
 }
 
-export default async (req: any, res: any) => {
-  try {
-    // ✅ OPTIMIZATION: Reuse cached handler instead of re-initializing
-    // On first request (cold start): Initialize handler + store in cache
-    // On subsequent requests (warm): Reuse cached handler immediately
-    // This prevents re-initializing database connections, middleware, routes on every request
-    if (!cachedHandler) {
-      console.log('[Vercel] Cold start: Initializing handler...');
-      cachedHandler = await produceServerHandler();
-    } else {
-      console.log('[Vercel] Warm request: Reusing cached handler');
-    }
-    
-    // Mark the response to enable compression if not already set
-    if (!res.getHeader('Content-Encoding')) {
-      res.setHeader('Vary', 'Accept-Encoding');
-    }
-    
-    return cachedHandler(req, res);
-  } catch (error) {
-    console.error('❌ Vercel handler error:', error);
-    
-    // Return appropriate error response
-    if (!res.headersSent) {
-      res.status(500).json({ 
-        error: "Internal Server Error",
-        details: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  }
-};
+await initializeVercelExpressApp();
+
+export default app;
