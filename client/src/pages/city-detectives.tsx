@@ -180,7 +180,8 @@ export default function CityDetectivesPage() {
         setError(null);
 
         const response = await fetch(`${locationApiPath}?limit=15&offset=0`, {
-          signal: controller.signal
+          signal: controller.signal,
+          credentials: "include",
         });
 
         clearTimeout(timeoutId);
@@ -235,7 +236,8 @@ export default function CityDetectivesPage() {
     try {
       setLoadingMore(true);
       const response = await fetch(`${locationApiPath}?limit=15&offset=${currentOffset}`, {
-        signal: controller.signal
+        signal: controller.signal,
+        credentials: "include",
       });
 
       clearTimeout(timeoutId);

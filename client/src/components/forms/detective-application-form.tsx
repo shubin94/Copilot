@@ -369,7 +369,9 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     
     setCheckingUniqueness(prev => ({ ...prev, email: true }));
     try {
-      const res = await fetch(`/api/check-unique?email=${encodeURIComponent(email.toLowerCase())}`);
+      const res = await fetch(`/api/check-unique?email=${encodeURIComponent(email.toLowerCase())}`, {
+        credentials: "include",
+      });
       const data = await res.json();
       
       const errors = { ...fieldErrors };
@@ -393,7 +395,9 @@ export function DetectiveApplicationForm({ mode, onSuccess }: DetectiveApplicati
     
     setCheckingUniqueness(prev => ({ ...prev, phone: true }));
     try {
-      const res = await fetch(`/api/check-unique?phone=${encodeURIComponent(phone)}`);
+      const res = await fetch(`/api/check-unique?phone=${encodeURIComponent(phone)}`, {
+        credentials: "include",
+      });
       const data = await res.json();
       
       const errors = { ...fieldErrors };

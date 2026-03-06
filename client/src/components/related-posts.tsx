@@ -36,7 +36,9 @@ export function RelatedPosts({ currentPostId, categoryId }: RelatedPostsProps) {
     queryFn: async () => {
       // Fetch posts from same category
       if (categoryId) {
-        const res = await fetch(`/api/public/categories/${categoryId}/pages`);
+        const res = await fetch(`/api/public/categories/${categoryId}/pages`, {
+          credentials: "include",
+        });
         if (!res.ok) return [];
         const data = await res.json();
         // Filter out current post and return max 3

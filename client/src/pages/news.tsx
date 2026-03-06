@@ -66,7 +66,9 @@ export default function ArticlePage() {
         setLoading(true);
         setError(null);
 
-        const response = await fetch(`/api/case-studies/${slug}`);
+        const response = await fetch(`/api/case-studies/${slug}`, {
+          credentials: "include",
+        });
 
         if (!response.ok) {
           if (response.status === 404) {

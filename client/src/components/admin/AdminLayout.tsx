@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api, buildApiUrl, getOrFetchCsrfToken } from "@/lib/api";
+import { api, getOrFetchCsrfToken } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -32,11 +32,8 @@ export default function AdminLayout({ title, children }: AdminLayoutProps) {
   const { data } = useQuery({
     queryKey: ["/api/user"],
     queryFn: async () => {
-      const res = await fetch(buildApiUrl("/api/user"), {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Not authenticated");
-      return res.json();
+      const data = await api.get<{ user: { role?: string } }>("/api/user");
+      return data;
     },
   });
   const user = data?.user;
