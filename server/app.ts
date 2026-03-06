@@ -393,40 +393,51 @@ export function getSessionMiddleware(sessionSecret: string) {
   return sessionMiddleware;
 }
 
-// ✅ OPTIMIZATION: Apply session middleware ONLY to non-API routes
+// ✅ OPTIMIZATION: Apply session middleware ONLY to /api routes
 // Session store lookups are expensive (database queries for session data)
-// API routes (/api/*) don't need session data - they use CSRF tokens instead
+// API routes (/api/*) need session data for auth + CSRF flow
 // SSR routes (/detectives/*) and static files don't need session data
 // const globalSessionMiddleware = getSessionMiddleware(process.env.SESSION_SECRET!);
 // app.use(globalSessionMiddleware);
 
-const sessionSecret = process.env.SESSION_SECRET;
 let sessionMiddleware: ReturnType<typeof getSessionMiddleware> | null = null;
+let sessionInitAttempted = false;
 
-if (!sessionSecret) {
-  console.warn("[SESSION] SESSION_SECRET missing, skipping session middleware");
-} else {
+function ensureSessionMiddleware(): void {
+  if (sessionMiddleware) {
+    return;
+  }
+
+  const sessionSecret = config.session.secret || process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    if (!sessionInitAttempted) {
+      console.warn("[SESSION] SESSION_SECRET missing, skipping session middleware");
+      sessionInitAttempted = true;
+    }
+    return;
+  }
+
   // ✅ Create session middleware instance (creates global session store pool once)
   sessionMiddleware = getSessionMiddleware(sessionSecret);
   console.log("[SESSION] Session middleware enabled");
 }
 
-// ✅ Apply session middleware conditionally - SKIP /api routes (CRITICAL OPTIMIZATION)
-// - Prevents session database lookups on API requests
-// - API routes use CSRF tokens, not session cookies
+// ✅ Apply session middleware conditionally - ONLY /api routes (CRITICAL OPTIMIZATION)
+// - Avoids session database lookups on SSR/static requests
+// - API routes need sessions for auth + CSRF protection
 // - Reduces cold start time and request latency
 app.use((req: Request, res: Response, next: NextFunction) => {
-  // Skip session middleware for all /api routes
-  if (req.path.startsWith("/api")) {
-    return next();
-  }
-
   // If session middleware is unavailable, continue safely
+  ensureSessionMiddleware();
   if (!sessionMiddleware) {
     return next();
   }
 
-  // Run session middleware for HTML pages and other routes
+  // Run session middleware only for API routes
+  if (!req.path.startsWith("/api")) {
+    return next();
+  }
+
   sessionMiddleware(req, res, next);
 });
 console.log("[MIDDLEWARE] after session");
