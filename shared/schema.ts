@@ -407,25 +407,25 @@ export const paymentOrders = pgTable("payment_orders", {
   paypalPaymentId: text("paypal_payment_id"),
   paypalTransactionId: text("paypal_transaction_id"),
   status: text("status").notNull().default("created"),
-
-  export const smartSearchLogs = pgTable("smart_search_logs", {
-    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-    query: text("query").notNull(),
-    expandedQuery: text("expanded_query"),
-    resultType: text("result_type").notNull(), // "resolved", "suggestions", "multi_match", "category_not_found", "prohibited"
-    matchedCategories: text("matched_categories").array().default(sql`ARRAY[]::text[]`),
-    confidenceScores: jsonb("confidence_scores").default(sql`'{}'::jsonb`), // Array of confidence scores
-    aiIntent: text("ai_intent"),
-    aiReasoning: text("ai_reasoning"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-  }, (table) => ({
-    queryIdx: index("smart_search_logs_query_idx").on(table.query),
-    resultTypeIdx: index("smart_search_logs_result_type_idx").on(table.resultType),
-    createdAtIdx: index("smart_search_logs_created_at_idx").on(table.createdAt),
-  }));
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const smartSearchLogs = pgTable("smart_search_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  query: text("query").notNull(),
+  expandedQuery: text("expanded_query"),
+  resultType: text("result_type").notNull(), // "resolved", "suggestions", "multi_match", "category_not_found", "prohibited"
+  matchedCategories: text("matched_categories").array().default(sql`ARRAY[]::text[]`),
+  confidenceScores: jsonb("confidence_scores").default(sql`'{}'::jsonb`), // Array of confidence scores
+  aiIntent: text("ai_intent"),
+  aiReasoning: text("ai_reasoning"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  queryIdx: index("smart_search_logs_query_idx").on(table.query),
+  resultTypeIdx: index("smart_search_logs_result_type_idx").on(table.resultType),
+  createdAtIdx: index("smart_search_logs_created_at_idx").on(table.createdAt),
+}));
 
 // Zod Schemas for validation
 export const insertUserSchema = createInsertSchema(users, {
