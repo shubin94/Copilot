@@ -615,17 +615,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).json({ ok: true });
   });
 
-  // Vercel cron warmup endpoint to keep SSR runtime warm
+  /**
+   * SSR Runtime Warmup Endpoint
+   * 
+   * Vercel cron jobs were removed due to Hobby plan limitations.
+   * This endpoint is now triggered by external uptime monitoring services.
+   * 
+   * Allowed callers:
+   * - Vercel cron (user-agent: vercel-cron)
+   * - UptimeRobot and similar monitors (user-agent: UptimeRobot)
+   * - External manual calls with ?warmup=true query parameter
+   */
   app.get("/api/warmup", (req: Request, res: Response) => {
     try {
       const userAgent = String(req.headers["user-agent"] || "").toLowerCase();
-      if (!userAgent.includes("vercel-cron")) {
+      const hasWarmupParam = req.query.warmup === "true";
+      
+      // Allow if: vercel-cron OR UptimeRobot OR warmup=true query param
+      const isAuthorized = 
+        userAgent.includes("vercel-cron") ||
+        userAgent.includes("uptimerobot") ||
+        hasWarmupParam;
+      
+      if (!isAuthorized) {
+        res.set({
+          "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+          "Pragma": "no-cache",
+          "Expires": "0",
+        });
         return res.status(401).json({ error: "Unauthorized" });
       }
 
       const timestamp = Date.now();
       console.log("[Cron Warmup] SSR runtime warmed");
       console.log(`[Cron Warmup] executed at ${timestamp}`);
+
+      // Disable caching - ensure every request reaches the server
+      res.set({
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+      });
 
       return res.status(200).json({
         status: "ok",
@@ -636,6 +666,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const timestamp = Date.now();
       console.error("[Cron Warmup] unexpected error:", error);
       console.log(`[Cron Warmup] executed at ${timestamp}`);
+      
+      // Disable caching even on error
+      res.set({
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+      });
+      
       return res.status(200).json({
         status: "ok",
         service: "ssr-warmup",
