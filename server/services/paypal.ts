@@ -1,6 +1,6 @@
 // PayPal Payment Gateway Service
-import { config } from "../config.ts";
-import { getPaymentGateway } from "./paymentGateway.ts";
+import { config } from "../config.js";
+import { getPaymentGateway } from "./paymentGateway.js";
 
 // Dynamic import for PayPal SDK (CommonJS module)
 let paypal: any = null;
@@ -12,6 +12,7 @@ let paypalCredentialsHash: string | null = null;
 // Initialize PayPal SDK (CommonJS package: module.exports is under .default when dynamic-imported in ESM)
 async function loadPayPalSDK() {
   if (!paypal) {
+    // @ts-ignore - @paypal/checkout-server-sdk does not have TypeScript definitions
     const module = await import("@paypal/checkout-server-sdk");
     paypal = (module as any).default ?? module;
   }

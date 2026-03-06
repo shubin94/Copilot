@@ -6,7 +6,7 @@
  * NOTE: Supabase credentials are NOT seeded into the database.
  * They must be set via environment variables only (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY).
  */
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { db } from "../db/index.ts";
 import { appSecrets } from "../shared/schema.ts";
 

@@ -1,5 +1,5 @@
-import { db } from "../db/index.ts";
-import { detectives, detectiveVisibility, services, reviews, subscriptionPlans } from "../shared/schema.ts";
+import { db } from "../db/index.js";
+import { detectives, detectiveVisibility, services, reviews, subscriptionPlans } from "../shared/schema.js";
 import { eq, desc, and, avg, count, sql, inArray } from "drizzle-orm";
 
 /**
@@ -237,14 +237,6 @@ async function calculateReviewStats(detectiveId: string): Promise<{ totalReviews
   }
 }
 
-/**
- * Calculate review score (0-500) from totalReviews and avgRating
- * Used by ranking functions to convert stats into visibility score
- */
-async function calculateReviewScore(detectiveId: string): Promise<number> {
-  const stats = await calculateReviewStats(detectiveId);
-  return calculateReviewScoreFromData(stats.totalReviews, stats.avgRating);
-}
 
 /**
  * Get ranked detectives for display
@@ -265,26 +257,132 @@ async function calculateReviewScore(detectiveId: string): Promise<number> {
  */
 export async function getRankedDetectives(options?: {
   country?: string;
+  state?: string;
+  city?: string;
   status?: string;
   plan?: string;
   searchQuery?: string;
   limit?: number;
-} | number) {
+  offset?: number;
+} | number): Promise<{ detectives: any[]; total: number } | any[]> {
   try {
     // Handle backward compatibility - if options is a number, treat it as limit
     const opts = typeof options === "number" ? { limit: options } : options || {};
     const limitVal = opts.limit || 100;
+    const offsetVal = opts.offset || 0;
 
-    // ✅ QUERY 1: Load detectives
-    let query = db.select().from(detectives);
-    if (opts.status) {
-      const statusValue = opts.status as "active" | "pending" | "suspended" | "inactive";
-      query = query.where(eq(detectives.status, statusValue)) as any;
+    // 🔍 DIAGNOSTIC LOG 1: Full options object
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('[getRankedDetectives] CALLED with full opts:', JSON.stringify(opts, null, 2));
+    console.log('[getRankedDetectives] opts.country specifically:', opts.country);
+    if (opts.country === undefined) {
+      console.warn('[getRankedDetectives] WARNING: opts.country is undefined; country filter cannot be applied.');
     }
-    const detList = await query.limit(limitVal);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // ✅ QUERY 1a: Get subscription package IDs matching plan name (if plan filter applied)
+    let planPackageIds: string[] = [];
+    if (opts.plan && opts.plan !== "all") {
+      const matchingPackages = await db
+        .select({ id: subscriptionPlans.id })
+        .from(subscriptionPlans)
+        .where(eq(subscriptionPlans.name, opts.plan));
+      
+      planPackageIds = matchingPackages.map(p => p.id);
+      
+      // If plan filter specified but no packages match, return empty
+      if (planPackageIds.length === 0) {
+        return { detectives: [], total: 0 };
+      }
+    }
+
+    // ✅ BUILD FILTER CONDITIONS (reusable for both COUNT and SELECT)
+    const conditions: any[] = [];
+    
+    // Apply status filter
+    if (opts.status && opts.status !== "all") {
+      const statusValue = opts.status as "active" | "pending" | "suspended" | "inactive";
+      conditions.push(eq(detectives.status, statusValue));
+    }
+    
+    // Apply country filter
+    // NOTE: detectives.country is currently stored as ISO country code in this path (e.g., IN, US).
+    // 🔍 DIAGNOSTIC LOG 2: Country filter check
+    console.log('[getRankedDetectives] Checking country filter...');
+    console.log('  - opts.country value:', opts.country);
+    console.log('  - opts.country !== "all":', opts.country !== "all");
+    console.log('  - Will add country filter:', !!(opts.country && opts.country !== "all"));
+    
+    if (opts.country && opts.country !== "all") {
+      console.log('  ✅ ADDING country filter condition: detectives.country =', opts.country);
+      conditions.push(eq(detectives.country, opts.country));
+    } else {
+      console.log('  ❌ SKIPPING country filter (no country or country="all")');
+    }
+
+    // Apply state filter
+    if (opts.state && opts.state !== "all") {
+      conditions.push(eq(detectives.state, opts.state));
+    }
+
+    // Apply city filter
+    if (opts.city && opts.city !== "all") {
+      conditions.push(eq(detectives.city, opts.city));
+    }
+    
+    // Apply plan filter (subscription package)
+    if (planPackageIds.length > 0) {
+      conditions.push(inArray(detectives.subscriptionPackageId, planPackageIds));
+    }
+    
+    // Apply search query filter (text search on business name)
+    if (opts.searchQuery && opts.searchQuery.trim()) {
+      const searchTerm = `%${opts.searchQuery.trim()}%`;
+      conditions.push(sql`${detectives.businessName} ilike ${searchTerm}`);
+    }
+
+    // 🔍 DIAGNOSTIC LOG 3: Final conditions array before query
+    console.log('[getRankedDetectives] FINAL CONDITIONS ARRAY (', conditions.length, 'conditions):');
+    conditions.forEach((cond, idx) => {
+      console.log(`  [${idx}]:`, cond);
+    });
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // ✅ QUERY 1b: Count ALL matching detectives (BEFORE pagination)
+    let countQuery = db.select({ count: count() }).from(detectives);
+    if (conditions.length > 0) {
+      countQuery = countQuery.where(and(...conditions)) as any;
+    }
+    const countResult = await countQuery;
+    const totalCount = Number(countResult[0]?.count || 0);
+
+    if (opts.country && opts.country !== "all" && totalCount === 0) {
+      console.warn('[getRankedDetectives] WARNING: country filter applied but count is 0 for country =', opts.country);
+    }
+
+    // 🔍 DIAGNOSTIC LOG 4: Query result count
+    console.log('[getRankedDetectives] COUNT QUERY RESULT:', totalCount, 'detectives found');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // ✅ QUERY 1c: Select paginated detectives (AFTER applying same filters)
+    let query = db.select().from(detectives);
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+
+    // ✅ Apply LIMIT and OFFSET AFTER all filters
+    const detList = await query.limit(limitVal).offset(offsetVal);
+
+    // 🔍 DIAGNOSTIC LOG 5: Detectives fetched
+    console.log('[getRankedDetectives] FETCHED', detList.length, 'detectives (limit:', limitVal, ', offset:', offsetVal, ')');
+    if (detList.length > 0) {
+      console.log('[getRankedDetectives] First detective country:', detList[0].country);
+      console.log('[getRankedDetectives] Sample countries:', detList.slice(0, 5).map(d => d.country).join(', '));
+    }
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     if (detList.length === 0) {
-      return [];
+      return { detectives: [], total: totalCount };
     }
 
     const detIds = detList.map((d) => d.id);
@@ -438,6 +536,8 @@ export async function getRankedDetectives(options?: {
       return {
         ...detective,
         subscriptionPackage,
+        avgRating: reviewData.avgRating,
+        reviewCount: reviewData.totalReviews,
         visibilityScore: score,
         isVisible: visibility.isVisible ?? true,
         isFeatured: visibility.isFeatured ?? false,
@@ -453,22 +553,54 @@ export async function getRankedDetectives(options?: {
     });
 
     // Add rank positions
-    return sortedDetectives.map((detective, index) => ({
+    const rankedDetectives = sortedDetectives.map((detective, index) => ({
       ...detective,
       rankPosition: index + 1,
     }));
+
+    // ✅ Return both detectives and total count
+    return { detectives: rankedDetectives, total: totalCount };
   } catch (error) {
     console.error("[Ranking] Error calculating detective rankings:", error);
-    // Fallback: return active detectives in creation order
+    // Fallback: return active detectives in creation order with total count
     const opts = typeof options === "number" ? { limit: options } : options || {};
     const statusValue = (opts.status || "active") as "active" | "pending" | "suspended" | "inactive";
+    const limitVal = opts.limit || 100;
+    const offsetVal = typeof options === "object" && options && "offset" in options ? options.offset || 0 : 0;
     
-    return await db
-      .select()
-      .from(detectives)
-      .where(eq(detectives.status, statusValue))
+    // Build filter conditions for fallback (same logic as main try block)
+    const fallbackConditions: any[] = [eq(detectives.status, statusValue)];
+    
+    if ((opts as any).country && (opts as any).country !== "all") {
+      fallbackConditions.push(eq(detectives.country, (opts as any).country));
+    }
+    if ((opts as any).plan !== "all" && (opts as any).plan) {
+      // Note: In fallback, we skip plan filtering (too expensive to do full lookup)
+    }
+    if ((opts as any).searchQuery && (opts as any).searchQuery.trim()) {
+      const searchTerm = `%${(opts as any).searchQuery.trim()}%`;
+      fallbackConditions.push(sql`${detectives.businessName} ilike ${searchTerm}`);
+    }
+
+    // Count total matching records
+    let countQuery = db.select({ count: count() }).from(detectives);
+    if (fallbackConditions.length > 0) {
+      countQuery = countQuery.where(and(...fallbackConditions)) as any;
+    }
+    const countResult = await countQuery;
+    const totalCount = Number(countResult[0]?.count || 0);
+
+    // Fetch paginated results
+    let query = db.select().from(detectives);
+    if (fallbackConditions.length > 0) {
+      query = query.where(and(...fallbackConditions)) as any;
+    }
+    const fallbackDetectives = await query
       .orderBy(desc(detectives.createdAt))
-      .limit(opts.limit || 100);
+      .limit(limitVal)
+      .offset(offsetVal);
+
+    return { detectives: fallbackDetectives, total: totalCount };
   }
 }
 

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
-import { pool } from "../../db/index.ts";
-import * as cache from "../lib/cache.ts";
+import { pool } from "../../db/index.js";
+import * as cache from "../lib/cache.js";
 
 const router = Router();
 const CMS_PAGE_TTL_SECONDS = 300; // 5 minutes
@@ -157,6 +157,7 @@ router.get("/:parent/:category/:slug", async (req: Request, res: Response) => {
       const cached = cache.get<{ id: string; title: string; slug: string; content: string; tags: unknown[] }>(cacheKey);
       if (cached != null && typeof cached === "object" && "slug" in cached) {
         console.debug("[cache HIT]", cacheKey);
+        res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
         return res.json({ page: cached });
       }
     } catch (_) {
@@ -177,6 +178,7 @@ router.get("/:parent/:category/:slug", async (req: Request, res: Response) => {
       // Cache failure must not break the request
     }
     console.log(`[public-pages] Returning page with ${page.tags.length} tags`);
+    res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
     res.json({ page });
   } catch (error) {
     console.error("[public-pages] Get page error - system error:", {
@@ -202,6 +204,7 @@ router.get("/:category/:slug", async (req: Request, res: Response) => {
       const cached = cache.get<{ id: string; title: string; slug: string; content: string; tags: unknown[] }>(cacheKey);
       if (cached != null && typeof cached === "object" && "slug" in cached) {
         console.debug("[cache HIT]", cacheKey);
+        res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
         return res.json({ page: cached });
       }
     } catch (_) {
@@ -222,6 +225,7 @@ router.get("/:category/:slug", async (req: Request, res: Response) => {
       // Cache failure must not break the request
     }
     console.log(`[public-pages] Returning page with ${page.tags.length} tags`);
+    res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
     res.json({ page });
   } catch (error) {
     console.error("[public-pages] Get page error - system error:", {
@@ -247,6 +251,7 @@ router.get("/:slug", async (req: Request, res: Response) => {
       const cached = cache.get<{ id: string; title: string; slug: string; content: string; tags: unknown[] }>(cacheKey);
       if (cached != null && typeof cached === "object" && "slug" in cached) {
         console.debug("[cache HIT]", cacheKey);
+        res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
         return res.json({ page: cached });
       }
     } catch (_) {
@@ -267,6 +272,7 @@ router.get("/:slug", async (req: Request, res: Response) => {
       // Cache failure must not break the request
     }
     console.log(`[public-pages] Returning page with ${page.tags.length} tags`);
+    res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
     res.json({ page });
   } catch (error) {
     console.error("[public-pages] Get page error - system error:", {

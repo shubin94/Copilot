@@ -51,8 +51,8 @@ class ResendEmailService {
       }
 
       // Get template from database
-      const { db } = await import("../../db/index.ts");
-      const { emailTemplates } = await import("../../shared/schema.ts");
+      const { db } = await import("../../db/index.js");
+      const { emailTemplates } = await import("../../shared/schema.js");
       const { eq } = await import("drizzle-orm");
 
       const template = await db
@@ -126,4 +126,12 @@ class ResendEmailService {
   }
 }
 
-export const resendEmail = new ResendEmailService();
+// Lazy factory pattern - only initialize when first accessed
+let resendEmailInstance: ResendEmailService | null = null;
+
+export function getResendEmail(): ResendEmailService {
+  if (!resendEmailInstance) {
+    resendEmailInstance = new ResendEmailService();
+  }
+  return resendEmailInstance;
+}

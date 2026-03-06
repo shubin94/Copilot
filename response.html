@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script type="module">
+import { createHotContext } from "/@vite/client";
+const hot = createHotContext("/__dummy__runtime-error-plugin");
+
+function sendError(error) {
+  if (!(error instanceof Error)) {
+    error = new Error("(unknown runtime error)");
+  }
+  const serialized = {
+    message: error.message,
+    stack: error.stack,
+  };
+  hot.send("runtime-error-plugin:error", serialized);
+}
+
+window.addEventListener("error", (evt) => {
+  sendError(evt.error);
+});
+
+window.addEventListener("unhandledrejection", (evt) => {
+  sendError(evt.reason);
+});
+</script>
+
+    <script type="module">import { injectIntoGlobalHook } from "/@react-refresh";
+injectIntoGlobalHook(window);
+window.$RefreshReg$ = () => {};
+window.$RefreshSig$ = () => (type) => type;</script>
+
+    <script type="module" src="/@vite/client"></script>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- SEO_TITLE_INJECTION_POINT -->
+    <title>Ask Detectives | Find Professional Private Investigators</title>
+    <!-- SEO_META_INJECTION_POINT -->
+    <meta name="description" content="Find vetted private investigators and detective services. Compare ratings, services, and contact trusted professionals." />
+    <meta name="keywords" content="private investigator, detective agency, background checks, surveillance, find a detective, investigator directory, professional investigations, ask detectives">
+
+    <meta property="og:title" content="Ask Detectives | Find Professional Private Investigators" />
+    <meta property="og:description" content="The marketplace for professional private investigation services. Find verified detectives for your needs." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Ask Detectives" />
+    <meta property="og:image" content="/social-preview.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@FindDetectives" />
+    <meta name="twitter:title" content="Ask Detectives | Find Professional Private Investigators" />
+    <meta name="twitter:description" content="The marketplace for professional private investigation services. Find verified detectives for your needs." />
+    <meta name="twitter:image" content="/social-preview.jpg" />
+
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="alternate" type="application/rss+xml" title="Ask Detectives RSS Feed" href="/rss.xml" />
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <!-- SEO_JSON_LD_INJECTION_POINT -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Ask Detectives",
+        "url": "https://www.askdetectives.com",
+        "logo": "https://www.askdetectives.com/favicon.png",
+        "sameAs": ["https://twitter.com/FindDetectives"],
+        "areaServed": "Worldwide",
+        "description": "Find vetted private investigators and detective services."
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "url": "https://www.askdetectives.com/",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://www.askdetectives.com/search?search={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    
+  <div class="mb-8">
+    
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div>
+        <a href="/detectives/india/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in India">India</a>
+        <p class="text-xs text-gray-500 mt-1">174 detectives</p>
+      </div>
+      <div>
+        <a href="/detectives/united-states/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in United States">United States</a>
+        <p class="text-xs text-gray-500 mt-1">4 detectives</p>
+      </div>
+    </div>
+  </div>
+  <div>
+    <h3 class="text-lg font-semibold mb-3 text-gray-800">Popular Cities</h3>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div>
+        <a href="/detectives/india/karnataka/bangalore/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Bangalore, Karnataka">Bangalore, Karnataka</a>
+        <p class="text-xs text-gray-500 mt-1">24 detectives</p>
+      </div>
+      <div>
+        <a href="/detectives/india/tamil-nadu/chennai/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Chennai, Tamil Nadu">Chennai, Tamil Nadu</a>
+        <p class="text-xs text-gray-500 mt-1">17 detectives</p>
+      </div>
+      <div>
+        <a href="/detectives/india/maharashtra/mumbai/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Mumbai, Maharashtra">Mumbai, Maharashtra</a>
+        <p class="text-xs text-gray-500 mt-1">11 detectives</p>
+      </div>
+      <div>
+        <a href="/detectives/india/maharashtra/pune/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Pune, Maharashtra">Pune, Maharashtra</a>
+        <p class="text-xs text-gray-500 mt-1">9 detectives</p>
+      </div>
+      <div>
+        <a href="/detectives/india/maharashtra/thane/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Thane, Maharashtra">Thane, Maharashtra</a>
+        <p class="text-xs text-gray-500 mt-1">6 detectives</p>
+      </div>
+      <div>
+        <a href="/detectives/india/tamil-nadu/coimbatore/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Coimbatore, Tamil Nadu">Coimbatore, Tamil Nadu</a>
+        <p class="text-xs text-gray-500 mt-1">4 detectives</p>
+      </div>
+      <div>
+        <a href="/detectives/united-states/ca/fresno/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Fresno, CA">Fresno, CA</a>
+        <p class="text-xs text-gray-500 mt-1">4 detectives</p>
+      </div>
+      <div>
+        <a href="/detectives/india/tamil-nadu/madurai/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Madurai, Tamil Nadu">Madurai, Tamil Nadu</a>
+        <p class="text-xs text-gray-500 mt-1">3 detectives</p>
+      </div>
+      <div>
+        <a href="/detectives/india/karnataka/bijapur/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Bijapur, Karnataka">Bijapur, Karnataka</a>
+        <p class="text-xs text-gray-500 mt-1">1 detective</p>
+      </div>
+      <div>
+        <a href="/detectives/india/karnataka/mysore/" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Find detectives in Mysore, Karnataka">Mysore, Karnataka</a>
+        <p class="text-xs text-gray-500 mt-1">1 detective</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+    <script type="module" src="/src/main.tsx?v=7cNP1jhP2r2M2RzgeO9wE"></script>
+  </body>
+</html>

@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServiceCategories } from "@/lib/hooks";
 import { COUNTRIES, useCurrency } from "@/lib/currency-context";
+import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
 import {
   Dialog,
   DialogContent,
@@ -26,24 +27,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || response.statusText);
-  }
-  return response.json();
-}
 
 interface Service {
   id: string;
+  slug?: string | null;
   detectiveId: string;
   category: string;
   title: string;
@@ -55,7 +42,6 @@ interface Service {
   images: string[] | null;
 }
 
-const SERVICE_CATEGORIES: string[] = [];
 
 // Minimum base price in INR (applies to all countries)
 const MIN_BASE_PRICE_INR = 1000;
@@ -100,7 +86,7 @@ export default function DetectiveServices() {
     enabled: !!detective?.id,
   });
 
-  const services = servicesData?.services || [];
+  const services: Service[] = (servicesData?.services || []) as Service[];
 
   // Create service mutation
   const createService = useMutation({
@@ -129,7 +115,7 @@ export default function DetectiveServices() {
       const res = await api.services.update(id, data);
       return res;
     },
-    onSuccess: (result: any, variables: { id: string; data: any }) => {
+    onSuccess: (_result: any, variables: { id: string; data: any }) => {
       // Invalidate all query variations for this specific service
       queryClient.invalidateQueries({ queryKey: ["services", variables.id] });
       queryClient.invalidateQueries({ queryKey: ["services", variables.id, "preview"] });
@@ -297,7 +283,7 @@ export default function DetectiveServices() {
       // Use live subscription package data from API, not hardcoded values
       const subscriptionPackage = (detective as any).subscriptionPackage;
       const serviceLimit = subscriptionPackage?.serviceLimit ?? 1; // Default to 1 if no package
-      const planName = subscriptionPackage?.displayName ?? detective.subscriptionPlan ?? "Free";
+      const planName = subscriptionPackage?.displayName ?? subscriptionPackage?.name ?? 'Free';
       
       if (services.length >= serviceLimit) {
         toast({
@@ -412,7 +398,7 @@ export default function DetectiveServices() {
   // Use live subscription package data from API, not hardcoded values
   const subscriptionPackage = (detective as any).subscriptionPackage;
   const serviceLimit = subscriptionPackage?.serviceLimit ?? 1; // Default to 1 if no package
-  const planName = subscriptionPackage?.displayName ?? detective.subscriptionPlan ?? "Free";
+  const planName = subscriptionPackage?.displayName ?? subscriptionPackage?.name ?? 'Free';
   const planLabel = `${planName} - ${serviceLimit} Service${serviceLimit > 1 ? 's' : ''}`;
   const canAddMore = services.length < serviceLimit;
 
@@ -706,15 +692,40 @@ export default function DetectiveServices() {
                     <Badge className={service.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}>
                       {service.isActive ? "Active" : "Inactive"}
                     </Badge>
-                    {Array.isArray(service.images) && service.images.length > 0 && service.title && service.description && service.category && service.basePrice && service.isActive ? (
-                      <Link href={`/service/${service.id}`}>
-                        <Button variant="outline" size="sm">View Public Page</Button>
-                      </Link>
-                    ) : (
-                      <Link href={`/service/${service.id}?preview=1`}>
-                        <Button variant="outline" size="sm">Preview (Private)</Button>
-                      </Link>
-                    )}
+                    {(() => {
+                      const detectiveSlug = detective.slug || (detective.businessName ? generateSlug(detective.businessName) : undefined);
+                      const servicePath = service.slug && detectiveSlug
+                        ? buildServiceUrl(
+                            {
+                              country: detective.country || "",
+                              state: detective.state || "",
+                              city: detective.city || "",
+                              slug: detectiveSlug,
+                              businessName: detective.businessName || "",
+                            },
+                            { slug: service.slug }
+                          )
+                        : "#";
+
+                      const isPublicReady =
+                        Array.isArray(service.images) &&
+                        service.images.length > 0 &&
+                        service.title &&
+                        service.description &&
+                        service.category &&
+                        service.basePrice &&
+                        service.isActive;
+
+                      return isPublicReady ? (
+                        <Link href={servicePath}>
+                          <Button variant="outline" size="sm">View Public Page</Button>
+                        </Link>
+                      ) : (
+                        <Link href={servicePath === "#" ? "#" : `${servicePath}?preview=1`}>
+                          <Button variant="outline" size="sm">Preview (Private)</Button>
+                        </Link>
+                      );
+                    })()}
                   </div>
                   <div className="mt-4">
                     <Label className="text-sm">Banner Image</Label>

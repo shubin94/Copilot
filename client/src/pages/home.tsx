@@ -1,264 +1,186 @@
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { Hero } from "@/components/home/hero";
-import { ServiceCard } from "@/components/home/service-card";
-import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
+import { ServiceCardGrid } from "@/components/common/service-card-grid";
+import { DetectiveCard } from "@/components/DetectiveCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowRight, AlertCircle, Layers } from "lucide-react";
+import { ArrowRight, CheckCircle2, Sparkles, Layers } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Link } from "wouter";
-import { useSearchServices, useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
-import type { Service, Detective, ServiceCategory } from "@shared/schema";
-import { computeServiceBadges } from "@/lib/service-badges";
-import { getDetectiveProfileUrl } from "@/lib/utils";
-import { useEffect, useRef } from "react";
-
-function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number }) {
-  const badgeState = computeServiceBadges({
-    isVerified: service.detective.isVerified,
-    effectiveBadges: service.detective.effectiveBadges,
-  });
-
-  const detectiveName = service.detective.businessName || "Unknown Detective";
-
-  // Use actual database images - NO MOCK DATA
-  const images = service.images && service.images.length > 0 ? service.images : undefined;
-  const serviceImage = images ? images[0] : undefined;
-  const detectiveLogo = service.detective.logo || undefined;
-  
-  return {
-    id: service.id,
-    slug: service.slug,
-    detectiveId: service.detective.id,
-    images,
-    image: serviceImage,
-    avatar: detectiveLogo || "",
-    name: detectiveName,
-    level: service.detective.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1",
-    levelValue: (() => { const m = String(service.detective.level || "level1").match(/\d+/); return m ? parseInt(m[0], 10) : 1; })(),
-    category: service.category,
-    badgeState,
-    title: service.title,
-    rating: service.avgRating,
-    reviews: service.reviewCount,
-    price: Number(service.basePrice),
-    offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
-    isOnEnquiry: service.isOnEnquiry,
-    countryCode: service.detective.country,
-    location: service.detective.location || "",
-    phone: service.detective.phone || undefined,
-    whatsapp: service.detective.whatsapp || undefined,
-    contactEmail: service.detective.contactEmail || service.detective.email || undefined,
-    detectiveCountry: service.detective.country,
-    detectiveState: service.detective.state,
-    detectiveCity: service.detective.city,
-    detectiveSlug: service.detective.slug,
-    detectiveBusinessName: service.detective.businessName,
-  };
-}
+import { useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
+import { useCurrency } from "@/lib/currency-context";
+import type { ServiceCategory } from "@shared/schema";
+import { useEffect, useState, useRef } from "react";
+import { api } from "@/lib/api";
 
 export default function Home() {
+  // ...existing code...
+
   const { data: categoriesData, isLoading: isLoadingCategories } = useServiceCategories(true);
-  const categories = categoriesData?.categories || [];
+  const categories = (categoriesData?.categories || []) as ServiceCategory[];
 
-  const { data: popularServicesData, isLoading: isLoadingPopular } = useFeaturedHomeServices();
+  // Get selected country from context, but only use it if not GLOBAL and no manual filter applied
+  const { selectedCountry } = useCurrency();
+  const countryForApi = selectedCountry && selectedCountry.code !== "GLOBAL" ? selectedCountry.code : undefined;
 
-  const popularServices = (popularServicesData?.services || []).map(mapServiceToCard);
+  const { data: popularServicesData, isLoading: isLoadingPopular } = useFeaturedHomeServices(countryForApi);
+
+  const popularServices = popularServicesData?.services || [];
   const { data: featuredDetectivesData, isLoading: isLoadingDetectives } = useSearchDetectives({ status: "active", limit: 4 });
   const featuredDetectives = featuredDetectivesData?.detectives || [];
   const { data: siteData } = useSiteSettings();
   const featuresImage = siteData?.settings?.featuresImage;
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [topLocations, setTopLocations] = useState<{
+    countries: Array<{ name: string; slug: string; detectiveCount: number }>;
+    states: Array<{ name: string; slug: string; countrySlug: string; detectiveCount: number }>;
+    cities: Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>;
+  } | null>(null);
+  const [topLocationsLoading, setTopLocationsLoading] = useState(true);
+
+  // Ref for categories scroll container (auto-scroll)
+  const categoriesScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container || categories.length === 0) return;
-
-    const scrollInterval = setInterval(() => {
-      const scrollAmount = container.offsetWidth * 0.33; // Scroll one card width (approx 1/3 of viewport)
-      const maxScroll = container.scrollWidth - container.offsetWidth;
-      
-      if (container.scrollLeft >= maxScroll - 10) {
-        // Reset to start
-        container.scrollTo({ left: 0, behavior: 'smooth' });
-      } else {
-        // Scroll to next
-        container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    let isMounted = true;
+    const fetchTopLocations = async () => {
+      try {
+        setTopLocationsLoading(true);
+        const data = await api.get<{
+          countries: Array<{ name: string; slug: string; detectiveCount: number }>;
+          states: Array<{ name: string; slug: string; countrySlug: string; detectiveCount: number }>;
+          cities: Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>;
+        }>("/api/locations/top?limitCountries=8&limitStates=8&limitCities=8");
+        if (!isMounted) return;
+        setTopLocations(data);
+      } catch (error) {
+        console.error("[Home] Failed to load top locations:", error);
+        if (!isMounted) return;
+        setTopLocations(null);
+      } finally {
+        if (!isMounted) return;
+        setTopLocationsLoading(false);
       }
-    }, 5000); // Every 5 seconds
+    };
 
-    return () => clearInterval(scrollInterval);
-  }, [categories.length]);
+    fetchTopLocations();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Auto-scroll categories container every 5 seconds
+  useEffect(() => {
+    const scrollContainer = categoriesScrollRef.current;
+    if (!scrollContainer) return;
+
+    const interval = setInterval(() => {
+      // Calculate card width based on viewport
+      const containerWidth = scrollContainer.offsetWidth;
+      // Card width: 33.333% on desktop (lg), 50% on tablet (md), 100% on mobile (sm)
+      let cardWidth = containerWidth / 3; // Default for desktop (lg)
+      
+      // Check if we're on mobile or tablet (this is a rough check)
+      if (window.innerWidth < 768) {
+        // Mobile: 100% width
+        cardWidth = containerWidth;
+      } else if (window.innerWidth < 1024) {
+        // Tablet: 50% width
+        cardWidth = containerWidth / 2;
+      }
+
+      const newScrollLeft = scrollContainer.scrollLeft + cardWidth;
+      const maxScroll = scrollContainer.scrollWidth - containerWidth;
+
+      // If reached end, reset to start
+      if (newScrollLeft >= maxScroll) {
+        scrollContainer.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        scrollContainer.scrollBy({ left: cardWidth, behavior: 'smooth' });
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const topCountries = (topLocations?.countries || []).filter((item) => item.detectiveCount > 0);
+  const topStates = (topLocations?.states || []).filter((item) => item.detectiveCount > 0);
+  const topCities = (topLocations?.cities || []).filter((item) => item.detectiveCount > 0);
+  const hasTopLocations = topCountries.length > 0 || topStates.length > 0 || topCities.length > 0;
+
+  const formatDetectiveCount = (count: number) =>
+    `${count} Detective${count === 1 ? "" : "s"}`;
 
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900">
       <SEO 
-        title="FindDetectives - Hire Top Private Investigators" 
-        description="The leading marketplace for professional private investigation services. Find verified detectives for surveillance, background checks, and more."
+        title="Find Detectives - Hire Top Private Investigators | AskDetectives" 
+        description="The world's first dedicated detective service platform. A single place to discover, compare, and hire professional detectives across verified categories"
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
         canonical="https://www.askdetectives.com"
         robots="index, follow"
-        schema={[
-          {
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            "@id": "https://www.askdetectives.com/#website",
-            "url": "https://www.askdetectives.com",
-            "name": "FindDetectives",
-            "description": "Find and hire verified private investigators",
-            "potentialAction": {
-              "@type": "SearchAction",
-              "target": {
-                "@type": "EntryPoint",
-                "urlTemplate": "https://www.askdetectives.com/search?q={search_term_string}"
-              },
-              "query-input": "required name=search_term_string"
-            }
-          },
-          {
-            "@context": "https://schema.org",
-            "@type": "Organization",
-            "@id": "https://www.askdetectives.com/#organization",
-            "name": "Ask Detectives",
-            "alternateName": "FindDetectives",
-            "url": "https://www.askdetectives.com",
-            "logo": "https://www.askdetectives.com/favicon.png",
-            "description": "The leading marketplace for professional private investigation services connecting clients with verified detectives worldwide.",
-            "foundingDate": "2024",
-            "contactPoint": {
-              "@type": "ContactPoint",
-              "contactType": "Customer Service",
-              "telephone": "+1-800-DETECTIVES",
-              "url": "https://www.askdetectives.com/contact"
-            },
-            "sameAs": [
-              "https://www.facebook.com/askdetectives",
-              "https://www.twitter.com/askdetectives",
-              "https://www.linkedin.com/company/askdetectives",
-              "https://www.instagram.com/askdetectives"
-            ],
-            "address": {
-              "@type": "PostalAddress",
-              "addressCountry": "US",
-              "addressLocality": "New York",
-              "addressRegion": "NY",
-              "postalCode": "10001"
-            },
-            "aggregateRating": {
-              "@type": "AggregateRating",
-              "ratingValue": "4.8",
-              "ratingCount": "2500",
-              "reviewCount": "2500"
-            }
-          }
-        ]}
       />
       <Navbar transparentOnHome={true} overlayOnHome={true} />
       
       <main className="flex-1">
         <Hero />
 
-        <div className="bg-gray-50 py-8 border-b border-gray-200">
-          <div className="container mx-auto px-6 md:px-12 lg:px-24 flex justify-center gap-8 md:gap-16 grayscale opacity-50">
-            <span className="font-bold text-xl">Meta</span>
-            <span className="font-bold text-xl">Google</span>
-            <span className="font-bold text-xl">Netflix</span>
-            <span className="font-bold text-xl">P&G</span>
-            <span className="font-bold text-xl">PayPal</span>
+        <section className="py-10 container mx-auto px-6 md:px-12 lg:px-24">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl md:text-3xl font-bold font-heading">Browse Categories</h2>
+            <Link href="/categories">
+              <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 font-normal">
+                View All <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
           </div>
-        </div>
 
-        <section className="py-16">
-          <style>{`
-            .category-scroll-container {
-              scrollbar-width: none;
-              -ms-overflow-style: none;
-            }
-            .category-scroll-container::-webkit-scrollbar {
-              display: none;
-            }
-            .category-card {
-              flex: 0 0 calc((100% - 2 * 1.5rem) / 3);
-            }
-            @media (max-width: 1023px) {
-              .category-card {
-                flex-basis: calc((100% - 1 * 1.5rem) / 2);
-              }
-            }
-            @media (max-width: 639px) {
-              .category-card {
-                flex-basis: 100%;
-              }
-            }
-          `}</style>
-
-          <div className="container mx-auto px-6 md:px-12 lg:px-24">
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h2 className="text-3xl font-bold font-heading">Browse by Category</h2>
-                <p className="text-gray-600 mt-2">Explore professional detective services organized by specialty</p>
-              </div>
-              <Link href="/categories">
-                <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 font-normal" data-testid="button-view-all-categories">
-                  View All <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-
-            <div ref={scrollContainerRef} className="category-scroll-container overflow-x-auto overflow-y-hidden pb-4">
-              <div className="flex gap-6 w-full">
-              {isLoadingCategories ? (
-                [1, 2, 3].map((i) => (
-                  <Card key={i} className="category-card hover:shadow-lg transition-shadow">
+          <div 
+            ref={categoriesScrollRef}
+            className="flex overflow-x-hidden scroll-smooth gap-6"
+            style={{ scrollBehavior: 'smooth' }}
+          >
+            {isLoadingCategories
+              ? Array.from({ length: 6 }).map((_, index) => (
+                  <Card
+                    key={`category-skeleton-${index}`}
+                    className="hover:shadow-lg transition-shadow flex-shrink-0 w-full sm:w-1/2 lg:w-1/3"
+                  >
                     <CardContent className="p-6">
-                    <div className="flex items-start gap-4">
-                      <div className="p-3 bg-green-50 rounded-lg">
-                        <Layers className="h-6 w-6 text-green-600" />
-                      </div>
-                      <div className="flex-1 space-y-2">
-                        <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4" />
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-full" />
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-2/3" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                ))
-              ) : categories.length > 0 ? (
-                categories.map((category: ServiceCategory) => (
-                  <Link key={category.id} href={`/search?q=${encodeURIComponent(category.name)}`} className="category-card">
-                    <Card className="hover:shadow-lg transition-all hover:border-green-500 cursor-pointer group h-full" data-testid={`card-category-${category.id}`}>
-                      <CardContent className="p-6">
                       <div className="flex items-start gap-4">
-                        <div className="p-3 bg-green-50 rounded-lg group-hover:bg-green-100 transition-colors">
-                          <Layers className="h-6 w-6 text-green-600" />
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="font-bold text-lg text-gray-900 group-hover:text-green-700 transition-colors mb-2" data-testid={`text-category-name-${category.id}`}>
-                            {category.name}
-                          </h3>
-                          <p className="text-sm text-gray-600 line-clamp-2" data-testid={`text-category-description-${category.id}`}>
-                            {category.description || "Professional investigation services"}
-                          </p>
-                          <div className="mt-3 flex items-center text-sm text-green-600 font-medium group-hover:gap-2 transition-all">
-                            Explore <ArrowRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                          </div>
+                        <div className="p-3 bg-gray-100 rounded-lg w-12 h-12" />
+                        <div className="flex-1 space-y-2">
+                          <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4" />
+                          <div className="h-4 bg-gray-100 rounded animate-pulse w-full" />
                         </div>
                       </div>
                     </CardContent>
                   </Card>
-                  </Link>
                 ))
-              ) : (
-                <div className="w-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200" data-testid="empty-categories">
-                  <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
-                  <p className="text-sm text-gray-500">No categories yet</p>
-                </div>
-                )}
-              </div>
-            </div>
+              : categories.map((category) => (
+                  <Link
+                    key={category.id}
+                    href={`/search?category=${encodeURIComponent(category.name)}`}
+                    className="flex-shrink-0 w-full sm:w-1/2 lg:w-1/3"
+                  >
+                    <Card className="hover:shadow-lg transition-all hover:border-green-500 cursor-pointer group h-full">
+                      <CardContent className="p-6 flex flex-col h-full">
+                        <div className="p-3 bg-green-50 rounded-lg group-hover:bg-green-100 transition-colors w-fit mb-4">
+                          <Layers className="h-6 w-6 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="font-bold text-lg text-gray-900 group-hover:text-green-700 transition-colors mb-2">
+                            {category.name}
+                          </h3>
+                          <p className="text-sm text-gray-600 line-clamp-2">
+                            {category.description || "Professional investigation services"}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
           </div>
         </section>
 
@@ -271,22 +193,11 @@ export default function Home() {
               </Button>
             </Link>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {isLoadingPopular ? (
-              [1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <ServiceCardSkeleton key={i} />
-              ))
-            ) : popularServices.length > 0 ? (
-              popularServices.slice(0, 8).map((service) => (
-                <ServiceCard key={service.id} {...service} />
-              ))
-            ) : (
-              <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200" data-testid="empty-popular-services">
-                <AlertCircle className="h-12 w-12 text-gray-400 mb-3" />
-                <p className="text-sm text-gray-500">No services yet</p>
-              </div>
-            )}
-          </div>
+          <ServiceCardGrid
+            services={popularServices.slice(0, 8)}
+            isLoading={isLoadingPopular}
+            emptyMessage="No services yet."
+          />
         </section>
 
         {featuredDetectives.length > 0 && (
@@ -302,97 +213,155 @@ export default function Home() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {isLoadingDetectives ? (
                 [1, 2, 3, 4].map((i) => (
-                  <Card key={i} className="hover:shadow-lg transition-shadow">
-                    <CardContent className="p-6">
-                      <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4 mb-2" />
-                      <div className="h-4 bg-gray-100 rounded animate-pulse w-1/2" />
+                  <Card key={i} className="hover:shadow-lg transition-shadow h-40">
+                    <CardContent className="p-6 h-full flex items-center">
+                      <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4" />
                     </CardContent>
                   </Card>
                 ))
               ) : (
-                featuredDetectives.map((d) => (
-                  <Link key={d.id} href={getDetectiveProfileUrl(d)}>
-                    <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-                      <CardContent className="p-6">
-                        <div className="flex items-center gap-4">
-                          <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
-                            {d.logo ? (
-                              <img src={d.logo} alt={d.businessName || "Detective"} className="h-12 w-12 object-cover" />
-                            ) : (
-                              <div className="h-8 w-8 rounded-full bg-gray-200" />
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <div className="font-bold text-lg text-gray-900 hover:underline">{d.businessName || "Unknown Detective"}</div>
-                            <div className="text-sm text-gray-600">{d.location || d.country || ""}</div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                ))
+                featuredDetectives.map((d) => {
+                  return (
+                    <div key={d.id}>
+                      <DetectiveCard detective={d} variant="homeFeatured" />
+                    </div>
+                  );
+                })
               )}
             </div>
           </section>
         )}
 
-        <section className="bg-green-50 py-16">
-          <div className="container mx-auto px-6 md:px-12 lg:px-24 flex flex-col lg:flex-row items-stretch gap-12">
-            <div className="flex-1 space-y-6 flex flex-col justify-center">
-              <h2 className="text-3xl md:text-4xl font-bold font-heading">
-                The best part? Everything that matters.
+        <section className="py-14 container mx-auto px-6 md:px-12 lg:px-24">
+          <div className="grid md:grid-cols-2 gap-10 items-center">
+            <div className="space-y-6">
+              <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                <Sparkles className="h-4 w-4" />
+                Why AskDetectives
+              </div>
+              <h2 className="text-3xl md:text-4xl font-bold font-heading text-gray-900">
+                Clear answers, verified pros, and faster outcomes.
               </h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <h3 className="flex items-center text-lg font-bold mb-1">
-                    <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    The world's first dedicated detective service platform
-                  </h3>
-                  <p className="text-gray-600 ml-8">A single place to discover, compare, and hire professional detectives across verified categories.</p>
-                </div>
-                
-                <div>
-                  <h3 className="flex items-center text-lg font-bold mb-1">
-                    <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Trusted detectives, faster results
-                  </h3>
-                  <p className="text-gray-600 ml-8">Work only with verified and recommended detectives, so you get accurate outcomes without delays.</p>
-                </div>
-                
-                <div>
-                  <h3 className="flex items-center text-lg font-bold mb-1">
-                    <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Talk first. Pay only if it feels right
-                  </h3>
-                  <p className="text-gray-600 ml-8">Connect directly with the detective, discuss your case, and proceed with payment only when you're confident.</p>
-                </div>
-                
-                <div>
-                  <h3 className="flex items-center text-lg font-bold mb-1">
-                    <div className="h-6 w-6 rounded-full border border-gray-900 flex items-center justify-center mr-2 text-sm">✓</div>
-                    Your review helps others choose better
-                  </h3>
-                  <p className="text-gray-600 ml-8">Share your experience after the service — your review guides others to make the right decision.</p>
+              <p className="text-base md:text-lg text-gray-600">
+                We bring vetted investigators into one trusted marketplace so you can compare,
+                contact, and hire with confidence - without the guesswork.
+              </p>
+              <div className="rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm">
+                <div className="space-y-3">
+                  {[
+                    "Verified profiles with real-world expertise",
+                    "Transparent pricing and category-based discovery",
+                    "Location-based matching for faster response",
+                  ].map((item) => (
+                    <div key={item} className="flex items-start gap-3 text-sm text-gray-700">
+                      <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5" />
+                      <span>{item}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-            
-            <div className="flex-1 relative min-h-[400px] lg:min-h-full">
-              <div className="absolute inset-0 h-full w-full rounded-lg shadow-xl overflow-hidden">
-                <img
-                  src={featuresImage || "/pub.png"}
-                  alt="Professional detectives collaborating on a case"
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
+
+            <div className="relative">
+              <div className="absolute -inset-6 rounded-3xl bg-gradient-to-tr from-emerald-100 via-white to-slate-100 blur-2xl opacity-70" />
+              <div className="relative overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-lg">
+                {featuresImage ? (
+                  <img
+                    src={featuresImage}
+                    alt="Investigation insights"
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="aspect-[4/3] flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-100">
+                    <div className="text-sm text-emerald-900/70">
+                      Upload a features image in Admin Settings
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </section>
 
+        <section className="py-12 container mx-auto px-6 md:px-12 lg:px-24 bg-gray-50/50">
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-3xl font-bold font-heading">Top Locations</h2>
+          </div>
+
+          {topLocationsLoading ? (
+            <div className="text-sm text-gray-600">Loading top locations...</div>
+          ) : hasTopLocations ? (
+            <div className="space-y-10">
+                {topCountries.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Countries</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {topCountries.map((item) => (
+                        <Link key={`country-${item.slug}`} href={`/detectives/${item.slug}`}>
+                          <a className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100">
+                            <div className="text-sm font-semibold text-green-900">
+                              {item.name}
+                            </div>
+                            <div className="text-xs text-green-700">
+                              {formatDetectiveCount(item.detectiveCount)}
+                            </div>
+                          </a>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {topStates.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top States</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {topStates.map((item) => (
+                        <Link key={`state-${item.countrySlug}-${item.slug}`} href={`/detectives/${item.countrySlug}/${item.slug}`}>
+                          <a className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100">
+                            <div className="text-sm font-semibold text-green-900">
+                              {item.name}
+                            </div>
+                            <div className="text-xs text-green-700">
+                              {formatDetectiveCount(item.detectiveCount)}
+                            </div>
+                          </a>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {topCities.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Cities</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {topCities.map((item) => (
+                        <Link key={`city-${item.countrySlug}-${item.stateSlug}-${item.slug}`} href={`/detectives/${item.countrySlug}/${item.stateSlug}/${item.slug}`}>
+                          <a className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100">
+                            <div className="text-sm font-semibold text-green-900">
+                              {item.name}
+                            </div>
+                            <div className="text-xs text-green-700">
+                              {formatDetectiveCount(item.detectiveCount)}
+                            </div>
+                          </a>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+          ) : (
+            <div className="text-sm text-gray-500">No locations data available.</div>
+          )}
+        </section>
+
+        {/* ...removed location/feature section... */}
       </main>
       
+      {/* ...existing code... */}
       <Footer />
     </div>
   );

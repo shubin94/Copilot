@@ -1,7 +1,6 @@
 // Payment Gateway Routes - Public endpoint for checking enabled gateways
 import { Router, Request, Response } from "express";
-import { getPaymentGateway } from "../services/paymentGateway.ts";
-import { pool } from "../../db/index.ts";
+import { pool } from "../../db/index.js";
 
 export const paymentGatewayRoutes = Router();
 
@@ -10,7 +9,7 @@ export const paymentGatewayRoutes = Router();
  * Public endpoint to fetch all enabled payment gateways
  * Used by frontend to show gateway selection popup
  */
-paymentGatewayRoutes.get("/enabled", async (req: Request, res: Response) => {
+paymentGatewayRoutes.get("/enabled", async (_req: Request, res: Response) => {
   try {
     console.log("[payment-gateways/enabled] Fetching enabled gateways");
 

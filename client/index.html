@@ -2,27 +2,48 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>Ask Detectives | Find Professional Private Investigators</title>
-    <meta name="description" content="Find vetted private investigators and detective services. Compare ratings, services, and contact trusted professionals." />
-
-    <meta property="og:title" content="FindDetectives - Hire Top Private Investigators" />
-    <meta property="og:description" content="The marketplace for professional private investigation services. Find verified detectives for your needs." />
-    <meta property="og:type" content="website" />
-    <meta property="og:image" content="/favicon.png" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@FindDetectives" />
-    <meta name="twitter:title" content="FindDetectives - Hire Top Private Investigators" />
-    <meta name="twitter:description" content="The marketplace for professional private investigation services. Find verified detectives for your needs." />
-    <meta name="twitter:image" content="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- SEO_TITLE_INJECTION_POINT -->
+    <!-- Title is now fully controlled by React SEO component -->
+    <!-- SEO_META_INJECTION_POINT -->
+    <!-- Meta description and keywords controlled by React SEO component -->
+    <link rel="canonical" href="https://www.askdetectives.com/" />
 
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="alternate" type="application/rss+xml" title="Ask Detectives RSS Feed" href="/rss.xml" />
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <!-- SEO_JSON_LD_INJECTION_POINT -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Ask Detectives",
+        "url": "https://www.askdetectives.com",
+        "logo": "https://www.askdetectives.com/favicon.png",
+        "sameAs": ["https://twitter.com/FindDetectives"],
+        "areaServed": "Worldwide",
+        "description": "Find vetted private investigators and detective services."
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "url": "https://www.askdetectives.com/",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://www.askdetectives.com/search?search={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    
+    <div id="root"><!--app-html--></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -7,7 +7,7 @@
 
 import https from 'https';
 
-const API_URL = 'https://copilot-06s5.onrender.com/api/csrf-token';
+const API_URL = 'https://api.askdetectives.com/api/csrf-token';
 const ORIGIN = 'https://www.askdetectives.com';
 
 console.log('🔍 Testing CORS on CSRF endpoint\n');

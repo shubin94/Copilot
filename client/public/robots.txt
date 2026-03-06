@@ -39,6 +39,9 @@ User-agent: CCBot
 User-agent: OmniBot
 User-agent: Google-Extended
 Allow: /detectives/
+Allow: /detective/
+Allow: /services/
+Allow: /service/
 Allow: /news/
 Allow: /llms.txt
 Disallow: /admin/

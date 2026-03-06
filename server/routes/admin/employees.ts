@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcrypt";
-import { pool } from "../../../db/index.ts";
-import { requireRole } from "../../authMiddleware.ts";
+import { pool } from "../../../db/index.js";
+import { requireRole } from "../../authMiddleware.js";
 
 const router = Router();
 
@@ -119,7 +119,7 @@ router.post(
         const user = userResult.rows[0];
 
         const mappingValues = validPages
-          .map((page, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`)
+          .map((_page, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`)
           .join(",");
         const mappingParams = validPages.flatMap((page) => [user.id, page.id]);
 
@@ -163,7 +163,7 @@ router.post(
 router.get(
   "/",
   requireRole("admin", "employee"),
-  async (req: Request, res: Response) => {
+  async (_req: Request, res: Response) => {
     try {
       const employees = await pool.query(`
         SELECT 
@@ -266,7 +266,7 @@ router.patch(
     try {
       const { id } = req.params;
       const { allowedPages } = req.body as { allowedPages?: string[] };
-      const currentUserId = req.session.userId;
+      const currentUserId = (req as any).session.userId;
 
       // Check self-modification
       if (isSelfModification(currentUserId, id)) {
@@ -323,7 +323,7 @@ router.patch(
 
         // Insert new mappings
         const mappingValues = validPages
-          .map((page, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`)
+          .map((_page, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`)
           .join(",");
 
         const mappingParams = validPages.flatMap(page => [id, page.id]);
@@ -368,7 +368,7 @@ router.patch(
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const currentUserId = req.session.userId;
+      const currentUserId = (req as any).session.userId;
 
       // Check self-modification
       if (isSelfModification(currentUserId, id)) {
@@ -416,7 +416,7 @@ router.delete(
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const currentUserId = req.session.userId;
+      const currentUserId = (req as any).session.userId;
 
       // Check self-modification
       if (isSelfModification(currentUserId, id)) {

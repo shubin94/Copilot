@@ -110,7 +110,7 @@ export default function AdminServices() {
       title: service.title,
       description: service.description,
       category: service.category,
-      basePrice: service.basePrice,
+      basePrice: service.basePrice || "",
       offerPrice: service.offerPrice || "",
       detectiveId: service.detectiveId,
     });
@@ -186,6 +186,7 @@ export default function AdminServices() {
 
     try {
       const serviceData = {
+        slug: formData.title.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-'),
         title: formData.title,
         description: formData.description,
         category: formData.category,

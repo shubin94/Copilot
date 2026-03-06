@@ -23,7 +23,9 @@ import {
   Lock,
   FolderOpen,
   Tag,
-  DollarSign
+  DollarSign,
+  Map,
+  MapPin
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -34,15 +36,15 @@ import { useCurrentDetective } from "@/lib/hooks";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  role: "admin" | "detective" | "user";
+  role: "admin" | "employee" | "detective" | "user";
 }
 
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [location, setLocation] = useLocation();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [expandedMenu, setExpandedMenu] = useState<string | null>("CMS");
+  const [] = useState(false);
+  const [expandedMenu, setExpandedMenu] = useState<string | null>("Location SEO");
   const { user, isLoading, isAuthenticated, logout } = useUser();
-  const { data: detectiveData } = useCurrentDetective();
+  const { data: detectiveData } = useCurrentDetective(user?.role === "detective");
   const detective = role === "detective" ? detectiveData?.detective : null;
   const [employeePages, setEmployeePages] = useState<string[] | null>(null);
   const [isEmployeePagesLoading, setIsEmployeePagesLoading] = useState(false);
@@ -55,36 +57,47 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   }, []);
 
   useEffect(() => {
+    console.log("[DashboardLayout] guard check", { isLoading, isAuthenticated, user, role });
     if (isLoading) return;
 
     if (!isAuthenticated || !user) {
+      console.log("[DashboardLayout] redirect -> /login", { reason: "no-auth" });
       setLocation("/login");
       return;
     }
 
-    if (role === "admin" && user.role !== "admin" && user.role !== "employee") {
+    if (role === "admin" && user.role !== "admin") {
+      console.log("[DashboardLayout] redirect -> /", { reason: "role", role: user.role });
+      setLocation("/");
+      return;
+    }
+
+    if (role === "employee" && user.role !== "employee") {
+      console.log("[DashboardLayout] redirect -> /", { reason: "role", role: user.role });
       setLocation("/");
       return;
     }
 
     if (role === "detective" && user.role !== "detective") {
+      console.log("[DashboardLayout] redirect -> /", { reason: "role", role: user.role });
       setLocation("/");
       return;
     }
 
     if (role === "user" && user.role !== "user") {
+      console.log("[DashboardLayout] redirect -> /", { reason: "role", role: user.role });
       setLocation("/");
       return;
     }
   }, [isAuthenticated, isLoading, role, setLocation, user]);
 
   useEffect(() => {
-    if (role !== "admin" || user?.role !== "employee") return;
+    if (role !== "employee" || user?.role !== "employee") return;
     if (employeePages !== null || isEmployeePagesLoading) return;
 
     setIsEmployeePagesLoading(true);
     api
-      .get<{ pages: Array<{ key: string }> }>("/api/employee/pages")
+      .get<{ pages: Array<{ key: string }> }>("/api/employee/pages", { forceProxy: true })
       .then((data) => {
         setEmployeePages(data.pages.map((page) => page.key));
       })
@@ -112,7 +125,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     return null;
   }
 
-  if (role === "admin" && user.role !== "admin" && user.role !== "employee") return null;
+  if (role === "admin" && user.role !== "admin") return null;
+  if (role === "employee" && user.role !== "employee") return null;
   if (role === "user" && user.role !== "user") return null;
   if (role === "detective" && user.role !== "detective") return null;
 
@@ -165,6 +179,16 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/admin/service-categories", label: "Service Categories", icon: Layers },
     { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
     { href: "/admin/snippets", label: "Snippets", icon: Zap },
+    {
+      href: "#location-seo",
+      label: "Location SEO",
+      icon: Map,
+      submenu: [
+        { href: "/admin/location-seo/countries", label: "Countries", icon: Globe },
+        { href: "/admin/location-seo/states", label: "States", icon: Map },
+        { href: "/admin/location-seo/cities", label: "Cities", icon: MapPin },
+      ]
+    },
     { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
     { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
     { href: "/admin/app-secrets", label: "App Secrets (Auth)", icon: Lock },
@@ -189,28 +213,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   ];
 
   const employeeLinksMap: Record<string, { href: string; label: string; icon: any; submenu?: any[] }> = {
-    dashboard: { href: "/admin/dashboard", label: "Overview", icon: LayoutDashboard },
-    employees: { href: "/admin/employees", label: "Employees", icon: Users },
-    detectives: { href: "/admin/detectives", label: "Detectives", icon: Users },
-    services: { href: "/admin/services", label: "Services", icon: Layers },
-    users: { href: "/admin/signups", label: "Users", icon: UserCheck },
-    settings: { href: "/admin/settings", label: "Settings", icon: Settings },
-    reports: { href: "/admin/finance", label: "Reports", icon: TrendingUp },
-    payments: { href: "/admin/finance", label: "Finance", icon: DollarSign },
-    cms: { 
-      href: "#cms", 
-      label: "CMS", 
-      icon: FileText,
-      submenu: [
-        { href: "/admin/cms/categories", label: "Categories", icon: FolderOpen },
-        { href: "/admin/cms/tags", label: "Tags", icon: Tag },
-        { href: "/admin/cms/pages", label: "Pages", icon: FileText },
-      ]
-    },
+    dashboard: { href: "/employee/dashboard", label: "Overview", icon: LayoutDashboard },
   };
 
   let links = detectiveLinks;
-  if (role === "admin") {
+  if (role === "employee") {
     if (user?.role === "employee") {
       const keys = employeePages || [];
       links = keys
@@ -219,8 +226,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     } else {
       links = adminLinks;
     }
+  } else if (role === "admin") {
+    links = adminLinks;
   }
   if (role === "user") links = userLinks;
+  if (role === "detective") links = detectiveLinks;
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-white border-r border-gray-200 text-gray-900">
@@ -228,10 +238,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         <Shield className="h-8 w-8 text-green-600" />
         <span className="font-bold text-xl tracking-tight font-heading">
           {role === "admin"
-            ? (user?.role === "employee" ? "Employee" : "Admin")
-            : role === "detective"
-              ? "Detective"
-              : "User"}
+            ? "Admin"
+            : role === "employee"
+              ? "Employee"
+              : role === "detective"
+                ? "Detective"
+                : "User"}
           <span className="text-green-600">Portal</span>
         </span>
       </div>
@@ -371,7 +383,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                   {role === "admin" ? "Super Admin" : role === "detective" ? (detective?.businessName || "Detective") : "John Doe"}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {role === "admin" ? "System Owner" : role === "detective" ? `${(detective?.subscriptionPlan || "free").charAt(0).toUpperCase() + (detective?.subscriptionPlan || "free").slice(1)} Member` : "Member"}
+                  {role === "admin" ? "System Owner" : role === "detective" ? `${(detective?.subscriptionPackage?.name || "free").charAt(0).toUpperCase() + (detective?.subscriptionPackage?.name || "free").slice(1)} Member` : "Member"}
                 </div>
               </div>
               <Avatar>

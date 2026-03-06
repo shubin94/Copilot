@@ -1,10 +1,10 @@
 ﻿import { Router, Request, Response } from "express";
-import { pool } from "../../db/index.ts";
+import { pool } from "../../db/index.js";
 
 const router = Router();
 
 // Generate RSS feed for blog posts
-router.get("/", async (req: Request, res: Response) => {
+router.get("/", async (_req: Request, res: Response) => {
   try {
     const baseUrl = "https://www.askdetectives.com";
     const buildDate = new Date().toUTCString();

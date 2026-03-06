@@ -1,6 +1,6 @@
-import { db } from "../../db/index.ts";
-import { services } from "../../shared/schema.ts";
-import { sql, eq } from "drizzle-orm";
+import { db } from "../../db/index.js";
+import { services } from "../../shared/schema.js";
+import { eq } from "drizzle-orm";
 
 /**
  * Generate a URL-safe slug from text
@@ -63,7 +63,7 @@ export async function populateSlugs() {
 }
 
 // Run if this is the main module
-if (import.meta.main) {
+if (process.argv[1] && process.argv[1].includes("populate-service-slugs")) {
   try {
     await populateSlugs();
     process.exit(0);

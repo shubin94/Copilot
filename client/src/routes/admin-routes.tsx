@@ -1,4 +1,5 @@
-import { Route, Suspense, lazy, type ComponentType } from "react";
+import { Suspense, lazy, type ComponentType } from "react";
+import { Route } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AdminRoute } from "@/components/admin-route";
 

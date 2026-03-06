@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ServiceCard } from "@/components/home/service-card";
 import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
-import { computeServiceBadges } from "@/lib/service-badges";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
@@ -226,8 +225,6 @@ export function DetectiveSnippetGrid({
 
   const displayCountry = resolvedCountry || country || "";
   const displayCategory = resolvedCategory || category || "";
-  const displayState = resolvedState || state || "";
-  const displayCity = resolvedCity || city || "";
 
   const applySuggestion = (suggestion: AutocompleteSuggestion | null) => {
     if (suggestion?.type === "detective") {
@@ -275,12 +272,15 @@ export function DetectiveSnippetGrid({
     }
   };
 
-  // Each item is one service: badges from effectiveBadges only (order: Verified → Blue Tick → Pro → Recommended)
   const serviceCards = items.map((item) => {
-    const badgeState = computeServiceBadges({
-      isVerified: item.isVerified,
-      effectiveBadges: item.effectiveBadges,
-    });
+    // Compute badge state from detective properties - use 'as any' for snippet data type compatibility
+    const itemData = item as any;
+    const badgeState = {
+      showBlueTick: !!itemData.hasBlueTick,
+      showPro: itemData.level === 'level2' || itemData.level === 'pro',
+      showRecommended: false,
+      blueTickLabel: itemData.hasBlueTick ? 'Verified' : 'Unverified'
+    };
     return {
       id: item.serviceId,
       slug: item.slug,

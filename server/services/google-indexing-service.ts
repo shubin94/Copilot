@@ -6,10 +6,6 @@ import * as path from "path";
 // Action types for Google Indexing API
 export type IndexingAction = "URL_UPDATED" | "URL_DELETED";
 
-interface IndexingRequest {
-  url: string;
-  type: IndexingAction;
-}
 
 interface IndexingResponse {
   success: boolean;
@@ -212,5 +208,12 @@ export class GoogleIndexingService {
   }
 }
 
-// Export singleton instance
-export const googleIndexing = new GoogleIndexingService();
+// Lazy factory pattern - only initialize when first accessed
+let googleIndexingInstance: GoogleIndexingService | null = null;
+
+export function getGoogleIndexing(): GoogleIndexingService {
+  if (!googleIndexingInstance) {
+    googleIndexingInstance = new GoogleIndexingService();
+  }
+  return googleIndexingInstance;
+}

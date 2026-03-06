@@ -21,14 +21,14 @@ interface SEOProps {
   };
   structuredData?: {
     service?: {
-      price?: number;
-      offerPrice?: number;
+      price?: number | null;
+      offerPrice?: number | null;
       isOnEnquiry?: boolean;
-      category?: string;
-      city?: string;
-      country?: string;
-      detectiveName?: string;
-      detectiveLogo?: string;
+      category?: string | null;
+      city?: string | null;
+      country?: string | null;
+      detectiveName?: string | null;
+      detectiveLogo?: string | null;
     };
     faqs?: Array<{ question: string; answer: string }>;
     offers?: Array<Record<string, any>>;
@@ -76,7 +76,7 @@ export function SEO({
     };
 
     // Update title
-    const fullTitle = title.includes('|') ? title : `${title} | FindDetectives`;
+    const fullTitle = title.includes('|') ? title : `${title} | Ask Detectives`;
     document.title = fullTitle;
 
     // Helper to update or create meta tag
@@ -145,43 +145,8 @@ export function SEO({
     }
 
     // Build all schemas
+    // Note: Organization and WebSite schemas are now static in index.html only
     const allSchemas: Record<string, any>[] = [];
-    
-    // Organization schema (injected on all pages for brand consistency)
-    const organizationSchema = {
-      "@context": "https://schema.org",
-      "@type": "Organization",
-      "@id": "https://www.askdetectives.com/#organization",
-      "name": "FindDetectives",
-      "url": "https://www.askdetectives.com",
-      "logo": "https://www.askdetectives.com/favicon.png",
-      "description": "The leading marketplace for professional private investigation services",
-      "contactPoint": {
-        "@type": "ContactPoint",
-        "contactType": "customer service",
-        "email": "support@askdetectives.com",
-        "availableLanguage": ["English"]
-      },
-      "sameAs": [
-        "https://www.facebook.com/finddetectives",
-        "https://twitter.com/finddetectives"
-      ]
-    };
-    allSchemas.push(organizationSchema);
-
-    const websiteSchema = {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "@id": "https://www.askdetectives.com/#website",
-      "url": "https://www.askdetectives.com",
-      "name": "FindDetectives",
-      "potentialAction": {
-        "@type": "SearchAction",
-        "target": "https://www.askdetectives.com/search?q={search_term_string}",
-        "query-input": "required name=search_term_string"
-      }
-    };
-    allSchemas.push(websiteSchema);
     
     // Main schema(s) (if provided)
     if (schema) {
@@ -352,7 +317,7 @@ export function SEO({
     updateMeta('og:description', description, true);
     updateMeta('og:type', type, true);
     updateMeta('og:url', cleanCanonical, true);
-    updateMeta('og:site_name', 'FindDetectives', true);
+    updateMeta('og:site_name', 'Ask Detectives', true);
     updateMeta('og:locale', 'en_US', true);
     
     // Default OG image fallback
@@ -372,7 +337,7 @@ export function SEO({
 
     // Twitter
     updateMeta('twitter:card', 'summary_large_image');
-    updateMeta('twitter:site', '@FindDetectives');
+    updateMeta('twitter:site', '@AskDetectives');
     updateMeta('twitter:title', fullTitle);
     updateMeta('twitter:description', description);
     updateMeta('twitter:image', ogImage);

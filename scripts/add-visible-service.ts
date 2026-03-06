@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { db } from "../db/index.ts";
 import { users, detectives, services } from "../shared/schema.ts";
 import { eq, sql, desc } from "drizzle-orm";

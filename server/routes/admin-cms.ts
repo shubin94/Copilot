@@ -1,14 +1,14 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { pool } from "../../db/index.ts";
-import { uploadDataUrl } from "../supabase.ts";
-import { requireRole } from "../authMiddleware.ts";
+import { pool } from "../../db/index.js";
+import { uploadDataUrl } from "../supabase.js";
+import { requireRole } from "../authMiddleware.js";
 import {
   isImageBlock,
   parseContentBlocks,
   stringifyContentBlocks,
-} from "../../client/src/shared/content-blocks.ts";
+} from "../../shared/content-blocks.js";
 import {
   getCategories,
   getCategoryById,
@@ -23,13 +23,13 @@ import {
   createPage,
   updatePage,
   deletePage,
-} from "../storage/cms.ts";
-import * as cache from "../lib/cache.ts";
+} from "../storage/cms.js";
+import * as cache from "../lib/cache.js";
 
 const router = Router();
 
 // Prevent caching on admin endpoints - admin data must always be fresh
-router.use((req: Request, res: Response, next) => {
+router.use((_req: Request, res: Response, next) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
@@ -237,7 +237,7 @@ router.get("/tags", requireRole("admin", "employee"), async (req: Request, res: 
 });
 
 // DEBUG: GET /api/admin/tags/debug/all - Show all tags including duplicates
-router.get("/tags/debug/all", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+router.get("/tags/debug/all", requireRole("admin", "employee"), async (_req: Request, res: Response) => {
   // DEBUG endpoint disabled in production
   if (process.env.NODE_ENV === "production") {
     return res.status(403).json({ error: "Debug endpoint not available in production" });
@@ -407,8 +407,10 @@ router.get("/pages", requireRole("admin", "employee"), async (req: Request, res:
 
 // POST /api/admin/pages
 router.post("/pages", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+  const { title, slug, categoryId } = req.body;
+
   try {
-    const { title, slug, categoryId, content, bannerImage, tagIds, status, authorBio, authorSocial } = z
+    const parsed = z
       .object({
         title: z.string().min(1),
         slug: z.string().min(1),
@@ -422,14 +424,26 @@ router.post("/pages", requireRole("admin", "employee"), async (req: Request, res
       })
       .parse(req.body);
 
+    const {
+      title: validatedTitle,
+      slug: validatedSlug,
+      categoryId: validatedCategoryId,
+      content,
+      bannerImage,
+      tagIds,
+      status,
+      authorBio,
+      authorSocial,
+    } = parsed;
+
     // Check slug uniqueness
-    const existingPage = await pool.query("SELECT id FROM pages WHERE slug = $1", [slug]);
+    const existingPage = await pool.query("SELECT id FROM pages WHERE slug = $1", [validatedSlug]);
     if (existingPage.rows.length > 0) {
       return res.status(409).json({ error: "Slug already exists" });
     }
 
     // Verify category exists
-    const category = await getCategoryById(categoryId);
+    const category = await getCategoryById(validatedCategoryId);
     if (!category) {
       return res.status(400).json({ error: "Category not found" });
     }
@@ -477,7 +491,7 @@ router.post("/pages", requireRole("admin", "employee"), async (req: Request, res
     // Default to 'published' if no status provided
     const pageStatus = status || 'published';
 
-    const page = await createPage(title, slug, categoryId, uploadedContent || content, bannerImageUrl, tagIds, pageStatus, authorMeta);
+    const page = await createPage(validatedTitle, validatedSlug, validatedCategoryId, uploadedContent || content, bannerImageUrl, tagIds, pageStatus, authorMeta);
     if (!page) {
       console.error("[cms] Create page: returned null page");
       return res.status(500).json({ error: "Failed to create page" });
@@ -600,8 +614,9 @@ router.patch("/pages/:id", requireRole("admin", "employee"), async (req: Request
     res.json({ page });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      console.warn("[cms] Validation error updating page:", fromZodError(error).message);
-      return res.status(400).json({ error: fromZodError(error).message });
+      const errorMsg = (error as any).message || "Validation failed";
+      console.warn("[cms] Validation error updating page:", errorMsg);
+      return res.status(400).json({ error: errorMsg });
     }
     console.error("[cms] Update page error - system error:", error instanceof Error ? error.message : String(error));
     res.status(500).json({ error: "Failed to update page" });

@@ -13,14 +13,14 @@ export default function AdminDashboard() {
   const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
   const [, setLocation] = useLocation();
   const { data: summary, isLoading: isLoadingSummary } = useAdminDashboardSummary();
-  const isAdminOrEmployee = user?.role === "admin" || user?.role === "employee";
+  const isAdmin = user?.role === "admin";
 
   // Redirect if not authenticated or not admin
   useEffect(() => {
-    if (!isLoadingUser && (!isAuthenticated || !isAdminOrEmployee)) {
+    if (!isLoadingUser && (!isAuthenticated || !isAdmin)) {
       setLocation("/login");
     }
-  }, [isAuthenticated, isAdminOrEmployee, isLoadingUser, setLocation]);
+  }, [isAuthenticated, isAdmin, isLoadingUser, setLocation]);
 
   // Show loading state while checking authentication
   if (isLoadingUser) {
@@ -28,7 +28,7 @@ export default function AdminDashboard() {
   }
 
   // Don't render anything if not authenticated or not admin (will redirect)
-  if (!isAuthenticated || !isAdminOrEmployee) {
+  if (!isAuthenticated || !isAdmin) {
     return null;
   }
 

@@ -1,5 +1,5 @@
-import { pool } from "../../db/index.ts";
-import { config } from "../config.ts";
+import { pool } from "../../db/index.js";
+import { config } from "../config.js";
 
 async function seedPaymentGateways() {
   const existing = await pool.query(

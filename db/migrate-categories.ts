@@ -1,5 +1,5 @@
-import { db } from "./index";
-import { services, serviceCategories } from "../shared/schema.ts";
+import { db } from "./index.js";
+import { services, serviceCategories } from "../shared/schema.js";
 import { eq, sql } from "drizzle-orm";
 
 /**

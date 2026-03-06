@@ -1,4 +1,4 @@
-import "./lib/loadEnv";
+import "./lib/loadEnv.js";
 
 type NodeEnv = "production" | "development" | "test" | undefined;
 
@@ -70,18 +70,22 @@ export const config = {
       "CSRF_ALLOWED_ORIGINS",
       isProd
         ? [
+            // Production domains - all variations for Vercel fallback support
             "https://askdetectives.com",
             "https://www.askdetectives.com",
             "https://askdetectives1.vercel.app",
-            "https://copilot-06s5.onrender.com",
-            // Note: Vercel preview deployments are matched by server-side regex,
+            "https://api.askdetectives.com",
+            // Note: Vercel preview deployments (askdetectives1-*.vercel.app) are matched by regex below
             // do NOT store ephemeral preview URLs here.
           ]
         : [
+            // Development - all localhost variations for cross-origin API testing
             "http://localhost:5000",
             "http://127.0.0.1:5000",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
           ],
     ),
   },
@@ -151,4 +155,27 @@ export function validateConfig(secretsLoaded: boolean = true) {
 
   // Payment gateways: validated separately in validatePaymentGateways() after DB is available.
   // Gateways can be disabled via payment_gateways table; no hard requirement here.
+}
+
+// ✅ LAZY LOADING: Secrets (cache + promise deduplication)
+let _secretsLoadPromise: Promise<void> | null = null;
+
+export async function ensureSecrets(): Promise<void> {
+  // ✅ Promise caching: Prevent concurrent/duplicate loads
+  if (_secretsLoadPromise) {
+    return _secretsLoadPromise;
+  }
+
+  _secretsLoadPromise = (async () => {
+    try {
+      const { loadSecretsFromDatabase } = await import("./lib/secretsLoader.js");
+      await loadSecretsFromDatabase();
+      console.log("🔐 Secrets loaded (lazy pattern)");
+    } catch (error) {
+      console.error("[config] Failed to load secrets:", error);
+      // Don't throw - allow startup to continue with env fallbacks
+    }
+  })();
+
+  return _secretsLoadPromise;
 }

@@ -1,19 +1,43 @@
 import type { User, Detective, Service, Review, Order, DetectiveApplication, ProfileClaim, ServiceCategory, InsertDetective, InsertService, InsertReview, InsertOrder, InsertServiceCategory, InsertDetectiveApplication } from "@shared/schema";
 
-// API Base URL configuration for different environments
-const DEFAULT_DEV_API_BASE_URL = typeof window !== "undefined"
-  ? `${window.location.protocol}//${window.location.hostname}:5000`
-  : "http://127.0.0.1:5000";
+const VITE_ENV = ((import.meta as any)?.env ?? {}) as Record<string, any>;
+const VITE_API_URL = VITE_ENV.VITE_API_URL as string | undefined;
+const VITE_PORT = VITE_ENV.VITE_PORT as string | undefined;
+const IS_PROD = !!VITE_ENV.PROD;
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD
-    ? "https://copilot-06s5.onrender.com"
-    : DEFAULT_DEV_API_BASE_URL);
+// API Base URL configuration for different environments
+
+// Determine API base URL:
+// 1. Environment variable (VITE_API_URL) - highest priority
+// 2. All environments: Relative paths for same-origin /api
+const determineApiBaseUrl = (): string => {
+  // Priority 1: Environment variable (most reliable, set in Vercel dashboard)
+  if (VITE_API_URL) {
+    console.log('[API Config] ✅ Using VITE_API_URL:', VITE_API_URL);
+    return VITE_API_URL;
+  }
+
+  // Same-origin relative paths keep CSRF and session cookies aligned
+  if (IS_PROD) {
+    console.log('[API Config] 🌐 Production mode - using same-origin /api');
+  } else {
+    console.log('[API Config] 🛠️ Development mode - using same-origin /api');
+  }
+  return ""; // Empty string = relative paths like /api/user
+};
+
+export const API_BASE_URL = determineApiBaseUrl();
 
 export function buildApiUrl(path: string): string {
   if (path.startsWith("http")) return path;
+
   if (!path.startsWith("/")) return `${API_BASE_URL}/${path}`;
   return `${API_BASE_URL}${path}`;
+}
+
+// Always use same-origin proxy for auth/CSRF to keep cookies first-party.
+function buildProxyUrl(path: string): string {
+  return buildApiUrl(path);
 }
 
 class ApiError extends Error {
@@ -45,6 +69,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 60000): Promise<Response> {
+  console.log(`[API Request] ${options.method || 'GET'} ${url}`);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   
@@ -54,12 +79,49 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
+    console.log(`[API Response] ${response.status} ${url}`);
     return response;
   } catch (error: any) {
     clearTimeout(timeoutId);
+    
+    // Handle timeout errors
     if (error.name === 'AbortError') {
+      console.error(`[API Error] Request timeout: ${url}`);
       throw new ApiError(408, `Request timeout after ${timeout/1000} seconds. The file might be too large.`);
     }
+    
+    // Handle CORS errors specifically
+    if (error instanceof TypeError) {
+      const isNetworkError = error.message.includes('fetch') || error.message.includes('NetworkError');
+      const isCORSError = error.message.includes('CORS') || error.message.includes('cross-origin');
+      
+      if (isCORSError) {
+        console.error(`[API Error] CORS violation for ${url}:`, error.message);
+        console.error('[API Error] Backend CORS headers likely not configured for this origin');
+        
+        // In production, try fallback if not already activated
+        if (IS_PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
+          console.warn('[API Error] 🔄 Proxy CORS failed, activating direct backend URL fallback');
+          activateFallbackUrl();
+        }
+        
+        throw new ApiError(0, 'CORS error: Backend API not accessible from this origin. Check network or contact support.');
+      }
+      
+      if (isNetworkError) {
+        console.error(`[API Error] Network error for ${url}:`, error);
+        
+        // In production, if using relative paths and network fails, try fallback
+        if (IS_PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
+          console.warn('[API Error] 🔄 Proxy unavailable, activating fallback on next request');
+          activateFallbackUrl();
+        }
+        
+        throw new ApiError(503, 'Network error. Please check your internet connection.');
+      }
+    }
+    
+    console.error(`[API Error] ${url}:`, error);
     throw error;
   }
 }
@@ -100,7 +162,8 @@ export async function getOrFetchCsrfToken(): Promise<string> {
 
 // Central fetch wrapper that adds CSRF headers for mutation methods
 async function csrfFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const fullUrl = buildApiUrl(url);
+  const opts = options as RequestInit & { forceProxy?: boolean };
+  const fullUrl = opts.forceProxy ? buildProxyUrl(url) : buildApiUrl(url);
   
   const method = (options.method || "GET").toUpperCase();
   const requiresCSRF = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
@@ -112,14 +175,20 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
     headers.set("X-CSRF-Token", token);
   }
   options.headers = headers;
+  if (!options.credentials) {
+    options.credentials = "include";
+  }
 
   try {
-    return await fetch(fullUrl, options);
+    if (opts.forceProxy) {
+      delete (opts as { forceProxy?: boolean }).forceProxy;
+    }
+    return await fetch(fullUrl, opts);
   } catch (error: any) {
     // Improve error message for network failures (e.g., server not running)
     const errorMsg = error?.message || String(error);
     if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-      const port = import.meta.env.VITE_PORT || window.location.port || '5000';
+      const port = VITE_PORT || window.location.port || '5000';
       throw new Error(`Cannot reach API server at ${fullUrl}. Is the server running on port ${port}? Check: npm run dev`);
     }
     throw error;
@@ -128,10 +197,11 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
 
 export const api = {
   // Generic HTTP methods for flexible API calls
-  get: async <T = any>(url: string): Promise<T> => {
+  get: async <T = any>(url: string, options: RequestInit & { forceProxy?: boolean } = {}): Promise<T> => {
     const response = await csrfFetch(url, {
       method: "GET",
       credentials: "include",
+      ...options,
     });
     return handleResponse(response);
   },
@@ -219,9 +289,9 @@ export const api = {
           keepalive: true,
           signal: controller.signal,
         });
-        const data = await handleResponse(response);
-        // CSRF token is generated once by /api/csrf-token and reused for entire session
-        // Do NOT clear it after login - preserve the same token
+        const data = await handleResponse<{ user?: User; applicant?: { email: string; status: string }; csrfToken?: string }>(response);
+        // Session regeneration invalidates CSRF token; force refresh on next mutation
+        clearCsrfToken();
         return data;
       } catch (err: any) {
         if (err?.name === "AbortError") {
@@ -234,69 +304,79 @@ export const api = {
     },
 
     logout: async (): Promise<{ message: string }> => {
-      const response = await csrfFetch(buildApiUrl("/api/auth/logout"), {
+      const response = await csrfFetch("/api/auth/logout", {
         method: "POST",
         headers: { "X-Requested-With": "XMLHttpRequest" },
         credentials: "include",
       });
-      const result = await handleResponse(response);
+      const result = await handleResponse<{ message: string }>(response);
       clearCsrfToken();
       return result;
     },
 
     me: async (): Promise<{ user?: User | null }> => {
       try {
-        const response = await csrfFetch(buildApiUrl("/api/auth/me"), {
+        console.debug('[api.auth.me] Calling /api/auth/me endpoint');
+        const response = await csrfFetch("/api/auth/me", {
           credentials: "include",
         });
+        
+        console.debug('[api.auth.me] Response status:', response.status);
+        
         if (response.status === 401 || response.status === 403) {
+          console.debug('[api.auth.me] User not authenticated - returning null');
           return { user: null } as any;
         }
-        return handleResponse(response);
+        
+        const result = await handleResponse<{ user?: User | null }>(response);
+        console.debug('[api.auth.me] Auth successful - user data:', (result as any)?.user?.email || 'no email');
+        return result;
       } catch (err: any) {
         if (err?.name === "AbortError" || /network|fetch|failed|suspend/i.test(String(err?.message || ""))) {
+          console.warn('[api.auth.me] Network error - returning null');
           return { user: null } as any;
         }
+        console.error('[api.auth.me] Unexpected error:', err);
         throw err;
       }
     },
 
     changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
-      const response = await csrfFetch(buildApiUrl("/api/auth/change-password"), {
+      const response = await csrfFetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ currentPassword, newPassword }),
         credentials: "include",
       });;
-      return handleResponse(response);
+      return handleResponse<{ message: string }>(response);
     },
 
     setPassword: async (newPassword: string): Promise<{ message: string }> => {
-      const response = await csrfFetch(buildApiUrl("/api/auth/set-password"), {
+      const response = await csrfFetch("/api/auth/set-password", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ newPassword }),
         credentials: "include",
       });;
       if (!response.ok) {
-        return handleResponse(response);
+        return handleResponse<{ message: string }>(response);
       }
       const ct = response.headers.get("content-type") || "";
       if (ct.includes("application/json")) {
-        return handleResponse(response);
+        return handleResponse<{ message: string }>(response);
       }
       const text = await response.text();
       return { message: text || "Password set successfully" };
     },
 
     register: async (email: string, password: string, name: string): Promise<{ user: User }> => {
-      const response = await csrfFetch(buildApiUrl("/api/auth/register"), {
+      const response = await csrfFetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ email, password, name }),
         credentials: "include",
       });
-      const data = await handleResponse(response);
+      const data = await handleResponse<{ user: User }>(response);
       // After register, the backend regenerates the session and issues a new CSRF token
       // Always clear cache and let next request fetch fresh token
       clearCsrfToken();
@@ -305,7 +385,11 @@ export const api = {
   },
 
   detectives: {
-    getCurrent: async (): Promise<{ detective: Detective & { email?: string } }> => {
+    getCurrent: async (): Promise<{ detective: Detective & { 
+      email?: string;
+      subscriptionPackage?: any;
+      pendingPackage?: any;
+    } }> => {
       const response = await csrfFetch(buildApiUrl("/api/detectives/me"), {
         credentials: "include",
       });
@@ -319,14 +403,14 @@ export const api = {
       return handleResponse(response);
     },
 
-    getById: async (id: string): Promise<{ detective: Detective }> => {
+    getById: async (id: string): Promise<{ detective: Detective & { subscriptionPackage?: any } }> => {
       const response = await csrfFetch(`/api/detectives/${id}`, {
         credentials: "include",
       });
       return handleResponse(response);
     },
 
-    getBySlug: async (country: string, state: string, city: string, slug: string): Promise<{ detective: Detective }> => {
+    getBySlug: async (country: string, state: string, city: string, slug: string): Promise<{ detective: Detective & { subscriptionPackage?: any } }> => {
       const response = await csrfFetch(`/api/detectives/${country}/${state}/${city}/${slug}`, {
         credentials: "include",
       });
@@ -361,7 +445,9 @@ export const api = {
         const result = await handleResponse<{ detectives: Detective[]; total?: number }>(response);
         if (Array.isArray(result?.detectives) && result.detectives.length === 0) {
           try {
-            const adminResp = await csrfFetch(`/api/admin/detectives/raw`, { credentials: "include" });
+            const adminResp = await csrfFetch(`/api/admin/detectives/raw`, {
+              credentials: "include",
+            });
             if (adminResp.ok) {
               const adminData = await adminResp.json();
               if (Array.isArray(adminData?.detectives) && adminData.detectives.length > 0) {
@@ -453,7 +539,9 @@ export const api = {
       return handleResponse(response);
     },
     adminGetAll: async (): Promise<{ plans: any[] }> => {
-      const response = await csrfFetch(`/api/admin/subscription-plans`, { credentials: "include" });
+      const response = await csrfFetch(`/api/admin/subscription-plans`, {
+        credentials: "include",
+      });
       return handleResponse(response);
     },
     create: async (data: any): Promise<{ plan: any }> => {
@@ -559,8 +647,11 @@ export const api = {
       return handleResponse(response);
     },
 
-    getFeaturedHome: async (): Promise<{ services: Service[] }> => {
-      const response = await csrfFetch(`/api/services/featured/home`, {
+    getFeaturedHome: async (country?: string): Promise<{ services: Service[] }> => {
+      const queryParams = new URLSearchParams();
+      if (country) queryParams.append("country", country);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+      const response = await csrfFetch(`/api/services/featured/home${qs}`, {
         credentials: "include",
       });
       return handleResponse(response);

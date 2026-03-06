@@ -6,10 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { Lock, Save, AlertCircle, AlertTriangle } from "lucide-react";
+import { Lock, AlertCircle, AlertTriangle } from "lucide-react";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/user-context";
 import { useLocation } from "wouter";
 
@@ -122,7 +121,6 @@ const SECRET_GROUPS: SecretGroup[] = [
 
 export default function AdminAppSecrets() {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
   const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
   const [, setLocation] = useLocation();
   const [secrets, setSecrets] = useState<SecretItem[]>([]);
@@ -139,14 +137,10 @@ export default function AdminAppSecrets() {
   }, [isAuthenticated, user, isLoadingUser, setLocation]);
 
   useEffect(() => {
-    // Force fresh auth check to ensure we're using the current admin account
-    // This prevents showing stale cached user data from a different session
-    queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-    // Only fetch secrets if user is authenticated and admin
     if (isAuthenticated && user?.role === "admin") {
       fetchSecrets();
     }
-  }, [queryClient, isAuthenticated, user]);
+  }, [isAuthenticated, user?.role]);
 
   const fetchSecrets = async () => {
     try {

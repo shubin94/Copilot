@@ -16,21 +16,15 @@
  */
 
 import nodemailer from "nodemailer";
-import { config } from "../config.ts";
-import { db } from "../../db/index.ts";
-import { emailTemplates } from "../../shared/schema.ts";
+import { config } from "../config.js";
+import { db } from "../../db/index.js";
+import { emailTemplates } from "../../shared/schema.js";
 import { eq } from "drizzle-orm";
 
 interface EmailVariable {
   [key: string]: string | number | boolean | null | undefined;
 }
 
-interface SendEmailOptions {
-  to: string;
-  templateKey: string;
-  variables: EmailVariable;
-  replyTo?: string;
-}
 
 class SMTPEmailService {
   private templates: Map<string, { subject: string; body: string }> = new Map();
@@ -73,7 +67,7 @@ class SMTPEmailService {
     for (const [key, value] of Object.entries(variables)) {
       const placeholder = `{{${key}}}`;
       const replacement = value != null ? String(value) : "";
-      result = result.replaceAll(placeholder, replacement);
+      result = result.split(placeholder).join(replacement);
     }
 
     return result;
@@ -268,8 +262,15 @@ class SMTPEmailService {
   }
 }
 
-// Export singleton instance
-export const smtpEmailService = new SMTPEmailService();
+// Lazy factory pattern - only initialize when first accessed
+let smtpEmailServiceInstance: SMTPEmailService | null = null;
+
+export function getSmtpEmailService(): SMTPEmailService {
+  if (!smtpEmailServiceInstance) {
+    smtpEmailServiceInstance = new SMTPEmailService();
+  }
+  return smtpEmailServiceInstance;
+}
 
 /**
  * Template key constants (matches database email_templates.key column)

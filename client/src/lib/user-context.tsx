@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode, useState, useEffect } from "react";
+import { createContext, useContext, ReactNode, useState, useEffect } from "react";
 import { useAuth } from "./hooks";
 import { api } from "./api";
 import { useQueryClient } from "@tanstack/react-query";
@@ -20,12 +20,13 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export function UserProvider({ children }: { children: ReactNode }) {
-  const { data, isLoading } = useAuth();
+  const { data, isLoading, isFetching } = useAuth();
   const queryClient = useQueryClient();
   const [favorites, setFavorites] = useState<FavoriteServiceId[]>([]);
   
   const user = data?.user || null;
   const isAuthenticated = !!user;
+  const isAuthLoading = isLoading || isFetching;
 
   useEffect(() => {
     const stored = localStorage.getItem("favorites");
@@ -86,7 +87,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <UserContext.Provider value={{ user, isLoading, isAuthenticated, favorites, isFavorite, toggleFavorite, logout }}>
+    <UserContext.Provider value={{ user, isLoading: isAuthLoading, isAuthenticated, favorites, isFavorite, toggleFavorite, logout }}>
       {children}
     </UserContext.Provider>
   );

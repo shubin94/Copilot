@@ -1,6 +1,6 @@
 import "../server/lib/loadEnv.ts";
-import { db } from "./index.ts";
-import { accessPages } from "../shared/schema";
+import { db } from "./index.js";
+import { accessPages } from "../shared/schema.js";
 import { eq } from "drizzle-orm";
 
 /**

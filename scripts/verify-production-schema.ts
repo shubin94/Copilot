@@ -5,7 +5,7 @@
  * to ensure production readiness.
  */
 
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { db } from "../db/index";
 import { sql } from "drizzle-orm";
 import * as fs from "node:fs";

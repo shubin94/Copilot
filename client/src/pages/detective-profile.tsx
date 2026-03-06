@@ -4,18 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Star, Mail, Phone, MessageCircle, ShieldCheck, AlertTriangle, FileText, Heart, Loader2, ChevronLeft } from "lucide-react";
+import { Star, Mail, Phone, MessageCircle, ShieldCheck, AlertTriangle, FileText, Heart, ChevronLeft } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useCurrency } from "@/lib/currency-context";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/user-context";
-import { useService, useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
+import { useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
@@ -23,12 +22,10 @@ import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { ServiceFAQ, getServiceFAQs } from "@/components/service-faq";
-import { buildServiceUrl } from "@/lib/slug-utils";
+import { buildServiceUrl, getCountryName } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
-import { format } from "date-fns";
-import type { Review, User } from "@shared/schema";
-import { computeServiceBadges } from "@/lib/service-badges";
 import { getDetectiveProfileUrl } from "@/lib/utils";
+import { format } from "date-fns";
 
 export default function DetectiveProfile() {
   const [, params] = useRoute("/service/:country/:state/:city/:detectiveSlug/:serviceSlug");
@@ -40,11 +37,12 @@ export default function DetectiveProfile() {
   const isPreview = previewParam === "1" || previewParam === "true";
   const { data: serviceData, isLoading: isLoadingService, error: serviceError } = useServiceBySlug(serviceSlug, detectiveSlug, isPreview);
   const detectiveIdForServices = serviceData?.detective?.id;
-  const { data: servicesByDetective } = useServicesByDetective(detectiveIdForServices);
+  useServicesByDetective(detectiveIdForServices);
   const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceData?.service?.id);
-  const { data: relatedServicesData } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 2);
+  const { data: relatedServicesData, isLoading: isLoadingRelatedServices } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 2);
   
   let selectedCountry = null;
+  const serviceId = serviceData?.service?.id;
   let formatPriceFromTo = null;
   try {
     const currencyContext = useCurrency();
@@ -67,17 +65,22 @@ export default function DetectiveProfile() {
   const submitReview = useMutation({
     mutationFn: async () => {
       if (existingUserReview?.id) {
-        return api.reviews.update(existingUserReview.id, { rating, comment });
+        return api.reviews.update(existingUserReview.id, { userId: user!.id, rating, comment });
       }
-      return api.reviews.create({ serviceId: serviceId!, rating, comment });
+      return api.reviews.create({ 
+        userId: user!.id, 
+        serviceId: serviceId!, 
+        rating, 
+        comment 
+      });
     },
     onSuccess: () => {
       // Invalidate review queries
-      queryClient.invalidateQueries({ queryKey: ["reviews", "service", serviceId] });
+      queryClient.invalidateQueries({ queryKey: ["reviews", "service", serviceId!] });
       queryClient.invalidateQueries({ queryKey: ["reviews", "detective"] });
       
       // CRITICAL: Invalidate service data so service detail page shows updated avgRating/reviewCount
-      queryClient.invalidateQueries({ queryKey: ["services", serviceId] });
+      queryClient.invalidateQueries({ queryKey: ["services", serviceId!] });
       
       setRating(5);
       setComment("");
@@ -200,8 +203,6 @@ export default function DetectiveProfile() {
 
   const isClaimable = detective.isClaimable && !detective.isClaimed;
   // Use actual subscription package name, not legacy subscriptionPlan field
-  const subscriptionPackage = (detective as any).subscriptionPackage;
-  const detectiveTier = subscriptionPackage?.name || detective.subscriptionPlan || "free";
   const recognitionAllowed = Array.isArray((detective as any)?.subscriptionPackage?.features)
     ? (detective as any).subscriptionPackage.features.includes("recognition")
     : false;
@@ -209,24 +210,28 @@ export default function DetectiveProfile() {
     ? (detective as any).subscriptionPackage.features.includes("contact_whatsapp")
     : false;
   const detectiveName = detective.businessName || "Unknown Detective";
-  const badgeState = computeServiceBadges({
-    isVerified: detective.isVerified,
-    effectiveBadges: (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
-  });
+  const badgeState = {
+    showBlueTick: detective.hasBlueTick || false,
+    showPro: detective.level === 'level2' || detective.level === 'pro' || false,
+    showRecommended: false,
+    blueTickLabel: detective.hasBlueTick ? 'Verified' : 'Unverified'
+  };
   
   const memberSince = format(new Date(detective.memberSince), "MMMM yyyy");
   
+  const displayCountryName = detective.country ? getCountryName(detective.country) : "India";
+
   // SEO: Generate keywords from service data
-  const locationText = detective.city && detective.country 
-    ? `${detective.city}, ${detective.country}` 
-    : detective.country || "India";
+  const locationText = detective.city && displayCountryName 
+    ? `${detective.city}, ${displayCountryName}` 
+    : displayCountryName || "India";
   
   const seoKeywords = [
     service.category || "detective services",
     service.title,
     detectiveName,
     detective.city || "",
-    detective.country || "India",
+    displayCountryName || "India",
     "private investigator",
     "investigation services",
     detective.isVerified ? "verified detective" : ""
@@ -260,7 +265,7 @@ export default function DetectiveProfile() {
   
   // SEO: Enhanced H1 with location for better ranking
   const seoH1 = detective.city 
-    ? `${service.title} in ${detective.city}, ${detective.country || "India"} - ${detectiveName}`
+    ? `${service.title} in ${detective.city}, ${displayCountryName || "India"} - ${detectiveName}`
     : `${service.title} by ${detectiveName}`;
   
   // SEO: Generate FAQs for schema
@@ -275,7 +280,7 @@ export default function DetectiveProfile() {
     {
       businessName: detectiveName,
       city: detective.city,
-      country: detective.country,
+      country: displayCountryName,
       phone: detective.phone,
       whatsapp: detective.whatsapp,
       contactEmail: detective.contactEmail
@@ -319,10 +324,19 @@ export default function DetectiveProfile() {
     "name": detectiveName,
     "image": serviceImage || detectiveLogo || "",
     "description": service.description,
+    "url": canonicalUrl,
+    "serviceType": service.category || "Private Investigation",
+    "areaServed": locationText ? { "@type": "Place", "name": locationText } : undefined,
+    "provider": {
+      "@type": "Organization",
+      "name": detectiveName,
+      "url": `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`,
+    },
     "address": {
       "@type": "PostalAddress",
-      "addressLocality": detective.location,
-      "addressCountry": detective.country
+      ...(detective.city ? { "addressLocality": detective.city } : {}),
+      ...(detective.state ? { "addressRegion": detective.state } : {}),
+      ...(displayCountryName ? { "addressCountry": displayCountryName } : {})
     },
     "aggregateRating": reviewCount > 0 ? {
       "@type": "AggregateRating",
@@ -335,8 +349,8 @@ export default function DetectiveProfile() {
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900">
       <SEO 
-        title={`${service.title} by ${detectiveName}`}
-        description={service.description.slice(0, 155)}
+        title={`${service.title} in ${locationText} | Ask Detectives`}
+        description={`${service.title} in ${locationText}. ${service.description.slice(0, 140)}`}
         image={serviceImage || detectiveLogo || ""}
         type="profile"
         keywords={seoKeywords}
@@ -357,8 +371,8 @@ export default function DetectiveProfile() {
           },
           faqs: serviceFaqs
         }}
-        publishedTime={service.createdAt}
-        modifiedTime={service.updatedAt}
+        publishedTime={service.createdAt instanceof Date ? service.createdAt.toISOString() : service.createdAt}
+        modifiedTime={service.updatedAt instanceof Date ? service.updatedAt.toISOString() : service.updatedAt}
       />
       <Navbar />
       
@@ -442,7 +456,7 @@ export default function DetectiveProfile() {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <img 
-                          src="/pro.png" 
+                          src="/crown.png" 
                           alt="Pro" 
                           className="h-5 w-5 flex-shrink-0 cursor-help"
                           title="Pro"
@@ -628,26 +642,38 @@ export default function DetectiveProfile() {
                   )}
                 </Avatar>
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-2xl font-bold font-heading text-gray-900" data-testid="text-detective-name-heading">
-                      <Link href={getDetectiveProfileUrl(detective)}>
-                        <span className="hover:underline cursor-pointer">{detectiveName}</span>
-                      </Link>
-                    </h3>
-                    {/* Inline badges: Blue Tick → Pro → Recommended (Blue Tick & Pro icons, Recommended text) */}
-                    {(detective.isVerified || (detective as { effectiveBadges?: { blueTick?: boolean } })?.effectiveBadges?.blueTick) && (
-                      <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title="Verified" data-testid="badge-verified-inline" />
-                    )}
-                    {(detective as { effectiveBadges?: { pro?: boolean } })?.effectiveBadges?.pro && (
-                      <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" data-testid="badge-pro-inline" />
-                    )}
-                    {(detectiveTier === "agency" || (detective as { effectiveBadges?: { recommended?: boolean } })?.effectiveBadges?.recommended) && (
-                      <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-agency-inline">
-                        Recommended
-                      </Badge>
-                    )}
-                  </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4 text-sm">
+                  {(() => {
+                    const badgeState = {
+                      showBlueTick: detective.hasBlueTick || false,
+                      showPro: detective.level === 'pro' || detective.level === 'level2' || false,
+                      showRecommended: false,
+                      blueTickLabel: detective.hasBlueTick ? 'Verified' : 'Unverified'
+                    };
+
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-2xl font-bold font-heading text-gray-900" data-testid="text-detective-name-heading">
+                          <Link href={getDetectiveProfileUrl(detective)}>
+                            <span className="hover:underline cursor-pointer">{detectiveName}</span>
+                          </Link>
+                        </h3>
+                        {/* Inline badges: Blue Tick → Pro → Recommended (using unified badge computation) */}
+                        {badgeState.showBlueTick && (
+                          <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title={badgeState.blueTickLabel} data-testid="badge-verified-inline" width={5} height={5} />
+                        )}
+                        {badgeState.showPro && (
+                          <img src="/crown.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" data-testid="badge-pro-inline" width={5} height={5} />
+                        )}
+                        {badgeState.showRecommended && (
+                          <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-agency-inline">
+                            Recommended
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })()}
+                
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4 text-sm">
                     <div>
                       <span className="text-gray-500 block">From</span>
                       <span className="font-bold" data-testid="text-location">{detective.location || detective.country}</span>
@@ -844,12 +870,11 @@ export default function DetectiveProfile() {
             </section>
 
             {/* Related Services Section - SEO Internal Linking */}
-            {relatedServicesData && relatedServicesData.length > 0 && (
-              <RelatedServices 
-                services={relatedServicesData}
-                currentServiceTitle={service.title}
-              />
-            )}
+            <RelatedServices 
+              services={relatedServicesData || []}
+              isLoading={isLoadingRelatedServices}
+              currentServiceTitle={service.title}
+            />
 
           </div>
 

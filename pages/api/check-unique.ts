@@ -1,7 +1,7 @@
 // API endpoint to check if email or phone is already taken
 // Usage: /api/check-unique?email=...&phone=...
 import { NextApiRequest, NextApiResponse } from "next";
-import { db } from "../../server/db/index";
+import { db } from "../../server/db/index.js";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { email, phone } = req.query;

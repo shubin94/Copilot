@@ -2,15 +2,15 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createHash, randomBytes } from "node:crypto";
 import crypto from "crypto";
 import { createServer, type Server } from "http";
-import rateLimit from "express-rate-limit";
-import { storage } from "./storage.ts";
-import { sendClaimApprovedEmail } from "./email.ts";
-import { smtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.ts";
-import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.ts";
-import bcrypt from "bcrypt";
 import Razorpay from "razorpay";
-import { db, pool } from "../db/index.ts";
-import { eq, and, desc, avg, count, min, ilike } from "drizzle-orm";
+import rateLimit from "express-rate-limit";
+import { storage, generateSlug } from "./storage.js";
+import { sendClaimApprovedEmail } from "./email.js";
+import { getSmtpEmailService, EMAIL_TEMPLATE_KEYS } from "./services/smtpEmailService.js";
+import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./services/claimTokenService.js";
+import bcrypt from "bcrypt";
+import { db, pool } from "../db/index.js";
+import { eq, and, or, desc, avg, count, ilike, sql, isNotNull } from "drizzle-orm";
 import {
   detectives,
   countries,
@@ -20,7 +20,6 @@ import {
   users,
   claimTokens,
   passwordResetTokens,
-  emailTemplates,
   detectiveSnippets,
   appSecrets,
   services,
@@ -35,56 +34,49 @@ import {
   insertDetectiveApplicationSchema,
   insertProfileClaimSchema,
   insertServiceCategorySchema,
-  updateUserSchema,
   updateDetectiveSchema,
   updateServiceSchema,
   updateReviewSchema,
   updateOrderSchema,
   updateServiceCategorySchema,
   updateSiteSettingsSchema,
-  type User
-} from "../shared/schema.ts";
+  type Detective
+} from "../shared/schema.js";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
-import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.ts";
-import { config } from "./config.ts";
-import { bodyParsers } from "./app.ts";
-import * as cache from "./lib/cache.ts";
-import { runSmartSearch } from "./lib/smart-search.ts";
-import { getCurrencyForCountry, getEffectiveCurrency } from "../client/src/lib/country-currency-map.ts";
-import { WORLD_COUNTRIES } from "../client/src/lib/world-countries.ts";
-import { Country, State, City } from "country-state-city";
-import pkg from "pg";
-const { Pool } = pkg;
-import { requirePolicy } from "./policy.ts";
-import { requireAuth, requireRole } from "./authMiddleware.ts";
-import { getPaymentGateway, isPaymentGatewayEnabled } from "./services/paymentGateway.ts";
-import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.ts";
-import { paymentGatewayRoutes } from "./routes/paymentGateways.ts";
-import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.ts";
-import adminCmsRouter from "./routes/admin-cms.ts";
-import adminFinanceRouter from "./routes/admin-finance.ts";
-import adminEmployeesRouter from "./routes/admin/employees.ts";
-import publicPagesRouter from "./routes/public-pages.ts";
-import publicCategoriesRouter from "./routes/public-categories.ts";
-import publicTagsRouter from "./routes/public-tags.ts";
-import sitemapRouter from "./routes/sitemap.ts";
-import rssRouter from "./routes/rss.ts";
-import llmsTxtRouter from "./routes/llms-txt.ts";
-import featuredHomeServicesRouter from "./routes/featured-home-services.ts";
-import { googleIndexing } from "./services/google-indexing-service.ts";
+import { config } from "./config.js";
+import { bodyParsers } from "./app.js";
+import * as LocationService from "./services/locationService.js";
+import * as cache from "./lib/cache.js";
+import { getLocationDetectivesForSEO } from "./lib/seo-injection.js";
+import { runSmartSearch } from "./lib/smart-search.js";
+import { getCurrencyForCountry, getEffectiveCurrency } from "../shared/country-currency-map.js";
+// import pkg from "pg"; // Unused
+import { requirePolicy } from "./policy.js";
+import { requireAuth, requireRole } from "./authMiddleware.js";
+import { paymentGatewayRoutes } from "./routes/paymentGateways.js";
+import { registerLocationRoutes } from "./routes/locationRoutes.js";
+import { registerPaymentRoutes } from "./routes/paymentRoutes.js";
+import { clearFreePlanCache, getFreePlanId } from "./services/freePlan.js";
+import { getPaymentGateway } from "./services/paymentGateway.js";
+import { createPayPalOrder, capturePayPalOrder, verifyPayPalCapture } from "./services/paypal.js";
+import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.js";
+import { uploadDataUrl, deletePublicUrl, parsePublicUrl } from "./supabase.js";
+import adminCmsRouter from "./routes/admin-cms.js";
+import adminFinanceRouter from "./routes/admin-finance.js";
+import adminEmployeesRouter from "./routes/admin/employees.js";
+import publicPagesRouter from "./routes/public-pages.js";
+import publicCategoriesRouter from "./routes/public-categories.js";
+import publicTagsRouter from "./routes/public-tags.js";
+// import sitemapRouter from "./routes/sitemap.js"; // Unused
+// import rssRouter from "./routes/rss.js"; // Unused
+import llmsTxtRouter from "./routes/llms-txt.js";
+import featuredHomeServicesRouter from "./routes/featured-home-services.js";
+import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
+import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.js";
+import { getGoogleIndexing } from "./services/google-indexing-service.js";
 
 // Utility function to generate URL-safe slugs from text
-const generateSlug = (text: string): string => {
-  if (!text) return "unknown";
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "") // Remove special chars
-    .replace(/\s+/g, "-") // Replace spaces with hyphens
-    .replace(/-+/g, "-") // Replace multiple hyphens with single
-    .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
-};
 
 // Country code to name mapping for URL handling
 const COUNTRY_CODE_MAP: Record<string, string> = {
@@ -147,40 +139,42 @@ function getCountryCode(countryNameOrSlug: string): string {
   return countryNameOrSlug.toUpperCase();
 }
 
-// Initialize Razorpay with env fallback (will be overridden by DB config)
-let razorpayClient = new Razorpay({
-  key_id: config.razorpay.keyId || "dummy",
-  key_secret: config.razorpay.keySecret || "dummy",
-});
+// Razorpay client initialization has been moved to server/routes/paymentRoutes.ts
 
-// Helper to get/refresh Razorpay client from database
-async function getRazorpayClient() {
-  const gateway = await getPaymentGateway('razorpay');
-  
-  if (!gateway) {
-    console.warn('[Razorpay] Gateway not enabled, falling back to env config');
-    return razorpayClient;
+let razorpayClient: Razorpay | null = null;
+
+function getDefaultRazorpayClient(): Razorpay {
+  if (!razorpayClient) {
+    razorpayClient = new Razorpay({
+      key_id: config.razorpay.keyId || "dummy",
+      key_secret: config.razorpay.keySecret || "dummy",
+    });
   }
-  
-  // Reinitialize with DB config
-  const dbClient = new Razorpay({
+  return razorpayClient;
+}
+
+async function getRazorpayClient() {
+  const gateway = await getPaymentGateway("razorpay");
+  if (!gateway) {
+    return getDefaultRazorpayClient();
+  }
+
+  return new Razorpay({
     key_id: gateway.config.keyId || config.razorpay.keyId,
     key_secret: gateway.config.keySecret || config.razorpay.keySecret,
   });
-  
-  console.log(`[Razorpay] Using ${gateway.is_test_mode ? 'TEST' : 'LIVE'} mode from database`);
-  return dbClient;
 }
 
-// Extend Express Session
-declare module "express-session" {
-  interface SessionData {
-    userId: string;
-    userRole: string;
-    csrfToken?: string;
-    csrfTokenGeneratedAt?: number;
-    oauthState?: string;
-    oauthStateGeneratedAt?: number;
+async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: string): Promise<void> {
+  const detective = await storage.getDetective(detectiveId);
+  if (!detective) {
+    throw new Error(`Detective not found: ${detectiveId}`);
+  }
+
+  if (detective.blueTickAddon || detective.hasBlueTick) {
+    const conflictError = new Error("Blue Tick already active");
+    Object.assign(conflictError, { statusCode: 409, provider });
+    throw conflictError;
   }
 }
 
@@ -249,54 +243,21 @@ async function applyPendingDowngrades(detective: any): Promise<any> {
   return detective;
 }
 
-import { applyPackageEntitlements, computeEffectiveBadges } from "./services/entitlements.ts";
-
-// GUARD: Enforce no duplicate Blue Tick add-on purchases
-// Block if detective already has Blue Tick (from add-on OR subscription)
-async function assertBlueTickNotAlreadyActive(detectiveId: string, provider: string): Promise<void> {
-  const detective = await storage.getDetective(detectiveId);
-  
-  if (!detective) {
-    throw new Error(`Detective not found: ${detectiveId}`);
-  }
-  
-  const hasAddon = (detective as any).blueTickAddon === true;
-  const hasFromPackage = detective.hasBlueTick === true;
-  if (hasAddon || hasFromPackage) {
-    console.error(`[BLUE_TICK_GUARD] Duplicate attempt blocked`, {
-      detectiveId,
-      provider,
-      blueTickAddon: hasAddon,
-      hasBlueTick: hasFromPackage,
-    });
-    
-    const error = new Error("Blue Tick already active");
-    (error as any).statusCode = 409; // Conflict
-    throw error;
-  }
-  
-  const existingOrder = await storage.getPaymentOrdersByDetectiveId?.(detectiveId)
-    ?.then((orders: any[]) => 
-      orders.find((o: any) => 
-        o.status !== "verified" && 
-        (o.plan === "blue_tick_addon" || o.plan === "blue-tick" || o.packageId === "blue-tick")
-      )
-    ) || null;
-  
-  if (existingOrder) {
-    console.warn(`[BLUE_TICK_GUARD] Existing unpaid Blue Tick order found`, {
-      detectiveId,
-      orderId: existingOrder.id,
-      status: existingOrder.status,
-    });
-    
-    const error = new Error("Blue Tick payment already in progress");
-    (error as any).statusCode = 409; // Conflict
-    throw error;
-  }
-}
+// Blue Tick validation helper has been moved to server/routes/paymentRoutes.ts
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  console.log('[DEBUG] registerRoutes() called');
+  
+  // Keep startup non-blocking: defer SMTP service creation until first email send
+  const smtpEmailService = {
+    sendTransactionalEmail: (
+      ...args: Parameters<ReturnType<typeof getSmtpEmailService>["sendTransactionalEmail"]>
+    ) => getSmtpEmailService().sendTransactionalEmail(...args),
+    sendAdminEmail: (
+      ...args: Parameters<ReturnType<typeof getSmtpEmailService>["sendAdminEmail"]>
+    ) => getSmtpEmailService().sendAdminEmail(...args),
+  };
+  
   const setNoStore = (res: Response) => {
     // Private, no-store, no-cache for authenticated/sensitive user data
     res.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
@@ -397,7 +358,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return 2;
   }
 
-  async function maskDetectiveContactsPublic(d: any, planCache?: { get: (name: string) => Promise<any> }): Promise<any> {
+  async function maskDetectiveContactsPublic(d: any, _planCache?: { get: (name: string) => Promise<any> }): Promise<any> {
     try {
       // TODO: Remove in v3.0 - This is a legacy plan name check that will be removed
       // Runtime assertion: Detect legacy plan name usage
@@ -512,27 +473,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
   
-  // Seed a sample subscription plan if none exist
-  try {
-    const existingPlans = await storage.getAllSubscriptionPlans(false);
-    if (!Array.isArray(existingPlans) || existingPlans.length === 0) {
-      await storage.createSubscriptionPlan({
-        name: "pro",
-        displayName: "Pro",
-        monthlyPrice: "29",
-        yearlyPrice: "290",
-        description: "Enhanced tools and contact visibility.",
-        features: ["contact_email", "contact_phone", "contact_whatsapp"],
-        badges: { pro: true },
-        serviceLimit: 4,
-        isActive: true,
-      });
-      console.log("[seed] Created sample subscription plan: pro");
-    }
-  } catch (e) {
-    console.error("[seed] Failed to seed subscription plan:", e);
-  }
-  
   // ============== BODY PARSER APPLICATION - APPLIED PER-ROUTE ==============
   // Body parsers are applied selectively to routes that need them:
   // - authLimit (10KB) for /api/auth/* endpoints
@@ -543,7 +483,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== BODY PARSER FOR AUTH ENDPOINTS ==============
   // Apply auth-specific body parser (10KB limit) to all /api/auth routes
-  app.use("/api/auth", bodyParsers.auth.json, bodyParsers.auth.urlencoded);
+  // Skip body parsing for GET/HEAD requests (no request body to parse)
+  app.use("/api/auth", (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === "GET" || req.method === "HEAD") {
+      return next();
+    }
+    bodyParsers.auth.json(req, res, (err) => {
+      if (err) return next(err);
+      bodyParsers.auth.urlencoded(req, res, next);
+    });
+  });
 
   // Disable caching for all auth endpoints (admin/employee/detective login)
   app.use("/api/auth", (_req, res, next) => {
@@ -554,7 +503,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============== BODY PARSER FOR PUBLIC AND GENERAL ROUTES ==============
   // Apply public body parser (1MB limit) to all /api routes by default
   // This handles contact forms, searches, and other general endpoints
-  app.use("/api", bodyParsers.public.json, bodyParsers.public.urlencoded);
+  // Skip body parsing for GET/HEAD requests (no request body to parse)
+  app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === "GET" || req.method === "HEAD") {
+      return next();
+    }
+    bodyParsers.public.json(req, res, (err) => {
+      if (err) return next(err);
+      bodyParsers.public.urlencoded(req, res, next);
+    });
+  });
   
   // ============== CSRF TOKEN (must be before auth; no token required for GET) ==============
   // SECURITY: CSRF tokens must be generated using cryptographically secure randomness.
@@ -568,7 +526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     max: 30,
     standardHeaders: true,
     legacyHeaders: false,
-    handler: (req: Request, res: Response) => {
+    handler: (_req: Request, res: Response) => {
       res.status(429).json({ error: "Too many token requests" });
     },
   });
@@ -585,8 +543,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Express-session creates req.session automatically; if missing, middleware failed
       if (!req.session) {
-        console.error("[CSRF-TOKEN] Session object missing; session middleware may have failed");
-        return res.status(403).json({ error: "Session unavailable" });
+        const fallbackToken = randomBytes(32).toString("hex");
+        const isProd = config.env.isProd || process.env.VERCEL === "1";
+        setNoStore(res);
+        res.cookie("csrfToken", fallbackToken, {
+          httpOnly: true,
+          secure: isProd,
+          sameSite: isProd ? "none" : "lax",
+          maxAge: config.session.ttlMs,
+          domain: config.session.cookieDomain || undefined,
+          path: "/",
+        });
+        console.warn("[CSRF-TOKEN] Session unavailable - using cookie fallback token");
+        return res.status(200).json({ csrfToken: fallbackToken, session: false });
       }
       
       // Generate or reuse CSRF token
@@ -600,7 +569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Explicitly save session (required when saveUninitialized: false)
       // This ensures the session cookie is sent even on first request
-      req.session.save((err) => {
+      req.session.save((err: any) => {
         if (err) {
           console.error("[CSRF-TOKEN] Failed to save session:", err);
           // Prevent double response if headers already sent
@@ -614,6 +583,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         setNoStore(res);
         
         console.log(`[CSRF-TOKEN] Saved session ${sessionId.substring(0, 20)}... with token ${req.session.csrfToken?.substring(0, 16)}...`);
+
+        // Set CSRF token cookie for double-submit validation (fallback when session token is missing)
+        const isProd = config.env.isProd || process.env.VERCEL === "1";
+        res.cookie("csrfToken", req.session.csrfToken, {
+          httpOnly: true,
+          secure: isProd,
+          sameSite: isProd ? "none" : "lax",
+          maxAge: config.session.ttlMs,
+          domain: config.session.cookieDomain || undefined,
+          path: "/",
+        });
         
         // Final response - only if headers not sent
         if (!res.headersSent) {
@@ -627,6 +607,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "CSRF token generation failed" });
       }
     }
+  });
+
+  // Health check for proxy validation and uptime monitors
+  app.get("/api/health", (_req: Request, res: Response) => {
+      console.log("[ROUTE EXECUTED] /api/health");
+    res.status(200).json({ ok: true });
   });
 
   app.post("/api/contact", async (req: Request, res: Response) => {
@@ -748,20 +734,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.createUser(validatedData);
 
       // Session fixation prevention: regenerate session before setting auth data
-      // Preserve CSRF token across regeneration (do NOT regenerate it)
-      const csrfToken = req.session.csrfToken;
-      const csrfTokenGeneratedAt = (req.session as any).csrfTokenGeneratedAt;
+      // Generate fresh CSRF token for new session (don't preserve old token)
       req.session.regenerate((err) => {
         if (err) {
           console.warn("[auth] Session error during registration");
           return res.status(500).json({ error: "Failed to register user" });
         }
+        
+        // ✅ Generate fresh CSRF token for new session (CSRF cache is cleared on frontend after registration)
+        req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfTokenGeneratedAt = Date.now();
+        
         req.session.userId = user.id;
         req.session.userRole = user.role;
-        req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
-        if (csrfTokenGeneratedAt) {
-          (req.session as any).csrfTokenGeneratedAt = csrfTokenGeneratedAt;
-        }
 
         // Explicitly save session to ensure CSRF token is persisted
         req.session.save((saveErr) => {
@@ -913,34 +898,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Session fixation prevention: regenerate session before setting auth data
-      // Preserve CSRF token across regeneration (do NOT regenerate it)
-      const csrfToken = req.session.csrfToken;
-      const csrfTokenGeneratedAt = (req.session as any).csrfTokenGeneratedAt;
+      // Generate fresh CSRF token for new session (don't preserve old token)
+      
+      if (!user.id) {
+        console.error("[auth] User object missing id after validation", { email });
+        return res.status(500).json({ error: "Failed to log in" });
+      }
+      
       req.session.regenerate((err) => {
         if (err) {
-          console.warn("[auth] Session error during login", { userId: user.id, email });
+          console.error("[auth] Session regenerate error during login", { userId: user.id, email, err: err?.message });
           return res.status(500).json({ error: "Failed to log in" });
         }
+        
+        // ✅ Generate fresh CSRF token for new session (CSRF cache is cleared on frontend after login)
+        req.session.csrfToken = randomBytes(32).toString("hex");
+        req.session.csrfTokenGeneratedAt = Date.now();
+        
         req.session.userId = user.id;
         req.session.userRole = user.role;
-        req.session.csrfToken = csrfToken; // Preserve original token, don't regenerate
-        if (csrfTokenGeneratedAt) {
-          (req.session as any).csrfTokenGeneratedAt = csrfTokenGeneratedAt;
-        }
 
         // Explicitly save session to ensure CSRF token and user data are persisted
         req.session.save((saveErr) => {
           if (saveErr) {
-            console.error("[auth] Failed to save session during login", { userId: user.id, err: saveErr });
+            console.error("[auth] Failed to save session during login", { userId: user.id, err: saveErr?.message });
             return res.status(500).json({ error: "Failed to log in" });
           }
 
-          const { password: _p, ...userWithoutPassword } = user;
-          res.json({ user: userWithoutPassword });
+          try {
+            const { password: _p, ...userWithoutPassword } = user;
+            console.info("[auth] Login successful", { userId: user.id, email, role: user.role });
+            return res.json({ user: userWithoutPassword });
+          } catch (resErr) {
+            console.error("[auth] Error sending login response", { userId: user.id, err: (resErr instanceof Error ? resErr.message : String(resErr)) });
+            return res.status(500).json({ error: "Failed to log in" });
+          }
         });
       });
     } catch (_error) {
-      console.warn("[auth] Login failed");
+      console.error("[auth] Login failed with exception:", _error);
       res.status(500).json({ error: "Failed to log in" });
     }
   });
@@ -1163,10 +1159,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Get current user
-  app.get("/api/auth/me", requireAuth, async (req: Request, res: Response) => {
+  // Get current user (return null when unauthenticated)
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
     try {
       setNoStore(res);
+      if (!req.session || !req.session.userId) {
+        return res.json({ user: null });
+      }
       // Only database-backed credentials are allowed
       const user = await storage.getUser(req.session.userId!);
       if (!user) {
@@ -1179,6 +1178,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Get user error:", error);
       res.status(500).json({ error: "Failed to get user" });
     }
+  });
+
+  // Dev-only session debug: confirms if session is saved and readable
+  app.get("/api/auth/session-debug", (req: Request, res: Response) => {
+    if (config.env.isProd) {
+      return res.status(404).json({ error: "Not Found" });
+    }
+    setNoStore(res);
+    const sessionId = (req.session as any)?.id || null;
+    return res.json({
+      hasSession: !!req.session,
+      userId: req.session?.userId || null,
+      userRole: req.session?.userRole || null,
+      sessionId,
+    });
   });
 
   // Alias for admin pages: same response shape as /api/auth/me (single source of truth)
@@ -1344,21 +1358,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
     timestamp: Date.now(),
   };
-  const RATES_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
   const RATES_UPDATE_INTERVAL = 30 * 60 * 1000; // Update every 30 minutes
   const MIN_BASE_PRICE_INR = 1000; // Minimum base price in INR (applies to all countries)
-
-  // Fallback rates (used if API fails)
-  function getFallbackRates(): Record<string, number> {
-    return {
-      USD: 1,
-      GBP: 0.79,
-      INR: 83.5,
-      CAD: 1.35,
-      AUD: 1.52,
-      EUR: 0.92,
-    };
-  }
 
   function convertCurrency(amount: number, from: string, to: string): number {
     if (from === to) return amount;
@@ -1406,9 +1407,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
-  // Start background rate updates
-  updateExchangeRatesInBackground();
-  setInterval(updateExchangeRatesInBackground, RATES_UPDATE_INTERVAL);
+  // Defer background rate updates to not block route registration
+  // This prevents the 8-second external API call from delaying cold start
+  setTimeout(() => {
+    updateExchangeRatesInBackground();
+    setInterval(updateExchangeRatesInBackground, RATES_UPDATE_INTERVAL);
+  }, 0);
 
   // Get live exchange rates endpoint (serves cached rates immediately)
   app.get("/api/currency-rates", (_req: Request, res: Response) => {
@@ -1435,82 +1439,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(1);
 
       if (detectiveRows.length === 0) {
-        // Detective not found - let client-side routing handle it
         return res.status(404).json({ error: "Detective not found" });
       }
 
       const detective = detectiveRows[0];
 
-      // Fetch country slug and ID
-      const countryRows = await db
-        .select({ id: countries.id, slug: countries.slug })
-        .from(countries)
-        .where(eq(countries.code, detective.country))
-        .limit(1);
-
-      if (countryRows.length === 0) {
-        // Country not found - keep old URL
-        return res.status(404).json({ error: "Detective location not found" });
-      }
-
-      const countryId = countryRows[0].id;
-      const countrySlug = countryRows[0].slug;
-
-      // Fetch state slug (if state exists)
-      let stateSlug = "";
-      let stateRowId = "";
-      if (detective.state) {
-        const stateRows = await db
-          .select({ id: states.id, slug: states.slug })
-          .from(states)
-          .where(and(eq(states.countryId, countryId), eq(states.name, detective.state)))
-          .limit(1);
-
-        if (stateRows.length > 0) {
-          stateSlug = stateRows[0].slug;
-          stateRowId = stateRows[0].id;
-        } else {
-          // State slug not found - redirect to country-level profile
-          const newUrl = `/detectives/${countrySlug}/`;
-          console.log(`[301-redirect] /p/${detectiveId} → ${newUrl} (state not found)`);
-          return res.redirect(301, newUrl);
-        }
-      }
-
-      // Fetch city slug (if city exists)
-      let citySlug = "";
-      if (detective.city && stateRowId) {
-        const cityRows = await db
-          .select({ slug: cities.slug })
-          .from(cities)
-          .where(and(eq(cities.stateId, stateRowId), eq(cities.name, detective.city)))
-          .limit(1);
-
-        if (cityRows.length > 0) {
-          citySlug = cityRows[0].slug;
-        } else {
-          // City slug not found - redirect to state-level profile
-          const newUrl = `/detectives/${countrySlug}/${stateSlug}/`;
-          console.log(`[301-redirect] /p/${detectiveId} → ${newUrl} (city not found)`);
-          return res.redirect(301, newUrl);
-        }
-      }
-
-      // Build new canonical URL with slug (country/state/city/detective-slug)
-      // detective.slug should be populated from migration
-      // Inline slug generator for fallback (detective.slug should exist from migration)
-      const generateSlug = (text: string): string => {
-        return text.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+      // Helper function to generate URL-safe slugs
+      const createSlug = (text: string): string => {
+        return text
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9\s-]/g, "")
+          .replace(/\s+/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-+|-+$/g, "");
       };
-      const businessSlug = detective.slug || generateSlug(`${detective.businessName} ${detective.city}`);
+
+      // Convert country code (e.g., "IN" → "india") to slug format
+      const countryCodeMap: Record<string, string> = {
+        IN: "india",
+        US: "united-states",
+        GB: "united-kingdom",
+        CA: "canada",
+        AU: "australia",
+        NZ: "new-zealand",
+        SG: "singapore",
+        AE: "united-arab-emirates",
+      };
+
+      const countrySlug = countryCodeMap[detective.country?.toUpperCase() || ""] || createSlug(detective.country || "");
+      const stateSlug = detective.state ? createSlug(detective.state) : "";
+      const citySlug = detective.city ? createSlug(detective.city) : "";
+      const businessSlug = detective.slug || createSlug(`${detective.businessName || "detective"} ${detective.city || ""}`);
+
+      // Build new canonical URL with slug: /detectives/{country}/{state}/{city}/{business-slug}/
       const newUrl = `/detectives/${countrySlug}/${stateSlug}/${citySlug}/${businessSlug}/`;
 
-      console.log(`[301-redirect] /p/${detectiveId} → ${newUrl}`);
+      console.log(`[✅ SEO 301-redirect] /p/${detectiveId} → ${newUrl}`);
       return res.redirect(301, newUrl);
     } catch (error) {
-      console.error("[301-redirect] Error:", error);
-      // On error, return 404 to prevent redirect loops
-      res.status(404).json({ error: "Failed to process redirect" });
+      console.error("[❌ SEO 301-redirect Error] Failed to redirect:", error);
+      res.status(404).json({ error: "Detective not found" });
     }
   });
 
@@ -1519,59 +1488,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all detectives (public)
   app.get("/api/detectives", async (req: Request, res: Response) => {
     try {
+      const requestStart = Date.now();
+      let cacheStatus: "HIT" | "MISS" = "MISS";
       const { country, status, plan, search } = req.query;
       const policyLimit = await requirePolicy<{ value: number }>("pagination_default_limit");
       const policyOffset = await requirePolicy<{ value: number }>("pagination_default_offset");
       const limit = String((req.query as any).limit ?? policyLimit?.value ?? 20);
       const offset = String((req.query as any).offset ?? policyOffset?.value ?? 0);
+      
+      // ✅ CACHE KEY: Include all filter parameters + pagination for uniqueness
+      // Format: detectives:{country}:{status}:{plan}:{search}:{limit}:{offset}
+      const normalizedSearch = (search || "").toString().toLowerCase().trim();
+      const normalizedCountry = (country || "").toString().toLowerCase().trim();
+      const normalizedStatus = (status || "").toString().toLowerCase().trim();
+      const normalizedPlan = (plan || "").toString().toLowerCase().trim();
+      const cacheKey = `detectives:${normalizedCountry}:${normalizedStatus}:${normalizedPlan}:${normalizedSearch}:${limit}:${offset}`;
+      
+      // ✅ CHECK CACHE FIRST (60-second TTL)
+      try {
+        const cached = cache.get<{ detectives: any[]; total: number }>(cacheKey);
+        if (cached != null && cached.detectives != null && cached.total != null) {
+          cacheStatus = "HIT";
+          console.debug("[cache HIT]", cacheKey);
+          console.info("[api /api/detectives]", {
+            durationMs: Date.now() - requestStart,
+            cacheStatus,
+            cacheKey,
+          });
+          res.set("Cache-Control", "public, max-age=60");
+          return res.json(cached);
+        }
+      } catch (_) {
+        // Cache failure must not break the request
+      }
+      console.debug("[cache MISS]", cacheKey);
+      
       if (typeof search === 'string' && search.trim()) {
         await storage.recordSearch(search as string);
       }
 
       // Use ranking system for detective visibility and ordering
-      const { getRankedDetectives } = await import("./ranking.ts");
+      const { getRankedDetectives } = await import("./ranking.js");
       const statusValue = status && status !== "all" ? (status as string) : undefined;
-      let detectives = await getRankedDetectives({
+      const limitNum = parseInt(limit);
+      const offsetNum = parseInt(offset);
+      
+      const result = await getRankedDetectives({
         country: country as string,
         status: statusValue, // Only filter if status is specific (not "all")
         plan: plan as string,
         searchQuery: search as string,
-        limit: 100,
+        limit: limitNum,
+        offset: offsetNum,
       });
 
-      // Apply filters based on query
-      if (country) {
-        detectives = detectives.filter((d: any) => d.country === country);
+      // ✅ getRankedDetectives returns { detectives, total }
+      // All filtering is done in SQL inside getRankedDetectives
+      const { detectives, total } = typeof result === 'object' && 'detectives' in result
+        ? result
+        : { detectives: Array.isArray(result) ? result : [], total: Array.isArray(result) ? result.length : 0 };
+
+      const listDetectives: DetectiveListDTO[] = detectives.map((d: any) => {
+        const rawBio = typeof d.bio === "string" ? d.bio.trim() : "";
+        const shortBio = rawBio.length > 150 ? rawBio.slice(0, 150) : rawBio;
+        return {
+          id: String(d.id ?? ""),
+          businessName: d.businessName ?? null,
+          slug: d.slug ?? null,
+          logo: d.logo ?? null,
+          city: d.city ?? null,
+          state: d.state ?? null,
+          country: d.country ?? null,
+          level: d.level ?? null,
+          hasBlueTick: Boolean(d.hasBlueTick),
+          avgRating: Number(d.avgRating ?? 0),
+          reviewCount: Number(d.reviewCount ?? 0),
+          shortBio,
+          visibilityScore: typeof d.visibilityScore === "number" ? d.visibilityScore : Number(d.visibilityScore ?? 0),
+        };
+      });
+
+      const payload = { detectives: listDetectives, total };
+      
+      // ✅ STORE IN CACHE (60-second TTL)
+      try {
+        cache.set(cacheKey, payload, 60);
+        console.debug("[cache SET]", cacheKey, `ttl: 60s (${payload.detectives.length} detectives)`);
+      } catch (_) {
+        // Cache failure must not break the request
       }
-      if (status) {
-        detectives = detectives.filter((d: any) => d.status === status);
-      }
 
-      // Apply pagination
-      const limitNum = parseInt(limit);
-      const offsetNum = parseInt(offset);
-      const total = detectives.length;
-      const paginatedDetectives = detectives.slice(offsetNum, offsetNum + limitNum);
-
-      const maskedDetectives = await Promise.all(paginatedDetectives.map(async (d: any) => {
-        const masked = await maskDetectiveContactsPublic(d);
-        // Explicitly null sensitive fields we never want public
-        masked.userId = undefined;
-        masked.email = masked.email; // preserved only if allowed by mask
-        masked.contactEmail = masked.contactEmail; // preserved only if allowed by mask
-        masked.phone = masked.phone; // preserved only if allowed by mask
-        masked.whatsapp = masked.whatsapp; // preserved only if allowed by mask
-        masked.businessDocuments = undefined;
-        masked.identityDocuments = undefined;
-        masked.isClaimable = undefined;
-        return masked;
-      }));
-
-      // Disable caching for dashboard - always fetch fresh data
-      res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-      res.set("Pragma", "no-cache");
-      res.set("Expires", "0");
-      res.json({ detectives: maskedDetectives, total });
+      // Set cache header to allow 60-second client-side caching (aligns with server TTL)
+      res.set("Cache-Control", "public, max-age=60");
+      console.info("[api /api/detectives]", {
+        durationMs: Date.now() - requestStart,
+        cacheStatus,
+        cacheKey,
+      });
+      res.json(payload);
     } catch (error) {
       console.error("Get detectives error:", error);
       if (config.env.isProd) {
@@ -1583,22 +1597,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/subscription-limits", async (_req: Request, res: Response) => {
-    try {
-      const plans = await storage.getAllSubscriptionPlans(true);
-      const limits: Record<string, number> = {};
-      for (const p of plans) {
-        limits[p.name] = Number(p.serviceLimit || 0);
-      }
-      res.json({ limits });
-    } catch {
-      if (config.env.isProd) {
-        res.status(500).json({ error: "Subscription limits not configured" });
-      } else {
-        res.json({ limits: {} });
-      }
-    }
-  });
+  // Payment routes have been moved to server/routes/paymentRoutes.ts
+  // Includes: /api/subscription-limits, /api/subscription-plans and all variants
 
   app.get("/api/admin/db-check", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
@@ -1610,6 +1610,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "DB check failed" });
     }
   });
+
+  // Admin Location SEO routes have been moved to server/routes/locationRoutes.ts
+  // Includes:
+  // - /api/admin/location-seo/countries
+  // - /api/admin/location-seo/states
+  // - /api/admin/location-seo/cities
+  // - /api/admin/location-seo/override
+  // - /api/admin/debug/countries-check (debug utility)
 
   // OPTIMIZED: Admin Dashboard Summary - single query with conditional aggregation
   // Returns only summary statistics (no full records, <100ms execution target)
@@ -1731,6 +1739,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/subscription-plans", async (req: Request, res: Response) => {
     try {
+      // ✅ Lazy-ensure subscription plans exist in DB (sets up defaults on first call)
+      const { ensurePlansSeeded } = await import("../server/storage.js");
+      await ensurePlansSeeded();
+      
       const includeInactive = (req.query.all === '1' || req.query.includeInactive === '1' || req.query.activeOnly === '0');
       const plans = await storage.getAllSubscriptionPlans(!includeInactive);
       res.set("Cache-Control", "no-store"); // Admin/list must always reflect current DB (subscription_plans table)
@@ -1895,7 +1907,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           pendingBillingCycle: null,
         } as any);
         
-        const updated = await storage.getDetective(detective.id);
+        // Updated detective has been fetched (but variable not needed for response)
+        await storage.getDetective(detective.id);
         return res.json({ 
           scheduled: false,
           applied: true,
@@ -1953,10 +1966,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Validate request body
-      const { packageId, billingCycle } = z.object({ 
+      const parsed = z.object({ 
         packageId: z.string().min(1, "Package ID is required"),
         billingCycle: z.enum(["monthly", "yearly"], { errorMap: () => ({ message: "Billing cycle must be 'monthly' or 'yearly'" }) })
       }).parse(req.body);
+      
+      const packageId: string = parsed.packageId;
+      const billingCycle: "monthly" | "yearly" = parsed.billingCycle;
       
       console.log(`[create-order] Fetching package ID: ${packageId}, billing: ${billingCycle}`);
       
@@ -2005,7 +2021,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rzpClient = await getRazorpayClient();
       
       // Create Razorpay order (receipt max 40 chars)
-      const order = await rzpClient.orders.create({
+      const orderResult = await rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `sub_${Date.now()}`.substring(0, 40),
@@ -2014,10 +2030,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           packageName: packageRecord.name,
           billingCycle,
           detectiveId: detective.id, 
-          userId: req.session.userId 
+          userId: req.session.userId!
         },
       });
-
+      
+      const order = orderResult as unknown as { id: string };
       console.log(`[create-order] Razorpay order created: ${order.id}`);
 
       // Save payment order to database
@@ -2026,7 +2043,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         detectiveId: detective.id,
         plan: packageRecord.name as any,
         packageId: packageId,
-        billingCycle: billingCycle,
+        billingCycle: billingCycle as unknown as string,
         amount: String(priceINR.toFixed(2)),
         currency: "INR",
         provider: "razorpay",
@@ -2378,7 +2395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Verify ownership
-      if (paymentOrder.user_id !== req.session.userId) {
+      if (paymentOrder.userId !== req.session.userId) {
         console.error("[paypal-capture] Forbidden: user does not own order");
         return res.status(403).json({ error: "Forbidden" });
       }
@@ -2395,8 +2412,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[paypal-capture] PayPal order captured: ${body.paypalOrderId}`);
 
       // Read packageId and billingCycle from payment_order
-      const packageId = paymentOrder.package_id;
-      const billingCycle = paymentOrder.billing_cycle;
+      const packageId = paymentOrder.packageId;
+      const billingCycle = paymentOrder.billingCycle;
 
       if (!packageId) {
         console.error(`[paypal-capture] Payment order missing packageId: ${body.paypalOrderId}`);
@@ -2421,7 +2438,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // GUARD: Block duplicate Blue Tick (check BEFORE any update)
       if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
         try {
-          await assertBlueTickNotAlreadyActive(paymentOrder.detective_id, 'paypal');
+          await assertBlueTickNotAlreadyActive(paymentOrder.detectiveId, 'paypal');
         } catch (guardError: any) {
           if (guardError.statusCode === 409) {
             console.warn(`[paypal-capture] Duplicate Blue Tick attempt rejected:`, guardError.message);
@@ -2442,20 +2459,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Package is no longer active" });
       }
 
-      console.log(`[paypal-capture] Activating package ${packageId} for detective ${paymentOrder.detective_id}`);
+      console.log(`[paypal-capture] Activating package ${packageId} for detective ${paymentOrder.detectiveId}`);
 
       // Handle Blue Tick addon vs regular subscription
       if (packageId === 'blue-tick' || packageId === 'blue_tick_addon') {
         // Blue Tick add-on: set add-on flag only (subscription-granted Blue Tick stays in hasBlueTick via applyPackageEntitlements)
-        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+        await storage.updateDetectiveAdmin(paymentOrder.detectiveId, {
           blueTickAddon: true,
           blueTickActivatedAt: new Date(),
         } as any);
         
-        console.log(`[paypal-capture] Blue Tick add-on activated for detective ${paymentOrder.detective_id}`);
+        console.log(`[paypal-capture] Blue Tick add-on activated for detective ${paymentOrder.detectiveId}`);
       } else {
         // Regular subscription: update subscription fields only
-        await storage.updateDetectiveAdmin(paymentOrder.detective_id, {
+        await storage.updateDetectiveAdmin(paymentOrder.detectiveId, {
           subscriptionPackageId: packageId,
           billingCycle: billingCycle,
           subscriptionActivatedAt: new Date(),
@@ -2463,20 +2480,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Note: subscriptionPlan and planActivatedAt are LEGACY fields - not updated during payment
         } as any);
         
-        console.log(`[paypal-capture] Subscription activated for detective ${paymentOrder.detective_id}`);
+        console.log(`[paypal-capture] Subscription activated for detective ${paymentOrder.detectiveId}`);
 
         // APPLY ENTITLEMENTS: Use centralized entitlement system
         // This function reads package.badges and applies/removes entitlements (Blue Tick, Pro, etc.)
-        await applyPackageEntitlements(paymentOrder.detective_id, 'activation');
+        await applyPackageEntitlements(paymentOrder.detectiveId, 'activation');
         
         console.log(`[paypal-capture] Entitlements applied`);
       }
 
       // Fetch updated detective to return to client
-      const updatedDetective = await storage.getDetective(paymentOrder.detective_id);
+      const updatedDetective = await storage.getDetective(paymentOrder.detectiveId);
       
       if (!updatedDetective) {
-        console.error(`[paypal-capture] Could not fetch updated detective: ${paymentOrder.detective_id}`);
+        console.error(`[paypal-capture] Could not fetch updated detective: ${paymentOrder.detectiveId}`);
         return res.status(500).json({ error: "Failed to fetch updated detective" });
       }
 
@@ -2509,6 +2526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           // Send regular subscription success email
           const expiryDate = calculateExpiryDate(new Date(), billingCycle);
+          const paymentOrderFull = paymentOrder as any;
           smtpEmailService.sendTransactionalEmail(
             user.email,
             EMAIL_TEMPLATE_KEYS.PAYMENT_SUCCESS,
@@ -2517,8 +2535,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               email: user.email,
               packageName: packageToActivate.name,
               billingCycle: billingCycle,
-              amount: String(paymentOrder.amount || ""),
-              currency: paymentOrder.currency || "USD",
+              amount: String(paymentOrderFull.amount || ""),
+              currency: paymentOrderFull.currency || "USD",
               subscriptionExpiryDate: expiryDate ? new Date(expiryDate).toLocaleDateString() : "N/A",
               supportEmail: "support@askdetectives.com",
             }
@@ -2531,8 +2549,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               detectiveName: updatedDetective.businessName || user.name,
               email: user.email,
               packageName: packageToActivate.name,
-              amount: String(paymentOrder.amount || ""),
-              currency: paymentOrder.currency || "USD",
+              amount: String(paymentOrderFull.amount || ""),
+              currency: paymentOrderFull.currency || "USD",
               supportEmail: "support@askdetectives.com",
             }
           ).catch(err => console.error("[Email] Failed to send admin payment notification:", err));
@@ -2568,19 +2586,247 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Payment Gateway Routes (public endpoint for checking enabled gateways)
   app.use("/api/payment-gateways", paymentGatewayRoutes);
 
+  // Location Routes - geographic hierarchy and top locations aggregation
+  registerLocationRoutes(app);
+
+  // Payment Routes - subscription plans, Razorpay, PayPal, Blue Tick, admin payment management
+  // All payment-related endpoints are now registered via registerPaymentRoutes() function
+  registerPaymentRoutes(app);
+
   // Public Pages Routes (read-only access to published pages)
   app.use("/api/public/pages", publicPagesRouter);
   app.use("/api/public/categories", publicCategoriesRouter);
   app.use("/api/public/tags", publicTagsRouter);
 
-  // Sitemap.xml - dynamic generation from database
-  app.use("/sitemap.xml", sitemapRouter);
+  // Sitemap Routes - dynamic generation from database with multiple XML files
+  // CRITICAL: Keep registerRoutes startup non-blocking. All heavy imports are lazy inside handlers.
+  const sendSitemap = async (
+    res: Response,
+    xmlGenerator: () => Promise<string>,
+    cacheMaxAge: number,
+  ) => {
+    try {
+      const [{ gzipSync }, xml] = await Promise.all([
+        import("zlib"),
+        xmlGenerator(),
+      ]);
+      const compressed = gzipSync(xml);
 
-  // RSS Feed - blog content syndication
-  app.use("/rss.xml", rssRouter);
+      res.header("Content-Type", "application/xml");
+      res.header("Content-Encoding", "gzip");
+      res.header("Cache-Control", `public, max-age=${cacheMaxAge}`);
+      res.header(
+        "ETag",
+        `"${Buffer.from(xml).toString("base64").slice(0, 32)}"`,
+      );
+
+      res.send(compressed);
+      console.log(
+        `[Sitemap] Served ${compressed.length} bytes (gzipped) for ${xml.length} bytes (uncompressed)`,
+      );
+    } catch (error) {
+      console.error("[Sitemap] Error generating sitemap:", error);
+      res.status(500).json({ error: "Failed to generate sitemap" });
+    }
+  };
+
+  // Main sitemap index - /sitemap.xml
+  app.get(/\/sitemap\.xml$/, async (_req: Request, res: Response) => {
+    console.log("[Sitemap] Handling sitemap index request");
+    const { generateSitemapIndex, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateSitemapIndex, CACHE_MAX_AGE);
+  });
+
+  // Static pages sitemap - /sitemap-static.xml
+  app.get(/\/sitemap-static\.xml$/, async (_req: Request, res: Response) => {
+    console.log("[Sitemap] Serving static sitemap");
+    const { generateStaticSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateStaticSitemap, CACHE_MAX_AGE);
+  });
+
+  // Countries sitemap - /sitemap-countries.xml
+  app.get(/\/sitemap-countries\.xml$/, async (_req: Request, res: Response) => {
+    console.log("[Sitemap] Serving countries sitemap");
+    const { generateCountriesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateCountriesSitemap, CACHE_MAX_AGE);
+  });
+
+  // States sitemap - /sitemap-states.xml
+  app.get(/\/sitemap-states\.xml$/, async (_req: Request, res: Response) => {
+    console.log("[Sitemap] Serving states sitemap");
+    const { generateStatesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateStatesSitemap, CACHE_MAX_AGE);
+  });
+
+  // Cities sitemap - /sitemap-cities.xml
+  app.get(/\/sitemap-cities\.xml$/, async (_req: Request, res: Response) => {
+    console.log("[Sitemap] Serving cities sitemap");
+    const { generateCitiesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateCitiesSitemap, CACHE_MAX_AGE);
+  });
+
+  // Detectives sitemap - /sitemap-detectives.xml
+  app.get(/\/sitemap-detectives\.xml$/, async (_req: Request, res: Response) => {
+    console.log("[Sitemap] Serving detectives sitemap");
+    const { generateDetectivesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateDetectivesSitemap, CACHE_MAX_AGE);
+  });
+
+  // Services sitemaps (paginated) - /sitemap-services-1.xml, /sitemap-services-2.xml, etc.
+  app.get(/\/sitemap-services-(\d+)\.xml$/, async (req: Request, res: Response) => {
+    const match = req.path.match(/\/sitemap-services-(\d+)\.xml$/);
+    const page = match ? parseInt(match[1]) : 1;
+
+    console.log(`[Sitemap] Serving services sitemap page ${page}`);
+
+    if (page < 1 || page > 1000) {
+      return res.status(400).json({ error: "Invalid page number" });
+    }
+
+    try {
+      const {
+        getServiceSitemapCount,
+        generateServicesSitemap,
+        CACHE_MAX_AGE,
+      } = await import("./services/sitemapService.js");
+
+      const totalPages = await getServiceSitemapCount();
+      if (page > totalPages) {
+        return res
+          .status(404)
+          .json({ error: `Page ${page} does not exist` });
+      }
+
+      await sendSitemap(res, () => generateServicesSitemap(page), CACHE_MAX_AGE);
+    } catch (error) {
+      console.error("[Sitemap] Error with services page:", error);
+      res.status(500).json({ error: "Failed to generate services sitemap" });
+    }
+  });
+
+  // Status endpoint - /sitemap-status.json
+  app.get(/\/sitemap-status\.json$/, async (_req: Request, res: Response) => {
+    try {
+      const { CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+      const r = await pool.query(`
+        SELECT COUNT(*) as count FROM services s
+        INNER JOIN detectives d ON s.detective_id = d.id
+        WHERE s.is_active = true AND d.status = 'active'
+      `);
+      const totalServices = r.rows[0].count;
+      const servicePages = Math.ceil(totalServices / 5000);
+
+      res.json({
+        status: "ok",
+        cache: {
+          maxAge: CACHE_MAX_AGE,
+          maxAgeHours: Math.round(CACHE_MAX_AGE / 3600),
+        },
+        sitemaps: {
+          index: "/sitemap.xml",
+          static: "/sitemap-static.xml",
+          countries: "/sitemap-countries.xml",
+          states: "/sitemap-states.xml",
+          cities: "/sitemap-cities.xml",
+          detectives: "/sitemap-detectives.xml",
+          services: `${servicePages} pages at /sitemap-services-:page.xml`,
+        },
+        stats: {
+          totalServices,
+          servicePages,
+          totalSitemaps: 6 + servicePages,
+        },
+      });
+    } catch (error) {
+      console.error("[Sitemap] Error getting status:", error);
+      res.status(500).json({ error: "Failed to get sitemap status" });
+    }
+  });
+
+  // Keep the router mounted at /sitemap/ for backward compatibility if needed, but routes are handled above
+  // app.use("/sitemap", sitemapRouter);
 
   // llms.txt - AI agent discovery guide
   app.use("/llms.txt", llmsTxtRouter);
+
+  // Homepage Featured Services - Database-driven featured list
+  app.get("/api/home/featured", async (req: Request, res: Response) => {
+    try {
+      const country = req.query.country
+        ? String(req.query.country)
+        : undefined;
+
+      if (!country) {
+        return res.status(400).json({ error: "country parameter is required" });
+      }
+
+      // Resolve country slug/name to country_id (FK-based filtering)
+      let countryId: number | null = null;
+      const countryLookup = await pool.query(
+        `SELECT id FROM countries WHERE slug = $1 OR LOWER(name) = LOWER($2) OR code = $3 LIMIT 1`,
+        [country.toLowerCase(), country, country.toUpperCase()]
+      );
+      if (countryLookup.rows.length > 0) {
+        countryId = countryLookup.rows[0].id;
+        console.log(`[HOME_FEATURED] Resolved country "${country}" to country_id=${countryId}`);
+      } else {
+        console.log(`[HOME_FEATURED] Country "${country}" not found in normalized table, will use text fallback`);
+      }
+
+      const countryParam = countryId || country.toUpperCase();
+
+      const query = `
+        SELECT s.*
+        FROM homepage_featured_services h
+        JOIN services s ON s.id = h.service_id
+        WHERE h.country = $1
+          AND s.is_active = true
+        ORDER BY h.position ASC
+        LIMIT 8;
+      `;
+
+      const result = await pool.query(query, [countryParam]);
+
+      let finalResult = result.rows;
+
+      // Fallback: If no results from homepage_featured_services, query services by country (FK-based only)
+      if (finalResult.length === 0) {
+        console.log(`[HOME_FEATURED] No results from homepage_featured_services for country=${country}, using FK-based fallback`);
+        
+        // Require country_id to be resolved - no text fallback
+        if (!countryId) {
+          console.log(`[HOME_FEATURED] Country "${country}" could not be resolved to country_id, returning empty results`);
+          finalResult = [];
+        } else {
+          const fallbackQuery = `
+            SELECT s.*
+            FROM services s
+            JOIN detectives d ON s.detective_id = d.id
+            WHERE d.country_id = $1
+              AND s.is_active = true
+            ORDER BY s.view_count DESC
+            LIMIT 8;
+          `;
+
+          const fallbackResult = await pool.query(fallbackQuery, [countryId]);
+          finalResult = fallbackResult.rows;
+          
+          console.log(`[HOME_FEATURED] FK-based fallback returned ${finalResult.length} services for country_id=${countryId}`);
+        }
+      }
+
+      res.setHeader(
+        "Cache-Control",
+        "public, s-maxage=14400, stale-while-revalidate=600"
+      );
+
+      return res.json({ services: finalResult });
+
+    } catch (error) {
+      console.error("[HOME_FEATURED] Error:", error);
+      return res.status(500).json({ error: "Failed to fetch featured services" });
+    }
+  });
 
   // Featured home services (8 services, 1 per detective - optimized for home page loading)
   app.use("/api/services/featured/home", featuredHomeServicesRouter);
@@ -2593,6 +2839,320 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Admin Finance Routes
   app.use("/api/admin/finance", requireRole("admin", "employee"), adminFinanceRouter);
+
+  // DEBUG Image Routes - Check image URLs and storage issues
+  app.get("/api/debug/images/services", async (_req: Request, res: Response) => {
+    try {
+      const result = await db.select({
+        id: services.id,
+        title: services.title,
+        images: services.images,
+        detectiveId: services.detectiveId,
+      })
+        .from(services)
+        .where(
+          and(
+            isNotNull(services.images),
+            sql`array_length(${services.images}, 1) > 0`
+          )
+        )
+        .limit(5);
+
+      const servicesData = result.map(s => ({
+        id: s.id,
+        title: s.title,
+        imageCount: Array.isArray(s.images) ? s.images.length : 0,
+        images: Array.isArray(s.images) ? s.images.slice(0, 2) : [],
+      }));
+
+      return res.json({
+        success: true,
+        count: servicesData.length,
+        services: servicesData,
+      });
+    } catch (error) {
+      console.error("[DEBUG] Error fetching service images:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  app.get("/api/debug/images/detectives", async (_req: Request, res: Response) => {
+    try {
+      const result = await db.select({
+        id: detectives.id,
+        businessName: detectives.businessName,
+        logo: detectives.logo,
+      })
+        .from(detectives)
+        .where(isNotNull(detectives.logo))
+        .limit(5);
+
+      const detectivesData = result.map(d => ({
+        id: d.id,
+        businessName: d.businessName,
+        logo: d.logo ? d.logo.substring(0, 100) : null,
+        isSupabase: d.logo?.includes('.supabase.co') ?? false,
+        isBase64: d.logo?.startsWith('data:') ?? false,
+      }));
+
+      return res.json({
+        success: true,
+        count: detectivesData.length,
+        detectives: detectivesData,
+      });
+    } catch (error) {
+      console.error("[DEBUG] Error fetching detective logos:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // IMAGE PROXY - Fetch images from Supabase with timeout and error handling
+  app.get("/api/proxy/image", async (req: Request, res: Response) => {
+    try {
+      const { url } = req.query;
+      
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({ error: "URL parameter required" });
+      }
+
+      // Security: Only allow Supabase URLs
+      if (!url.includes('.supabase.co')) {
+        return res.status(403).json({ error: "Only Supabase URLs allowed" });
+      }
+
+      console.log(`[IMAGE_PROXY] Fetching: ${url.substring(0, 80)}...`);
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Ask Detectives Bot/1.0',
+          }
+        });
+        
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          console.error(`[IMAGE_PROXY] HTTP ${response.status}: ${url.substring(0, 80)}`);
+          return res.status(response.status).json({ error: `Supabase returned ${response.status}` });
+        }
+
+        // Get content type and size
+        const contentType = response.headers.get('content-type') || 'application/octet-stream';
+        const contentLength = response.headers.get('content-length');
+
+        // Set response headers
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        if (contentLength) {
+          res.setHeader('Content-Length', contentLength);
+        }
+
+        // Stream the image
+        const buffer = await response.arrayBuffer();
+        res.send(Buffer.from(buffer));
+
+        console.log(`[IMAGE_PROXY] Success: ${url.substring(0, 80)}... (${buffer.byteLength} bytes)`);
+      } catch (fetchError: any) {
+        clearTimeout(timeout);
+        
+        if (fetchError.name === 'AbortError') {
+          console.error(`[IMAGE_PROXY] TIMEOUT: ${url.substring(0, 80)}`);
+          return res.status(504).json({ error: "Supabase timeout" });
+        }
+        
+        console.error(`[IMAGE_PROXY] FETCH ERROR: ${fetchError.message}`);
+        return res.status(503).json({ error: "Failed to fetch image from Supabase" });
+      }
+    } catch (error) {
+      console.error("[IMAGE_PROXY] Error:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // DIAGNOSTIC - Test Supabase connectivity and image availability
+  app.get("/api/diagnostic/supabase", async (_req: Request, res: Response) => {
+    try {
+      console.log("[DIAGNOSTICS] Starting Supabase connectivity test...");
+
+      // Step 1: Get sample image URLs from database
+      const sampleService = await db.select({
+        id: services.id,
+        title: services.title,
+        images: services.images,
+      })
+        .from(services)
+        .where(and(isNotNull(services.images), sql`array_length(${services.images}, 1) > 0`))
+        .limit(1);
+
+      const diagnostics: any = {
+        timestamp: new Date().toISOString(),
+        supabaseUrl: process.env.SUPABASE_URL || "NOT SET",
+        tests: []
+      };
+
+      // Test 1: Check if Supabase URL is configured
+      if (!process.env.SUPABASE_URL) {
+        diagnostics.tests.push({
+          name: "Supabase URL Configuration",
+          status: "FAILED",
+          message: "SUPABASE_URL environment variable not set"
+        });
+        return res.json(diagnostics);
+      }
+
+      diagnostics.tests.push({
+        name: "Supabase URL Configuration",
+        status: "OK",
+        url: process.env.SUPABASE_URL
+      });
+
+      // Test 2: Check if we have sample images
+      if (!sampleService || sampleService.length === 0 || !sampleService[0].images) {
+        diagnostics.tests.push({
+          name: "Sample Image Availability",
+          status: "FAILED",
+          message: "No images found in database"
+        });
+        return res.json(diagnostics);
+      }
+
+      const imageUrl = Array.isArray(sampleService[0].images) 
+        ? sampleService[0].images[0] 
+        : sampleService[0].images;
+
+      diagnostics.tests.push({
+        name: "Sample Image Availability",
+        status: "OK",
+        imageUrl: imageUrl.substring(0, 100),
+        isSupabase: imageUrl.includes('.supabase.co'),
+        isBase64: imageUrl.startsWith('data:'),
+      });
+
+      // Test 3: Try to fetch the image from Supabase
+      console.log(`[DIAGNOSTICS] Testing image fetch: ${imageUrl.substring(0, 80)}...`);
+      
+      const controller = new AbortController();
+      const fetchTimeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      try {
+        const fetchStart = Date.now();
+        const response = await fetch(imageUrl, {
+          signal: controller.signal,
+          method: 'HEAD', // Only get headers, not the full image
+        });
+        const fetchDuration = Date.now() - fetchStart;
+        clearTimeout(fetchTimeout);
+
+        diagnostics.tests.push({
+          name: "Supabase Image Fetch (HEAD)",
+          status: response.ok ? "OK" : "FAILED",
+          httpStatus: response.status,
+          duration: `${fetchDuration}ms`,
+          headers: {
+            'content-type': response.headers.get('content-type'),
+            'content-length': response.headers.get('content-length'),
+            'access-control-allow-origin': response.headers.get('access-control-allow-origin'),
+            'cache-control': response.headers.get('cache-control'),
+          }
+        });
+      } catch (fetchErr: any) {
+        clearTimeout(fetchTimeout);
+        
+        diagnostics.tests.push({
+          name: "Supabase Image Fetch (HEAD)",
+          status: "FAILED",
+          error: fetchErr.name === 'AbortError' ? "TIMEOUT (15s+)" : fetchErr.message,
+          errorType: fetchErr.name,
+        });
+      }
+
+      // Test 4: Try GET request (full download)
+      console.log(`[DIAGNOSTICS] Testing full image download...`);
+      
+      const getController = new AbortController();
+      const getTimeout = setTimeout(() => getController.abort(), 15000);
+      
+      try {
+        const getStart = Date.now();
+        const getResponse = await fetch(imageUrl, {
+          signal: getController.signal,
+          method: 'GET',
+        });
+        const getDuration = Date.now() - getStart;
+        clearTimeout(getTimeout);
+
+        if (getResponse.ok) {
+          const buffer = await getResponse.arrayBuffer();
+          diagnostics.tests.push({
+            name: "Supabase Image Fetch (GET)",
+            status: "OK",
+            httpStatus: 200,
+            duration: `${getDuration}ms`,
+            size: `${buffer.byteLength} bytes`,
+          });
+        } else {
+          diagnostics.tests.push({
+            name: "Supabase Image Fetch (GET)",
+            status: "FAILED",
+            httpStatus: getResponse.status,
+            duration: `${getDuration}ms`,
+          });
+        }
+      } catch (getErr: any) {
+        clearTimeout(getTimeout);
+        
+        diagnostics.tests.push({
+          name: "Supabase Image Fetch (GET)",
+          status: "FAILED",
+          error: getErr.name === 'AbortError' ? "TIMEOUT (15s+)" : getErr.message,
+          errorType: getErr.name,
+        });
+      }
+
+      // Test 5: Check network from Render
+      console.log("[DIAGNOSTICS] Testing DNS resolution...");
+      try {
+        const hostname = new URL(imageUrl).hostname;
+        const { lookup } = require('dns').promises;
+        const address = await lookup(hostname);
+        
+        diagnostics.tests.push({
+          name: "DNS Resolution",
+          status: "OK",
+          hostname,
+          address: address.address,
+        });
+      } catch (dnsErr: any) {
+        diagnostics.tests.push({
+          name: "DNS Resolution",
+          status: "FAILED",
+          error: dnsErr.message,
+        });
+      }
+
+      console.log("[DIAGNOSTICS] Tests complete:", JSON.stringify(diagnostics, null, 2));
+      return res.json(diagnostics);
+    } catch (error) {
+      console.error("[DIAGNOSTICS] Error:", error);
+      return res.status(500).json({
+        status: "ERROR",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
 
   // Get payment history for current detective
   app.get("/api/payments/history", requireRole("detective"), async (req: Request, res: Response) => {
@@ -2715,9 +3275,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Validate request body
-      const { billingCycle } = z.object({ 
+      const parsed = z.object({ 
         billingCycle: z.enum(["monthly", "yearly"], { errorMap: () => ({ message: "Billing cycle must be 'monthly' or 'yearly'" }) })
       }).parse(req.body);
+      
+      const billingCycle: "monthly" | "yearly" = parsed.billingCycle;
       
       console.log(`[blue-tick-order] Creating Blue Tick order for detective: ${detective.id}, cycle: ${billingCycle}`);
 
@@ -2751,7 +3313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Create Razorpay order
-      const order = await rzpClient.orders.create({
+      const orderResult = await rzpClient.orders.create({
         amount: amountPaise,
         currency: "INR",
         receipt: `bluetick_${Date.now()}`.substring(0, 40),
@@ -2759,10 +3321,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: "blue_tick_addon",
           billingCycle,
           detectiveId: detective.id, 
-          userId: req.session.userId 
+          userId: req.session.userId!
         },
       });
-
+      
+      const order = orderResult as unknown as { id: string };
       console.log(`[blue-tick-order] Razorpay order created: ${order.id}`);
 
       // Save to a tracking table or note field
@@ -3071,8 +3634,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Step 3: Apply pending downgrades if expiry has passed
       detective = await applyPendingDowngrades(detective);
 
+      if (!detective) {
+        return res.status(500).json({
+          error: "Profile incomplete",
+          code: "PROFILE_FETCH_ERROR",
+          message: "Unable to retrieve detective profile"
+        });
+      }
+
       // Step 4: Compute effective badges
-      const effectiveBadges = computeEffectiveBadges(detective, (detective as any).subscriptionPackage);
+      const effectiveBadges = computeEffectiveBadges(detective);
       
       // Step 5: Return complete profile with validation flags
       res.json({ 
@@ -3108,123 +3679,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   // Location Wizard API - Get all countries (using library)
-  app.get("/api/locations/countries", async (_req: Request, res: Response) => {
-    try {
-      const allCountries = Country.getAllCountries()
-        .map(c => ({
-          id: c.isoCode,
-          code: c.isoCode,
-          name: c.name,
-          slug: generateSlug(c.name)
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      
-      res.json({ countries: allCountries });
-    } catch (error) {
-      console.error("Get countries error:", error);
-      res.status(500).json({ error: "Failed to fetch countries" });
-    }
-  });
-
-  // Location Wizard API - Get states for a country (using library)
-  app.get("/api/locations/states/:countryId", async (req: Request, res: Response) => {
-    try {
-      const { countryId } = req.params;
-      
-      const countryStates = (State.getStatesOfCountry(countryId) || [])
-        .map(s => ({
-          id: s.isoCode,
-          countryId: countryId,
-          name: s.name,
-          slug: generateSlug(s.name)
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      
-      res.json({ states: countryStates });
-    } catch (error) {
-      console.error("Get states error:", error);
-      res.status(500).json({ error: "Failed to fetch states" });
-    }
-  });
-
-  // Location Wizard API - Get cities for a state (using library)
-  app.get("/api/locations/cities/:stateId", async (req: Request, res: Response) => {
-    try {
-      const { stateId } = req.params;
-      const { countryId } = req.query;
-      
-      if (!countryId || typeof countryId !== 'string') {
-        return res.status(400).json({ error: "Country ID is required" });
-      }
-
-      const stateCities = (City.getCitiesOfState(countryId, stateId) || [])
-        .map(c => ({
-          id: c.name,
-          stateId: stateId,
-          name: c.name,
-          slug: generateSlug(c.name)
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      
-      res.json({ cities: stateCities });
-    } catch (error) {
-      console.error("Get cities error:", error);
-      res.status(500).json({ error: "Failed to fetch cities" });
-    }
-  });
-
-  // Location Wizard API - Update detective location
-  app.patch("/api/detectives/me/location", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.userId!;
-      
-      // Verify detective ownership
-      const detective = await storage.getDetectiveByUserId(userId);
-      if (!detective) {
-        return res.status(404).json({ error: "Detective profile not found" });
-      }
-
-      // Validate request body
-      const { countryId, stateId, cityId } = req.body;
-      if (!countryId || !stateId || !cityId) {
-        return res.status(400).json({ 
-          error: "Invalid location selection",
-          details: "countryId, stateId, and cityId are required"
-        });
-      }
-
-      // Update location (includes validation and auto-slug)
-      const updated = await storage.updateDetectiveLocation(detective.id, {
-        countryId,
-        stateId,
-        cityId
-      });
-
-      if (!updated) {
-        return res.status(500).json({ error: "Failed to update location" });
-      }
-
-      res.json({ 
-        success: true,
-        detective: updated
-      });
-    } catch (error) {
-      console.error("Update detective location error:", error);
-      
-      // Handle validation errors from storage
-      if (error instanceof Error && error.message.includes("Invalid")) {
-        return res.status(400).json({ 
-          error: "Invalid location selection",
-          details: error.message
-        });
-      }
-      
-      res.status(500).json({ 
-        error: "Failed to update location",
-        details: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
+  // Location routes are now registered via registerLocationRoutes() function
+  // See server/routes/locationRoutes.ts for location wizard, top locations, and SEO routes
 
   app.get("/api/detectives/:id/public-service-count", async (req: Request, res: Response) => {
     try {
@@ -3324,77 +3780,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============== GET Detective by Slug (Country/State/City/Slug) ==============
-  app.get("/api/detectives/:country/:state/:city/:slug", async (req: Request, res: Response) => {
+  app.get("/api/detectives/:country/:state/:city/:slug", async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { country, state, city, slug } = req.params;
 
+      // Route guard: allow dedicated location API route
+      if (String(country).toLowerCase() === "location") {
+        return next();
+      }
+
       // Convert country name/slug to country code (e.g., "india" -> "IN")
       const countryCode = getCountryCode(country);
+      const countryName = COUNTRY_CODE_MAP[countryCode] || "";
+      const requestedStateSlug = generateSlug(state);
+      const requestedCitySlug = generateSlug(city);
 
-      // Find detective by slug + location (text-based matching since location tables don't exist)
+      // Find candidates by slug + country (support both country code and country name in DB)
       const detectiveRows = await db
         .select()
         .from(detectives)
         .where(
           and(
             eq(detectives.slug, slug),
-            eq(detectives.country, countryCode), // country is stored as code (IN, US, etc)
-            ilike(detectives.state, state), // case-insensitive state match
-            ilike(detectives.city, city)    // case-insensitive city match
+            or(
+              eq(detectives.country, countryCode),
+              countryName ? ilike(detectives.country, countryName) : undefined,
+              ilike(detectives.country, country)
+            )
           )
-        )
-        .limit(1);
+        );
 
       if (detectiveRows.length === 0) {
         return res.status(404).json({ error: "Detective not found" });
       }
 
-      const detective = detectiveRows[0];
+      // URL uses slugified location segments; DB usually stores human-readable names
+      // Match by slugified state/city to handle values like "Madhya Pradesh" vs "madhya-pradesh"
+      const locationMatchedDetective = detectiveRows.find((row) => {
+        const rowStateSlug = generateSlug(row.state || "");
+        const rowCitySlug = generateSlug(row.city || "");
+        return rowStateSlug === requestedStateSlug && rowCitySlug === requestedCitySlug;
+      });
 
-      // Mask sensitive fields
-      const detailsJSON = detective.detailsJSON ? JSON.parse(detective.detailsJSON) : {};
-      const maskSensitiveFields = (obj: any) => {
-        const masked: any = { ...obj };
-        ["password", "token", "secret", "apiKey"].forEach((key) => {
-          if (masked[key]) masked[key] = "***";
-        });
-        return masked;
-      };
+      const detective = locationMatchedDetective || (detectiveRows.length === 1 ? detectiveRows[0] : null);
+
+      if (!detective) {
+        return res.status(404).json({ error: "Detective not found" });
+      }
+
+      // SECURITY: Apply contact masking based on subscription plan
+      // This ensures only detectives with paid plans that include contact features
+      // will have their contact information (phone, whatsapp, email, website) exposed
+      const maskedDetective = await maskDetectiveContactsPublic(detective as any);
 
       const payload = {
         detective: {
-          id: detective.id,
-          businessName: detective.businessName,
-          bio: detective.bio,
-          logo: detective.logo,
-          location: detective.location,
-          country: detective.country,
-          state: detective.state,
-          city: detective.city,
-          slug: detective.slug,
-          phone: detective.phone,
-          whatsapp: detective.whatsapp,
-          contactEmail: detective.contactEmail,
-          languages: detective.languages,
-          yearsExperience: detective.yearsExperience,
-          businessWebsite: detective.businessWebsite,
-          recognitions: detective.recognitions,
-          memberSince: detective.memberSince,
-          isVerified: detective.isVerified,
-          level: detective.level,
-          hasBlueTick: detective.hasBlueTick,
-          blueTickAddon: detective.blueTickAddon,
-          status: detective.status,
-          createdAt: detective.createdAt,
-          updatedAt: detective.updatedAt,
+          id: maskedDetective.id,
+          businessName: maskedDetective.businessName,
+          bio: maskedDetective.bio,
+          logo: maskedDetective.logo,
+          location: maskedDetective.location,
+          country: maskedDetective.country,
+          state: maskedDetective.state,
+          city: maskedDetective.city,
+          slug: maskedDetective.slug,
+          phone: maskedDetective.phone,
+          whatsapp: maskedDetective.whatsapp,
+          contactEmail: maskedDetective.contactEmail,
+          languages: maskedDetective.languages,
+          yearsExperience: maskedDetective.yearsExperience,
+          businessWebsite: maskedDetective.businessWebsite,
+          recognitions: maskedDetective.recognitions,
+          memberSince: maskedDetective.memberSince,
+          isVerified: maskedDetective.isVerified,
+          level: maskedDetective.level,
+          hasBlueTick: maskedDetective.hasBlueTick,
+          blueTickAddon: maskedDetective.blueTickAddon,
+          status: maskedDetective.status,
+          createdAt: maskedDetective.createdAt,
+          updatedAt: maskedDetective.updatedAt,
           effectiveBadges: {
-            blueTick: detective.hasBlueTick || detective.blueTickAddon,
-            pro: detective.level === 'pro',
+            blueTick: maskedDetective.hasBlueTick || maskedDetective.blueTickAddon,
+            pro: maskedDetective.level === 'pro',
             recommended: false
           }
         }
       };
 
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
       sendCachedJson(req, res, payload);
     } catch (error) {
       console.error("[GET /api/detectives/:country/:state/:city/:slug] Error:", error);
@@ -3457,11 +3930,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Detective profile already exists" });
       }
 
-      const detective = await storage.createDetective(validatedData);
+      // DEFENSIVE CHECK: Business name is required for slug generation
+      if (!validatedData.businessName || validatedData.businessName.trim() === "") {
+        return res.status(400).json({ error: "Business name is required" });
+      }
+
+      // Generate unique slug from business name
+      const baseSlug = generateSlug(validatedData.businessName);
+      const uniqueSlug = await storage.ensureUniqueDetectiveSlug(baseSlug);
+
+      // Resolve location IDs (REQUIRED - database has NOT NULL constraints)
+      let locationIds: LocationService.ResolvedLocationIds;
+      try {
+        locationIds = await LocationService.resolveLocationIds(
+          validatedData.country,
+          validatedData.state,
+          validatedData.city
+        );
+      } catch (error) {
+        console.error("[Detective Creation] Location resolution failed, using defaults:", error);
+        locationIds = await LocationService.getDefaultLocationIds();
+      }
+
+      const detective = await storage.createDetective({
+        ...validatedData,
+        slug: uniqueSlug,
+        countryId: locationIds.countryId!,
+        stateId: locationIds.stateId!,
+        cityId: locationIds.cityId!,
+      });
       
       // Update user role to detective using privileged method
       await storage.updateUserRole(req.session.userId!, "detective");
       req.session.userRole = "detective";
+
+      // Lazy-populate country code in background (non-blocking)
+      if (validatedData.country) {
+        const { ensureCountryCode } = await import("./utils/countryCodeMapper.js");
+        ensureCountryCode(validatedData.country).catch(err => {
+          console.error("[Country Mapper] Failed to populate code:", err);
+        });
+      }
 
       res.status(201).json({ detective });
     } catch (error) {
@@ -3522,37 +4031,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      if (typeof (validatedData as any).logo === "string" && (validatedData as any).logo.startsWith("data:")) {
-        (validatedData as any).logo = await uploadDataUrl("detective-assets", `logos/${Date.now()}-${Math.random()}.png`, (validatedData as any).logo);
-      }
-      if (Array.isArray((validatedData as any).businessDocuments)) {
-        (validatedData as any).businessDocuments = await Promise.all(((validatedData as any).businessDocuments || []).map(async (d: string, i: number) => {
-          return d && d.startsWith("data:") ? await uploadDataUrl("detective-assets", `documents/${Date.now()}-${i}.pdf`, d) : d;
-        }));
-      }
-      if (Array.isArray((validatedData as any).identityDocuments)) {
-        (validatedData as any).identityDocuments = await Promise.all(((validatedData as any).identityDocuments || []).map(async (d: string, i: number) => {
-          return d && d.startsWith("data:") ? await uploadDataUrl("detective-assets", `identity/${Date.now()}-${i}.pdf`, d) : d;
-        }));
-      }
-      if ((validatedData as any).logo && detective.logo && (validatedData as any).logo !== detective.logo) {
-        await deletePublicUrl(detective.logo as any);
-      }
-      if (Array.isArray((validatedData as any).businessDocuments) && Array.isArray(detective.businessDocuments)) {
-        for (const prev of (detective.businessDocuments as any[])) {
-          if (!(validatedData as any).businessDocuments.includes(prev)) {
-            await deletePublicUrl(prev as any);
-          }
-        }
-      }
-      if (Array.isArray((validatedData as any).identityDocuments) && Array.isArray(detective.identityDocuments)) {
-        for (const prev of (detective.identityDocuments as any[])) {
-          if (!(validatedData as any).identityDocuments.includes(prev)) {
-            await deletePublicUrl(prev as any);
-          }
-        }
-      }
+      // SECURITY: Validate file URLs before processing
+      // This call handles validation, uploads, and deletion of detective profile files
+      await storage.processDetectiveFileUpdates(detective, validatedData);
+      
       const updatedDetective = await storage.updateDetective(req.params.id, validatedData);
+      
+      // Lazy-populate country code in background (non-blocking)
+      if (validatedData.country && updatedDetective) {
+        const { ensureCountryCode } = await import("./utils/countryCodeMapper.js");
+        ensureCountryCode(updatedDetective.country).catch(err => {
+          console.error("[Country Mapper] Failed to populate code:", err);
+        });
+      }
       
       // Trigger Google Indexing API for updated detective profile
       if (updatedDetective && updatedDetective.slug && updatedDetective.country && updatedDetective.state && updatedDetective.city) {
@@ -3562,7 +4053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const profileUrl = `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/${updatedDetective.slug}/`;
         
         // Asynchronously notify Google (don't wait for response)
-        googleIndexing.submitUrl(profileUrl, "URL_UPDATED").catch(err => {
+        getGoogleIndexing().submitUrl(profileUrl, "URL_UPDATED").catch(err => {
           console.error("Failed to notify Google of detective profile update:", err);
         });
       }
@@ -3622,7 +4113,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         planExpiresAt: z.string().datetime().optional(),
       }).parse(req.body);
 
-      const updatedDetective = await storage.updateDetectiveAdmin(req.params.id, allowedData);
+      const detectiveUpdates: Partial<Detective> = {
+        businessName: allowedData.businessName,
+        bio: allowedData.bio,
+        location: allowedData.location,
+        phone: allowedData.phone,
+        whatsapp: allowedData.whatsapp,
+        languages: allowedData.languages,
+        status: allowedData.status,
+        isVerified: allowedData.isVerified,
+        country: allowedData.country,
+        level: allowedData.level,
+        planActivatedAt: allowedData.planActivatedAt ? new Date(allowedData.planActivatedAt) : undefined,
+        planExpiresAt: allowedData.planExpiresAt ? new Date(allowedData.planExpiresAt) : undefined,
+      };
+
+      const updatedDetective = await storage.updateDetectiveAdmin(req.params.id, detectiveUpdates);
       
       // Trigger Google Indexing API for updated detective profile
       if (updatedDetective && updatedDetective.slug && updatedDetective.country && updatedDetective.state && updatedDetective.city) {
@@ -3632,7 +4138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const profileUrl = `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/${updatedDetective.slug}/`;
         
         // Asynchronously notify Google (don't wait for response)
-        googleIndexing.submitUrl(profileUrl, "URL_UPDATED").catch(err => {
+        getGoogleIndexing().submitUrl(profileUrl, "URL_UPDATED").catch(err => {
           console.error("Failed to notify Google of detective profile update:", err);
         });
       }
@@ -3802,6 +4308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!query || query.length < 3) {
         console.log("🔍 [Autocomplete API] Query too short, returning empty");
+        res.setHeader("Cache-Control", "public, s-maxage=300");
         return res.json({ suggestions: [] });
       }
 
@@ -3821,18 +4328,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       suggestions.push(...matchingCategories);
       console.log("🔍 [Autocomplete API] Found categories:", matchingCategories.length);
 
-      // Search detective business names
+      // Search detective business names with normalized location data
       const detectivesResult = await db
         .select({
           id: detectives.id,
           businessName: detectives.businessName,
           location: detectives.location,
           slug: detectives.slug,
-          country: detectives.country,
-          state: detectives.state,
-          city: detectives.city,
+          // Use FK-based location with fallback to text fields
+          country: countries.name,
+          countryFallback: detectives.country,
+          state: states.name,
+          stateFallback: detectives.state,
+          city: cities.name,
+          cityFallback: detectives.city,
         })
         .from(detectives)
+        .leftJoin(countries, eq(detectives.countryId, countries.id))
+        .leftJoin(states, eq(detectives.stateId, states.id))
+        .leftJoin(cities, eq(detectives.cityId, cities.id))
         .where(and(
           eq(detectives.status, "active"),
           ilike(detectives.businessName, `%${query}%`)
@@ -3845,22 +4359,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         value: d.id,
         meta: d.location || undefined,
         slug: d.slug,
-        country: d.country,
-        state: d.state,
-        city: d.city,
+        // Use normalized data with fallback to text fields
+        country: d.country || d.countryFallback,
+        state: d.state || d.stateFallback,
+        city: d.city || d.cityFallback,
       }));
       suggestions.push(...matchingDetectives);
       console.log("🔍 [Autocomplete API] Found detectives:", matchingDetectives.length);
 
       // Search locations (countries, states, cities from WORLD_COUNTRIES)
-      const { WORLD_COUNTRIES } = await import("../client/src/lib/world-countries.ts");
+      const { WORLD_COUNTRIES } = await import("../shared/world-countries.js");
       const matchingLocations: Array<{ type: "location"; label: string; value: string }> = [];
       
       for (const country of WORLD_COUNTRIES) {
         if (country.name.toLowerCase().includes(query)) {
           matchingLocations.push({
             type: "location",
-            label: `${country.flag} ${country.name}`,
+            label: country.name,
             value: `country:${country.code}`,
           });
         }
@@ -3870,6 +4385,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("🔍 [Autocomplete API] Found locations:", matchingLocations.length);
       console.log("🔍 [Autocomplete API] Total suggestions:", suggestions.length);
 
+      res.setHeader("Cache-Control", "public, s-maxage=300");
       res.json({ suggestions: suggestions.slice(0, limit) });
     } catch (error) {
       console.error("❌ [Autocomplete API] Error:", error);
@@ -3924,37 +4440,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== SERVICE ROUTES ==============
 
-  // In-memory cache for ranked detectives (TTL: 2 minutes)
-  const RANKED_DETECTIVES_TTL_MS = 2 * 60 * 1000;
+  // In-memory cache for ranked detectives(cache initialized but functions removed)
   const rankedDetectivesCache = new Map<string, { expiresAt: number; data: any }>();
-  const getRankedDetectivesCache = (key: string) => {
-    const entry = rankedDetectivesCache.get(key);
+  // getRankedDetectivesCache and setRankedDetectivesCache removed - unused
+  
+  const SERVICES_POPULAR_TTL_MS = 30 * 1000;
+  const servicesPopularCache = new Map<string, { expiresAt: number; data: any }>();
+  const getServicesPopularCache = (key: string) => {
+    const entry = servicesPopularCache.get(key);
     if (!entry) return undefined;
     if (Date.now() > entry.expiresAt) {
-      rankedDetectivesCache.delete(key);
+      servicesPopularCache.delete(key);
       return undefined;
     }
     return entry.data;
   };
-  const setRankedDetectivesCache = (key: string, data: any) => {
-    rankedDetectivesCache.set(key, { expiresAt: Date.now() + RANKED_DETECTIVES_TTL_MS, data });
+  const setServicesPopularCache = (key: string, data: any) => {
+    servicesPopularCache.set(key, { expiresAt: Date.now() + SERVICES_POPULAR_TTL_MS, data });
   };
 
   // Search services (public)
   app.get("/api/services", async (req: Request, res: Response) => {
     try {
+      const routeStartTime = Date.now();
+      console.time("[PERF:SERVICES] Total route execution");
       const { category, country, search, minPrice, maxPrice, minRating, planName, level, limit = "20", offset = "0", sortBy = "popular" } = req.query;
+      const limitNum = Math.min(parseInt(limit as string) || 20, 100);
+      const offsetNum = parseInt(offset as string) || 0;
       const stableParams = [
         "category", "country", "search", "minPrice", "maxPrice", "minRating", "planName", "level", "limit", "offset", "sortBy"
       ].sort().map(k => `${k}=${String((req.query as Record<string, string>)[k] ?? "").trim()}`).join("&");
       const cacheKey = `services:search:${stableParams}`;
       const skipCache = !!(req.session?.userId);
+      const isPopularUnfiltered =
+        String(sortBy || "").trim() === "popular" &&
+        !String(category || "").trim() &&
+        !String(country || "").trim() &&
+        !String(search || "").trim() &&
+        !String(minPrice || "").trim() &&
+        !String(maxPrice || "").trim() &&
+        !String(minRating || "").trim() &&
+        !String(planName || "").trim() &&
+        !String(level || "").trim();
+      const popularCacheKey = `services_popular_page_${limitNum}_${offsetNum}`;
+
+      if (!skipCache && isPopularUnfiltered) {
+        const cachedPopular = getServicesPopularCache(popularCacheKey);
+        if (cachedPopular != null) {
+          console.debug("[cache HIT]", popularCacheKey);
+          res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
+          console.timeEnd("[PERF:SERVICES] Total route execution");
+          sendCachedJson(req, res, cachedPopular);
+          return;
+        }
+      }
       if (!skipCache) {
         try {
           const cached = cache.get<{ services: unknown[] }>(cacheKey);
           if (cached != null && Array.isArray(cached.services)) {
             console.debug("[cache HIT]", cacheKey);
             res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+            console.timeEnd("[PERF:SERVICES] Total route execution");
             sendCachedJson(req, res, cached);
             return;
           }
@@ -3968,12 +4514,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.recordSearch(search as string);
       }
 
-      // Parse pagination parameters
-      const limitNum = Math.min(parseInt(limit as string) || 20, 100); // Cap at 100 to prevent abuse
-      const offsetNum = parseInt(offset as string) || 0;
+      console.time("[PERF:SERVICES] Database query execution");
+      const queryStartTime = Date.now();
 
       // Get paginated services - only fetch what's needed (not 10,000)
-      const allServices = await storage.searchServices({
+      let allServices = await storage.searchServices({
         category: category as string,
         country: country as string,
         searchQuery: search as string,
@@ -3984,56 +4529,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
         level: level as string,
       }, limitNum, offsetNum, sortBy as string);
 
-      // Filter out services without images
-      const servicesWithImages = allServices.filter((s: any) => {
-        const hasImages = Array.isArray(s.images) && s.images.length > 0;
-        return hasImages;
-      });
+      let usedFallback = false;
 
-      // Apply ranking for display order (after pagination)
-      const rankedLimit = 1000;
-      const rankedCacheKey = `ranked:${rankedLimit}`;
-      let rankedDetectives = getRankedDetectivesCache(rankedCacheKey);
-      if (!rankedDetectives) {
-        const { getRankedDetectives } = await import("./ranking");
-        rankedDetectives = await getRankedDetectives({ limit: rankedLimit });
-        setRankedDetectivesCache(rankedCacheKey, rankedDetectives);
+      // ✅ FALLBACK: If country filter provided but no results, try global results
+      if (allServices.length === 0 && country && String(country).trim()) {
+        console.log(`[FALLBACK] No services for country=${country}, retrying with global results`);
+        usedFallback = true;
+        const fallbackStartTime = Date.now();
+        allServices = await storage.searchServices({
+          category: category as string,
+          country: undefined,  // Remove country filter for fallback
+          searchQuery: search as string,
+          minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
+          maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
+          ratingMin: minRating ? parseFloat(minRating as string) : undefined,
+          planName: planName as string,
+          level: level as string,
+        }, limitNum, offsetNum, sortBy as string);
+        const fallbackTime = Date.now() - fallbackStartTime;
+        console.log(`[FALLBACK] Global query returned ${allServices.length} rows in ${fallbackTime}ms`);
       }
-      const detectiveRankMap = new Map(rankedDetectives.map((d: any, idx: number) => [d.id, { score: d.visibilityScore, rank: idx }]));
 
-      // Sort results by detective ranking (higher score = higher position)
-      const sortedResults = servicesWithImages.sort((a: any, b: any) => {
-        const aRank = detectiveRankMap.get(a.detectiveId);
-        const bRank = detectiveRankMap.get(b.detectiveId);
-        // Higher score = better ranking = appears first
-        if (aRank && bRank) {
-          return bRank.score - aRank.score;
-        }
-        // Services without ranking appear after ranked ones
-        if (aRank) return -1;
-        if (bRank) return 1;
-        return 0;
-      });
+      const queryTime = Date.now() - queryStartTime;
+      console.timeEnd("[PERF:SERVICES] Database query execution");
+      console.log(`[PERF:SERVICES] Query returned ${allServices.length} rows in ${queryTime}ms`);
 
-      const masked = await Promise.all(sortedResults.map(async (s: any) => {
+      // ✅ Image filtering is now done in SQL (searchServices), no post-filtering needed
+      // ✅ Sorting is done in SQL (storage.searchServices), no re-sorting needed
+
+      const masked = await Promise.all(allServices.map(async (s: any) => {
         const maskedDetective = await maskDetectiveContactsPublic(s.detective);
         const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
         return { ...s, detective: { ...maskedDetective, effectiveBadges } };
       }));
-      if (!skipCache) {
+
+      const servicesDtos = masked.map((service: any) =>
+        buildServiceCardDTO({
+          service,
+          detective: service.detective,
+          avgRating: service.avgRating,
+          reviewCount: service.reviewCount,
+          maskContacts: true,
+        })
+      );
+      
+      // Only cache results that match the original request (don't cache fallback results)
+      if (!skipCache && !usedFallback) {
+        if (isPopularUnfiltered) {
+          try {
+            setServicesPopularCache(popularCacheKey, { services: servicesDtos });
+          } catch (_) {
+            // Cache failure must not break the request
+          }
+        }
         try {
-          cache.set(cacheKey, { services: masked }, 60);
+          cache.set(cacheKey, { services: servicesDtos }, 60);
         } catch (_) {
           // Cache failure must not break the request
         }
       }
+      
       if (!skipCache) {
         res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       } else {
         // Authenticated/user-specific responses should not be cached
         res.set("Cache-Control", "private, no-store");
       }
-      sendCachedJson(req, res, { services: masked });
+      const totalTime = Date.now() - routeStartTime;
+      console.timeEnd("[PERF:SERVICES] Total route execution");
+      console.log(`[PERF:SERVICES] Total route time: ${totalTime}ms (Query: ${queryTime}ms, Mapping+Cache: ${totalTime - queryTime}ms)`);
+      sendCachedJson(req, res, { services: servicesDtos });
+    } catch (error) {
+      console.timeEnd("[PERF:SERVICES] Total route execution");
+      console.error("Search services error:", error);
+      res.status(500).json({ error: "Failed to search services" });
+    }
+  });
+
+  // ============== SEARCH Services (dedicated search endpoint) ==============
+  app.get("/api/services/search", async (req: Request, res: Response) => {
+    try {
+      const { q, category, country, minPrice, maxPrice, minRating, planName, level, limit = "20", offset = "0", sortBy = "popular" } = req.query;
+      const limitNum = Math.min(parseInt(limit as string) || 20, 100);
+      const offsetNum = parseInt(offset as string) || 0;
+      
+      // Record search query if provided
+      if (typeof q === 'string' && q.trim()) {
+        await storage.recordSearch(q as string);
+      }
+
+      // Get paginated services
+      const allServices = await storage.searchServices({
+        category: category as string,
+        country: country as string,
+        searchQuery: q as string,
+        minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
+        maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
+        ratingMin: minRating ? parseFloat(minRating as string) : undefined,
+        planName: planName as string,
+        level: level as string,
+      }, limitNum, offsetNum, sortBy as string);
+
+      // ✅ Return 200 OK with empty array if no results (not 404)
+      if (allServices.length === 0) {
+        return res.json({ services: [] });
+      }
+
+      const masked = await Promise.all(allServices.map(async (s: any) => {
+        const maskedDetective = await maskDetectiveContactsPublic(s.detective);
+        const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
+        return { ...s, detective: { ...maskedDetective, effectiveBadges } };
+      }));
+
+      const servicesDtos = masked.map((service: any) =>
+        buildServiceCardDTO({
+          service,
+          detective: service.detective,
+          avgRating: service.avgRating,
+          reviewCount: service.reviewCount,
+          maskContacts: true,
+        })
+      );
+      
+      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      sendCachedJson(req, res, { services: servicesDtos });
     } catch (error) {
       console.error("Search services error:", error);
       res.status(500).json({ error: "Failed to search services" });
@@ -4079,6 +4698,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const maskedDetective = await maskDetectiveContactsPublic(detective);
       const effectiveBadges = computeEffectiveBadges(maskedDetective, (maskedDetective as any).subscriptionPackage);
 
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
       res.json({
         service,
         detective: { ...maskedDetective, effectiveBadges },
@@ -4109,16 +4729,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .replace(/^-+|-+$/g, "");
       };
 
-      // Resolve by indexed slug (services.slug is unique)
-      const rows = await db
-        .select({
-          service: services,
-          detective: detectives,
-        })
-        .from(services)
-        .innerJoin(detectives, eq(services.detectiveId, detectives.id))
-        .where(eq(services.slug, slug))
-        .limit(1);
+      let rows: Array<{ service: typeof services.$inferSelect; detective: typeof detectives.$inferSelect }> = [];
+
+      if (detectiveSlug) {
+        const detectiveRows = await db
+          .select({ detective: detectives })
+          .from(detectives)
+          .where(eq(detectives.slug, detectiveSlug))
+          .limit(1);
+
+        if (detectiveRows.length > 0) {
+          const detective = detectiveRows[0].detective;
+          const scopedRows = await db
+            .select({
+              service: services,
+              detective: detectives,
+            })
+            .from(services)
+            .innerJoin(detectives, eq(services.detectiveId, detectives.id))
+            .where(
+              and(
+                eq(services.detectiveId, detective.id),
+                or(eq(services.slug, slug), ilike(services.slug, `${slug}-%`))
+              )
+            )
+            .limit(10);
+
+          if (scopedRows.length > 0) {
+            const exact = scopedRows.find((row) => row.service.slug === slug);
+            if (exact) {
+              rows = [exact];
+            } else {
+              const withSuffix = scopedRows
+                .map((row) => ({
+                  row,
+                  suffix: row.service.slug.slice(slug.length + 1),
+                }))
+                .filter((item) => /^\d+$/.test(item.suffix))
+                .sort((a, b) => Number(a.suffix) - Number(b.suffix));
+
+              if (withSuffix.length > 0) {
+                rows = [withSuffix[0].row];
+              }
+            }
+          }
+        }
+      }
+
+      if (rows.length === 0) {
+        rows = await db
+          .select({
+            service: services,
+            detective: detectives,
+          })
+          .from(services)
+          .innerJoin(detectives, eq(services.detectiveId, detectives.id))
+          .where(eq(services.slug, slug))
+          .limit(1);
+      }
 
       if (rows.length === 0) {
         return res.status(404).json({ error: "Service not found" });
@@ -4128,8 +4796,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Optional canonical guard: if detective slug is provided in URL, ensure it matches.
       if (detectiveSlug) {
-        const detSlug = rawDetective.slug || generateSlug(rawDetective.businessName || '');
-        if (detSlug !== detectiveSlug) {
+        const requestedSlug = generateSlug(detectiveSlug);
+        const detSlug = generateSlug(rawDetective.slug || rawDetective.businessName || "");
+        if (requestedSlug && detSlug && requestedSlug !== detSlug) {
           return res.status(404).json({ error: "Service not found" });
         }
       }
@@ -4148,7 +4817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? (!!service.title && !!service.description && !!service.category)
           : (hasImages && !!service.title && !!service.description && !!service.category);
         
-        const isComplete = service.isActive === true && hasRequiredContent && (service.isOnEnquiry || !!service.basePrice);
+        const isComplete = service.isActive === true && hasRequiredContent;
         if (!isComplete) {
           return res.status(404).json({ error: "Service not available" });
         }
@@ -4327,15 +4996,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log("[DEBUG] Fetching services for detective:", req.params.id);
       const services = await storage.getServicesByDetective(req.params.id);
+      const detective = await storage.getDetective(req.params.id);
       console.log("[DEBUG] Services retrieved:", services.length, "total");
       if (services.length > 0) {
         console.log("[DEBUG] First service:", { id: services[0].id, title: services[0].title, isActive: services[0].isActive });
       }
+      const serviceDtos = services.map((service: any) =>
+        buildServiceCardDTO({ service, detective })
+      );
       // Disable caching for detective dashboard - always fetch fresh data
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.set("Pragma", "no-cache");
       res.set("Expires", "0");
-      sendCachedJson(req, res, { services });
+      sendCachedJson(req, res, { services: serviceDtos });
     } catch (error) {
       console.error("Get services by detective error:", error);
       res.status(500).json({ error: "Failed to get services" });
@@ -5038,6 +5711,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const phone = application.phoneCountryCode && application.phoneNumber 
             ? `${application.phoneCountryCode}${application.phoneNumber}`
             : undefined;
+          const agencyBusinessDocument = Array.isArray(application.businessDocuments)
+            ? application.businessDocuments[0]
+            : undefined;
+          const individualIdentityDocument = Array.isArray(application.documents)
+            ? application.documents[0]
+            : undefined;
 
           // Check if phone already exists in detectives table (phone uniqueness constraint)
           if (phone) {
@@ -5055,18 +5734,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Create detective profile with ALL application data
           // Determine if this is admin-created or self-registered
           const isAdminCreated = application.isClaimable === true;
+          const freePlanId = await getFreePlanId();
+          const postApprovalStatusPolicy = (await requirePolicy<{ value: string }>("post_approval_status"))?.value;
+          const postApprovalStatus: "pending" | "active" | "suspended" | "inactive" =
+            postApprovalStatusPolicy === "pending" || postApprovalStatusPolicy === "active" || postApprovalStatusPolicy === "suspended" || postApprovalStatusPolicy === "inactive"
+              ? postApprovalStatusPolicy
+              : "active";
           
           let detective = await storage.getDetectiveByUserId(user!.id);
           if (!detective) {
+            // DEFENSIVE CHECK: Business name is required for slug generation
+            const businessName = application.companyName || application.fullName;
+            if (!businessName || businessName.trim() === "") {
+              return res.status(400).json({ error: "Business/company name is required" });
+            }
+
+            // Generate unique slug from business name
+            const baseSlug = generateSlug(businessName);
+            const uniqueSlug = await storage.ensureUniqueDetectiveSlug(baseSlug);
+
+            // Resolve location IDs (REQUIRED - database has NOT NULL constraints)
+            let locationIds: LocationService.ResolvedLocationIds;
+            try {
+              locationIds = await LocationService.resolveLocationIds(
+                application.country || "US",
+                stateValue,
+                cityValue
+              );
+            } catch (error) {
+              console.error("[Application Approval] Location resolution failed, using defaults:", error);
+              locationIds = await LocationService.getDefaultLocationIds();
+            }
+
             detective = await storage.createDetective({
               userId: user!.id,
-              businessName: application.companyName || application.fullName,
+              businessName: businessName,
+              slug: uniqueSlug,
               bio: application.about || "Professional detective ready to help with your case.",
               logo: application.logo || undefined,
               defaultServiceBanner: (application as any).banner || undefined,
-              subscriptionPlan: "free", // TODO: Remove in v3.0 - legacy field only
-              subscriptionPackageId: null, // Explicitly NULL - user starts with FREE tier
-              status: (await requirePolicy<{ value: string }>("post_approval_status"))?.value || "active",
+              subscriptionPackageId: freePlanId,
+              status: postApprovalStatus,
               isVerified: true,
               isClaimed: false,
               isClaimable: isAdminCreated ? true : false,
@@ -5074,6 +5782,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               country: application.country || "US",
               state: stateValue,
               city: cityValue,
+              countryId: locationIds.countryId!,
+              stateId: locationIds.stateId!,
+              cityId: locationIds.cityId!,
               location: location,
               address: (application as any).fullAddress || undefined,
               pincode: (application as any).pincode || undefined,
@@ -5082,15 +5793,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               businessWebsite: application.businessWebsite || undefined,
               licenseNumber: application.licenseNumber || undefined,
               businessType: application.businessType || undefined,
-              businessDocuments: application.businessType === 'agency' ? application.businessDocuments || undefined : undefined,
-              identityDocuments: application.businessType === 'individual' ? (application as any).documents || undefined : undefined,
+              businessDocuments: application.businessType === 'agency' ? agencyBusinessDocument : undefined,
+              identityDocuments: application.businessType === 'individual' ? individualIdentityDocument : undefined,
               mustCompleteOnboarding: !(application.serviceCategories && application.categoryPricing && application.serviceCategories.length > 0),
               onboardingPlanSelected: false,
             });
           } else {
             await storage.updateDetectiveAdmin(detective.id, {
               defaultServiceBanner: (application as any).banner || detective.defaultServiceBanner || undefined,
-              status: (await requirePolicy<{ value: string }>("post_approval_status"))?.value || "active",
+              status: postApprovalStatus,
               isVerified: true,
               isClaimed: detective.isClaimed ?? false,
               isClaimable: isAdminCreated ? true : false,
@@ -5145,13 +5856,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 
                 // Create the service
                 try {
+                  const bannerImage = typeof (application as { banner?: unknown }).banner === "string"
+                    ? (application as { banner: string }).banner
+                    : undefined;
                   await storage.createService({
                     detectiveId: detective.id,
                     category,
+                    slug: generateSlug(`${detective.id}-${category}-services`),
                     title: `${category} Services`,
                     description: `Professional ${category.toLowerCase()} services by ${application.fullName}. Contact for detailed consultation.`,
                     basePrice: isOnEnquiry ? null : (pricing.price || null),
-                    images: (application as any).banner ? [(application as any).banner] : undefined,
+                    images: bannerImage ? [bannerImage] : undefined,
                     isActive: true,
                     isOnEnquiry: isOnEnquiry,
                   });
@@ -5442,7 +6157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Hash the token to look up in database
-      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.ts");
+      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.js");
       const tokenHash = hashToken(token);
 
       // Find claim token in database
@@ -5508,7 +6223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Hash the token to look up in database
-      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.ts");
+      const { hashToken, isTokenExpired } = await import("./services/claimTokenService.js");
       const tokenHash = hashToken(token);
 
       // Start transaction: Find and validate claim token
@@ -5602,7 +6317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Generate secure temporary password
-        const { generateTempPassword } = await import("./services/claimTokenService.ts");
+        const { generateTempPassword } = await import("./services/claimTokenService.js");
         const tempPassword = generateTempPassword(12);
         const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
@@ -5680,7 +6395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Validate finalization conditions using utility function
-      const { validateClaimFinalization } = await import("./services/claimTokenService.ts");
+      const { validateClaimFinalization } = await import("./services/claimTokenService.js");
       const validationResult = validateClaimFinalization(detective, user);
 
       if (!validationResult.isValid) {
@@ -5693,6 +6408,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // PRIMARY EMAIL REPLACEMENT
       // Replace detective.primaryEmail (from profile) or user.email with claimed email
       const claimedEmail = detective.contactEmail; // Set during Step 2 claim
+
+      if (!claimedEmail) {
+        return res.status(400).json({ error: "Claimed email missing" });
+      }
 
       // Ensure the new email is unique in users table
       const existingUser = await db
@@ -5774,9 +6493,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== ADMIN EMAIL TEMPLATE ROUTES ==============
 
-  app.get("/api/admin/email-templates", requireRole("admin"), async (req: Request, res: Response) => {
+  app.get("/api/admin/email-templates", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
-      const { getAllEmailTemplates } = await import("./services/emailTemplateService");
+      const { getAllEmailTemplates } = await import("./services/emailTemplateService.js");
       const templates = await getAllEmailTemplates();
       console.log("[Admin] Email templates count:", templates.length);
       console.log("[Admin] First template:", templates[0] ? { id: templates[0].id, key: templates[0].key, name: templates[0].name } : "none");
@@ -5794,7 +6513,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Template key is required" });
       }
 
-      const { getEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService");
+      const { getEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService.js");
       const template = await getEmailTemplate(key);
 
       if (!template) {
@@ -5826,7 +6545,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Subject and body are required" });
       }
 
-      const { updateEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService");
+      const { updateEmailTemplate, extractTemplateVariables } = await import("./services/emailTemplateService.js");
       const updated = await updateEmailTemplate(key, {
         name,
         description,
@@ -5861,7 +6580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Template key is required" });
       }
 
-      const { toggleEmailTemplate } = await import("./services/emailTemplateService");
+      const { toggleEmailTemplate } = await import("./services/emailTemplateService.js");
       const updated = await toggleEmailTemplate(key);
 
       if (!updated) {
@@ -5880,7 +6599,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/email-templates/test-all", requireRole("admin"), async (req: Request, res: Response) => {
+  app.post("/api/admin/email-templates/test-all", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       const testEmail = "contact@askdetectives.com";
 
@@ -5912,7 +6631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[Admin] Starting test email batch for all templates...");
 
-      const { getAllEmailTemplates } = await import("./services/emailTemplateService");
+      const { getAllEmailTemplates } = await import("./services/emailTemplateService.js");
       const allTemplates = await getAllEmailTemplates();
 
       const results = {
@@ -6068,15 +6787,307 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============== SERVICE CATEGORY ROUTES ==============
 
+  // API: Detectives filtered by location slugs (country + state, no city)
+  // STATE-LEVEL HANDLER - Must be placed before city-level route to match first
+  app.get('/api/detectives/location/:countrySlug/:stateSlug', async (req: Request, res: Response) => {
+    try {
+      console.log("[API] detectives/location (state-level) route start", { countrySlug: req.params.countrySlug, stateSlug: req.params.stateSlug });
+      const { countrySlug, stateSlug } = req.params as { countrySlug: string; stateSlug: string };
+      
+      // ✅ INPUT VALIDATION: Validate slug format (alphanumeric, hyphens, max 100 chars)
+      const slugPattern = /^[a-z0-9-]{1,100}$/;
+      if (!slugPattern.test(countrySlug)) {
+        return res.status(400).json({
+          error: 'Invalid country slug format',
+          code: 'INVALID_COUNTRY_SLUG',
+          message: 'Country slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      if (!slugPattern.test(stateSlug)) {
+        return res.status(400).json({
+          error: 'Invalid state slug format',
+          code: 'INVALID_STATE_SLUG',
+          message: 'State slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      
+      const parsedLimit = Number(req.query.limit);
+      const parsedOffset = Number(req.query.offset);
+      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(30, Math.floor(parsedLimit))) : 15;
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.floor(parsedOffset)) : 0;
+
+      // ✅ FETCH STATE-LEVEL DETECTIVES (NO CITY FILTER)
+      const LOCATION_QUERY_TIMEOUT_MS = 20000;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let result: Awaited<ReturnType<typeof getLocationDetectivesForSEO>>;
+      try {
+        result = await Promise.race([
+          getLocationDetectivesForSEO(
+            countrySlug,
+            stateSlug,
+            undefined,  // NO CITY - state-level query
+            limit + 1  // limit+1 for hasMore detection
+          ),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('LOCATION_QUERY_TIMEOUT')), LOCATION_QUERY_TIMEOUT_MS);
+          })
+        ]);
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      console.log("[API] detectives fetched (state-level)", { count: result.detectives.length, location: result.location });
+
+      // ✅ MANUAL PAGINATION USING OFFSET
+      const startIdx = Math.max(0, Math.min(offset, result.detectives.length));
+      const paginatedDetectives = result.detectives.slice(startIdx, startIdx + limit);
+      const hasMore = result.detectives.length > (startIdx + limit);
+
+      console.log("[API] masking contacts...", { detectivesToMask: paginatedDetectives.length });
+
+      // ✅ MASK SENSITIVE FIELDS
+      const maskedDetectives = paginatedDetectives.map((d: any) => ({
+        ...d,
+        phone: undefined,
+        whatsapp: undefined,
+        contactEmail: undefined,
+        userId: undefined,
+        businessDocuments: undefined,
+        identityDocuments: undefined,
+        slug: d.slug || "pending-generation",
+        requireLocationUpdate: false,
+      }));
+
+      console.log("[API] masking finished", { maskedCount: maskedDetectives.length });
+
+      const estimatedTotal = hasMore
+        ? offset + maskedDetectives.length + 1
+        : offset + maskedDetectives.length;
+
+      console.log("[API] sending response (state-level)", { detectiveCount: maskedDetectives.length, estimatedTotal, hasMore });
+
+      // ✅ RETURN RESPONSE
+      res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+      res.json({
+        meta: {
+          country: result.location.country,
+          state: result.location.state || null,
+          city: null,  // No city for state-level queries
+          found: true
+        },
+        detectives: maskedDetectives,
+        total: estimatedTotal,
+        hasMore,
+        limit,
+        offset
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('LOCATION_QUERY_TIMEOUT')) {
+        res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=10');
+        return res.status(504).json({
+          error: 'Location fetch timed out',
+          code: 'LOCATION_FETCH_TIMEOUT',
+          message: 'The location query took too long. Please try again.'
+        });
+      }
+
+      console.error('[api/detectives/location (state-level)] error:', error);
+      res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=5');
+      res.status(500).json({
+        error: 'Failed to fetch detectives by location',
+        code: 'LOCATION_FETCH_ERROR',
+        message: error instanceof Error ? error.message : 'Internal server error'
+      });
+    }
+  });
+
   // API: Detectives filtered by location slugs (country/state/city)
+  // CITY-LEVEL HANDLER - Handles full location path with city
+  // Optimized handler using single database query with getLocationDetectivesForSEO()
   app.get('/api/detectives/location/:countrySlug/:stateSlug?/:citySlug?', async (req: Request, res: Response) => {
     try {
+      console.log("[API] detectives/location route start", { countrySlug: req.params.countrySlug, stateSlug: req.params.stateSlug, citySlug: req.params.citySlug });
       const { countrySlug, stateSlug, citySlug } = req.params as { countrySlug: string; stateSlug?: string; citySlug?: string };
+      
+      // ✅ INPUT VALIDATION: Validate slug format (alphanumeric, hyphens, max 100 chars)
+      const slugPattern = /^[a-z0-9-]{1,100}$/;
+      if (!slugPattern.test(countrySlug)) {
+        return res.status(400).json({
+          error: 'Invalid country slug format',
+          code: 'INVALID_COUNTRY_SLUG',
+          message: 'Country slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      if (stateSlug && !slugPattern.test(stateSlug)) {
+        return res.status(400).json({
+          error: 'Invalid state slug format',
+          code: 'INVALID_STATE_SLUG',
+          message: 'State slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      if (citySlug && !slugPattern.test(citySlug)) {
+        return res.status(400).json({
+          error: 'Invalid city slug format',
+          code: 'INVALID_CITY_SLUG',
+          message: 'City slug must contain only lowercase letters, numbers, and hyphens'
+        });
+      }
+      
+      const parsedLimit = Number(req.query.limit);
+      const parsedOffset = Number(req.query.offset);
+      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(30, Math.floor(parsedLimit))) : 15;
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.floor(parsedOffset)) : 0;
 
-      // City-level URLs must include a state segment.
+      // City-level URLs must include a state segment
       if (citySlug && !stateSlug) {
         return res.status(400).json({
           error: "State is required when city is provided",
+          code: "INVALID_LOCATION_PATH",
+          meta: { country: countrySlug, state: stateSlug, city: citySlug }
+        });
+      }
+
+      // ✅ FETCH LOCATION DETECTIVES USING OPTIMIZED SINGLE QUERY
+      // Add an internal timeout so requests fail fast and avoid Vercel 60s timeout.
+      const LOCATION_QUERY_TIMEOUT_MS = 20000;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let result: Awaited<ReturnType<typeof getLocationDetectivesForSEO>>;
+      try {
+        result = await Promise.race([
+          getLocationDetectivesForSEO(
+            countrySlug,
+            stateSlug,
+            citySlug,
+            limit + 1  // limit+1 for hasMore detection
+          ),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('LOCATION_QUERY_TIMEOUT')), LOCATION_QUERY_TIMEOUT_MS);
+          })
+        ]);
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      console.log("[API] detectives fetched", { count: result.detectives.length, location: result.location });
+
+      // ✅ MANUAL PAGINATION USING OFFSET
+      const startIdx = Math.max(0, Math.min(offset, result.detectives.length));
+      const paginatedDetectives = result.detectives.slice(startIdx, startIdx + limit);
+      const hasMore = result.detectives.length > (startIdx + limit);
+
+      console.log("[API] masking contacts...", { detectivesToMask: paginatedDetectives.length });
+
+      // ✅ MASK SENSITIVE FIELDS
+      // Keep this endpoint lightweight: avoid per-item async plan lookups.
+      const maskedDetectives = paginatedDetectives.map((d: any) => ({
+        ...d,
+        phone: undefined,
+        whatsapp: undefined,
+        contactEmail: undefined,
+        userId: undefined,
+        businessDocuments: undefined,
+        identityDocuments: undefined,
+        slug: d.slug || "pending-generation",
+        requireLocationUpdate: false,
+      }));
+
+      console.log("[API] masking finished", { maskedCount: maskedDetectives.length });
+
+      const estimatedTotal = hasMore
+        ? offset + maskedDetectives.length + 1
+        : offset + maskedDetectives.length;
+
+      // ✅ FETCH SEO METADATA (Optional - can be optimized to move into getLocationDetectivesForSEO)
+      let seoMetadata: { metaTitle: string | null; metaDescription: string | null; h1: string | null } = {
+        metaTitle: null,
+        metaDescription: null,
+        h1: null
+      };
+
+      try {
+        // Generate system SEO (no database query needed)
+        const locationName = result.location.city || result.location.state || result.location.country;
+        const locationType = result.location.city ? 'City' : result.location.state ? 'State' : 'Country';
+        const totalCount = maskedDetectives.length;
+
+        // Customize SEO based on whether detectives are available
+        if (totalCount > 0) {
+          seoMetadata.metaTitle = `Top Private Detectives in ${locationName} | Verified Investigators`;
+          seoMetadata.metaDescription = `Find trusted private detectives in ${locationName}. Browse ${totalCount} verified investigators offering background checks, surveillance, and investigation services.`;
+          seoMetadata.h1 = `Private Detectives in ${locationName}`;
+        } else {
+          seoMetadata.metaTitle = `Private Detectives in ${locationName} | Coming Soon`;
+          seoMetadata.metaDescription = `Looking for private detectives in ${locationName}? Check back soon for verified investigators offering background checks, surveillance, and investigation services.`;
+          seoMetadata.h1 = `Private Detectives in ${locationName}`;
+        }
+
+        console.log(`[Location Route SEO] System-generated SEO for ${locationType}: ${locationName}`);
+      } catch (seoError) {
+        console.error('[Location Route SEO] Error generating SEO metadata:', seoError);
+        // Fallback to basic SEO
+        const locationName = result.location.city || result.location.state || result.location.country;
+        seoMetadata.metaTitle = `Private Detectives in ${locationName}`;
+        seoMetadata.metaDescription = `Find private detectives in ${locationName}`;
+        seoMetadata.h1 = `Detectives in ${locationName}`;
+      }
+
+      console.log("[API] sending response", { detectiveCount: maskedDetectives.length, estimatedTotal, hasMore });
+
+      // ✅ RETURN RESPONSE
+      res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+      res.json({
+        meta: {
+          country: result.location.country,
+          state: result.location.state || null,
+          city: result.location.city || null,
+          found: true
+        },
+        seoMetadata,
+        relatedType: result.location.state ? 'cities' : 'states',
+        relatedLocations: [],  // Can be populated from getLocationDetectivesForSEO if needed
+        detectives: maskedDetectives,
+        total: estimatedTotal,
+        hasMore,
+        limit,
+        offset
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('LOCATION_QUERY_TIMEOUT')) {
+        // Cache 504 errors briefly to prevent rapid retry storms
+        res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=10');
+        return res.status(504).json({
+          error: 'Location fetch timed out',
+          code: 'LOCATION_FETCH_TIMEOUT',
+          message: 'The location query took too long. Please try again.'
+        });
+      }
+
+      console.error('[api/detectives/location] error:', error);
+      // Cache 5xx errors briefly to prevent hammering a failing endpoint
+      res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=5');
+      res.status(500).json({
+        error: 'Failed to fetch detectives by location',
+        code: 'LOCATION_FETCH_ERROR',
+        message: error instanceof Error ? error.message : 'Internal server error'
+      });
+    }
+  });
+
+  // API: Services filtered by location slugs (country/state/city) - Phase 1: Background Checks
+  // Route: GET /api/services/background-checks/:country/:state/:city/
+  // Returns: Array of services with detective info, filtered by location and category
+  app.get('/api/services/background-checks/:country/:state/:city', async (req: Request, res: Response) => {
+    try {
+      const { country: countrySlug, state: stateSlug, city: citySlug } = req.params as { country: string; state: string; city: string };
+
+      // Validation: All three segments required for Phase 1
+      if (!countrySlug || !stateSlug || !citySlug) {
+        return res.status(400).json({
+          error: "Country, state, and city are required",
           code: "INVALID_LOCATION_PATH",
           meta: { country: countrySlug, state: stateSlug, city: citySlug }
         });
@@ -6098,88 +7109,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const countryRow: any = countryRows[0];
 
-      // Optional state
-      let stateRow: any = null;
-      if (stateSlug) {
-        const stateRows = await db
-          .select({ id: states.id, name: states.name })
-          .from(states)
-          .where(and(eq(states.countryId, countryRow.id), eq(states.slug, stateSlug)));
-        
-        if (!stateRows || stateRows.length === 0) {
-          return res.status(404).json({
-            error: 'State not found',
-            code: 'STATE_NOT_FOUND',
-            meta: { country: countrySlug, state: stateSlug, city: citySlug }
-          });
-        }
-
-        stateRow = stateRows[0];
-      }
-
-      // Optional city
-      let cityRow: any = null;
-      if (citySlug && stateRow) {
-        const cityRows = await db
-          .select({ id: cities.id, name: cities.name })
-          .from(cities)
-          .where(and(eq(cities.stateId, stateRow.id), eq(cities.slug, citySlug)));
-        
-        if (!cityRows || cityRows.length === 0) {
-          return res.status(404).json({
-            error: 'City not found',
-            code: 'CITY_NOT_FOUND',
-            meta: { country: countrySlug, state: stateSlug, city: citySlug }
-          });
-        }
-
-        cityRow = cityRows[0];
-      }
-
-      // Use existing ranking helper to fetch base list (by country code)
-      const { getRankedDetectives } = await import('./ranking.ts');
-      let detectivesList = await getRankedDetectives({ country: countryRow.code, limit: 1000 });
-
-      // Filter by state and city names if present (case-insensitive, null-safe)
-      if (stateRow) {
-        detectivesList = detectivesList.filter((d: any) => 
-          d.state && String(d.state).toLowerCase() === String(stateRow.name).toLowerCase()
-        );
-      }
+      // Resolve state
+      const stateRows = await db
+        .select({ id: states.id, name: states.name })
+        .from(states)
+        .where(and(eq(states.countryId, countryRow.id), eq(states.slug, stateSlug)));
       
-      if (cityRow) {
-        detectivesList = detectivesList.filter((d: any) => 
-          d.city && String(d.city).toLowerCase() === String(cityRow.name).toLowerCase()
-        );
+      if (!stateRows || stateRows.length === 0) {
+        return res.status(404).json({
+          error: 'State not found',
+          code: 'STATE_NOT_FOUND',
+          meta: { country: countrySlug, state: stateSlug, city: citySlug }
+        });
       }
 
-      // Mask sensitive fields similarly to /api/detectives
-      const maskedDetectives = await Promise.all(detectivesList.map(async (d: any) => {
-        const masked = await maskDetectiveContactsPublic(d);
-        masked.userId = undefined;
-        masked.businessDocuments = undefined;
-        masked.identityDocuments = undefined;
-        // Include validation flags
-        masked.slug = masked.slug || "pending-generation";
-        masked.requireLocationUpdate = !masked.cityId;
-        return masked;
-      }));
+      const stateRow: any = stateRows[0];
 
-      res.json({ 
-        meta: { 
-          country: countryRow.name, 
-          state: stateRow?.name || null, 
-          city: cityRow?.name || null,
+      // Resolve city
+      const cityRows = await db
+        .select({ id: cities.id, name: cities.name })
+        .from(cities)
+        .where(and(eq(cities.stateId, stateRow.id), eq(cities.slug, citySlug)));
+      
+      if (!cityRows || cityRows.length === 0) {
+        return res.status(404).json({
+          error: 'City not found',
+          code: 'CITY_NOT_FOUND',
+          meta: { country: countrySlug, state: stateSlug, city: citySlug }
+        });
+      }
+
+      const cityRow: any = cityRows[0];
+
+      // Use storage.searchServices() to fetch background check services in this location
+      // Convert country code to country name for the filter (storage expects 2-letter country code)
+      const serviceResults = await storage.searchServices({
+        category: "Background Check",        // Phase 1: Only background checks
+        country: countryRow.code,             // 2-letter country code (IN, US, GB)
+        state: stateRow.name,                 // Full state name (Maharashtra)
+        city: cityRow.name,                   // Full city name (Pune)
+      }, 50, 0, 'popular');
+
+      // Return 404 if no services found in this location
+      if (!serviceResults || serviceResults.length === 0) {
+        return res.status(404).json({
+          error: 'No background check services found in this location',
+          code: 'NO_SERVICES_FOUND',
+          meta: { 
+            country: countryRow.name,
+            state: stateRow.name,
+            city: cityRow.name,
+            category: 'Background Check'
+          }
+        });
+      }
+
+      // Log successful injection for monitoring
+      console.log(`[Service SEO] Injected background-checks for ${cityRow.name}`);
+
+      // Return services with location metadata
+      res.json({
+        meta: {
+          country: countryRow.name,
+          countryCode: countryRow.code,
+          state: stateRow.name,
+          city: cityRow.name,
+          category: 'Background Check',
+          total: serviceResults.length,
           found: true
-        }, 
-        detectives: maskedDetectives, 
-        total: maskedDetectives.length 
+        },
+        services: serviceResults.map(service => ({
+          id: service.id,
+          title: service.title,
+          slug: service.slug,
+          category: service.category,
+          description: service.description,
+          basePrice: service.basePrice,
+          offerPrice: service.offerPrice,
+          isOnEnquiry: service.isOnEnquiry,
+          images: service.images,
+          avgRating: service.avgRating,
+          reviewCount: service.reviewCount,
+          detective: {
+            id: service.detective.id,
+            businessName: service.detective.businessName,
+            slug: service.detective.slug,
+            logo: service.detective.logo,
+            country: service.detective.country,
+            state: service.detective.state,
+            city: service.detective.city,
+            isVerified: service.detective.isVerified,
+            level: service.detective.level,
+            phone: service.detective.phone,
+            whatsapp: service.detective.whatsapp,
+            contactEmail: service.detective.contactEmail
+          }
+        }))
       });
     } catch (error) {
-      console.error('[api/detectives/location] error:', error);
-      res.status(500).json({ 
-        error: 'Failed to fetch detectives by location',
-        code: 'LOCATION_FETCH_ERROR',
+      console.error('[api/services/background-checks/location] error:', error);
+      res.status(500).json({
+        error: 'Failed to fetch background check services by location',
+        code: 'SERVICE_LOCATION_FETCH_ERROR',
         message: error instanceof Error ? error.message : 'Internal server error'
       });
     }
@@ -6408,6 +7439,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Health and dev helpers
+  // Simple health check endpoint (fast response, no DB check)
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.json({ ok: true, timestamp: new Date().toISOString(), env: config.env.isProd ? 'production' : 'development' });
+  });
+  
+  // Database health check endpoint
   app.get("/api/health/db", async (_req: Request, res: Response) => {
     try {
       await storage.getAllServiceCategories(false);
@@ -6589,7 +7626,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/snippets - List all saved snippets
-  app.get("/api/snippets", requireRole("admin"), async (req: Request, res: Response) => {
+  app.get("/api/snippets", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       const snippets = await db
         .select()
@@ -6616,13 +7653,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return cache.get(cacheKey) as number;
     }
 
+    // ✅ STEP 1: RESOLVE COUNTRY to country_id
+    let countryId: number | null = null;
+    try {
+      const countryResult = await db
+        .select({ id: countries.id })
+        .from(countries)
+        .where(
+          or(
+            eq(countries.slug, country.toLowerCase()),
+            eq(countries.code, country.toUpperCase()),
+            eq(sql`LOWER(${countries.name})`, country.toLowerCase())
+          )
+        )
+        .limit(1);
+      
+      if (countryResult.length > 0) {
+        countryId = countryResult[0].id;
+      }
+    } catch (err) {
+      console.error(`[countServicesForSnippet] Error resolving country "${country}":`, err);
+    }
+
+    if (!countryId) {
+      console.warn(`[countServicesForSnippet] Country "${country}" could not be resolved to country_id`);
+      return 0;
+    }
+
+    // ✅ STEP 2: RESOLVE STATE to state_id (if provided)
+    let stateId: number | null = null;
+    if (state) {
+      try {
+        const stateResult = await db
+          .select({ id: states.id })
+          .from(states)
+          .where(
+            and(
+              eq(states.countryId, countryId),
+              or(
+                eq(states.slug, state.toLowerCase()),
+                eq(sql`LOWER(${states.name})`, state.toLowerCase())
+              )
+            )
+          )
+          .limit(1);
+        
+        if (stateResult.length > 0) {
+          stateId = stateResult[0].id;
+        }
+      } catch (err) {
+        console.error(`[countServicesForSnippet] Error resolving state "${state}":`, err);
+      }
+
+      if (!stateId) {
+        console.warn(`[countServicesForSnippet] State "${state}" could not be resolved to state_id for country_id=${countryId}`);
+        return 0;
+      }
+    }
+
+    // ✅ STEP 3: RESOLVE CITY to city_id (if provided)
+    let cityId: number | null = null;
+    if (city && stateId) {
+      try {
+        const cityResult = await db
+          .select({ id: cities.id })
+          .from(cities)
+          .where(
+            and(
+              eq(cities.stateId, stateId),
+              or(
+                eq(cities.slug, city.toLowerCase()),
+                eq(sql`LOWER(${cities.name})`, city.toLowerCase())
+              )
+            )
+          )
+          .limit(1);
+        
+        if (cityResult.length > 0) {
+          cityId = cityResult[0].id;
+        }
+      } catch (err) {
+        console.error(`[countServicesForSnippet] Error resolving city "${city}":`, err);
+      }
+
+      if (!cityId) {
+        console.warn(`[countServicesForSnippet] City "${city}" could not be resolved to city_id for state_id=${stateId}`);
+        return 0;
+      }
+    }
+
+    // ✅ STEP 4: BUILD WHERE CONDITIONS using FK fields ONLY (no text fields)
     const whereConditions = [
       eq(detectives.status, "active"),
-      eq(detectives.country, String(country)),
+      eq(detectives.countryId, countryId),
       eq(services.category, String(category)),
     ];
-    if (state) whereConditions.push(eq(detectives.state, String(state)));
-    if (city) whereConditions.push(eq(detectives.city, String(city)));
+    if (stateId) whereConditions.push(eq(detectives.stateId, stateId));
+    if (cityId) whereConditions.push(eq(detectives.cityId, cityId));
 
     const rows = await db
       .select({ count: count(detectives.id) })
@@ -6779,43 +7906,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (cached) {
           return res.json({ countries: cached });
         }
+        // ✅ REFACTORED: Use countries table, join with detectives/services via FK
         const countriesResult = await db
-          .selectDistinct({ country: detectives.country })
-          .from(detectives)
+          .selectDistinct({ country: countries.name })
+          .from(countries)
+          .innerJoin(detectives, eq(detectives.countryId, countries.id))
           .innerJoin(services, eq(services.detectiveId, detectives.id))
           .where(and(
             eq(detectives.status, "active"),
             eq(services.isActive, true)
-          ));
-        const countries = countriesResult
+          ))
+          .orderBy(countries.name);
+        const countryList = countriesResult
           .map((r) => r.country)
           .filter((c) => c != null && c !== "")
           .sort();
-        setSnippetLocationsCache(cacheKey, countries);
-        return res.json({ countries });
+        setSnippetLocationsCache(cacheKey, countryList);
+        return res.json({ countries: countryList });
       }
 
       if (!hasState) {
+        // ✅ STEP 1: Resolve country string to country_id
+        let countryId: number | null = null;
+        try {
+          const countryResult = await db
+            .select({ id: countries.id })
+            .from(countries)
+            .where(
+              or(
+                eq(countries.slug, String(country).toLowerCase()),
+                eq(countries.code, String(country).toUpperCase()),
+                eq(sql`LOWER(${countries.name})`, String(country).toLowerCase())
+              )
+            )
+            .limit(1);
+          
+          if (countryResult.length > 0) {
+            countryId = countryResult[0].id;
+          }
+        } catch (err) {
+          console.error(`[/api/snippets/available-locations] Error resolving country "${country}":`, err);
+        }
+
+        if (!countryId) {
+          return res.status(400).json({ error: `Country "${country}" could not be resolved` });
+        }
+
         const cacheKey = `snippets:locations:states:${String(country)}`;
         const cached = getSnippetLocationsCache(cacheKey);
         if (cached) {
           return res.json({ states: cached });
         }
+        // ✅ REFACTORED: Use states table with country_id FK, join with detectives/services
         const statesResult = await db
-          .selectDistinct({ state: detectives.state })
-          .from(detectives)
+          .selectDistinct({ state: states.name })
+          .from(states)
+          .innerJoin(detectives, eq(detectives.stateId, states.id))
           .innerJoin(services, eq(services.detectiveId, detectives.id))
           .where(and(
+            eq(detectives.countryId, countryId),
             eq(detectives.status, "active"),
-            eq(services.isActive, true),
-            eq(detectives.country, String(country))
-          ));
-        const states = statesResult
+            eq(services.isActive, true)
+          ))
+          .orderBy(states.name);
+        const stateList = statesResult
           .map((r) => r.state)
           .filter((s) => s && s !== "Not specified")
           .sort();
-        setSnippetLocationsCache(cacheKey, states);
-        return res.json({ states });
+        setSnippetLocationsCache(cacheKey, stateList);
+        return res.json({ states: stateList });
+      }
+
+      // ✅ STEP 1: Resolve country string to country_id
+      let countryId: number | null = null;
+      try {
+        const countryResult = await db
+          .select({ id: countries.id })
+          .from(countries)
+          .where(
+            or(
+              eq(countries.slug, String(country).toLowerCase()),
+              eq(countries.code, String(country).toUpperCase()),
+              eq(sql`LOWER(${countries.name})`, String(country).toLowerCase())
+            )
+          )
+          .limit(1);
+        
+        if (countryResult.length > 0) {
+          countryId = countryResult[0].id;
+        }
+      } catch (err) {
+        console.error(`[/api/snippets/available-locations] Error resolving country "${country}":`, err);
+      }
+
+      if (!countryId) {
+        return res.status(400).json({ error: `Country "${country}" could not be resolved` });
+      }
+
+      // ✅ STEP 2: Resolve state string to state_id
+      let stateId: number | null = null;
+      try {
+        const stateResult = await db
+          .select({ id: states.id })
+          .from(states)
+          .where(
+            and(
+              eq(states.countryId, countryId),
+              or(
+                eq(states.slug, String(stateParam).toLowerCase()),
+                eq(sql`LOWER(${states.name})`, String(stateParam).toLowerCase())
+              )
+            )
+          )
+          .limit(1);
+        
+        if (stateResult.length > 0) {
+          stateId = stateResult[0].id;
+        }
+      } catch (err) {
+        console.error(`[/api/snippets/available-locations] Error resolving state "${stateParam}":`, err);
+      }
+
+      if (!stateId) {
+        return res.status(400).json({ error: `State "${stateParam}" could not be resolved for country_id=${countryId}` });
       }
 
       const cacheKey = `snippets:locations:cities:${String(country)}:${String(stateParam)}`;
@@ -6823,22 +8036,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (cached) {
         return res.json({ cities: cached });
       }
+      // ✅ REFACTORED: Use cities table with state_id FK, join with detectives/services
       const citiesResult = await db
-        .selectDistinct({ city: detectives.city })
-        .from(detectives)
+        .selectDistinct({ city: cities.name })
+        .from(cities)
+        .innerJoin(detectives, eq(detectives.cityId, cities.id))
         .innerJoin(services, eq(services.detectiveId, detectives.id))
         .where(and(
+          eq(detectives.stateId, stateId),
           eq(detectives.status, "active"),
-          eq(services.isActive, true),
-          eq(detectives.country, String(country)),
-          eq(detectives.state, String(stateParam))
-        ));
-      const cities = citiesResult
+          eq(services.isActive, true)
+        ))
+        .orderBy(cities.name);
+      const cityList = citiesResult
         .map((r) => r.city)
         .filter((c) => c && c !== "Not specified")
         .sort();
-      setSnippetLocationsCache(cacheKey, cities);
-      return res.json({ cities });
+      setSnippetLocationsCache(cacheKey, cityList);
+      return res.json({ cities: cityList });
     } catch (error) {
       console.error("Error fetching available locations:", error);
       res.status(500).json({ error: "Failed to fetch available locations" });
@@ -6855,13 +8070,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required parameters: country, category" });
       }
 
+      // ✅ STEP 1: RESOLVE COUNTRY to country_id
+      let countryId: number | null = null;
+      try {
+        const countryResult = await db
+          .select({ id: countries.id })
+          .from(countries)
+          .where(
+            or(
+              eq(countries.slug, String(country).toLowerCase()),
+              eq(countries.code, String(country).toUpperCase()),
+              eq(sql`LOWER(${countries.name})`, String(country).toLowerCase())
+            )
+          )
+          .limit(1);
+        
+        if (countryResult.length > 0) {
+          countryId = countryResult[0].id;
+        }
+      } catch (err) {
+        console.error(`[/api/snippets/detectives] Error resolving country "${country}":`, err);
+      }
+
+      if (!countryId) {
+        return res.status(400).json({ error: `Country "${country}" could not be resolved` });
+      }
+
+      // ✅ STEP 2: RESOLVE STATE to state_id (if provided)
+      let stateId: number | null = null;
+      if (state) {
+        try {
+          const stateResult = await db
+            .select({ id: states.id })
+            .from(states)
+            .where(
+              and(
+                eq(states.countryId, countryId),
+                or(
+                  eq(states.slug, String(state).toLowerCase()),
+                  eq(sql`LOWER(${states.name})`, String(state).toLowerCase())
+                )
+              )
+            )
+            .limit(1);
+          
+          if (stateResult.length > 0) {
+            stateId = stateResult[0].id;
+          }
+        } catch (err) {
+          console.error(`[/api/snippets/detectives] Error resolving state "${state}":`, err);
+        }
+
+        if (!stateId) {
+          return res.status(400).json({ error: `State "${state}" could not be resolved for country_id=${countryId}` });
+        }
+      }
+
+      // ✅ STEP 3: RESOLVE CITY to city_id (if provided)
+      let cityId: number | null = null;
+      if (city && stateId) {
+        try {
+          const cityResult = await db
+            .select({ id: cities.id })
+            .from(cities)
+            .where(
+              and(
+                eq(cities.stateId, stateId),
+                or(
+                  eq(cities.slug, String(city).toLowerCase()),
+                  eq(sql`LOWER(${cities.name})`, String(city).toLowerCase())
+                )
+              )
+            )
+            .limit(1);
+          
+          if (cityResult.length > 0) {
+            cityId = cityResult[0].id;
+          }
+        } catch (err) {
+          console.error(`[/api/snippets/detectives] Error resolving city "${city}":`, err);
+        }
+
+        if (!cityId) {
+          return res.status(400).json({ error: `City "${city}" could not be resolved for state_id=${stateId}` });
+        }
+      }
+
+      // ✅ STEP 4: BUILD FK-BASED WHERE CLAUSE
       const limitNum = Math.min(Math.max(parseInt(String(limit)) || 4, 1), 20);
-      const params: (string | number)[] = [String(country), String(category)];
+      const params: (string | number)[] = [countryId, String(category)];
       let paramIdx = 3;
-      const stateClause = state ? ` AND d.state = $${paramIdx++}` : "";
-      if (state) params.push(String(state));
-      const cityClause = city ? ` AND d.city = $${paramIdx++}` : "";
-      if (city) params.push(String(city));
+      const stateClause = stateId ? ` AND d.state_id = $${paramIdx++}` : "";
+      if (stateId) params.push(stateId);
+      const cityClause = cityId ? ` AND d.city_id = $${paramIdx++}` : "";
+      if (cityId) params.push(cityId);
       params.push(limitNum);
 
       const q = `
@@ -6878,7 +8180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         INNER JOIN detectives d ON d.id = s.detective_id AND d.status = 'active'
         LEFT JOIN subscription_plans sp ON sp.id = d.subscription_package_id
         LEFT JOIN users u ON u.id = d.user_id
-        WHERE s.is_active = true AND d.country = $1 AND s.category = $2${stateClause}${cityClause}
+        WHERE s.is_active = true AND d.country_id = $1 AND s.category = $2${stateClause}${cityClause}
         ORDER BY avg_rating DESC NULLS LAST
         LIMIT $${paramIdx}
       `;
@@ -7264,7 +8566,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Insert case study
       const result = await db
         .insert(caseStudies)
-        .values(validatedData)
+        .values({
+          ...validatedData,
+          publishedAt: new Date(validatedData.publishedAt),
+        })
         .returning();
 
       const newCaseStudy = result[0];
@@ -7274,7 +8579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const publishDate = new Date(validatedData.publishedAt);
         if (publishDate <= new Date()) {
           const articleUrl = `https://www.askdetectives.com/news/${newCaseStudy.slug}`;
-          googleIndexing.submitUrl(articleUrl, "URL_UPDATED").catch(err => {
+          getGoogleIndexing().submitUrl(articleUrl, "URL_UPDATED").catch(err => {
             console.error("Failed to notify Google of new case study:", err);
           });
         }
@@ -7321,6 +8626,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const validatedData = updateSchema.parse(req.body);
+      const updateValues: {
+        title?: string;
+        slug?: string;
+        content?: string;
+        excerptHtml?: string;
+        detectiveId?: string;
+        category?: string;
+        featured?: boolean;
+        thumbnail?: string;
+        publishedAt?: Date;
+        updatedAt: Date;
+      } = {
+        title: validatedData.title,
+        slug: validatedData.slug,
+        content: validatedData.content,
+        excerptHtml: validatedData.excerptHtml,
+        detectiveId: validatedData.detectiveId,
+        category: validatedData.category,
+        featured: validatedData.featured,
+        thumbnail: validatedData.thumbnail,
+        updatedAt: new Date(),
+      };
+
+      if (validatedData.publishedAt) {
+        updateValues.publishedAt = new Date(validatedData.publishedAt);
+      }
 
       // Check slug uniqueness if changed
       if (validatedData.slug && validatedData.slug !== existingStudy.slug) {
@@ -7338,7 +8669,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update case study
       const result = await db
         .update(caseStudies)
-        .set({ ...validatedData, updatedAt: new Date() })
+        .set(updateValues)
         .where(eq(caseStudies.id, id))
         .returning();
 
@@ -7347,7 +8678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Trigger Google Indexing
       if (updatedStudy && updatedStudy.slug) {
         const articleUrl = `https://www.askdetectives.com/news/${updatedStudy.slug}`;
-        googleIndexing.submitUrl(articleUrl, "URL_UPDATED").catch(err => {
+        getGoogleIndexing().submitUrl(articleUrl, "URL_UPDATED").catch(err => {
           console.error("Failed to notify Google of case study update:", err);
         });
       }
@@ -7386,7 +8717,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Notify Google of deletion
       if (study && study.slug) {
         const articleUrl = `https://www.askdetectives.com/news/${study.slug}`;
-        googleIndexing.submitUrl(articleUrl, "URL_DELETED").catch(err => {
+        getGoogleIndexing().submitUrl(articleUrl, "URL_DELETED").catch(err => {
           console.error("Failed to notify Google of case study deletion:", err);
         });
       }
@@ -7411,5 +8742,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
 
+  console.log('[DEBUG] registerRoutes() completing, about to return httpServer');
   return httpServer;
 }

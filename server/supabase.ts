@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { config } from "./config.ts";
+import { config } from "./config.js";
 
 /**
  * Supabase Configuration - Environment Variables ONLY
@@ -49,6 +49,8 @@ if (!url || !key) {
 }
 
 // Development safety guard: prevent accidental cloud Supabase usage in dev
+// DISABLED: User is explicitly using live Supabase for development
+/*
 if (config.env.isDev && url) {
   const isLocalSupabase = 
     url.includes("localhost") || 
@@ -64,16 +66,27 @@ if (config.env.isDev && url) {
       `To fix this:\n` +
       `  1. Update SUPABASE_URL in .env.local to your LOCAL Supabase URL\n` +
       `     (e.g., http://127.0.0.1:54321)\n` +
-      `  2. Or set NODE_ENV=production if you intentionally want to use cloud Supabase\n\n` +
+      `  2. Or set NODE_ENV=production if deploying to production\n\n` +
       `This safety check prevents accidentally modifying production data during development.`
     );
   }
 }
+*/
 
-export const supabase = (url && key) ? createClient(url, key) : null as any;
+// Lazy factory pattern - only initialize when first accessed
+let supabaseInstance: any = undefined;
+
+function getSupabaseClient() {
+  if (supabaseInstance === undefined) {
+    supabaseInstance = (url && key) ? createClient(url, key) : null;
+  }
+  return supabaseInstance;
+}
+
 const isLocalDev = !config.env.isProd && ((config.baseUrl || "").includes("localhost") || (config.baseUrl || "").includes("127.0.0.1"));
 
 export async function ensureBucket(name: string) {
+  const supabase = getSupabaseClient();
   if (!supabase) {
     if (config.env.isProd) throw new Error("Supabase not configured");
     return;
@@ -110,8 +123,7 @@ export function parsePublicUrl(u: string): { bucket: string; path: string } | nu
   }
 }
 
-export async function deletePublicUrl(u: string) {
-  if (!supabase) {
+export async function deletePublicUrl(u: string) {  const supabase = getSupabaseClient();  if (!supabase) {
     if (config.env.isProd) throw new Error("Supabase not configured");
     return;
   }
@@ -119,6 +131,84 @@ export async function deletePublicUrl(u: string) {
   if (!parsed) return;
   await supabase.storage.from(parsed.bucket).remove([parsed.path]);
 }
+
+/**
+ * SECURITY: Safe deletion that validates URL ownership before deletion
+ * Prevents attackers from deleting arbitrary files by setting their profile URLs to victim's files
+ * 
+ * @param u - URL to delete
+ * @param allowedBuckets - Array of bucket names that are allowed for deletion (optional)
+ * @param expectedPathPrefixes - Expected path prefix(es) (e.g., "detectives/userId-123/") to validate ownership (optional)
+ * @returns true if deleted, false if validation failed
+ */
+export async function safeDeletePublicUrl(
+  u: string,
+  allowedBuckets?: string[],
+  expectedPathPrefixes?: string | string[]
+): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    if (config.env.isProd) throw new Error("Supabase not configured");
+    return false;
+  }
+  
+  // Parse and validate the URL
+  const parsed = parsePublicUrl(u);
+  if (!parsed) {
+    console.warn("[SECURITY] Attempted to delete invalid or external URL:", u);
+    return false;
+  }
+  
+  // Validate URL is from our Supabase storage (using module-level url constant)
+  const supabaseUrl = process.env.SUPABASE_URL;
+  if (supabaseUrl) {
+    try {
+      const expectedHost = new URL(supabaseUrl).host;
+      if (!u.includes(expectedHost)) {
+        console.warn("[SECURITY] Attempted to delete URL from different domain:", { url: u, expected: supabaseUrl });
+        return false;
+      }
+    } catch (error) {
+      console.error("[SECURITY] Failed to parse Supabase URL:", error);
+      return false;
+    }
+  }
+  
+  // Validate bucket is in allowed list
+  if (allowedBuckets && !allowedBuckets.includes(parsed.bucket)) {
+    console.warn("[SECURITY] Attempted to delete file from unauthorized bucket:", { 
+      url: u, 
+      bucket: parsed.bucket, 
+      allowed: allowedBuckets 
+    });
+    return false;
+  }
+
+  // SECURITY: Validate file path belongs to expected owner (path prefix must match)
+  // This prevents users from deleting files they don't own
+  const prefixes = Array.isArray(expectedPathPrefixes)
+    ? expectedPathPrefixes.filter(Boolean)
+    : (expectedPathPrefixes ? [expectedPathPrefixes] : []);
+
+  if (prefixes.length > 0 && !prefixes.some((prefix) => parsed.path.startsWith(prefix))) {
+    console.warn("[SECURITY] Attempted to delete file with mismatched ownership:", { 
+      url: u,
+      path: parsed.path,
+      expectedPrefixes: prefixes
+    });
+    return false;
+  }
+  
+  // Perform deletion
+  try {
+    await supabase.storage.from(parsed.bucket).remove([parsed.path]);
+    return true;
+  } catch (error) {
+    console.error("[SECURITY] Failed to delete file:", { url: u, error });
+    return false;
+  }
+}
+
 
 // Allowed MIME types for data-URL uploads (defense-in-depth; path is server-generated)
 const UPLOAD_DATAURL_ALLOWED_TYPES = new Set([
@@ -130,6 +220,7 @@ const UPLOAD_DATAURL_ALLOWED_TYPES = new Set([
 ]);
 
 export async function uploadDataUrl(bucket: string, path: string, dataUrl: string): Promise<string> {
+  const supabase = getSupabaseClient();
   if (!supabase) {
     if (config.env.isProd) throw new Error("Supabase not configured");
     return dataUrl;
@@ -165,6 +256,7 @@ export async function uploadDataUrl(bucket: string, path: string, dataUrl: strin
 }
 
 export async function uploadFromUrlOrDataUrl(bucket: string, path: string, source: string): Promise<string> {
+  const supabase = getSupabaseClient();
   if (!supabase) {
     if (require('./config.ts').config.env.isProd) throw new Error("Supabase not configured");
     return source;

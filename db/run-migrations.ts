@@ -1,5 +1,5 @@
-import "../server/lib/loadEnv.ts";
-import { db } from './index';
+import "../server/lib/loadEnv.js";
+import { db, pool } from './index.js';
 import { sql } from 'drizzle-orm';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
@@ -62,11 +62,34 @@ export async function runMigrations() {
       
       try {
         if (hasConcurrentIndex) {
-          // Execute outside transaction (required for CREATE INDEX CONCURRENTLY)
-          console.log(`  ⚠️  Contains CONCURRENT INDEX - executing outside transaction`);
-          await db.execute(sql.raw(migrationSQL));
+          // Execute outside transaction using raw pool connection (required for CREATE INDEX CONCURRENTLY)
+          console.log(`  ⚠️  Contains CONCURRENT INDEX - executing statements separately`);
           
-          // Mark as executed separately
+          // Split SQL into individual statements
+          // Remove comments and split by semicolons
+          const statements = migrationSQL
+            .split('\n')
+            .filter(line => !line.trim().startsWith('--'))  // Remove comments
+            .join('\n')
+            .split(';')
+            .map(stmt => stmt.trim())
+            .filter(stmt => stmt.length > 0 && !stmt.startsWith('DO $$'));  // Skip DO blocks and empty statements
+          
+          // Execute each CREATE INDEX CONCURRENTLY separately in autocommit mode
+          const client = await pool.connect();
+          try {
+            for (const statement of statements) {
+              if (statement.trim().length > 0) {
+                console.log(`  🔧 Executing: ${statement.substring(0, 60)}...`);
+                // Each query runs in autocommit mode (no transaction)
+                await client.query(statement);
+              }
+            }
+          } finally {
+            client.release();
+          }
+          
+          // Mark as executed separately using Drizzle (safe single query)
           await db.execute(sql`INSERT INTO _migrations (filename) VALUES (${file})`);
         } else {
           // Use transaction for atomicity (normal migrations)

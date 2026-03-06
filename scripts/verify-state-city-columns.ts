@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import pkg from "pg";
 const { Pool } = pkg;
 

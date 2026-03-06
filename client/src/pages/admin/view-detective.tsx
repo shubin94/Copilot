@@ -18,9 +18,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { 
   ArrowLeft, 
   Mail, 
-  Phone, 
-  MapPin, 
-  Globe, 
   Calendar, 
   DollarSign,
   Package,
@@ -49,6 +46,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ImageOff } from "lucide-react";
+
+const formatServiceDate = (value?: string | Date | null): string => {
+  if (!value) return "Unknown";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return format(date, "MMM d, yyyy");
+};
 
 export default function ViewDetective() {
   const { id } = useParams();
@@ -91,13 +95,13 @@ export default function ViewDetective() {
     : (publicServicesData?.services || [])).filter(Boolean);
   const categories = categoriesData?.categories || [];
   const freeLimit = limitsData?.limits?.free;
-  const canAddService = !!detective && detective.createdBy === "admin" && detective.isClaimable && !detective.subscriptionPackageId && services.length < freeLimit;
+  const canAddService = !!detective && detective.createdBy === "admin" && detective.isClaimable && !detective.subscriptionPackageId && services.length < (freeLimit ?? 0);
 
   // Mutation for updating service pricing
   const updateServicePricingMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: { basePrice?: string | null; offerPrice?: string | null; isOnEnquiry?: boolean } }) => 
       api.services.adminUpdatePricing(id, data),
-    onSuccess: async (result, variables) => {
+    onSuccess: async (_result, variables) => {
       if (detective?.id) {
         // Invalidate admin Services list
         await queryClient.refetchQueries({ queryKey: ["services", "detective", detective.id, "admin"] });
@@ -443,7 +447,7 @@ export default function ViewDetective() {
                       className="capitalize"
                       data-testid="badge-plan"
                     >
-                      {detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || detective.subscriptionPlan} Plan
+                      {detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || 'Free'} Plan
                     </Badge>
                   </div>
                 </div>
@@ -749,7 +753,7 @@ export default function ViewDetective() {
                               <span>👁️ {service.viewCount} views</span>
                             </div>
                             <div className="text-gray-500">
-                              Created {format(new Date(service.createdAt), "MMM d, yyyy")}
+                              Created {formatServiceDate(service.createdAt)}
                             </div>
                             </div>
                             <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -895,7 +899,6 @@ export default function ViewDetective() {
                         const minDesc = serviceForm.description.trim().length >= 50;
                         const hasImage = serviceForm.images.length > 0;
                         // Skip price validation if isOnEnquiry is true
-                        const hasPricing = !serviceForm.isOnEnquiry && serviceForm.basePrice;
                         const needsPricing = !serviceForm.isOnEnquiry;
                         
                         if (!serviceForm.category || (needsPricing && !serviceForm.basePrice) || !minTitle || !minDesc || !hasImage) {
@@ -1044,8 +1047,6 @@ export default function ViewDetective() {
                             basePrice: pricingForm.isOnEnquiry ? null : pricingForm.basePrice,
                             offerPrice: pricingForm.offerPrice || null,
                             isOnEnquiry: pricingForm.isOnEnquiry,
-                            // Ensure service is active and has required fields for public visibility
-                            isActive: true,
                           },
                         });
                         
@@ -1085,7 +1086,7 @@ export default function ViewDetective() {
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label>Current Plan</Label>
-                    <p className="text-2xl font-bold capitalize">{detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || detective.subscriptionPlan}</p>
+                    <p className="text-2xl font-bold capitalize">{detective.subscriptionPackage?.displayName || detective.subscriptionPackage?.name || 'Free'}</p>
                   </div>
 
                   <div className="space-y-2">

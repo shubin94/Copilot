@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Helmet } from "react-helmet";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { SEO } from "@/components/seo";
@@ -126,11 +125,11 @@ export default function PageView() {
     <div className="min-h-screen flex flex-col bg-white">
       <SEO 
         title={page.metaTitle || page.title} 
-        description={page.metaDescription}
+        description={page.metaDescription || page.title}
         canonical={canonicalUrl}
         breadcrumbs={breadcrumbs}
-        publishedTime={page.createdAt}
-        modifiedTime={page.updatedAt}
+        publishedTime={page.createdAt || ""}
+        modifiedTime={page.updatedAt || ""}
         image={page.bannerImage}
         author={page.author ? {
           name: page.author.name,
@@ -139,7 +138,7 @@ export default function PageView() {
         structuredData={{
           article: {
             headline: page.title,
-            author: page.author?.name || "FindDetectives",
+            author: page.author?.name || "Ask Detectives",
             datePublished: page.createdAt,
             dateModified: page.updatedAt,
             image: page.bannerImage,

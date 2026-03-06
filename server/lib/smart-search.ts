@@ -12,9 +12,9 @@
  * 5. Return top match with confidence scores
  */
 
-import { resolveLocation } from "./geo.ts";
-import { matchCategorySemanticDeepseek, type CategoryWithDesc, type DeepseekSemanticResult } from "./deepseek-category.ts";
-import { config } from "../config.ts";
+import { resolveLocation } from "./geo.js";
+import { matchCategorySemanticDeepseek, type CategoryWithDesc, type DeepseekSemanticResult } from "./deepseek-category.js";
+import { config } from "../config.js";
 
 const PROHIBITED_KEYWORDS = [
   "phone tap", "phone tapping", "tap phone", "tap his phone", "tap her phone",
@@ -153,10 +153,6 @@ export async function runSmartSearch(query: string, deps: SmartSearchDeps): Prom
   const params = new URLSearchParams();
   params.set("category", category);
   params.set("sortBy", "popular");
-  if (location?.country) {
-    params.set("country", location.country);
-    if (location.state) params.set("state", location.state);
-  }
   const searchUrl = `/search?${params.toString()}`;
   console.log("[smart-search] Final searchUrl:", searchUrl);
   

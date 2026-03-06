@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { buildApiUrl } from "@/lib/api";
+import { api, buildApiUrl } from "@/lib/api";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -79,9 +79,7 @@ export default function AdminFinancePage() {
       if (startDate) params.append("startDate", startDate);
       if (endDate) params.append("endDate", endDate);
       
-      const res = await fetch(`/api/admin/finance/summary?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch summary");
-      return res.json();
+      return api.get<Summary>(`/api/admin/finance/summary?${params}`);
     },
   });
 

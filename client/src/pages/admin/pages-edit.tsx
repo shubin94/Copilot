@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit2, Trash2, AlertCircle, ChevronDown, Eye } from "lucide-react";
+import { Plus, Trash2, AlertCircle, ChevronDown, Eye } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { imageFileToDataUrl } from "@/utils/image-upload";
 import { api } from "@/lib/api";
@@ -165,23 +165,6 @@ export default function PagesAdminEdit() {
     },
   });
 
-  const handleEdit = (page: Page) => {
-    setEditingId(page.id);
-    setTagsOpen(false);
-    setFormData({
-      title: page.title,
-      slug: page.slug,
-      categoryId: page.categoryId,
-      content: page.content,
-      bannerImage: page.bannerImage || "",
-      tagIds: page.tags.map((t) => t.id),
-      authorBio: "",
-      authorSocial: [],
-      status: (page.status as 'published' | 'draft' | 'archived') || "published",
-    });
-    setShowModal(true);
-    setError("");
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,6 +226,9 @@ export default function PagesAdminEdit() {
               content: "",
               bannerImage: "",
               tagIds: [],
+              authorBio: "",
+              authorSocial: [],
+              status: "published",
             });
             setShowModal(true);
           }}

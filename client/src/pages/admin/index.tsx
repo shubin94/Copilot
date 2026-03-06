@@ -1,11 +1,9 @@
 import React from "react";
 import { 
-  BarChart3,
   Settings,
   FolderOpen,
   Tag,
   FileText,
-  Users,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 

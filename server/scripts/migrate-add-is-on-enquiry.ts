@@ -1,4 +1,4 @@
-import { pool } from "../../db/index.ts";
+import { pool } from "../../db/index.js";
 
 async function runMigration() {
   try {

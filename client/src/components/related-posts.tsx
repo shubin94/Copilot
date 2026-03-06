@@ -30,13 +30,15 @@ function getExcerpt(content: string): string {
   return "";
 }
 
-export function RelatedPosts({ currentPostId, categoryId, tags = [] }: RelatedPostsProps) {
+export function RelatedPosts({ currentPostId, categoryId }: RelatedPostsProps) {
   const { data, isLoading } = useQuery<RelatedPost[]>({
     queryKey: ["related-posts", currentPostId, categoryId],
     queryFn: async () => {
       // Fetch posts from same category
       if (categoryId) {
-        const res = await fetch(`/api/public/categories/${categoryId}/pages`);
+        const res = await fetch(`/api/public/categories/${categoryId}/pages`, {
+          credentials: "include",
+        });
         if (!res.ok) return [];
         const data = await res.json();
         // Filter out current post and return max 3

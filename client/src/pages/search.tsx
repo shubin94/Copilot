@@ -1,36 +1,30 @@
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
-import { ServiceCard } from "@/components/home/service-card";
-import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
+import { ServiceCardGrid } from "@/components/common/service-card-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Slider } from "@/components/ui/slider";
 import { Breadcrumb } from "@/components/breadcrumb";
-import { Search, MapPin, Filter, ChevronDown, Star, Check, Globe, Loader2, X } from "lucide-react";
+import { Filter, ChevronDown, Star, Check, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect, useRef, useReducer } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SEO } from "@/components/seo";
 import { useSearchServices, useServiceCategories, useCountries, useStates, useCities } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
-import type { Service, Detective } from "@shared/schema";
-import { computeServiceBadges } from "@/lib/service-badges";
-import { buildServiceUrl, generateSlug } from "@/lib/slug-utils";
+import { getCountryName } from "@/lib/slug-utils";
 
 // Consolidated filter state using reducer
 type FilterState = {
@@ -128,65 +122,9 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
   }
 }
 
-function mapServiceToCard(service: Service & { detective: Detective & { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } }; avgRating: number; reviewCount: number; planName?: string }) {
-  const badgeState = computeServiceBadges({
-    isVerified: service.detective.isVerified,
-    effectiveBadges: service.detective.effectiveBadges,
-  });
-
-  const detectiveName = service.detective.businessName || "Unknown Detective";
-  const serviceSlug = service.slug || generateSlug(service.title || "service");
-  const servicePath = buildServiceUrl(
-    {
-      country: service.detective.country,
-      state: service.detective.state,
-      city: service.detective.city,
-      slug: service.detective.slug,
-      businessName: service.detective.businessName,
-    },
-    { slug: serviceSlug }
-  );
-  const canonicalUrl = `https://www.askdetectives.com${servicePath}`;
-
-  // Use actual database images - NO MOCK DATA
-  const images = service.images && service.images.length > 0 ? service.images : undefined;
-  const serviceImage = images ? images[0] : undefined;
-  const detectiveLogo = service.detective.logo || undefined;
-  
-  return {
-    id: service.id,
-    slug: service.slug,
-    canonicalUrl,
-    detectiveId: service.detective.id,
-    images,
-    image: serviceImage,
-    avatar: detectiveLogo || "",
-    name: detectiveName,
-    level: service.detective.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1",
-    levelValue: (() => { const m = String(service.detective.level || "level1").match(/\d+/); return m ? parseInt(m[0], 10) : 1; })(),
-    category: service.category,
-    badgeState,
-    title: service.title,
-    rating: service.avgRating,
-    reviews: service.reviewCount,
-    price: Number(service.basePrice),
-    offerPrice: service.offerPrice ? Number(service.offerPrice) : null,
-    isOnEnquiry: service.isOnEnquiry,
-    countryCode: service.detective.country,
-    phone: service.detective.phone || undefined,
-    whatsapp: service.detective.whatsapp || undefined,
-    contactEmail: service.detective.contactEmail || undefined,
-    detectiveCountry: service.detective.country,
-    detectiveState: service.detective.state,
-    detectiveCity: service.detective.city,
-    detectiveSlug: service.detective.slug,
-    detectiveBusinessName: service.detective.businessName,
-  };
-}
-
 export default function SearchPage() {
   console.log("[search-page] Component initializing...");
-  const [location, setLocation] = useLocation();
+  const [location] = useLocation();
   
   // Initialize filter state from URL params
   const initialSearchParams = useRef(new URLSearchParams(window.location.search));
@@ -254,10 +192,13 @@ export default function SearchPage() {
   // Determine level filter for backend (level1 or level2)
   const level = filters.level1Only ? "level1" : filters.level2Only ? "level2" : undefined;
 
+  // Apply selected country from context if no manual country filter is set
+  const countryForApi = filters.country || (selectedCountry && selectedCountry.code !== "GLOBAL" ? selectedCountry.code : undefined);
+
   // Fetch services from backend with ALL filters applied server-side
   const { data: servicesData, isLoading } = useSearchServices({
     search: filters.category ? undefined : (query !== "All Services" ? query : undefined),
-    country: filters.country || undefined,
+    country: countryForApi,
     state: filters.state || undefined,
     city: filters.city || undefined,
     category: filters.category,
@@ -288,44 +229,34 @@ export default function SearchPage() {
   const { data: citiesData } = useCities(filters.country, filters.state);
   
   const availableCountryCodes = countriesData?.countries || [];
-  const availableStates = statesData?.states || [];
-  const availableCities = citiesData?.cities || [];
+  const availableStates = (statesData?.states || []).map(s => s.name);
+  const availableCities = (citiesData?.cities || []).map(c => c.name);
   
   // Map country codes to names for display
-  const availableCountries = availableCountryCodes.map(code => {
-    const country = WORLD_COUNTRIES.find(c => c.code === code);
-    return { code, name: country?.name || code };
+  const availableCountries = availableCountryCodes.map(countryObj => {
+    const country = WORLD_COUNTRIES.find(c => c.code === countryObj.code);
+    return { code: countryObj.code, name: country?.name || countryObj.name };
   });
 
   // Backend now handles ALL filtering - no client-side filtering needed
-  const results = servicesData?.services?.map(mapServiceToCard) || [];
+  const results = servicesData?.services || [];
   
   // Client-side price conversion filtering (since prices are stored in different currencies)
   const finalResults = results.filter((s) => {
     // If price filters set, check converted prices
     if (filters.minPrice === undefined && filters.maxPrice === undefined) return true;
     if (!selectedCountry || !convertPriceFromTo) return true;
-    const converted = convertPriceFromTo(s.price, s.countryCode, selectedCountry.code);
+    const sPrice = typeof s.basePrice === 'number' ? s.basePrice : (s.offerPrice ? Number(s.offerPrice) : 0);
+    const sCountry = s.detective?.country || selectedCountry.code;
+    const converted = convertPriceFromTo(sPrice, sCountry, selectedCountry.code);
     if (filters.minPrice !== undefined && converted < filters.minPrice) return false;
     if (filters.maxPrice !== undefined && converted > filters.maxPrice) return false;
     return true;
   });
 
   const resultServicesComputed = finalResults;
+  const services = finalResults;
   
-  const hasActiveFilters = !!(
-    filters.category || 
-    filters.minRating !== undefined || 
-    filters.country || 
-    filters.minPrice !== undefined || 
-    filters.maxPrice !== undefined || 
-    filters.state.trim() || 
-    filters.proOnly || 
-    filters.agencyOnly || 
-    filters.level1Only || 
-    filters.level2Only
-  );
-
   // Track if we've done initial URL sync to avoid loops
   const hasInitializedFromUrl = useRef(false);
 
@@ -666,19 +597,21 @@ export default function SearchPage() {
      </Accordion>
   );
 
+  const displayCountryName = filters.country ? getCountryName(filters.country) : "";
+
   // SEO: Dynamic title and H1 based on filters
   const seoTitle = filters.category 
-    ? `${filters.category}${filters.country ? ` in ${filters.country}` : ''}${filters.city ? `, ${filters.city}` : ''} | FindDetectives`
-    : `Find Professional Private Investigators${filters.country ? ` in ${filters.country}` : ''} | FindDetectives`;
+    ? `${filters.category}${displayCountryName ? ` in ${displayCountryName}` : ''}${filters.city ? `, ${filters.city}` : ''} | Ask Detectives`
+    : `Find Professional Private Investigators${displayCountryName ? ` in ${displayCountryName}` : ''} | Ask Detectives`;
   
   const seoDescription = filters.category
-    ? `Browse ${resultServicesComputed.length || 'verified'} ${filters.category} services${filters.country ? ` in ${filters.country}` : ''}${filters.city ? `, ${filters.city}` : ''}. Compare prices, reviews, and ratings from top private investigators.`
-    : `Find and hire verified private investigators${filters.country ? ` in ${filters.country}` : ''}. Browse services, compare prices, and read reviews from professional detectives.`;
+    ? `Browse ${resultServicesComputed.length || 'verified'} ${filters.category} services${displayCountryName ? ` in ${displayCountryName}` : ''}${filters.city ? `, ${filters.city}` : ''}. Compare prices, reviews, and ratings from top private investigators.`
+    : `Find and hire verified private investigators${displayCountryName ? ` in ${displayCountryName}` : ''}. Browse services, compare prices, and read reviews from professional detectives.`;
   
   const h1Text = filters.category
-    ? `${filters.category} Detectives${filters.country ? ` in ${filters.country}` : ''}${filters.city ? `, ${filters.city}` : ''}`
-    : filters.country
-    ? `Private Investigators in ${filters.country}${filters.city ? `, ${filters.city}` : ''}`
+    ? `${filters.category} Detectives${displayCountryName ? ` in ${displayCountryName}` : ''}${filters.city ? `, ${filters.city}` : ''}`
+    : displayCountryName
+    ? `Private Investigators in ${displayCountryName}${filters.city ? `, ${filters.city}` : ''}`
     : 'Find Professional Private Investigators';
   
   // SEO: Clean canonical URL (keep only primary landing dimensions)
@@ -716,25 +649,25 @@ export default function SearchPage() {
       "position": index + 1,
       "item": {
         "@type": "Service",
-        "@id": service.canonicalUrl,
+        "@id": `https://www.askdetectives.com/services/${service.slug}`,
         "name": service.title,
-        "url": service.canonicalUrl,
+        "url": `https://www.askdetectives.com/services/${service.slug}`,
         "provider": {
           "@type": "Organization",
-          "name": service.name
+          "name": service.detective?.businessName || service.title
         },
         ...(service.isOnEnquiry ? {} : {
           "offers": {
             "@type": "Offer",
-            "price": service.offerPrice || service.price,
+            "price": service.offerPrice || service.basePrice,
             "priceCurrency": "INR"
           }
         }),
-        ...(service.rating && service.reviews > 0 && {
+        ...(service.avgRating && service.reviewCount && service.reviewCount > 0 && {
           "aggregateRating": {
             "@type": "AggregateRating",
-            "ratingValue": service.rating,
-            "reviewCount": service.reviews
+            "ratingValue": service.avgRating,
+            "reviewCount": service.reviewCount
           }
         })
       }
@@ -764,7 +697,7 @@ export default function SearchPage() {
         schema={itemListSchema}
         keywords={[
           filters.category || 'private investigator',
-          filters.country || '',
+          displayCountryName || '',
           filters.city || '',
           'detective services',
           'investigation',
@@ -829,7 +762,7 @@ export default function SearchPage() {
                   <p className="text-gray-600 text-sm">
                     Showing {resultServicesComputed.length} verified service{resultServicesComputed.length !== 1 ? 's' : ''}
                     {filters.category && ` in ${filters.category}`}
-                    {filters.country && ` • ${filters.country}`}
+                    {displayCountryName && ` • ${displayCountryName}`}
                     {filters.city && ` • ${filters.city}`}
                   </p>
                 )}
@@ -856,37 +789,7 @@ export default function SearchPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {isLoading ? (
-                  [1, 2, 3, 4, 5, 6].map((i) => (
-                    <ServiceCardSkeleton key={i} />
-                  ))
-                ) : finalResults.length > 0 ? (
-                  finalResults.map((service) => (
-                    <ServiceCard key={service.id} {...service} />
-                  ))
-                ) : (
-                  <div className="col-span-full flex flex-col items-center justify-center py-16 text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200" data-testid="empty-search-results">
-                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-4">
-                      <Globe className="h-8 w-8 text-gray-400" />
-                    </div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">No results yet</h3>
-                    <p className="text-gray-500 mb-6 text-center max-w-md">
-                      We couldn't find any detectives matching your search for "{query}"{filters.country ? ` in ${availableCountries.find(c => c.code === filters.country)?.name || filters.country}` : ""}.
-                    </p>
-                    <Button 
-                      onClick={() => {
-                        dispatch({ type: 'RESET_FILTERS' });
-                        window.location.href = "/search";
-                      }}
-                      variant="outline"
-                      data-testid="button-clear-filters"
-                    >
-                      {hasActiveFilters ? "Clear Filters & Search All" : "Search All Services"}
-                    </Button>
-                  </div>
-                )}
-              </div>
+              <ServiceCardGrid services={services} isLoading={isLoading} emptyMessage="No results yet." />
 
                 {!isLoading && finalResults.length >= filters.limit && (
                  <div className="mt-12 flex justify-center">

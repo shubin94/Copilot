@@ -1,5 +1,4 @@
-import React from "react";
-import { ContentBlock, HeadingBlock } from "@/shared/content-blocks";
+import { HeadingBlock } from "@/shared/content-blocks";
 import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 
 interface HeadingBlockEditorProps {

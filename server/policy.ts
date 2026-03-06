@@ -1,7 +1,7 @@
-import { db } from "../db/index.ts";
-import { appPolicies } from "../shared/schema.ts";
+import { db } from "../db/index.js";
+import { appPolicies } from "../shared/schema.js";
 import { eq } from "drizzle-orm";
-import { config } from "./config.ts";
+import { config } from "./config.js";
 
 export async function getPolicy<T = any>(key: string): Promise<T | undefined> {
   const [row] = await db.select().from(appPolicies).where(eq(appPolicies.key, key)).limit(1);

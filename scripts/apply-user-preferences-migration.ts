@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import pg from "pg";
 import fs from "fs";
 import path from "path";

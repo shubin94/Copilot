@@ -12,9 +12,9 @@ import { SmokeTester } from "@/components/dev/smoke-tester";
 import CountrySelectorPopup from "@/components/modals/country-selector-popup";
 import { initializeAuthSession } from "./lib/authSessionManager";
 import { AdminRoute } from "@/components/admin-route";
+import { EmployeeRoute } from "@/components/employee-route";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { NetworkErrorHandler } from "@/components/network-error-handler";
-import { PerformanceMonitor } from "@/lib/performance-monitor";
 
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -31,8 +31,36 @@ const ApplicationUnderReview = lazy(() => import("@/pages/application-under-revi
 const SearchPage = lazy(() => import("@/pages/search"));
 const CategoriesPage = lazy(() => import("@/pages/categories"));
 
-// Lazy load Admin Routes module as a completely separate chunk
-const AdminRoutes = lazy(() => import("@/routes/admin-routes").then(m => ({ default: m.AdminRoutes })));
+// Lazy load admin pages individually
+const AdminDashboard = lazy(() => import("@/pages/admin/dashboard"));
+const AdminFinance = lazy(() => import("@/pages/admin/finance"));
+const AdminSignups = lazy(() => import("@/pages/admin/signups"));
+const AdminDetectives = lazy(() => import("@/pages/admin/detectives"));
+const AdminServices = lazy(() => import("@/pages/admin/services"));
+const AdminServiceCategories = lazy(() => import("@/pages/admin/service-categories"));
+const AdminSignupDetails = lazy(() => import("@/pages/admin/signup-details"));
+const AdminSubscriptions = lazy(() => import("@/pages/admin/subscriptions"));
+const AdminAddDetective = lazy(() => import("@/pages/admin/add-detective"));
+const AdminClaims = lazy(() => import("@/pages/admin/claims"));
+const AdminViewDetective = lazy(() => import("@/pages/admin/view-detective"));
+const AdminSettings = lazy(() => import("@/pages/admin/settings"));
+const AdminPaymentGateways = lazy(() => import("@/pages/admin/payment-gateways"));
+const AdminBranding = lazy(() => import("@/pages/admin/branding"));
+const AdminPages = lazy(() => import("@/pages/admin/pages"));
+const AdminRankingVisibility = lazy(() => import("@/pages/admin/ranking-visibility"));
+const AdminEmailTemplates = lazy(() => import("@/pages/admin/email-templates"));
+const AdminSnippets = lazy(() => import("@/pages/admin/snippets"));
+const AdminAppSecrets = lazy(() => import("@/pages/admin/app-secrets"));
+const AdminDashboardCMS = lazy(() => import("@/pages/admin/index"));
+const AdminCategories = lazy(() => import("@/pages/admin/categories"));
+const AdminTags = lazy(() => import("@/pages/admin/tags"));
+const AdminPagesEdit = lazy(() => import("@/pages/admin/pages-edit"));
+const PageEdit = lazy(() => import("@/pages/admin/page-edit"));
+const AdminEmployees = lazy(() => import("@/pages/admin/employees"));
+const AdminLocationSeoCountries = lazy(() => import("@/pages/admin/location-seo-countries"));
+const AdminLocationSeoStates = lazy(() => import("@/pages/admin/location-seo-states"));
+const AdminLocationSeoCities = lazy(() => import("@/pages/admin/location-seo-cities"));
+const EmployeeDashboard = lazy(() => import("@/pages/employee/dashboard"));
 
 // CMS Public Routes
 const PageView = lazy(() => import("@/pages/page-view"));
@@ -50,6 +78,9 @@ const DetectiveSettings = lazy(() => import("@/pages/detective/settings"));
 const UserDashboard = lazy(() => import("@/pages/user/dashboard"));
 const FavoritesPage = lazy(() => import("@/pages/user/favorites"));
 
+// Service + Location Pages (Phase 1: Background Checks)
+const ServiceBackgroundChecksPage = lazy(() => import("@/pages/service-background-checks"));
+
 // Static Pages
 const AboutPage = lazy(() => import("@/pages/about"));
 const PrivacyPage = lazy(() => import("@/pages/privacy"));
@@ -63,6 +94,12 @@ const withAdminRoute = (Component: ComponentType<any>) => (props: any) => (
   <AdminRoute>
     <Component {...props} />
   </AdminRoute>
+);
+
+const withEmployeeRoute = (Component: ComponentType<any>) => (props: any) => (
+  <EmployeeRoute>
+    <Component {...props} />
+  </EmployeeRoute>
 );
 
 function PageSkeleton() {
@@ -96,7 +133,11 @@ function Router() {
         <Switch>
           {/* Public Routes */}
           <Route path="/" component={Home} />
+          
+          {/* Service Page Route - MUST be BEFORE generic routes */}
           <Route path="/service/:country/:state/:city/:detectiveSlug/:serviceSlug" component={DetectiveProfile} />
+          
+          {/* Claim and Auth Routes */}
           <Route path="/claim-profile/:id" component={ClaimProfile} />
           <Route path="/claim-account" component={ClaimAccount} />
           <Route path="/login" component={Login} />
@@ -120,8 +161,43 @@ function Router() {
           <Route path="/support" component={SupportPage} />
           <Route path="/contact" component={ContactPage} />
           
-          {/* Admin Routes - lazily loaded to reduce main bundle size */}
-          <AdminRoutes />
+          {/* Admin Routes */}
+          <Route path="/admin" component={withAdminRoute(AdminDashboard)} />
+          <Route path="/admin/dashboard" component={withAdminRoute(AdminDashboard)} />
+          <Route path="/admin/finance" component={withAdminRoute(AdminFinance)} />
+          <Route path="/admin/signups" component={withAdminRoute(AdminSignups)} />
+          <Route path="/admin/signups/:id" component={withAdminRoute(AdminSignupDetails)} />
+          <Route path="/admin/detectives/add" component={withAdminRoute(AdminAddDetective)} />
+          <Route path="/admin/detective/:id/view" component={withAdminRoute(AdminViewDetective)} />
+          <Route path="/admin/detectives" component={withAdminRoute(AdminDetectives)} />
+          <Route path="/admin/claims" component={withAdminRoute(AdminClaims)} />
+          <Route path="/admin/services" component={withAdminRoute(AdminServices)} />
+          <Route path="/admin/service-categories" component={withAdminRoute(AdminServiceCategories)} />
+          <Route path="/admin/subscriptions" component={withAdminRoute(AdminSubscriptions)} />
+          <Route path="/admin/pages" component={withAdminRoute(AdminPages)} />
+          <Route path="/admin/settings" component={withAdminRoute(AdminSettings)} />
+          <Route path="/admin/payment-gateways" component={withAdminRoute(AdminPaymentGateways)} />
+          <Route path="/admin/app-secrets" component={withAdminRoute(AdminAppSecrets)} />
+          <Route path="/admin/branding" component={withAdminRoute(AdminBranding)} />
+          <Route path="/admin/ranking-visibility" component={withAdminRoute(AdminRankingVisibility)} />
+          <Route path="/admin/email-templates" component={withAdminRoute(AdminEmailTemplates)} />
+          <Route path="/admin/snippets" component={withAdminRoute(AdminSnippets)} />
+          <Route path="/admin/location-seo/countries" component={withAdminRoute(AdminLocationSeoCountries)} />
+          <Route path="/admin/location-seo/states" component={withAdminRoute(AdminLocationSeoStates)} />
+          <Route path="/admin/location-seo/cities" component={withAdminRoute(AdminLocationSeoCities)} />
+          
+          {/* CMS Admin Routes */}
+          <Route path="/admin/cms" component={withAdminRoute(AdminDashboardCMS)} />
+          <Route path="/admin/cms/categories" component={withAdminRoute(AdminCategories)} />
+          <Route path="/admin/cms/tags" component={withAdminRoute(AdminTags)} />
+          <Route path="/admin/cms/pages" component={withAdminRoute(AdminPagesEdit)} />
+          <Route path="/admin/cms/pages/:id/edit" component={withAdminRoute(PageEdit)} />
+          
+          {/* Employee Management Routes */}
+          <Route path="/admin/employees" component={withAdminRoute(AdminEmployees)} />
+
+          {/* Employee Routes */}
+          <Route path="/employee/dashboard" component={withEmployeeRoute(EmployeeDashboard)} />
           
           {/* Detective Routes - MUST come before catch-all CMS routes */}
           <Route path="/detective/dashboard" component={DetectiveDashboard} />
@@ -135,16 +211,8 @@ function Router() {
           <Route path="/detectives/:country/:state/:city" component={CityDetectivesPage} />
           <Route path="/detectives/:country/:state" component={CityDetectivesPage} />
           <Route path="/detectives/:country" component={CityDetectivesPage} />
+          <Route path="/services/background-checks/:country/:state/:city" component={ServiceBackgroundChecksPage} />
           <Route path="/news/:slug" component={ArticlePage} />
-          {/* Legacy detective URL - redirect to server for proper redirect */}
-          <Route path="/p/:id">
-            {(params) => {
-              // Force server-side redirect by doing a full page reload
-              window.location.href = `/p/${params.id}`;
-              return null;
-            }}
-          </Route>
-          {/* Legacy URL support - server redirects /p/:id to /detectives/{country}/{state}/{city}/{slug} */}
 
           {/* User Routes - MUST come before catch-all CMS routes */}
           <Route path="/user/dashboard" component={UserDashboard} />
@@ -166,7 +234,7 @@ function Router() {
 }
 
 function App() {
-  // Initialize auth session management on app mount
+  // Initialize auth session management on app mount (ONCE)
   useEffect(() => {
     console.log('[APP] Initializing auth session management...');
     
@@ -174,7 +242,7 @@ function App() {
       enableIdleTimeout: false, // Disable idle timeout (optional feature)
       idleTimeoutMinutes: 60,
       enableCrossTabLogout: true, // Enable cross-tab logout detection
-      enableAuthMonitor: false, // DISABLED - causing issues, use interceptor only
+      enableAuthMonitor: false, // DISABLED - causes excessive /api/auth/me calls
     });
     
     return cleanup;

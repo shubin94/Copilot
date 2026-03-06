@@ -4,7 +4,7 @@
  * Does NOT touch blueTickAddon — add-on is independent and survives expiry/downgrade.
  */
 
-import { storage } from "../storage.ts";
+import { storage } from "../storage.js";
 
 export interface EffectiveBadges {
   blueTick: boolean;
@@ -74,7 +74,7 @@ export async function applyPackageEntitlements(
     return;
   }
 
-  let activePackageId = detective.subscriptionPackageId;
+  let activePackageId: string | null = detective.subscriptionPackageId ?? null;
 
   const now = new Date();
   if (detective.subscriptionExpiresAt && new Date(detective.subscriptionExpiresAt) < now) {

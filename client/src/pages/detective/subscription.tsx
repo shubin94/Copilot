@@ -5,7 +5,6 @@ import { Check, Crown, Shield, Star, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState } from "react";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrentDetective, useUpdateDetective } from "@/lib/hooks";
 import { api, buildApiUrl, getOrFetchCsrfToken } from "@/lib/api";
@@ -54,7 +53,7 @@ export default function DetectiveSubscription() {
   const { data: currentData } = useCurrentDetective();
   const detective = currentData?.detective;
   const updateDetective = useUpdateDetective();
-  const { formatPriceForCountry, selectedCountry } = useCurrency();
+  const { selectedCountry } = useCurrency();
   const detectiveCountry = detective?.country || selectedCountry.code;
   const [isAnnual, setIsAnnual] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);

@@ -10,18 +10,18 @@ interface FAQ {
 interface ServiceFAQProps {
   service: {
     title: string;
-    category?: string;
-    basePrice?: number;
-    offerPrice?: number;
+    category?: string | null;
+    basePrice?: number | null;
+    offerPrice?: number | null;
     isOnEnquiry?: boolean;
   };
   detective: {
-    businessName?: string;
-    city?: string;
-    country?: string;
-    phone?: string;
-    whatsapp?: string;
-    contactEmail?: string;
+    businessName?: string | null;
+    city?: string | null;
+    country?: string | null;
+    phone?: string | null;
+    whatsapp?: string | null;
+    contactEmail?: string | null;
   };
   formatPrice?: (price: number) => string;
 }

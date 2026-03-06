@@ -1,7 +1,62 @@
-node_modules
-build
-dist
+# Vercel build ignore configuration
+# Tells Vercel to completely skip these files/folders during build
+
+# Dev/test utilities and scripts that aren't needed in production
+check-*.ts
+test-*.ts
+test-*.js
+test-*.cjs
+test-*.mjs
+test-*.ps1
+test-*.sh
+scripts/check-*.ts
+scripts/test-*.ts
+scripts/debug-*.ts
+scripts/diagnose-*.ts
+debug-*.ts
+diagnose-*.ts
+fix-*.ts
+verify-*.ts
+verify-*.ps1
+test/
+tests/
+test-results/
+.github/
+
+# Config files for local development only
+jest.config.js
+playwright.config.ts
+ecosystem.config.cjs
+
+# Environment files (secrets loaded from ENV VARS on Vercel)
+.env
+.env.local
+.env.*.local
+
+# Git and VCS
 .git
+.gitignore
+.gitattributes
+
+# Documentation and logs
+*.md
+*.log
+*.txt
+logs/
+
+# Development files
+.DS_Store
 .trae
-.log
 .figma
+.cursor/
+.vscode/
+.replit
+
+# Build outputs (Vercel handles caching)
+build/
+.next/
+
+# Development-only node modules patterns
+node_modules/.bin/
+node_modules/.package-lock.json
+node_modules/.yarn-integrity

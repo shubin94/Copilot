@@ -1,4 +1,4 @@
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { db } from "../db/index.ts";
 import { subscriptionPlans } from "../shared/schema.ts";
 

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-static.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-countries.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-states.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-cities.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-detectives.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-services-1.xml</loc>
+  </sitemap>
+</sitemapindex>

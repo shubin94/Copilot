@@ -1,5 +1,4 @@
-import { env } from "process";
-import { config } from "./config.ts";
+import { config } from "./config.js";
 import nodemailer from "nodemailer";
 
 type EmailContent = {

@@ -16,10 +16,6 @@ type SmartSearchResult =
   | { kind: "need_location"; message: string; category: string }
   | { kind: "resolved"; category: string; resolvedLocationScope: string; country: string; state?: string; city?: string; searchUrl: string };
 
-const SUGGESTED_PROMPTS = [
-  "I need background verification for a marriage proposal in Mumbai",
-  "Find a detective for pre-employment verification in Bangalore",
-];
 
 export function Hero() {
   const [, setLocation] = useLocation();
@@ -57,7 +53,14 @@ export function Hero() {
       if (kind === "prohibited" || kind === "category_not_found" || kind === "need_location" || kind === "resolved") {
         setResult(data as SmartSearchResult);
       } else {
-        setResult({ ...noMatchResult, suggestedCategories: data?.suggestedCategories, locationFilters: data?.locationFilters });
+        // Safely construct result with proper typing
+        const newResult: SmartSearchResult & { suggestedCategories?: string[]; locationFilters?: { country?: string; state?: string } } = {
+          kind: "category_not_found",
+          message: "We didn't find any relevant categories. You can browse here to find what you need.",
+          suggestedCategories: (data as any)?.suggestedCategories,
+          locationFilters: (data as any)?.locationFilters
+        };
+        setResult(newResult as SmartSearchResult);
       }
     } catch (_err) {
       setResult(noMatchResult);
@@ -96,10 +99,12 @@ export function Hero() {
           <img
             src={heroImage}
             alt=""
-            fetchPriority="low"
-            loading="lazy"
-            decoding="async"
             className="object-cover w-full h-full"
+            {...({
+              fetchpriority: "low",
+              loading: "lazy",
+              decoding: "async",
+            } as React.ImgHTMLAttributes<HTMLImageElement>)}
           />
         ) : (
           <picture>
@@ -107,10 +112,12 @@ export function Hero() {
             <img
               src={heroBgPng}
               alt=""
-              fetchPriority="low"
-              loading="lazy"
-              decoding="async"
               className="object-cover w-full h-full"
+              {...({
+                fetchpriority: "low",
+                loading: "lazy",
+                decoding: "async",
+              } as React.ImgHTMLAttributes<HTMLImageElement>)}
             />
           </picture>
         )}

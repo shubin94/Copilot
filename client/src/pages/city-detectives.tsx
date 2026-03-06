@@ -1,14 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRoute } from "wouter";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
-import { MapPin, ExternalLink, ChevronDown } from "lucide-react";
-import { computeServiceBadges } from "@/lib/service-badges";
+import { ChevronDown } from "lucide-react";
+import { DetectiveCard } from "@/components/DetectiveCard";
 import { generateBreadcrumbListSchema, generateFAQPageSchema } from "@/lib/structured-data";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 
@@ -35,24 +33,46 @@ interface LocationMeta {
   city?: string;
 }
 
-interface RelatedCity {
+interface CityPageData {
+  location: LocationMeta;
+  detectives: Detective[];
+  count: number;
+  relatedType?: "states" | "cities";
+  relatedLocations?: Array<{ slug: string; name: string }>;
+  seoMetadata?: {
+    metaTitle: string | null;
+    metaDescription: string | null;
+    h1: string | null;
+  };
+}
+
+// Check for SSR data injected by server
+const getSSRData = (): CityPageData | null => {
+  if (typeof window !== 'undefined' && (window as any).__CITY_PAGE_DATA__) {
+    console.log('[CityDetectivesPage] Using SSR data from server');
+    return (window as any).__CITY_PAGE_DATA__;
+  }
+  return null;
+};
+
+interface RelatedLocation {
   name: string;
   slug: string;
   detectiveCount?: number;
 }
 
-// Dynamic content generator for unique city descriptions
-const generateCityDescription = (cityName: string, stateName: string, detectiveCount: number): string => {
+// Dynamic content generator for unique location descriptions
+const generateLocationDescription = (locationDisplayName: string, detectiveCount: number): string => {
   const descriptions = [
-    `Searching for professional private investigation services in ${cityName}? Our directory features vetted agencies across ${stateName} specializing in corporate, legal, and personal cases. With ${detectiveCount} licensed detectives available, you'll find the expertise you need for your investigation.`,
-    `Need a trusted private investigator in ${cityName}, ${stateName}? Connect with experienced detectives who handle everything from background checks to surveillance. Our network of ${detectiveCount} registered professionals provides confidential, reliable investigation services tailored to your needs.`,
-    `Browse ${detectiveCount} certified detectives in ${cityName} offering specialized investigation services throughout ${stateName}. Whether you require legal discovery assistance, corporate investigations, or personal security services, find qualified professionals ready to help.`,
-    `Looking for private detective services in ${cityName}? Our comprehensive directory showcases ${detectiveCount} licensed investigators serving the ${stateName} area with expertise in fraud investigation, skip tracing, and witness interviews. All detectives are verified and insured.`,
-    `Hire a private investigator in ${cityName} with proven experience and verified credentials. Our network includes ${detectiveCount} professional detectives across ${stateName} offering 24/7 investigation services for legal, corporate, and personal matters.`,
+    `Searching for professional private investigation services in ${locationDisplayName}? Our directory features vetted agencies specializing in corporate, legal, and personal cases. With ${detectiveCount} licensed detectives available, you'll find the expertise you need for your investigation.`,
+    `Need a trusted private investigator in ${locationDisplayName}? Connect with experienced detectives who handle everything from background checks to surveillance. Our network of ${detectiveCount} registered professionals provides confidential, reliable investigation services tailored to your needs.`,
+    `Browse ${detectiveCount} certified detectives in ${locationDisplayName} offering specialized investigation services. Whether you require legal discovery assistance, corporate investigations, or personal security services, find qualified professionals ready to help.`,
+    `Looking for private detective services in ${locationDisplayName}? Our comprehensive directory showcases ${detectiveCount} licensed investigators with expertise in fraud investigation, skip tracing, and witness interviews. All detectives are verified and insured.`,
+    `Hire a private investigator in ${locationDisplayName} with proven experience and verified credentials. Our network includes ${detectiveCount} professional detectives offering 24/7 investigation services for legal, corporate, and personal matters.`,
   ];
   
-  // Use deterministic random selection based on city hash
-  const hash = cityName.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  // Use deterministic random selection based on location hash
+  const hash = locationDisplayName.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
   return descriptions[hash % descriptions.length];
 };
 
@@ -95,21 +115,40 @@ export default function CityDetectivesPage() {
   // Support routes: /detectives/:country, /detectives/:country/:state, /detectives/:country/:state/:city
   const [match, params] = useRoute("/detectives/:country/:state/:city");
   const [matchState, paramsState] = useRoute("/detectives/:country/:state");
-  const [matchCountry, paramsCountry] = useRoute("/detectives/:country");
+  const [, paramsCountry] = useRoute("/detectives/:country");
   
   // Use the matched route params
   const matchedParams = match ? params : (matchState ? paramsState : paramsCountry);
+
+  const preloadedDataRef = useRef<CityPageData | null>(getSSRData());
+  const initialData = preloadedDataRef.current;
   
-  const [detectives, setDetectives] = useState<Detective[]>([]);
-  const [locationMeta, setLocationMeta] = useState<LocationMeta | null>(null);
-  const [relatedCities, setRelatedCities] = useState<RelatedCity[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [detectives, setDetectives] = useState<Detective[]>(initialData?.detectives || []);
+  const [currentOffset, setCurrentOffset] = useState<number>(initialData?.detectives?.length || 0);
+  const [totalCount, setTotalCount] = useState<number>(initialData?.count || initialData?.detectives?.length || 0);
+  const [locationMeta, setLocationMeta] = useState<LocationMeta | null>(
+    initialData
+      ? {
+          country: initialData.location.country,
+          state: initialData.location.state,
+          city: initialData.location.city,
+        }
+      : null
+  );
+  const [relatedLocations, setRelatedLocations] = useState<RelatedLocation[]>(
+    Array.isArray(initialData?.relatedLocations) ? initialData!.relatedLocations : []
+  );
+  const [seoMetadata, setSeoMetadata] = useState<{ metaTitle: string | null; metaDescription: string | null; h1: string | null } | null>(
+    initialData?.seoMetadata || null
+  );
+  const [loading, setLoading] = useState(!initialData);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedFAQs, setExpandedFAQs] = useState<{ [key: number]: boolean }>({ 0: false, 1: false, 2: false });
 
   const countrySlug = matchedParams?.country || "";
-  const stateSlug = matchedParams?.state || "";
-  const citySlug = matchedParams?.city || "";
+  const stateSlug = (matchedParams as any)?.state || "";
+  const citySlug = (matchedParams as any)?.city || "";
   const isCountryLevel = !!countrySlug && !stateSlug;
   const isStateLevel = !!countrySlug && !!stateSlug && !citySlug;
   const isCityLevel = !!countrySlug && !!stateSlug && !!citySlug;
@@ -124,23 +163,34 @@ export default function CityDetectivesPage() {
     .filter((segment) => !!segment)
     .map((segment) => encodeURIComponent(segment))
     .join("/")}`;
-  const stateApiPath = `/api/detectives/location/${[countrySlug, stateSlug]
-    .filter((segment) => !!segment)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/")}`;
 
   useEffect(() => {
+    if (preloadedDataRef.current) {
+      preloadedDataRef.current = null;
+      return;
+    }
+
     const fetchLocationDetectives = async () => {
+      // Create AbortController for request timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout (backend has 20s internal timeout)
+      
       try {
         setLoading(true);
         setError(null);
 
-        // Fetch detectives for this location
-        const response = await fetch(locationApiPath);
+        const response = await fetch(`${locationApiPath}?limit=15&offset=0`, {
+          signal: controller.signal,
+          credentials: "include",
+        });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           if (response.status === 404) {
             setError(`Location not found: ${[citySlug, stateSlug, countrySlug].filter(Boolean).join(", ")}`);
+          } else if (response.status === 504) {
+            setError("Request timed out. The location has too many detectives to load quickly. Please try again.");
           } else {
             setError("Failed to load detectives for this location");
           }
@@ -149,24 +199,21 @@ export default function CityDetectivesPage() {
         }
 
         const data = await response.json();
-        setDetectives(data.detectives || []);
+        const nextDetectives = data.detectives || [];
+        setDetectives(nextDetectives);
+        setCurrentOffset(nextDetectives.length);
+        setTotalCount(typeof data.total === "number" ? data.total : nextDetectives.length);
         setLocationMeta(data.meta);
-
-        // Fetch related cities in the same state for cross-linking
-        if (stateSlug) {
-          try {
-            const citiesResponse = await fetch(stateApiPath);
-            if (citiesResponse.ok) {
-              const citiesData = await citiesResponse.json();
-              setRelatedCities([]);
-            }
-          } catch (err) {
-            console.error("Failed to fetch related cities:", err);
-          }
-        }
+        setRelatedLocations(Array.isArray(data.relatedLocations) ? data.relatedLocations : []);
+        setSeoMetadata(data.seoMetadata || null);
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error("Error fetching location detectives:", err);
-        setError("An error occurred while loading detectives");
+        if (err instanceof Error && err.name === 'AbortError') {
+          setError("Request timed out. Please try again.");
+        } else {
+          setError("An error occurred while loading detectives");
+        }
       } finally {
         setLoading(false);
       }
@@ -175,31 +222,121 @@ export default function CityDetectivesPage() {
     if (countrySlug) {
       fetchLocationDetectives();
     }
-  }, [countrySlug, stateSlug, citySlug, locationApiPath, stateApiPath]);
+  }, [countrySlug, stateSlug, citySlug, locationApiPath]);
 
-  // SEO Metadata
-  const cityName = locationMeta?.city || citySlug?.replace(/-/g, " ") || "";
-  const stateName = locationMeta?.state || stateSlug?.replace(/-/g, " ") || "";
-  const countryName = locationMeta?.country || countrySlug?.replace(/-/g, " ") || "";
-  const locationLabel = isCityLevel
-    ? `${cityName}, ${stateName}`
-    : isStateLevel
-    ? `${stateName}, ${countryName}`
-    : countryName;
+  const handleLoadMore = async () => {
+    if (loadingMore || currentOffset >= totalCount) {
+      return;
+    }
+
+    // Create AbortController for request timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+
+    try {
+      setLoadingMore(true);
+      const response = await fetch(`${locationApiPath}?limit=15&offset=${currentOffset}`, {
+        signal: controller.signal,
+        credentials: "include",
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        if (response.status === 504) {
+          throw new Error("Request timed out. Please try again.");
+        }
+        throw new Error("Failed to load more detectives");
+      }
+
+      const data = await response.json();
+      const newDetectives: Detective[] = Array.isArray(data.detectives) ? data.detectives : [];
+
+      setDetectives((prev) => [...prev, ...newDetectives]);
+      setCurrentOffset((prev) => prev + newDetectives.length);
+      setTotalCount(typeof data.total === "number" ? data.total : totalCount);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.error("Error loading more detectives:", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // SEO Metadata - Ensure non-empty fallbacks
+  const cityName = locationMeta?.city || (citySlug ? citySlug.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()) : "");
+  const stateName = locationMeta?.state || (stateSlug ? stateSlug.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()) : "");
+  const countryName = locationMeta?.country || (countrySlug ? countrySlug.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()) : "India");
   
-  // Enhanced SEO Title and Description with current year
+  const locationLabel = isCityLevel && cityName && stateName
+    ? `${cityName}, ${stateName}`
+    : isStateLevel && stateName && countryName
+    ? `${stateName}, ${countryName}`
+    : countryName || "India";
+    
+  const locationDisplayName = isCityLevel && cityName && stateName && countryName
+    ? `${cityName}, ${stateName}, ${countryName}`
+    : isStateLevel && stateName && countryName
+    ? `${stateName}, ${countryName}`
+    : countryName || "India";
+  
+  // Enhanced SEO Title and Description with current year - Always have fallbacks
   const currentYear = new Date().getFullYear();
-  const seoTitle = isCityLevel
+  const defaultSeoTitle = isCityLevel && cityName && stateName
     ? `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${currentYear})`
-    : isStateLevel
+    : isStateLevel && stateName && countryName
     ? `Top Private Detectives in ${stateName}, ${countryName} (${currentYear})`
-    : `Top Private Detectives in ${countryName} (${currentYear})`;
-  const seoDescription = `Browse trusted detective agencies in ${locationLabel}. Compare ratings, services, and contact vetted professionals today. ${detectives.length} licensed detectives available.`;
-  const h1Text = isCityLevel
-    ? `Best Private Detectives in ${cityName}, ${stateName}`
-    : isStateLevel
+    : `Top Private Detectives in ${countryName || "India"} (${currentYear})`;
+    
+  const defaultSeoDescription = `Browse trusted detective agencies in ${locationLabel}. Compare ratings, services, and contact vetted professionals today.${detectives.length > 0 ? ` ${detectives.length} licensed detectives available.` : ''}`;
+  
+  const defaultH1Text = isCityLevel && cityName && stateName && countryName
+    ? `Best Private Detectives in ${cityName}, ${stateName}, ${countryName}`
+    : isStateLevel && stateName && countryName
     ? `Best Private Detectives in ${stateName}, ${countryName}`
-    : `Best Private Detectives in ${countryName}`;
+    : `Best Private Detectives in ${countryName || "India"}`;
+
+  // Read SEO data from server-injected script (SSR with database overrides)
+  const seoData = typeof window !== 'undefined' 
+    ? (window as any).__SEO_DATA__ 
+    : null;
+
+  // SEO Title priority: SSR data > API override > default
+  const seoTitle = seoData?.title && seoData.title.trim() !== ""
+    ? seoData.title
+    : (seoMetadata?.metaTitle && seoMetadata.metaTitle.trim() !== "") 
+    ? seoMetadata.metaTitle 
+    : defaultSeoTitle;
+  
+  // SEO Description priority: SSR data > API override > default
+  const seoDescription = seoData?.description && seoData.description.trim() !== ""
+    ? seoData.description
+    : (seoMetadata?.metaDescription && seoMetadata.metaDescription.trim() !== "") 
+    ? seoMetadata.metaDescription 
+    : defaultSeoDescription;
+  
+  // H1 priority: SSR data > API override > default
+  const h1Text = seoData?.h1 && seoData.h1.trim() !== ""
+    ? seoData.h1
+    : (seoMetadata?.h1 && seoMetadata.h1.trim() !== "") 
+    ? seoMetadata.h1 
+    : defaultH1Text;
+
+  const relatedHeading = isCountryLevel
+    ? `Other States in ${countryName}`
+    : `Other Cities in ${stateName}`;
+
+  const relatedDescription = isCountryLevel
+    ? `Find detectives and investigation services in other states within ${countryName}:`
+    : `Find detectives and investigation services in other cities within ${stateName}:`;
+
+  const relatedViewAllLabel = isCountryLevel
+    ? `View all states in ${countryName}`
+    : `View all cities in ${stateName}`;
+
+  const relatedViewAllHref = isCountryLevel
+    ? `/detectives/${countrySlug}/`
+    : `/detectives/${countrySlug}/${stateSlug}/`;
 
   const breadcrumbs = [{ name: "Home", url: "https://www.askdetectives.com/" }];
   if (countryName && countrySlug) {
@@ -273,16 +410,16 @@ export default function CityDetectivesPage() {
   // FAQ Schema for rich snippets
   const faqSchema = generateFAQPageSchema([
     {
-      question: `What is the availability of private investigators in ${cityName}?`,
-      answer: `There are currently ${detectives.length} licensed private investigators and detectives available in ${cityName}, ${stateName}. ${verifiedCount} of them are verified professionals. Our network operates 24/7 for emergency and time-sensitive investigations.`
+      question: `What is the availability of private investigators in ${locationDisplayName}?`,
+      answer: `There are currently ${detectives.length} licensed private investigators and detectives available in ${locationDisplayName}. ${verifiedCount} of them are verified professionals. Our network operates 24/7 for emergency and time-sensitive investigations.`
     },
     {
-      question: `Which investigation services are offered by detectives in ${cityName}?`,
-      answer: `Licensed detectives in ${cityName} offer comprehensive investigation services including: ${topSpecialties.length > 0 ? topSpecialties.join(", ") + "," : ""} background checks, surveillance, asset searches, skip tracing, legal discovery, fraud investigation, infidelity investigations, corporate investigations, and more. All services are confidential and fully licensed.`
+      question: `Which investigation services are offered by detectives in ${locationDisplayName}?`,
+      answer: `Licensed detectives in ${locationDisplayName} offer comprehensive investigation services including: ${topSpecialties.length > 0 ? topSpecialties.join(", ") + "," : ""} background checks, surveillance, asset searches, skip tracing, legal discovery, fraud investigation, infidelity investigations, corporate investigations, and more. All services are confidential and fully licensed.`
     },
     {
-      question: `How can I verify if a detective in ${cityName} is licensed and insured?`,
-      answer: `${verificationRate}% of detectives in our ${cityName} network are verified with active, government-issued private investigator licenses. Look for the blue verification checkmark badge on detective profiles in ${cityName}. All verified detectives have passed background checks and maintain active state PI licenses.`
+      question: `How can I verify if a detective in ${locationDisplayName} is licensed and insured?`,
+      answer: `${verificationRate}% of detectives in our ${locationDisplayName} network are verified with active, government-issued private investigator licenses. Look for the blue verification checkmark badge on detective profiles in ${locationDisplayName}. All verified detectives have passed background checks and maintain active state PI licenses.`
     }
   ]);
 
@@ -316,6 +453,20 @@ export default function CityDetectivesPage() {
     );
   }
 
+  // Calculate pagination links for SEO
+  const pageSize = 15;
+  const searchParams = new URLSearchParams(window.location.search);
+  const currentOffsetValue = Number(searchParams.get("offset") || 0);
+
+  const pagination = {
+    prevUrl: currentOffsetValue > 0
+      ? `${canonicalPath}?offset=${Math.max(0, currentOffsetValue - pageSize)}`
+      : undefined,
+    nextUrl: currentOffsetValue + pageSize < totalCount
+      ? `${canonicalPath}?offset=${currentOffsetValue + pageSize}`
+      : undefined
+  };
+
   return (
     <div className="min-h-screen bg-white">
       <SEO 
@@ -325,6 +476,7 @@ export default function CityDetectivesPage() {
         robots="index, follow"
         schema={allSchemas}
         breadcrumbs={breadcrumbs}
+        pagination={pagination}
         keywords={[
           `detectives in ${cityName}`,
           `private investigators ${stateName}`,
@@ -356,9 +508,24 @@ export default function CityDetectivesPage() {
 
         {/* Hero Section */}
         <div className="mb-8">
+          {(isCityLevel || isStateLevel) && (
+            <div className="text-sm text-gray-600 mb-2">
+              <a href={`/detectives/${countrySlug}/`} className="text-blue-600 hover:underline">
+                {countryName}
+              </a>
+              {isCityLevel && (
+                <>
+                  <span className="mx-2">›</span>
+                  <a href={`/detectives/${countrySlug}/${stateSlug}/`} className="text-blue-600 hover:underline">
+                    {stateName}
+                  </a>
+                </>
+              )}
+            </div>
+          )}
           <h1 className="text-4xl font-bold mb-2">{h1Text}</h1>
           <p className="text-lg text-gray-600 mb-2">
-            Find experienced, licensed private investigators and detective services in {locationLabel}.
+            Find experienced, licensed private investigators and detective services in {locationDisplayName}.
           </p>
           <p className="text-sm text-gray-500">
             {loading ? "Loading..." : `${detectives.length} detectives available`}
@@ -369,7 +536,7 @@ export default function CityDetectivesPage() {
         {!loading && detectives.length > 0 && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
             <p className="text-gray-700 leading-relaxed">
-              {generateCityDescription(cityName, stateName, detectives.length)}
+              {generateLocationDescription(locationDisplayName, detectives.length)}
             </p>
           </div>
         )}
@@ -382,83 +549,20 @@ export default function CityDetectivesPage() {
             ))}
           </div>
         ) : detectives.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-            {detectives.map((detective) => {
-              const badgeState = computeServiceBadges({
-                isVerified: detective.isVerified || false,
-                effectiveBadges: detective.effectiveBadges,
-              });
-
-              const detectiveUrl = getDetectiveProfileUrl(detective);
-
-              return (
-                <Card key={detective.id} className="hover:shadow-lg transition-shadow">
-                  <CardContent className="p-6">
-                    {/* Detective Header */}
-                    <div className="flex gap-4 mb-4">
-                      <img
-                        src={detective.logo || "/placeholder-avatar.png"}
-                        alt={detective.businessName}
-                        className="h-16 w-16 rounded-full object-cover border border-gray-200"
-                      />
-                      <div className="flex-1">
-                        <h3 className="font-bold text-base mb-1">
-                          {detective.businessName || "Detective Service"}
-                        </h3>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {badgeState.showBlueTick && (
-                            <img
-                              src="/blue-tick.png"
-                              alt="Verified"
-                              className="h-4 w-4"
-                              title="Verified Detective"
-                            />
-                          )}
-                          {badgeState.showPro && (
-                            <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
-                              Pro
-                            </Badge>
-                          )}
-                          {badgeState.showRecommended && (
-                            <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-1.5 py-0.5">
-                              Recommended
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Location and Type */}
-                    <div className="space-y-2 mb-4">
-                      {detective.city && (
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <MapPin className="h-4 w-4 flex-shrink-0" />
-                          <span>{detective.city}, {detective.state}</span>
-                        </div>
-                      )}
-                      {detective.businessType && (
-                        <p className="text-sm text-gray-600">{detective.businessType}</p>
-                      )}
-                    </div>
-
-                    {/* Divider */}
-                    <div className="border-t border-gray-200 mb-4 pt-4" />
-
-                    {/* View Profile Button */}
-                    <Button
-                      asChild
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      <a href={detectiveUrl} className="flex items-center justify-center gap-2">
-                        View Profile
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+              {detectives.map((d) => (
+                <DetectiveCard key={d.id} detective={d} />
+              ))}
+            </div>
+            {detectives.length < totalCount && (
+              <div className="mb-12 text-center">
+                <Button onClick={handleLoadMore} disabled={loadingMore}>
+                  {loadingMore ? "Loading..." : "Load More"}
+                </Button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="bg-gray-50 rounded-lg p-8 mb-12 text-center">
             <h2 className="text-xl font-semibold mb-2 text-gray-900">
@@ -482,19 +586,21 @@ export default function CityDetectivesPage() {
           </div>
         )}
 
-        {/* Related Cities Section */}
-        {isCityLevel && detectives.length > 0 && (
+        {/* Related Locations Section */}
+        {relatedLocations.length > 0 && (
           <div className="mt-12 pt-8 border-t border-gray-200">
             <h2 className="text-2xl font-bold mb-6">
-              Other Cities in {stateName}
+              {relatedHeading}
             </h2>
             <p className="text-gray-600 mb-6">
-              Find detectives and investigation services in other cities within {stateName}:
+              {relatedDescription}
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {/* Sample related cities - in production, this would come from API */}
-              {["New York City", "Buffalo", "Rochester", "Syracuse", "Albany", "Yonkers", "New Rochelle", "Utica"].map((city, idx) => {
-                const citySlugFormat = city.toLowerCase().replace(/\s+/g, "-");
+              {relatedLocations.map((location, idx) => {
+                const locationHref = isCountryLevel
+                  ? `/detectives/${countrySlug}/${location.slug}/`
+                  : `/detectives/${countrySlug}/${stateSlug}/${location.slug}/`;
+
                 return (
                   <Button
                     key={idx}
@@ -502,8 +608,8 @@ export default function CityDetectivesPage() {
                     variant="outline"
                     className="h-auto py-3 text-center"
                   >
-                    <a href={`/detectives/${countrySlug}/${stateSlug}/${citySlugFormat}/`}>
-                      {city}
+                    <a href={locationHref}>
+                      {location.name}
                     </a>
                   </Button>
                 );
@@ -511,8 +617,8 @@ export default function CityDetectivesPage() {
             </div>
             <div className="mt-6 text-center">
               <Button asChild variant="ghost">
-                <a href={`/detectives/${countrySlug}/${stateSlug}/`}>
-                  View all cities in {stateName}
+                <a href={relatedViewAllHref}>
+                  {relatedViewAllLabel}
                 </a>
               </Button>
             </div>
@@ -527,27 +633,27 @@ export default function CityDetectivesPage() {
                 Frequently Asked Questions
               </h2>
               <p className="text-gray-600 mb-6">
-                Learn more about private detective services in {cityName}, {stateName}
+                Learn more about private detective services in {locationDisplayName}
               </p>
 
               <div className="max-w-2xl mx-auto">
                 <FAQItem
-                  question={`How many detectives are in ${cityName}?`}
-                  answer={`There are currently ${detectives.length} licensed detectives available in ${cityName}, ${stateName} on Ask Detectives. Our network continues to grow with verified professionals offering specialized investigation services. All detectives are screened for credentials and professional standing.`}
+                  question={`How many detectives are in ${locationDisplayName}?`}
+                  answer={`There are currently ${detectives.length} licensed detectives available in ${locationDisplayName} on Ask Detectives. Our network continues to grow with verified professionals offering specialized investigation services. All detectives are screened for credentials and professional standing.`}
                   isOpen={expandedFAQs[0]}
                   setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, 0: open })}
                 />
                 
                 <FAQItem
-                  question={`What services do detectives in ${cityName} provide?`}
-                  answer={`Detectives in ${cityName} specialize in various services including: ${topSpecialties.length > 0 ? topSpecialties.join(", ") + "," : ""} background checks, surveillance, skip tracing, legal discovery, fraud investigation, worker's compensation investigation, and corporate intelligence gathering. All services are confidential and conducted by licensed professionals with years of experience.`}
+                  question={`What services do detectives in ${locationDisplayName} provide?`}
+                  answer={`Detectives in ${locationDisplayName} specialize in various services including: ${topSpecialties.length > 0 ? topSpecialties.join(", ") + "," : ""} background checks, surveillance, skip tracing, legal discovery, fraud investigation, worker's compensation investigation, and corporate intelligence gathering. All services are confidential and conducted by licensed professionals with years of experience.`}
                   isOpen={expandedFAQs[1]}
                   setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, 1: open })}
                 />
                 
                 <FAQItem
-                  question={`Are detectives in ${stateName} verified?`}
-                  answer={`Yes, ${verificationRate}% of detectives in our ${cityName} network are verified professionals with proper licensing and credentials. We verify all detectives to ensure you're working with trusted, insured, and qualified investigators. Check the blue checkmark icon on each profile to confirm verification status. All verified detectives have passed background checks and maintain professional liability insurance.`}
+                  question={`Are detectives in ${locationDisplayName} verified?`}
+                  answer={`Yes, ${verificationRate}% of detectives in our ${locationDisplayName} network are verified professionals with proper licensing and credentials. We verify all detectives to ensure you're working with trusted, insured, and qualified investigators. Check the blue checkmark icon on each profile to confirm verification status. All verified detectives have passed background checks and maintain professional liability insurance.`}
                   isOpen={expandedFAQs[2]}
                   setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, 2: open })}
                 />

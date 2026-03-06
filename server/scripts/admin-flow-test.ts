@@ -2,9 +2,9 @@
   Admin flow test & sample data seed
   Safe for dev/test only. Run with: npx tsx server/scripts/admin-flow-test.ts
 */
-import { db } from "../../db/index.ts";
-import { storage } from "../storage.ts";
-import { subscriptionPlans, type SubscriptionPlan, type InsertSubscriptionPlan } from "../../shared/schema.ts";
+import { db } from "../../db/index.js";
+import { storage } from "../storage.js";
+import { subscriptionPlans } from "../../shared/schema.js";
 import { eq } from "drizzle-orm";
 
 const BASE_URL = process.env.ADMIN_FLOW_BASE_URL || "http://localhost:5000";
@@ -73,7 +73,7 @@ async function login(email: string, password: string): Promise<CookieJar> {
   return jar;
 }
 
-async function seedSubscriptionPlan(input: InsertSubscriptionPlan): Promise<SubscriptionPlan> {
+async function seedSubscriptionPlan(input: any): Promise<any> {
   const [plan] = await db
     .insert(subscriptionPlans)
     .values(input as any)
@@ -165,6 +165,19 @@ async function seedData() {
 
       let detective = await storage.getDetectiveByUserId(user.id);
       if (!detective) {
+        // Resolve location IDs for India/Karnataka
+        let locationIds;
+        try {
+          locationIds = await (await import("../services/locationService.js")).resolveLocationIds(
+            "IN",
+            "Karnataka",
+            seed.city
+          );
+        } catch (error) {
+          console.error("[Admin Flow Test] Location resolution failed:", error);
+          locationIds = await (await import("../services/locationService.js")).getDefaultLocationIds();
+        }
+
         detective = await storage.createDetective({
           userId: user.id,
           businessName: `Detective ${i + 1} Agency`,
@@ -173,6 +186,9 @@ async function seedData() {
           country: "IN",
           state: "Karnataka",
           city: seed.city,
+          countryId: locationIds.countryId!,
+          stateId: locationIds.stateId!,
+          cityId: locationIds.cityId!,
           phone: `+91-90000${1000 + i}`,
           whatsapp: `+91-90000${1000 + i}`,
           contactEmail: seed.email,
@@ -348,8 +364,8 @@ async function simulateAdminFlow(seed: { adminEmail: string; adminPass: string; 
       
       // Validate call/whatsapp features
       const callPlan = await db.query.subscriptionPlans.findFirst({ where: eq(subscriptionPlans.id, seed.callPlanId) });
-      if (!callPlan?.features.includes("contact_phone")) throw new Error("Call plan missing contact_phone feature");
-      if (!callPlan?.features.includes("contact_whatsapp")) throw new Error("Call plan missing contact_whatsapp feature");
+      if (!Array.isArray(callPlan?.features) || !callPlan.features.includes("contact_phone")) throw new Error("Call plan missing contact_phone feature");
+      if (!Array.isArray(callPlan?.features) || !callPlan.features.includes("contact_whatsapp")) throw new Error("Call plan missing contact_whatsapp feature");
       
       recordResult("Assign call-enabled plan", "PASS");
     } catch (error) {
@@ -376,8 +392,8 @@ async function simulateAdminFlow(seed: { adminEmail: string; adminPass: string; 
       
       // Validate email feature present, call features absent
       const emailPlan = await db.query.subscriptionPlans.findFirst({ where: eq(subscriptionPlans.id, seed.emailPlanId) });
-      if (!emailPlan?.features.includes("contact_email")) throw new Error("Email plan missing contact_email feature");
-      if (emailPlan?.features.includes("contact_phone")) throw new Error("Email plan should not have contact_phone feature");
+      if (!Array.isArray(emailPlan?.features) || !emailPlan.features.includes("contact_email")) throw new Error("Email plan missing contact_email feature");
+      if (Array.isArray(emailPlan?.features) && emailPlan.features.includes("contact_phone")) throw new Error("Email plan should not have contact_phone feature");
       
       recordResult("Switch to email-only plan", "PASS");
     } catch (error) {

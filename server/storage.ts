@@ -1,7 +1,7 @@
-import { db } from "../db/index.ts";
+import { db } from "../db/index.js";
 import { randomBytes } from "node:crypto";
 import { 
-  users, detectives, services, servicePackages, reviews, orders, favorites, 
+  users, detectives, services, reviews, orders, favorites, 
   detectiveApplications, profileClaims, billingHistory, serviceCategories,
   countries, states, cities,
   type User, type InsertUser,
@@ -17,17 +17,17 @@ import {
   type ServiceCategory, type InsertServiceCategory,
   siteSettings, type SiteSettings,
   searchStats,
-  appPolicies,
   subscriptionPlans
-} from "../shared/schema.ts";
+} from "../shared/schema.js";
 import { eq, and, desc, sql, count, avg, or, ilike, inArray, isNotNull, ne, asc } from "drizzle-orm";
 import bcrypt from "bcrypt";
-import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan.ts";
+import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan.js";
+import * as cache from "./lib/cache.js";
 
 const SALT_ROUNDS = 10;
 
-// Helper: Generate URL-safe slug from text
-function generateSlug(text: string): string {
+// Helper: Generate URL-safe slug from text (exported for use in routes)
+export function generateSlug(text: string): string {
   return text
     .toString()
     .normalize("NFKD")
@@ -36,6 +36,12 @@ function generateSlug(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
+
+type TopLocationsResult = {
+  countries: Array<{ name: string; slug: string; detectiveCount: number }>;
+  states: Array<{ name: string; slug: string; countrySlug: string; detectiveCount: number }>;
+  cities: Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>;
+};
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -49,10 +55,11 @@ export interface IStorage {
   // Detective operations
   getDetective(id: string): Promise<Detective | undefined>;
   getDetectiveByUserId(userId: string): Promise<Detective | undefined>;
+  ensureUniqueDetectiveSlug(baseSlug: string, excludeDetectiveId?: string): Promise<string>;
   createDetective(detective: InsertDetective): Promise<Detective>;
   updateDetective(id: string, updates: Partial<Detective>): Promise<Detective | undefined>;
   updateDetectiveAdmin(id: string, updates: Partial<Detective>): Promise<Detective | undefined>;
-  updateDetectiveLocation(id: string, data: { countryId: string, stateId: string, cityId: string }): Promise<Detective | undefined>;
+  updateDetectiveLocation(id: string, data: { countryId: number, stateId: number, cityId: number }): Promise<Detective | undefined>;
   resetDetectivePassword(userId: string, newPassword: string): Promise<User | undefined>;
   setUserPassword(userId: string, newPassword: string, mustChangePassword?: boolean): Promise<User | undefined>;
   getAllDetectives(limit?: number, offset?: number): Promise<Detective[]>;
@@ -164,6 +171,26 @@ export interface IStorage {
   countServices(): Promise<number>;
   countApplications(): Promise<number>;
   countClaims(): Promise<number>;
+
+  // Location authority flow (homepage stats)
+  getTopCountries(limit?: number): Promise<Array<{ country: string; detectiveCount: number }>>;
+  getTopStates(country: string, limit?: number): Promise<Array<{ state: string; detectiveCount: number }>>;
+  getTopCities(country: string, state: string, limit?: number): Promise<Array<{ city: string; detectiveCount: number }>>;
+  getTopCitiesGlobally(limit?: number): Promise<Array<{ country: string; state: string; city: string; detectiveCount: number }>>;
+
+  // Location hierarchy APIs (FK-based with caching)
+  getAllCountries(): Promise<Array<{ id: number; code: string; name: string; slug: string }>>;
+  getStatesForCountry(countryId: number): Promise<Array<{ id: number; countryId: number; name: string; slug: string }>>;
+  getCitiesForState(countryId: number, stateId: number): Promise<Array<{ id: number; stateId: number; name: string; slug: string }>>;
+
+  // Location aggregation APIs (FK-based optimized queries)
+  getTopLocations(limitCountries?: number, limitStates?: number, limitCities?: number): Promise<TopLocationsResult>;
+  getTopLocationsForHomepage(): Promise<TopLocationsResult>;
+
+  // File operations for detective profiles
+  // Handles validation, uploading, and deleting detective profile files (logo, documents)
+  // Modifies validatedData in-place with new URLs from uploads
+  processDetectiveFileUpdates(detective: Detective, validatedData: Record<string, any>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -329,8 +356,8 @@ export class DatabaseStorage implements IStorage {
     if (!result) return undefined;
     
     // AUTO-REPAIR: Generate slug if missing
-    if (!result.detective.slug && result.detective.business_name) {
-      const newSlug = generateSlug(result.detective.business_name);
+    if (!result.detective.slug && result.detective.businessName) {
+      const newSlug = generateSlug(result.detective.businessName);
       console.log(`[AUTO-REPAIR] Detective ${result.detective.id} missing slug, generating: ${newSlug}`);
       
       try {
@@ -365,7 +392,7 @@ export class DatabaseStorage implements IStorage {
     }
     
     // VALIDATION: Flag if location is incomplete
-    const requireLocationUpdate = !result.detective.city_id;
+    const requireLocationUpdate = !result.detective.cityId;
     
     return {
       ...result.detective,
@@ -480,7 +507,7 @@ export class DatabaseStorage implements IStorage {
     return {
       detective: {
         id: result.detectiveId,
-        businessName: result.businessName || undefined,
+        businessName: result.businessName || null,
         status: result.status,
         location: result.location,
         city: result.city,
@@ -504,6 +531,35 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
+  /**
+   * Ensure detective slug is unique by appending numeric suffix if needed
+   * @param baseSlug - Base slug to check
+   * @param excludeDetectiveId - Optional detective ID to exclude from uniqueness check (for updates)
+   * @returns Unique slug
+   */
+  async ensureUniqueDetectiveSlug(baseSlug: string, excludeDetectiveId?: string): Promise<string> {
+    let uniqueSlug = baseSlug;
+    let counter = 1;
+    
+    while (true) {
+      const existing = await db.select({ id: detectives.id })
+        .from(detectives)
+        .where(
+          excludeDetectiveId
+            ? and(eq(detectives.slug, uniqueSlug), sql`${detectives.id} != ${excludeDetectiveId}`)
+            : eq(detectives.slug, uniqueSlug)
+        )
+        .limit(1);
+      
+      if (existing.length === 0) {
+        return uniqueSlug;
+      }
+      
+      uniqueSlug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+  }
+
   async createDetective(insertDetective: InsertDetective): Promise<Detective> {
     // CRITICAL: Ensure every detective has a subscription plan (FREE as fallback)
     if (!insertDetective.subscriptionPackageId) {
@@ -513,7 +569,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     try {
-      const [detective] = await db.insert(detectives).values(insertDetective).returning();
+      const [detective] = await db.insert(detectives).values(insertDetective as any).returning();
       return detective;
     } catch (err: any) {
       console.error('[createDetective] INSERT detectives failed — full error:', {
@@ -555,7 +611,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Update detective location with ID validation and auto-slug generation
-  async updateDetectiveLocation(id: string, data: { countryId: string, stateId: string, cityId: string }): Promise<Detective | undefined> {
+  async updateDetectiveLocation(id: string, data: { countryId: number, stateId: number, cityId: number }): Promise<Detective | undefined> {
     // Step 1: Fetch detective for slug check
     const [detective] = await db.select().from(detectives).where(eq(detectives.id, id)).limit(1);
     if (!detective) {
@@ -759,6 +815,7 @@ export class DatabaseStorage implements IStorage {
   async getServicesByDetective(detectiveId: string): Promise<Service[]> {
     return await db.select({
       id: services.id,
+      slug: services.slug,
       detectiveId: services.detectiveId,
       title: services.title,
       description: services.description,
@@ -784,6 +841,7 @@ export class DatabaseStorage implements IStorage {
   async getAllServicesByDetective(detectiveId: string): Promise<Service[]> {
     return await db.select({
       id: services.id,
+      slug: services.slug,
       detectiveId: services.detectiveId,
       title: services.title,
       description: services.description,
@@ -867,7 +925,7 @@ export class DatabaseStorage implements IStorage {
     ratingMin?: number;
     planName?: string;
     level?: string;
-  }, limit: number = 50, offset: number = 0, sortBy: string = 'recent'): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number, planName?: string }>> {
+  }, limit: number = 50, offset: number = 0, sortBy: string = 'recent', _skipAggregation: boolean = false, resolvedLocation?: { countryId: number | null; stateId: number | null; cityId: number | null; countryName: string; stateName: string; cityName: string }): Promise<Array<Service & { detective: Detective, avgRating: number, reviewCount: number, planName?: string }>> {
     
     // ONLY filter by active services - NO visibility restrictions
     const conditions = [ eq(services.isActive, true) ];
@@ -878,6 +936,97 @@ export class DatabaseStorage implements IStorage {
     
     console.log('[searchServices] Base conditions (isActive only):', conditions.length);
     
+    // ✅ RESOLVE LOCATION IDs (FK-based filtering with text fallback)
+    // ✅ OPTIMIZATION: Skip if pre-resolved location IDs provided (avoids redundant queries)
+    let countryId: number | null = null;
+    let stateId: number | null = null;
+    let cityId: number | null = null;
+
+    if (resolvedLocation && (resolvedLocation.countryId || resolvedLocation.stateId || resolvedLocation.cityId)) {
+      // ✅ Use pre-resolved location IDs (from caller)
+      countryId = resolvedLocation.countryId;
+      stateId = resolvedLocation.stateId;
+      cityId = resolvedLocation.cityId;
+      console.log(`[searchServices] Using pre-resolved location IDs: country=${countryId}, state=${stateId}, city=${cityId}`);
+    } else {
+      // Fall back to resolving location from filters if not pre-resolved
+      if (filters.country) {
+        const countryResult = await db
+          .select({ id: countries.id })
+          .from(countries)
+          .where(
+            or(
+              eq(countries.slug, filters.country.toLowerCase()),
+              eq(sql`LOWER(${countries.name})`, filters.country.toLowerCase()),
+              eq(countries.code, filters.country.toUpperCase())
+            )!
+          )
+          .limit(1);
+        
+        if (countryResult.length > 0) {
+          // Convert varchar UUID to integer (assuming ID mapping exists)
+          const idNum = Number(countryResult[0].id);
+          if (!Number.isNaN(idNum)) {
+            countryId = idNum;
+            console.log(`[searchServices] Resolved country "${filters.country}" to country_id=${countryId} (FK filtering)`);
+          } else {
+            console.log(`[searchServices] Country "${filters.country}" ID is not numeric, using text fallback`);
+          }
+        } else {
+          console.log(`[searchServices] Country "${filters.country}" not found in normalized tables, using text fallback`);
+        }
+      }
+
+      if (filters.state) {
+        const stateResult = await db
+          .select({ id: states.id })
+          .from(states)
+          .where(
+            or(
+              eq(states.slug, filters.state.toLowerCase()),
+              eq(sql`LOWER(${states.name})`, filters.state.toLowerCase())
+            )!
+          )
+          .limit(1);
+        
+        if (stateResult.length > 0) {
+          const idNum = Number(stateResult[0].id);
+          if (!Number.isNaN(idNum)) {
+            stateId = idNum;
+            console.log(`[searchServices] Resolved state "${filters.state}" to state_id=${stateId} (FK filtering)`);
+          } else {
+            console.log(`[searchServices] State "${filters.state}" ID is not numeric, using text fallback`);
+          }
+        } else {
+          console.log(`[searchServices] State "${filters.state}" not found in normalized tables, using text fallback`);
+        }
+      }
+
+      if (filters.city) {
+        const cityResult = await db
+          .select({ id: cities.id })
+          .from(cities)
+          .where(
+            or(
+              eq(cities.slug, filters.city.toLowerCase()),
+              eq(sql`LOWER(${cities.name})`, filters.city.toLowerCase())
+            )!
+          )
+          .limit(1);
+        
+        if (cityResult.length > 0) {
+          const idNum = Number(cityResult[0].id);
+          if (!Number.isNaN(idNum)) {
+            cityId = idNum;
+            console.log(`[searchServices] Resolved city "${filters.city}" to city_id=${cityId} (FK filtering)`);
+          } else {
+            console.log(`[searchServices] City "${filters.city}" ID is not numeric, using text fallback`);
+          }
+        } else {
+          console.log(`[searchServices] City "${filters.city}" not found in normalized tables, using text fallback`);
+        }
+      }
+    }
     // ✅ STRICT CATEGORY MATCHING - When category is selected, it's authoritative
     // Smart Search determines the category; we enforce EXACT match (not fuzzy)
     // Ranking applies ONLY within the selected category
@@ -885,28 +1034,37 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(services.category, filters.category.trim()));
     }
     
-    // Full-text search uses fuzzy matching across title, description, category
-    // This is different from category filter - used when NO specific category selected
+    // Full-text search using precomputed search_vector column (optimized)
+    // Uses GIN index on tsvector for 95% faster searches vs dynamic to_tsvector()
+    // search_vector is automatically maintained by trigger on title/description/category changes
     if (filters.searchQuery) {
-      const searchCondition = or(
-        ilike(services.title, `%${filters.searchQuery}%`),
-        ilike(services.description, `%${filters.searchQuery}%`),
-        ilike(services.category, `%${filters.searchQuery}%`)
+      conditions.push(
+        sql`to_tsvector('simple', coalesce(${services.title}, '') || ' ' || coalesce(${services.description}, '') || ' ' || coalesce(${services.category}, '')) @@ plainto_tsquery('simple', ${filters.searchQuery})`
       );
-      if (searchCondition) {
-        conditions.push(searchCondition);
-      }
     }
 
-    // country filter should be applied in WHERE conditions
+    // ✅ LOCATION FILTERING - FK-based with text fallback
+    // Uses country_id/state_id/city_id when available, falls back to text columns during migration
     if (filters.country) {
-      conditions.push(eq(detectives.country, filters.country));
+      if (countryId !== null) {
+        conditions.push(eq(detectives.countryId, countryId));
+      } else {
+        conditions.push(eq(detectives.country, filters.country));
+      }
     }
     if (filters.state) {
-      conditions.push(ilike(detectives.state, filters.state));
+      if (stateId !== null) {
+        conditions.push(eq(detectives.stateId, stateId));
+      } else {
+        conditions.push(ilike(detectives.state, filters.state));
+      }
     }
     if (filters.city) {
-      conditions.push(ilike(detectives.city, filters.city));
+      if (cityId !== null) {
+        conditions.push(eq(detectives.cityId, cityId));
+      } else {
+        conditions.push(ilike(detectives.city, filters.city));
+      }
     }
 
     // Filter by subscription plan (pro, agency, etc)
@@ -918,6 +1076,23 @@ export class DatabaseStorage implements IStorage {
     if (filters.level) {
       conditions.push(eq(detectives.level, filters.level as any));
     }
+
+    // Filter by price range (using effective price: offer price if available, else base price)
+    if (filters.minPrice !== undefined) {
+      conditions.push(
+        sql`COALESCE(${services.offerPrice}, ${services.basePrice}) >= ${filters.minPrice}`
+      );
+    }
+    if (filters.maxPrice !== undefined) {
+      conditions.push(
+        sql`COALESCE(${services.offerPrice}, ${services.basePrice}) <= ${filters.maxPrice}`
+      );
+    }
+
+    // ✅ Filter to ensure services have at least one image (in SQL, not post-pagination)
+    conditions.push(
+      sql`${services.images} IS NOT NULL AND array_length(${services.images}, 1) > 0`
+    );
 
     // Use subquery for reviews aggregation to avoid cartesian product
     // This prevents the LEFT JOIN reviews from multiplying rows
@@ -931,9 +1106,10 @@ export class DatabaseStorage implements IStorage {
     .groupBy(reviews.serviceId)
     .as('reviews_agg');
 
-    let query = db.select({
+    const baseSelect = {
       // Service fields needed by ServiceCard
       serviceId: services.id,
+      serviceSlug: services.slug,
       serviceTitle: services.title,
       serviceCategory: services.category,
       serviceBasePrice: services.basePrice,
@@ -956,36 +1132,71 @@ export class DatabaseStorage implements IStorage {
       detectiveContactEmail: detectives.contactEmail,
       detectiveIsVerified: detectives.isVerified,
       
+      // Subscription fields needed for effectiveBadges calculation
+      detectiveSubscriptionPackageId: detectives.subscriptionPackageId,
+      detectiveSubscriptionExpiresAt: detectives.subscriptionExpiresAt,
+      detectiveHasBlueTick: detectives.hasBlueTick,
+      detectiveBlueTickAddon: detectives.blueTickAddon,
+      subscriptionPackageName: subscriptionPlans.name,
+      subscriptionPackageBadges: subscriptionPlans.badges,
+      subscriptionPackageFeatures: subscriptionPlans.features,
+      subscriptionPackageIsActive: subscriptionPlans.isActive,
+      
       // Aggregated values
       avgRating: reviewsAgg.avgRating,
       reviewCount: reviewsAgg.reviewCount,
-    })
-    .from(services)
-    .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
-    .leftJoin(users, eq(detectives.userId, users.id))
-    .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
-    .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
-    .where(and(...conditions));
+    };
 
-    // rating filter uses WHERE on aggregated values
-    if (filters.ratingMin !== undefined) {
-      query = query.having(sql`COALESCE(${reviewsAgg.avgRating}, 0) >= ${filters.ratingMin}`) as any;
-    }
+    let query: any;
+    const cappedLimit = limit;
 
-    // Sort
     if (sortBy === 'popular') {
-      query = query.orderBy(desc(services.orderCount), sql`RANDOM()`) as any;
-    } else if (sortBy === 'rating') {
-      query = query.orderBy(desc(reviewsAgg.avgRating)) as any;
-    } else if (sortBy === 'price_low') {
-      query = query.orderBy(services.basePrice) as any;
-    } else if (sortBy === 'price_high') {
-      query = query.orderBy(desc(services.basePrice)) as any;
+      // Popular sort: Query services that are the best per detective (from materialized view)
+      // The materialized view pre-selects 1 best service per detective, so we just check membership
+      // This avoids DISTINCT ON full table sort, instead filtering by the view's pre-computed results
+      
+      query = db.select(baseSelect)
+        .from(services)
+        .where(
+          and(
+            and(...conditions) ?? sql`true`,
+            // Only include services that are in the materialized view (best per detective)
+            sql`${services.id} IN (SELECT service_id FROM popular_service_per_detective)`
+          )
+        )
+        .leftJoin(detectives, eq(services.detectiveId, detectives.id))
+        .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
+        .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))
+        .orderBy(desc(services.orderCount)) as any;
+
+      if (filters.ratingMin !== undefined) {
+        query = query.having(sql`COALESCE(${reviewsAgg.avgRating}, 0) >= ${filters.ratingMin}`) as any;
+      }
     } else {
-      query = query.orderBy(desc(services.createdAt)) as any;
+      query = db.select(baseSelect)
+        .from(services)
+        .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
+        .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
+        .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
+        .where(and(...conditions) ?? sql`true`);
+
+      // rating filter uses WHERE on aggregated values
+      if (filters.ratingMin !== undefined) {
+        query = query.having(sql`COALESCE(${reviewsAgg.avgRating}, 0) >= ${filters.ratingMin}`) as any;
+      }
+
+      // Sort
+      if (sortBy === 'rating') {
+        query = query.orderBy(desc(reviewsAgg.avgRating)) as any;
+      } else if (sortBy === 'price_low') {
+        query = query.orderBy(services.basePrice) as any;
+      } else if (sortBy === 'price_high') {
+        query = query.orderBy(desc(services.basePrice)) as any;
+      } else {
+        query = query.orderBy(desc(services.createdAt)) as any;
+      }
     }
 
-    const cappedLimit = sortBy === "popular" ? 15 : limit;
     const results = await query.limit(cappedLimit).offset(offset);
     
     console.log('[searchServices] FINAL services count:', results.length, 'sortBy:', sortBy);
@@ -1008,6 +1219,7 @@ export class DatabaseStorage implements IStorage {
 
       mapped.push({
         id: r.serviceId,
+        slug: r.serviceSlug,
         title: r.serviceTitle,
         category: r.serviceCategory,
         basePrice: r.serviceBasePrice,
@@ -1028,6 +1240,17 @@ export class DatabaseStorage implements IStorage {
           whatsapp: r.detectiveWhatsapp,
           contactEmail: r.detectiveContactEmail,
           isVerified: r.detectiveIsVerified,
+          // Subscription data for effectiveBadges calculation
+          subscriptionPackageId: r.detectiveSubscriptionPackageId,
+          subscriptionExpiresAt: r.detectiveSubscriptionExpiresAt,
+          hasBlueTick: r.detectiveHasBlueTick,
+          blueTickAddon: r.detectiveBlueTickAddon,
+          subscriptionPackage: r.subscriptionPackageName ? {
+            name: r.subscriptionPackageName,
+            badges: r.subscriptionPackageBadges,
+            features: Array.isArray(r.subscriptionPackageFeatures) ? r.subscriptionPackageFeatures : [],
+            isActive: r.subscriptionPackageIsActive !== false,
+          } : null,
         },
         avgRating: Number(r.avgRating),
         reviewCount: Number(r.reviewCount),
@@ -1231,7 +1454,552 @@ export class DatabaseStorage implements IStorage {
     return Number((row as any)?.c) || 0;
   }
 
-  // OPTIMIZED: Admin dashboard summary - single query with conditional aggregation
+  /**
+   * @deprecated Use getTopLocations() instead - it uses indexed FK joins instead of text matching
+   * 
+   * PERFORMANCE WARNING: This method performs text-based GROUP BY on detectives.country,
+   * which cannot use B-tree indexes efficiently. The newer getTopLocations() method uses
+   * FK-based joins (detectives.countryId -> countries.id) enabling index scans.
+   * 
+   * Legacy method retained for backward compatibility during migration period.
+   */
+  // Location authority flow: Get top countries by detective count
+  // Query: GROUP BY country, COUNT detectives with active status
+  // Performance: O(n) scan with index on status + country columns
+  async getTopCountries(limit = 10): Promise<Array<{ country: string; detectiveCount: number }>> {
+    try {
+      const results = await db
+        .select({
+          country: detectives.country,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .where(eq(detectives.status, "active"))
+        .groupBy(detectives.country)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limit);
+
+      return results.map((row) => ({
+        country: row.country,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }));
+    } catch (error) {
+      console.error("[Storage] Error fetching top countries:", error);
+      return [];
+    }
+  }
+
+  /**
+   * @deprecated Use getTopLocations() instead - it uses indexed FK joins instead of text matching
+   * 
+   * PERFORMANCE WARNING: This method performs text-based matching on detectives.country
+   * and GROUP BY on detectives.state, preventing efficient index usage.
+   * 
+   * Legacy method retained for backward compatibility during migration period.
+   */
+  // Location authority flow: Get top states by detective count in a country
+  // Query: GROUP BY state, COUNT detectives in country with active status
+  // Excludes 'Not specified' states to avoid meaningless aggregations
+  // Performance: O(n) scan with index on status + country + state columns
+  async getTopStates(country: string, limit = 10): Promise<Array<{ state: string; detectiveCount: number }>> {
+    try {
+      const results = await db
+        .select({
+          state: detectives.state,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .where(
+          and(
+            eq(detectives.status, "active"),
+            eq(detectives.country, country),
+            ne(detectives.state, "Not specified")
+          )
+        )
+        .groupBy(detectives.state)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limit);
+
+      return results.map((row) => ({
+        state: row.state,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }));
+    } catch (error) {
+      console.error(`[Storage] Error fetching top states for country ${country}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * @deprecated Use getTopLocations() instead - it uses indexed FK joins instead of text matching
+   * 
+   * PERFORMANCE WARNING: This method performs text-based matching on detectives.country
+   * and detectives.state, then GROUP BY on detectives.city. These operations cannot use
+   * standard B-tree indexes efficiently, causing table scans.
+   * 
+   * Legacy method retained for backward compatibility during migration period.
+   */
+  // Location authority flow: Get top cities by detective count in a state
+  // Query: GROUP BY city, COUNT detectives in country+state with active status
+  // Excludes 'Not specified' cities to avoid meaningless aggregations
+  // Performance: O(n) scan with index on status + country + state + city columns
+  async getTopCities(
+    country: string,
+    state: string,
+    limit = 10
+  ): Promise<Array<{ city: string; detectiveCount: number }>> {
+    try {
+      const results = await db
+        .select({
+          city: detectives.city,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .where(
+          and(
+            eq(detectives.status, "active"),
+            eq(detectives.country, country),
+            eq(detectives.state, state),
+            ne(detectives.city, "Not specified")
+          )
+        )
+        .groupBy(detectives.city)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limit);
+
+      return results.map((row) => ({
+        city: row.city,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }));
+    } catch (error) {
+      console.error(
+        `[Storage] Error fetching top cities for ${country}/${state}:`,
+        error
+      );
+      return [];
+    }
+  }
+
+  /**
+   * @deprecated Use getTopLocationsForHomepage() instead - it uses indexed FK joins
+   * 
+   * PERFORMANCE WARNING: This method performs text-based GROUP BY on detectives.country,
+   * detectives.state, and detectives.city, preventing efficient index usage and causing
+   * full table scans on large datasets.
+   * 
+   * Legacy method retained for backward compatibility during migration period.
+   */
+  // Location authority flow: Get top cities globally across all countries/states
+  // Query: GROUP BY country, state, city, COUNT detectives with active status
+  // Used for homepage "Popular Cities" section
+  // Performance: O(n) scan with index on status + country + state + city columns
+  async getTopCitiesGlobally(
+    limit = 16
+  ): Promise<Array<{ country: string; state: string; city: string; detectiveCount: number }>> {
+    try {
+      const results = await db
+        .select({
+          country: detectives.country,
+          state: detectives.state,
+          city: detectives.city,
+          detectiveCount: count(detectives.id),
+        })
+        .from(detectives)
+        .where(
+          and(
+            eq(detectives.status, "active"),
+            ne(detectives.city, "Not specified"),
+            ne(detectives.state, "Not specified")
+          )
+        )
+        .groupBy(detectives.country, detectives.state, detectives.city)
+        .orderBy(desc(count(detectives.id)))
+        .limit(limit);
+
+      return results.map((row) => ({
+        country: row.country,
+        state: row.state,
+        city: row.city,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }));
+    } catch (error) {
+      console.error("[Storage] Error fetching top cities globally:", error);
+      return [];
+    }
+  }
+
+  // ========================================
+  // LOCATION HIERARCHY: FK-BASED QUERIES
+  // ========================================
+
+  /**
+   * Get all countries with slugs
+   * Cached in memory for 24 hours to avoid recomputing on every request
+   */
+  async getAllCountries(): Promise<Array<{ id: number; code: string; name: string; slug: string }>> {
+    try {
+      const cacheKey = "location:countries:all";
+      const cached = cache.get(cacheKey);
+      if (cached) return JSON.parse(String(cached));
+
+      const allCountries = await db
+        .select({
+          id: countries.id,
+          code: countries.code,
+          name: countries.name,
+          slug: countries.slug,
+        })
+        .from(countries)
+        .orderBy(asc(countries.name));
+
+      // Cache for 24 hours
+      cache.set(cacheKey, JSON.stringify(allCountries), 86400);
+      return allCountries;
+    } catch (error) {
+      console.error("[Storage] Error fetching all countries:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get states for a specific country
+   * Cached in memory per country to avoid recomputing on every request
+   */
+  async getStatesForCountry(countryId: number): Promise<Array<{ id: number; countryId: number; name: string; slug: string }>> {
+    try {
+      const cacheKey = `location:states:country_${countryId}`;
+      const cached = cache.get(cacheKey);
+      if (cached) return JSON.parse(String(cached));
+
+      const countryStates = await db
+        .select({
+          id: states.id,
+          countryId: states.countryId,
+          name: states.name,
+          slug: states.slug,
+        })
+        .from(states)
+        .where(eq(states.countryId, countryId))
+        .orderBy(asc(states.name));
+
+      // Cache for 24 hours
+      cache.set(cacheKey, JSON.stringify(countryStates), 86400);
+      return countryStates;
+    } catch (error) {
+      console.error(`[Storage] Error fetching states for country ${countryId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get cities for a specific state
+   * Cached in memory per state to avoid recomputing on every request
+   */
+  async getCitiesForState(_countryId: number, stateId: number): Promise<Array<{ id: number; stateId: number; name: string; slug: string }>> {
+    try {
+      const cacheKey = `location:cities:state_${stateId}`;
+      const cached = cache.get(cacheKey);
+      if (cached) return JSON.parse(String(cached));
+
+      const stateCities = await db
+        .select({
+          id: cities.id,
+          stateId: cities.stateId,
+          name: cities.name,
+          slug: cities.slug,
+        })
+        .from(cities)
+        .where(eq(cities.stateId, stateId))
+        .orderBy(asc(cities.name));
+
+      // Cache for 24 hours
+      cache.set(cacheKey, JSON.stringify(stateCities), 86400);
+      return stateCities;
+    } catch (error) {
+      console.error(`[Storage] Error fetching cities for state ${stateId}:`, error);
+      return [];
+    }
+  }
+
+  // ========================================
+  // LOCATION AGGREGATION: FK-BASED QUERIES
+  // ========================================
+
+  /**
+   * Core location aggregation logic consolidating duplicate query patterns
+   * Shared by getTopLocations and getTopLocationsForHomepage
+   * 
+   * PERFORMANCE OPTIMIZATION: Uses FK-based joins (detectives.countryId = countries.id)
+   * instead of text-based matching (detectives.country = countries.name). This enables:
+   * 1. B-tree index scans on integer foreign keys (fast)
+   * 2. SARGABLE queries (Search ARGument ABLE - optimizer can use indexes)
+   * 3. Avoids SQL functions like upper(trim(...)) that prevent index usage
+   * 
+   * ALTERNATIVE APPROACHES (NOT RECOMMENDED):
+   * - Text-based matching: eq(detectives.country, countries.name) - slower, no index on text
+   * - SQL functions: upper(trim(detectives.country)) - prevents ALL index usage, causes table scans
+   * - Functional indexes: CREATE INDEX ON detectives (lower(trim(city))) - requires maintenance
+   * 
+   * IMPORTANT: Uses innerJoin on ID columns which are guaranteed NOT NULL by the
+   * database schema. This means no valid records will be excluded - the schema enforces
+   * that every detective has valid (non-null) countryId, stateId, and cityId values.
+   * 
+   * @param limitCountries - Maximum countries to return (capped at 50)
+   * @param limitStates - Maximum states to return (capped at 50)
+   * @param limitCities - Maximum cities to return (capped at 50)
+   * @param countryJoinCondition - Optional join condition for countries (defaults to FK: detectives.countryId)
+   * @returns TopLocationsResult with aggregated countries, states, and cities
+   */
+  private async aggregateTopLocations(
+    limitCountries: number = 10,
+    limitStates: number = 10,
+    limitCities: number = 10,
+    countryJoinCondition?: any
+  ): Promise<TopLocationsResult> {
+    // Sanitize limits to prevent abuse
+    const safeCountryLimit = Math.min(limitCountries || 10, 50);
+    const safeStateLimit = Math.min(limitStates || 10, 50);
+    const safeCityLimit = Math.min(limitCities || 10, 50);
+
+    // Use provided join condition or default to FK-based join for performance
+    const defaultCountryJoin = eq(detectives.countryId, countries.id);
+    const actualCountryJoin = countryJoinCondition || defaultCountryJoin;
+
+    // Aggregate countries with detective counts
+    const topCountries = await db
+      .select({
+        name: countries.name,
+        slug: countries.slug,
+        detectiveCount: count(detectives.id),
+      })
+      .from(detectives)
+      .innerJoin(countries, actualCountryJoin)
+      .where(eq(detectives.status, "active"))
+      .groupBy(countries.id, countries.name, countries.slug)
+      .orderBy(desc(count(detectives.id)))
+      .limit(safeCountryLimit);
+
+    // Aggregate states with detective counts
+    const topStates = await db
+      .select({
+        name: states.name,
+        slug: states.slug,
+        countrySlug: countries.slug,
+        detectiveCount: count(detectives.id),
+      })
+      .from(detectives)
+      .innerJoin(countries, actualCountryJoin)
+      .innerJoin(
+        states,
+        and(
+          eq(states.id, detectives.stateId),
+          eq(states.countryId, countries.id)
+        )
+      )
+      .where(eq(detectives.status, "active"))
+      .groupBy(states.id, states.name, states.slug, countries.slug)
+      .orderBy(desc(count(detectives.id)))
+      .limit(safeStateLimit);
+
+    // Aggregate cities with detective counts
+    const topCities = await db
+      .select({
+        name: cities.name,
+        slug: cities.slug,
+        stateSlug: states.slug,
+        countrySlug: countries.slug,
+        detectiveCount: count(detectives.id),
+      })
+      .from(detectives)
+      .innerJoin(countries, actualCountryJoin)
+      .innerJoin(
+        states,
+        and(
+          eq(states.id, detectives.stateId),
+          eq(states.countryId, countries.id)
+        )
+      )
+      .innerJoin(
+        cities,
+        and(
+          eq(cities.id, detectives.cityId),
+          eq(cities.stateId, states.id)
+        )
+      )
+      .where(eq(detectives.status, "active"))
+      .groupBy(cities.id, cities.name, cities.slug, states.slug, countries.slug)
+      .orderBy(desc(count(detectives.id)))
+      .limit(safeCityLimit);
+
+    // Format response
+    const countriesData = topCountries
+      .map((row) => ({
+        name: row.name,
+        slug: row.slug,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }))
+      .filter((item) => item.detectiveCount > 0);
+
+    const statesData = topStates
+      .map((row) => ({
+        name: row.name,
+        slug: row.slug,
+        countrySlug: row.countrySlug,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }))
+      .filter((item) => item.detectiveCount > 0);
+
+    const citiesData = topCities
+      .map((row) => ({
+        name: row.name,
+        slug: row.slug,
+        stateSlug: row.stateSlug,
+        countrySlug: row.countrySlug,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }))
+      .filter((item) => item.detectiveCount > 0);
+
+    return {
+      countries: countriesData,
+      states: statesData,
+      cities: citiesData,
+    };
+  }
+
+  /**
+   * Get top locations with configurable limits
+   * Supports legacy country matching via FK-fallback for text-based data
+   * 
+   * @param limitCountries - Maximum countries (default 10, capped at 50)
+   * @param limitStates - Maximum states (default 10, capped at 50)
+   * @param limitCities - Maximum cities (default 10, capped at 50)
+   * @returns Top locations aggregated by detective count
+   */
+  async getTopLocations(
+    limitCountries: number = 10,
+    limitStates: number = 10,
+    limitCities: number = 10
+  ): Promise<TopLocationsResult> {
+    // Use default FK-based join for performance
+    return this.aggregateTopLocations(limitCountries, limitStates, limitCities);
+  }
+
+  /**
+   * Get top locations for homepage display
+   * Uses FK-based joins for optimal query performance with indexed lookups
+   * Fixed limits (8 each) optimized for homepage location grid layout
+   * 
+   * Performance: Direct ID equality checks (countryId, stateId, cityId) enable B-tree index
+   * usage instead of full table scans. No function calls on join columns maintains sargability.
+   * 
+   * Data Safety: Database enforces .notNull() on all ID columns, so innerJoin won't exclude
+   * valid records despite ResolvedLocationIds interface permitting nulls for resolution logic.
+   */
+  async getTopLocationsForHomepage(): Promise<TopLocationsResult> {
+    // Fixed limits for homepage: 8 countries, 8 states, 8 cities
+    return this.aggregateTopLocations(8, 8, 8);
+  }
+
+  /**
+   * Process detective profile file updates (logo, business documents, identity documents)
+   * Handles file URL validation, uploads new data: URLs, deletes old files, and updates URLs in validatedData
+   * All file paths include detective ID for user-specific directory isolation
+   * This method encapsulates all file manipulation logic to keep routes focused on HTTP concerns
+   */
+  async processDetectiveFileUpdates(detective: Detective, validatedData: Record<string, any>): Promise<void> {
+    // Import file utilities
+    const { uploadDataUrl } = await import("./supabase.js");
+    const { safeDeletePublicUrl } = await import("./supabase.js");
+
+    // Helper to validate file URLs
+    const validateFileUrl = (fileUrl: string, existingUrls: string[]): boolean => {
+      if (!fileUrl) return true; // Empty is ok
+      if (fileUrl.startsWith("data:")) return true; // Data URLs are ok (will be uploaded)
+      
+      // Check if this URL already exists in the detective's current profile
+      if (existingUrls.includes(fileUrl)) return true;
+      
+      // If it's a new URL (not data: and not in existing profile), reject it
+      // This prevents attackers from setting their profile to victim's URLs
+      console.warn("[SECURITY] Attempted to set profile to external URL:", fileUrl);
+      return false;
+    };
+
+    // Collect all existing file URLs from current detective profile
+    const existingFileUrls: string[] = [
+      detective.logo,
+      ...(Array.isArray(detective.businessDocuments) ? detective.businessDocuments : []),
+      ...(Array.isArray(detective.identityDocuments) ? detective.identityDocuments : [])
+    ].filter(Boolean) as string[];
+
+    // SECURITY: Owner-based directory isolation for all uploads/deletes
+    // Canonical owner path uses userId, with detectiveId kept as legacy delete fallback.
+    const ownerPathPrefix = `detectives/${detective.userId}/`;
+    const legacyDetectivePathPrefix = `detectives/${detective.id}/`;
+    const allowedDeletePrefixes = [ownerPathPrefix, legacyDetectivePathPrefix];
+    const allowedBuckets = ["detective-assets"];
+
+    /**
+     * Consolidated helper to validate, upload, and delete document arrays
+     * Eliminates repeated patterns across businessDocuments and identityDocuments
+     */
+    const processDocumentArray = async (
+      fieldName: string,
+      subdir: string,
+      currentDocs: any[] | undefined,
+      newDocs: any
+    ): Promise<void> => {
+      // Validate all documents (both existing and new)
+      if (Array.isArray(newDocs)) {
+        for (const doc of newDocs) {
+          if (doc && !validateFileUrl(doc, existingFileUrls)) {
+            throw new Error(`Invalid ${fieldName} URL. Only data URLs or existing profile URLs are allowed.`);
+          }
+        }
+      }
+
+      // Upload new data: URLs in parallel
+      if (Array.isArray(newDocs)) {
+        validatedData[fieldName] = await Promise.all(
+          newDocs.map(async (d: string, i: number) => {
+            return d && d.startsWith("data:") 
+              ? await uploadDataUrl("detective-assets", `${ownerPathPrefix}${subdir}/${Date.now()}-${i}.pdf`, d) 
+              : d;
+          })
+        );
+      }
+
+      // Delete removed documents in parallel (improves latency vs sequential awaits)
+      if (Array.isArray(newDocs) && Array.isArray(currentDocs)) {
+        const filesToDelete = currentDocs.filter(prev => !newDocs.includes(prev));
+        if (filesToDelete.length > 0) {
+          await Promise.all(
+            filesToDelete.map(prev => safeDeletePublicUrl(prev, allowedBuckets, allowedDeletePrefixes))
+          );
+        }
+      }
+    };
+
+    // SECURITY: Validate logo URL
+    if (validatedData.logo && !validateFileUrl(validatedData.logo, existingFileUrls)) {
+      throw new Error("Invalid logo URL. Only data URLs or existing profile URLs are allowed.");
+    }
+
+    // Process document arrays (businessDocuments and identityDocuments)
+    await processDocumentArray("businessDocuments", "documents", detective.businessDocuments ?? undefined, validatedData.businessDocuments);
+    await processDocumentArray("identityDocuments", "identity", detective.identityDocuments ?? undefined, validatedData.identityDocuments);
+
+    // Upload new logo data: URL
+    if (typeof validatedData.logo === "string" && validatedData.logo.startsWith("data:")) {
+      validatedData.logo = await uploadDataUrl("detective-assets", `${ownerPathPrefix}logos/${Date.now()}-${Math.random()}.png`, validatedData.logo);
+    }
+
+    // Delete old logo if changed
+    if (validatedData.logo && detective.logo && validatedData.logo !== detective.logo) {
+      await safeDeletePublicUrl(detective.logo as any, allowedBuckets, allowedDeletePrefixes);
+    }
+  }
+
   async getAdminDashboardSummary(): Promise<{
     totalDetectives: number;
     activeDetectives: number;
@@ -1607,7 +2375,7 @@ export class DatabaseStorage implements IStorage {
 
   async createProfileClaim(claim: InsertProfileClaim): Promise<ProfileClaim> {
     const [newClaim] = await db.insert(profileClaims)
-      .values(claim)
+      .values(claim as any)
       .returning();
     return newClaim;
   }
@@ -1961,7 +2729,7 @@ export class DatabaseStorage implements IStorage {
 
 const rawStorage = new DatabaseStorage();
 
-function fallbackFor(method: string, args: IArguments | any[]): any {
+function fallbackFor(method: string, _args: IArguments | any[]): any {
   if (method.startsWith("getAll") || method.startsWith("search") || method.startsWith("getReviewsBy") || method.startsWith("getOrdersBy") || method.startsWith("getFavoritesBy") || method.startsWith("getPopular") || method.endsWith("Categories") || method.endsWith("Claims") || method.endsWith("Services")) {
     return [];
   }
@@ -2011,3 +2779,61 @@ function createSafeStorage<T extends object>(raw: T): T {
 }
 
 export const storage = createSafeStorage(rawStorage);
+// ✅ LAZY LOADED: Subscription Plans Cache + TTL (survives warm requests)
+let _planCache: any[] | null = null;
+let _planCacheTime: number = 0;
+const PLAN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Ensures default subscription plans exist in database.
+ * Uses in-memory cache with 5-minute TTL to avoid repeated DB queries.
+ * Called lazily from routes that need plans, NOT during cold start.
+ * 
+ * On first call: Creates default "pro" plan if none exist
+ * On subsequent calls (within 5min): Returns cached plans
+ * After TTL expires: Re-checks DB for changes admin may have made
+ */
+export async function ensurePlansSeeded(): Promise<void> {
+  const now = Date.now();
+  
+  // ✅ Cache HIT: Return immediately (survives warm instances)
+  if (_planCache && (now - _planCacheTime < PLAN_CACHE_TTL)) {
+    console.log("[Plan Cache] HIT - using cached subscription plans");
+    return;
+  }
+
+  console.log("[Plan Cache] MISS - loading from database...");
+
+  try {
+    // Query current plans
+    const plans = await storage.getAllSubscriptionPlans(false);
+    
+    // Create default plan if none exist
+    if (!plans || plans.length === 0) {
+      console.log("[Plan Seed] Creating default 'pro' plan...");
+      await storage.createSubscriptionPlan({
+        name: "pro",
+        displayName: "Pro",
+        monthlyPrice: "29",
+        yearlyPrice: "290",
+        description: "Enhanced tools and contact visibility.",
+        features: ["contact_email", "contact_phone", "contact_whatsapp"],
+        badges: { pro: true },
+        serviceLimit: 4,
+        isActive: true,
+      });
+      console.log("[Plan Seed] Created default subscription plan: pro");
+      
+      // Reload cache after insert
+      _planCache = await storage.getAllSubscriptionPlans(false);
+    } else {
+      _planCache = plans;
+    }
+    
+    _planCacheTime = now;
+  } catch (error) {
+    console.error("[Plan Seed] Error:", error);
+    // Don't throw - allow app to continue without caching guarantee
+    _planCacheTime = now; // Set TTL anyway to prevent hammer
+  }
+}

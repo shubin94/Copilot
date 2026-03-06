@@ -31,14 +31,12 @@ export function parseDatabaseUrl(url: string): DatabaseInfo {
     const host = dbUrl.hostname || null;
     const port = dbUrl.port ? parseInt(dbUrl.port, 10) : 5432;
     const database = dbUrl.pathname?.replace("/", "") || null;
-    const username = dbUrl.username ? decodeURIComponent(dbUrl.username) : "postgres";
-
     // Check if local
     const isLocal =
       host === "localhost" ||
       host === "127.0.0.1" ||
       host === "::1" ||
-      host?.endsWith(".local");
+      (host?.endsWith(".local") ?? false);
 
     // Mask password for display - handle both postgresql:// and postgres:// schemes
     let displayUrl = url;

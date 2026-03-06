@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pgEnum, serial, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pgEnum, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -40,12 +40,12 @@ export const detectives = pgTable("detectives", {
   defaultServiceBanner: text("default_service_banner"),
   location: text("location").notNull().default("Not specified"),
   country: text("country").notNull(),
-  countryId: varchar("country_id"),
   state: text("state").notNull().default("Not specified"),
-  stateId: varchar("state_id"),
   city: text("city").notNull().default("Not specified"),
-  cityId: varchar("city_id"),
-  slug: text("slug").unique(),
+  countryId: integer("country_id").notNull(),
+  stateId: integer("state_id").notNull(),
+  cityId: integer("city_id").notNull(),
+  slug: text("slug").notNull().unique(),
   address: text("address"),
   pincode: text("pincode"),
   phone: text("phone"),
@@ -313,7 +313,7 @@ export const siteSettings = pgTable("site_settings", {
 
 // Countries table (for SEO slugs and lookups)
 export const countries = pgTable("countries", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: integer("id").primaryKey(),
   code: varchar("code", { length: 10 }).notNull(),
   name: text("name").notNull(),
   slug: varchar("slug", { length: 255 }).notNull().default(''),
@@ -326,8 +326,8 @@ export const countries = pgTable("countries", {
 
 // States table
 export const states = pgTable("states", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  countryId: varchar("country_id").notNull().references(() => countries.id, { onDelete: "cascade" }),
+  id: integer("id").primaryKey(),
+  countryId: integer("country_id").notNull().references(() => countries.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   slug: varchar("slug", { length: 255 }).notNull().default(''),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -339,8 +339,8 @@ export const states = pgTable("states", {
 
 // Cities table
 export const cities = pgTable("cities", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  stateId: varchar("state_id").notNull().references(() => states.id, { onDelete: "cascade" }),
+  id: integer("id").primaryKey(),
+  stateId: integer("state_id").notNull().references(() => states.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   slug: varchar("slug", { length: 255 }).notNull().default(''),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -599,13 +599,6 @@ const footerSectionSchema = z.object({
 });
 
 // Social links schema
-const socialLinksSchema = z.object({
-  facebook: z.string().optional().nullable(),
-  instagram: z.string().optional().nullable(),
-  twitter: z.string().optional().nullable(),
-  linkedin: z.string().optional().nullable(),
-  youtube: z.string().optional().nullable(),
-});
 
 export const updateSiteSettingsSchema = z.object({
   logoUrl: z.string().optional(),

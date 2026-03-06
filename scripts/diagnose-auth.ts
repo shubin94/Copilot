@@ -11,7 +11,7 @@
  * 4. Request/response flow is working
  */
 
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 const BASE_URL = process.env.BASE_URL || `http://${process.env.HOST || "127.0.0.1"}:${process.env.PORT || 5000}`;
 
 async function checkBackendServer() {

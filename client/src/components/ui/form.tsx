@@ -1,19 +1,42 @@
 import * as React from "react"
 import * as LabelPrimitive from "@radix-ui/react-label"
 import { Slot } from "@radix-ui/react-slot"
+import * as ReactHookForm from "react-hook-form"
 import {
   Controller,
-  FormProvider,
-  useFormContext,
-  type ControllerProps,
-  type FieldPath,
-  type FieldValues,
 } from "react-hook-form"
 
 import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
 
-const Form = FormProvider
+type ControllerFieldProps = React.ComponentProps<typeof Controller>
+type FieldValues = Record<string, unknown>
+type FieldPath<TFieldValues extends FieldValues> = Extract<keyof TFieldValues, string>
+
+type FormContextValue = {
+  getFieldState?: (
+    name: string,
+    formState?: unknown
+  ) => {
+    invalid?: boolean
+    isDirty?: boolean
+    isTouched?: boolean
+    error?: { message?: string }
+  }
+  formState?: unknown
+}
+
+const FormContext = React.createContext<FormContextValue | null>(null)
+
+const HookFormProvider = (ReactHookForm as unknown as {
+  FormProvider: React.ComponentType<React.PropsWithChildren<Record<string, unknown>>>
+}).FormProvider
+
+const Form = ({ children, ...formMethods }: { children: React.ReactNode } & FormContextValue) => (
+  <FormContext.Provider value={formMethods}>
+    <HookFormProvider {...(formMethods as Record<string, unknown>)}>{children}</HookFormProvider>
+  </FormContext.Provider>
+)
 
 type FormFieldContextValue<
   TFieldValues extends FieldValues = FieldValues,
@@ -29,7 +52,7 @@ const FormField = <
   TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
 >({
   ...props
-}: ControllerProps<TFieldValues, TName>) => {
+}: ControllerFieldProps & { name: TName }) => {
   return (
     <FormFieldContext.Provider value={{ name: props.name }}>
       <Controller {...props} />
@@ -40,7 +63,7 @@ const FormField = <
 const useFormField = () => {
   const fieldContext = React.useContext(FormFieldContext)
   const itemContext = React.useContext(FormItemContext)
-  const { getFieldState, formState } = useFormContext()
+  const formContext = React.useContext(FormContext)
 
   if (!fieldContext) {
     throw new Error("useFormField should be used within <FormField>")
@@ -50,7 +73,9 @@ const useFormField = () => {
     throw new Error("useFormField should be used within <FormItem>")
   }
 
-  const fieldState = getFieldState(fieldContext.name, formState)
+  const fieldState = formContext?.getFieldState
+    ? formContext.getFieldState(fieldContext.name, formContext.formState)
+    : undefined
 
   const { id } = itemContext
 
@@ -60,7 +85,10 @@ const useFormField = () => {
     formItemId: `${id}-form-item`,
     formDescriptionId: `${id}-form-item-description`,
     formMessageId: `${id}-form-item-message`,
-    ...fieldState,
+    invalid: !!fieldState?.invalid,
+    isDirty: !!fieldState?.isDirty,
+    isTouched: !!fieldState?.isTouched,
+    error: fieldState?.error,
   }
 }
 
@@ -145,7 +173,7 @@ const FormMessage = React.forwardRef<
   React.HTMLAttributes<HTMLParagraphElement>
 >(({ className, children, ...props }, ref) => {
   const { error, formMessageId } = useFormField()
-  const body = error ? String(error?.message ?? "") : children
+  const body = error && typeof error === 'object' && 'message' in error ? String(error.message ?? "") : children
 
   if (!body) {
     return null

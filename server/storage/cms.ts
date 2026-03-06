@@ -1,6 +1,6 @@
-import { pool } from "../../db/index.ts";
+import { pool } from "../../db/index.js";
 import { v4 as uuidv4 } from "uuid";
-import { ContentBlock, parseContentBlocks } from "../../client/src/shared/content-blocks.ts";
+import { ContentBlock, parseContentBlocks } from "../../shared/content-blocks.js";
 
 // ============== CATEGORIES ==============
 
@@ -625,5 +625,5 @@ export async function updatePage(
 
 export async function deletePage(id: string): Promise<boolean> {
   const result = await pool.query("DELETE FROM pages WHERE id = $1", [id]);
-  return result.rowCount > 0;
+  return (result.rowCount ?? 0) > 0;
 }

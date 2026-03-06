@@ -1,8 +1,15 @@
 import * as React from "react"
-import { OTPInput, OTPInputContext } from "input-otp"
+import { OTPInput } from "input-otp"
 import { Minus } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+
+// Create a stub context since OTPInputContext is not exported by input-otp
+const OTPInputContext = React.createContext<{
+  slots: Array<{ char: string | null; hasFakeCaret: boolean; isActive: boolean }>
+}>({
+  slots: [],
+})
 
 const InputOTP = React.forwardRef<
   React.ElementRef<typeof OTPInput>,

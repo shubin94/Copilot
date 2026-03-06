@@ -2,11 +2,9 @@ import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ServiceCard } from "@/components/home/service-card";
+import { ServiceCardGrid } from "@/components/common/service-card-grid";
 import { useRoute } from "wouter";
 import { useDetectiveBySlug, useServicesByDetective } from "@/lib/hooks";
-import { computeServiceBadges } from "@/lib/service-badges";
 import { NotFoundFallback, SkeletonLoader } from "@/components/fallback-ui";
 import { MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,9 +13,7 @@ import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { 
-  generateCompleteDetectiveSchema,
-  generateBreadcrumbListSchema 
-} from "@/lib/structured-data";
+  generateCompleteDetectiveSchema} from "@/lib/structured-data";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { getCountryName } from "@/lib/slug-utils";
 import { useState, useEffect } from "react";
@@ -33,8 +29,8 @@ export default function DetectivePublicPage() {
   const detective = detectiveData?.detective;
   
   // For querying services, we need the detective ID - will be available once detective loads
-  const { data: servicesData, isLoading: servicesLoading } = useServicesByDetective(detective?.id || null);
-  const services = servicesData?.services || [];
+  const { data: servicesData, isLoading: isLoadingServices } = useServicesByDetective(detective?.id || null);
+  const detectiveServices = servicesData?.services || [];
   const { toast } = useToast();
 
   // Featured Articles State
@@ -76,9 +72,10 @@ export default function DetectivePublicPage() {
 
   // SEO: Generate optimal title and description
   const detectiveName = detective?.businessName || `${(detective as any)?.firstName || ''} ${(detective as any)?.lastName || ''}`.trim() || 'Detective';
-  const location = detective?.city && detective?.country 
-    ? `${detective.city}, ${detective.country}`
-    : detective?.location || detective?.country || '';
+  const countryNameForDisplay = detective?.country ? getCountryName(detective.country) : detective?.country || '';
+  const location = detective?.city && countryNameForDisplay 
+    ? `${detective.city}, ${countryNameForDisplay}`
+    : detective?.location || countryNameForDisplay || '';
   
   const isMissingDetective = !detectiveLoading && !detective;
   const seoTitle = isMissingDetective
@@ -143,7 +140,7 @@ export default function DetectivePublicPage() {
   // Includes LocalBusiness, AggregateRating, BreadcrumbList, and Speakable for AI/voice assistants
   const detectiveSchemas = detective ? generateCompleteDetectiveSchema(
     detective,
-    services,
+    detectiveServices as any[],
     [],
     breadcrumbs,
     canonicalUrl,
@@ -167,9 +164,9 @@ export default function DetectivePublicPage() {
           'private investigator',
           'detective services',
           detective?.city || "",
-          detective?.country || "",
+          countryNameForDisplay || "",
           'detective services',
-          ...(services.map((s: any) => s.category).filter(Boolean).slice(0, 5))
+          ...(detectiveServices.map((s: any) => s.category).filter(Boolean).slice(0, 5))
         ].filter(Boolean)}
       />
       <Navbar />
@@ -194,19 +191,19 @@ export default function DetectivePublicPage() {
               <dt>Business Name</dt>
               <dd>{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</dd>
               <dt>Location</dt>
-              <dd>{detective.city}, {detective.state}, {detective.country}</dd>
+              <dd>{detective.city}, {detective.state}, {countryNameForDisplay}</dd>
               <dt>Verification Status</dt>
               <dd>{detective.isVerified ? 'Verified' : 'Unverified'}</dd>
               <dt>Primary Specialty</dt>
-              <dd>{services.length > 0 ? services[0].category : 'Private Investigation'}</dd>
+              <dd>{detectiveServices.length > 0 ? detectiveServices[0].category : 'Private Investigation'}</dd>
               <dt>Years of Experience</dt>
-              <dd>{detective.yearsOfExperience || 'Not specified'}</dd>
+              <dd>{detective.yearsExperience || 'Not specified'}</dd>
               <dt>License Status</dt>
               <dd>{detective.isVerified ? 'Active' : 'Unverified'}</dd>
               <dt>Services Count</dt>
-              <dd>{services.length}</dd>
+              <dd>{detectiveServices.length}</dd>
               <dt>Average Rating</dt>
-              <dd>{services.length > 0 ? (services.reduce((sum: number, s: any) => sum + (s.avgRating || 0), 0) / services.filter((s: any) => s.avgRating).length).toFixed(1) : 'Not rated'}</dd>
+              <dd>{detectiveServices.length > 0 ? (detectiveServices.reduce((sum: number, s: any) => sum + (s.avgRating || 0), 0) / detectiveServices.filter((s: any) => s.avgRating).length).toFixed(1) : 'Not rated'}</dd>
             </dl>
             
             <Card className="mb-6">
@@ -217,17 +214,25 @@ export default function DetectivePublicPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-lg" data-testid="text-detective-name">{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</span>
                     {(() => {
-                      const badgeState = computeServiceBadges({
-                        isVerified: detective.isVerified,
-                        effectiveBadges: (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
-                      });
+                      const planBadges = detective?.subscriptionPackage?.badges || null;
+                      const badgeState = planBadges
+                        ? {
+                            showBlueTick: !!planBadges.blueTick,
+                            showPro: !!planBadges.pro,
+                            showRecommended: !!planBadges.recommended,
+                            blueTickLabel: planBadges.blueTick ? "Verified" : null,
+                          }
+                        : null;
+
+                      if (!badgeState) return null;
+
                       return (
                         <>
                           {badgeState.showBlueTick && (
-                            <img src="/blue-tick.png" alt={badgeState.blueTickLabel} className="h-5 w-5 flex-shrink-0" title={badgeState.blueTickLabel} data-testid="badge-blue-tick" />
+                            <img src="/blue-tick.png" alt={badgeState.blueTickLabel || "Verified"} className="h-5 w-5 flex-shrink-0" title={badgeState.blueTickLabel || "Verified"} data-testid="badge-blue-tick" />
                           )}
                           {badgeState.showPro && (
-                            <img src="/pro.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" />
+                            <img src="/crown.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" />
                           )}
                           {badgeState.showRecommended && (
                             <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-0.5">Recommended</Badge>
@@ -360,53 +365,11 @@ export default function DetectivePublicPage() {
 
         <section>
           <h2 className="text-xl font-bold mb-3">Services</h2>
-          {servicesLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[...Array(6)].map((_, i) => (<Skeleton key={i} className="h-64 w-full rounded-xl" />))}
-            </div>
-          ) : services.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {services.map((service: any) => {
-                const badgeState = computeServiceBadges({
-                  isVerified: !!detective?.isVerified,
-                  effectiveBadges: (detective as { effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean } })?.effectiveBadges,
-                });
-                
-                return (
-                  <ServiceCard
-                    key={service.id}
-                    id={service.id}
-                    slug={service.slug}
-                    detectiveId={detective?.id!}
-                    detectiveSlug={detective?.slug}
-                    detectiveBusinessName={detective?.businessName}
-                    detectiveCountry={detective?.country?.toUpperCase()}
-                    detectiveState={detective?.state}
-                    detectiveCity={detective?.city}
-                    images={service.images}
-                    avatar={detective?.logo || ""}
-                    name={detective?.businessName || `${(detective as any)?.firstName || ''} ${(detective as any)?.lastName || ''}`}
-                    level={service.detective?.level ? (service.detective.level === "pro" ? "Pro Level" : (service.detective.level as string).replace("level", "Level ")) : "Level 1"}
-                    category={service.category}
-                    badgeState={badgeState}
-                    title={service.title}
-                    rating={service.avgRating}
-                    reviews={service.reviewCount}
-                    price={Number(service.basePrice)}
-                    offerPrice={service.offerPrice ? Number(service.offerPrice) : null}
-                    isOnEnquiry={service.isOnEnquiry}
-                    isUnclaimed={false}
-                    countryCode={detective?.country}
-                    phone={(detective as any)?.phone}
-                    whatsapp={(detective as any)?.whatsapp}
-                    contactEmail={(detective as any)?.contactEmail || (detective as any)?.email}
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-gray-500">No services yet</div>
-          )}
+          <ServiceCardGrid
+            services={detectiveServices}
+            isLoading={isLoadingServices}
+            emptyMessage="No services yet."
+          />
         </section>
 
         {/* Featured In Section */}

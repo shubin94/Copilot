@@ -16,7 +16,7 @@
  * - Admin credentials must NEVER be hardcoded (generated randomly)
  */
 
-import "../server/lib/loadEnv";
+import "../server/lib/loadEnv.js";
 import { users, session, profileClaims } from "../shared/schema.ts"
 import { validateDatabaseForOperation, parseDatabaseUrl } from "../db/validateDatabase.ts"
 import bcrypt from "bcrypt"
