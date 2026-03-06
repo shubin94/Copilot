@@ -108,7 +108,11 @@ export default function PageView() {
   if (!data?.page) return <NotFound />;
 
   const page = data.page;
-  const canonicalUrl = `https://www.askdetectives.com${window.location.pathname}`;
+  
+  // Normalize canonical URL by removing legacy "/pages" prefix
+  const pathname = window.location.pathname;
+  const cleanedPath = pathname.startsWith('/pages/') ? pathname.replace('/pages', '') : pathname;
+  const canonicalUrl = `https://www.askdetectives.com${cleanedPath}`;
   
   const breadcrumbs = page.category
     ? [
