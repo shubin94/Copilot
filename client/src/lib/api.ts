@@ -7,101 +7,37 @@ const IS_PROD = !!VITE_ENV.PROD;
 
 // API Base URL configuration for different environments
 
-// Fallback backend URL for production (used if proxy fails)
-const PRODUCTION_BACKEND_URL = "https://api.askdetectives.com";
-
-// Runtime API URL (can be updated if proxy detection fails)
-let runtimeApiBaseUrl: string | null = null;
-
-// Determine API base URL with robust fallback:
+// Determine API base URL:
 // 1. Environment variable (VITE_API_URL) - highest priority
-// 2. Production: Relative paths for Vercel proxy (preferred)
-// 3. Production fallback: Direct Render URL (if proxy unavailable)
-// 4. Development: localhost backend
+// 2. All environments: Relative paths for same-origin /api
 const determineApiBaseUrl = (): string => {
   // Priority 1: Environment variable (most reliable, set in Vercel dashboard)
   if (VITE_API_URL) {
     console.log('[API Config] ✅ Using VITE_API_URL:', VITE_API_URL);
     return VITE_API_URL;
   }
-  
-  // Priority 2: Production mode - use Vercel proxy (relative paths)
+
+  // Same-origin relative paths keep CSRF and session cookies aligned
   if (IS_PROD) {
-    console.log('[API Config] 🌐 Production mode - using Vercel proxy (relative paths)');
-    console.log('[API Config] 🔄 Fallback available:', PRODUCTION_BACKEND_URL);
-    
-    // Schedule proxy health check (runs after initial render)
-    if (typeof window !== "undefined") {
-      setTimeout(() => checkProxyHealth(), 2000);
-    }
-    
-    return ""; // Empty string = relative paths like /api/user
+    console.log('[API Config] 🌐 Production mode - using same-origin /api');
+  } else {
+    console.log('[API Config] 🛠️ Development mode - using same-origin /api');
   }
-  
-  // Priority 3: Development mode - use Vite proxy (relative paths) for stable cookies
-  console.log('[API Config] 🛠️ Development mode - using Vite proxy (relative /api)');
-  return "";
+  return ""; // Empty string = relative paths like /api/user
 };
-
-// Test if Vercel proxy is working (runs in background)
-async function checkProxyHealth(): Promise<void> {
-  if (!IS_PROD || runtimeApiBaseUrl) return;
-  
-  try {
-    console.log('[API Health] Testing Vercel proxy...');
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout for slow networks
-    
-    const response = await fetch('/api/health', { 
-      method: 'HEAD',
-      signal: controller.signal,
-      cache: 'no-store'
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (response.ok) {
-      console.log('[API Health] ✅ Vercel proxy is working');
-    } else {
-      console.warn('[API Health] ⚠️ Proxy returned non-OK status:', response.status);
-      activateFallbackUrl();
-    }
-  } catch (error) {
-    console.error('[API Health] ❌ Proxy health check failed:', error);
-    console.warn('[API Health] 🔄 Activating fallback to direct Render URL');
-    activateFallbackUrl();
-  }
-}
-
-// Activate fallback to direct Render URL
-function activateFallbackUrl(): void {
-  runtimeApiBaseUrl = PRODUCTION_BACKEND_URL;
-  console.log('[API Config] 🔄 Switched to fallback URL:', PRODUCTION_BACKEND_URL);
-  console.log('[API Config] ℹ️ To use proxy, set VITE_API_URL="" in Vercel env vars');
-}
-
-// Get current API base URL (checks for runtime override)
-export function getApiBaseUrl(): string {
-  return runtimeApiBaseUrl ?? API_BASE_URL;
-}
 
 export const API_BASE_URL = determineApiBaseUrl();
 
 export function buildApiUrl(path: string): string {
   if (path.startsWith("http")) return path;
-  
-  // Use runtime API base URL (allows dynamic switching if proxy fails)
-  const currentBaseUrl = getApiBaseUrl();
-  
-  if (!path.startsWith("/")) return `${currentBaseUrl}/${path}`;
-  return `${currentBaseUrl}${path}`;
+
+  if (!path.startsWith("/")) return `${API_BASE_URL}/${path}`;
+  return `${API_BASE_URL}${path}`;
 }
 
 // Always use same-origin proxy for auth/CSRF to keep cookies first-party.
 function buildProxyUrl(path: string): string {
-  if (path.startsWith("http")) return path;
-  if (!path.startsWith("/")) return `/${path}`;
-  return path;
+  return buildApiUrl(path);
 }
 
 class ApiError extends Error {
@@ -202,7 +138,7 @@ export function clearCsrfToken() {
 
 export async function getOrFetchCsrfToken(): Promise<string> {
   if (csrfToken) return csrfToken;
-  const url = buildProxyUrl("/api/csrf-token");
+  const url = buildApiUrl("/api/csrf-token");
   try {
     const r = await fetch(url, {
       method: "GET",
@@ -239,6 +175,9 @@ async function csrfFetch(url: string, options: RequestInit = {}): Promise<Respon
     headers.set("X-CSRF-Token", token);
   }
   options.headers = headers;
+  if (!options.credentials) {
+    options.credentials = "include";
+  }
 
   try {
     if (opts.forceProxy) {
