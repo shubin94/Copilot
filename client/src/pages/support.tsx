@@ -8,7 +8,7 @@ const FAQS = [
   {
     question: "How do I hire a detective?",
     answer: "Simply browse our search page, filter by your needs, and click 'Contact' or 'Hire' on a detective's profile.",
-    content: <>Simply browse our <Link href="/detectives" className="text-blue-600 hover:underline">available detectives</Link>, filter by your needs (based on <Link href="/services" className="text-blue-600 hover:underline">services offered</Link>), and click 'Contact' or 'Hire' on a detective's profile.</>
+    content: <>Simply browse our <Link href="/detectives/india" className="text-blue-600 hover:underline">available detectives</Link>, filter by your needs (based on <Link href="/detectives/india" className="text-blue-600 hover:underline">services offered</Link>), and click 'Contact' or 'Hire' on a detective's profile.</>
   },
   {
     question: "Is my information kept private?",
@@ -18,7 +18,7 @@ const FAQS = [
   {
     question: "How are detectives verified?",
     answer: "We conduct manual reviews of licenses, insurance, and background checks for all 'Verified' and 'Agency' tier detectives.",
-    content: <>We conduct manual reviews of licenses, insurance, and background checks for all 'Verified' and 'Agency' tier detectives. Explore <Link href="/detectives" className="text-blue-600 hover:underline">verified detectives</Link> on our platform.</>
+    content: <>We conduct manual reviews of licenses, insurance, and background checks for all 'Verified' and 'Agency' tier detectives. Explore <Link href="/detectives/india" className="text-blue-600 hover:underline">verified detectives</Link> on our platform.</>
   },
   {
     question: "What if I'm not satisfied with the service?",

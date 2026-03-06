@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/warmup",
+      "schedule": "*/5 * * * *"
+    }
+  ],
   "buildCommand": "npm run build && npm run build:server",
   "installCommand": "npm ci --production=false",
   "outputDirectory": "dist/public",

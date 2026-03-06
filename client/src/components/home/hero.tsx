@@ -14,6 +14,8 @@ type SmartSearchResult =
   | { kind: "prohibited"; message: string; alternativeCategory?: string }
   | { kind: "category_not_found"; message: string; suggestedCategories?: string[]; locationFilters?: { country?: string; state?: string } }
   | { kind: "need_location"; message: string; category: string }
+  | { kind: "suggestions"; suggestedCategories: Array<{ category: string; confidence: number }>; intent: string; reasoning: string; message: string }
+  | { kind: "multi_match"; categories: Array<{ category: string; confidence: number }>; intent: string; reasoning: string; message: string }
   | { kind: "resolved"; category: string; resolvedLocationScope: string; country: string; state?: string; city?: string; searchUrl: string };
 
 
@@ -50,7 +52,7 @@ export function Hero() {
       // Use publicPost - no CSRF required, works in incognito mode
       const data = await api.publicPost<SmartSearchResult>("/api/smart-search", { query: q });
       const kind = data?.kind;
-      if (kind === "prohibited" || kind === "category_not_found" || kind === "need_location" || kind === "resolved") {
+      if (kind === "prohibited" || kind === "category_not_found" || kind === "need_location" || kind === "suggestions" || kind === "multi_match" || kind === "resolved") {
         setResult(data as SmartSearchResult);
       } else {
         // Safely construct result with proper typing
@@ -324,6 +326,80 @@ export function Hero() {
                 </div>
               )}
 
+              {result.kind === "suggestions" && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-base">{result.message}</p>
+                    <p className="text-sm text-gray-600">
+                      <strong>Your search:</strong> {result.intent}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-gray-700">Select a category:</p>
+                    <div className="grid gap-2">
+                      {result.suggestedCategories.map((suggestion) => (
+                        <button
+                          key={suggestion.category}
+                          onClick={() => setLocation(`/search?category=${encodeURIComponent(suggestion.category)}`)}
+                          className="w-full flex items-center justify-between p-3 rounded-lg border-2 border-gray-200 bg-white hover:border-green-500 hover:bg-green-50 transition-all text-left group"
+                          data-testid={`button-suggestion-${suggestion.category}`}
+                        >
+                          <span className="font-medium text-gray-900 group-hover:text-green-700">{suggestion.category}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 group-hover:bg-green-100 group-hover:text-green-700">
+                              {Math.round(suggestion.confidence)}% match
+                            </span>
+                            <ArrowRight className="h-4 w-4 text-gray-400 group-hover:text-green-600" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="pt-2">
+                    <Button variant="outline" onClick={handleBrowseAll} className="w-full rounded-xl">
+                      Browse all services
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {result.kind === "multi_match" && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-base">{result.message}</p>
+                    <p className="text-sm text-gray-600">
+                      <strong>Your search:</strong> {result.intent}
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {result.categories.map((cat) => (
+                      <button
+                        key={cat.category}
+                        onClick={() => setLocation(`/search?category=${encodeURIComponent(cat.category)}`)}
+                        className="flex flex-col p-4 rounded-lg border-2 border-gray-200 bg-white hover:border-green-500 hover:bg-green-50 transition-all text-left group"
+                        data-testid={`button-multi-category-${cat.category}`}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <span className="font-semibold text-gray-900 group-hover:text-green-700 text-base">{cat.category}</span>
+                          <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 font-medium">
+                            {Math.round(cat.confidence)}%
+                          </span>
+                        </div>
+                        <div className="flex items-center text-sm text-gray-600 group-hover:text-green-600 mt-auto">
+                          <span>View services</span>
+                          <ArrowRight className="h-4 w-4 ml-1" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="pt-2">
+                    <Button variant="outline" onClick={handleBrowseAll} className="w-full rounded-xl">
+                      Browse all services
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {result.kind === "resolved" && (() => {
                 const place = getResolvedPlaceLabel(result);
                 return (
@@ -344,7 +420,7 @@ export function Hero() {
               })()}
 
               {/* Fallback: unknown result kind – show no-results message and browse button */}
-              {result && !["prohibited", "category_not_found", "need_location", "resolved"].includes(result.kind) && (
+              {result && !["prohibited", "category_not_found", "need_location", "suggestions", "multi_match", "resolved"].includes(result.kind) && (
                 <div className="space-y-3">
                   <p className="text-base">
                     We didn't find any relevant categories. You can browse here to find what you need.

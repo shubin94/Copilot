@@ -68,8 +68,8 @@ import adminEmployeesRouter from "./routes/admin/employees.js";
 import publicPagesRouter from "./routes/public-pages.js";
 import publicCategoriesRouter from "./routes/public-categories.js";
 import publicTagsRouter from "./routes/public-tags.js";
+import rssRouter from "./routes/rss.js";
 // import sitemapRouter from "./routes/sitemap.js"; // Unused
-// import rssRouter from "./routes/rss.js"; // Unused
 import llmsTxtRouter from "./routes/llms-txt.js";
 import featuredHomeServicesRouter from "./routes/featured-home-services.js";
 import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
@@ -613,6 +613,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/health", (_req: Request, res: Response) => {
       console.log("[ROUTE EXECUTED] /api/health");
     res.status(200).json({ ok: true });
+  });
+
+  // Vercel cron warmup endpoint to keep SSR runtime warm
+  app.get("/api/warmup", (req: Request, res: Response) => {
+    try {
+      const userAgent = String(req.headers["user-agent"] || "").toLowerCase();
+      if (!userAgent.includes("vercel-cron")) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const timestamp = Date.now();
+      console.log("[Cron Warmup] SSR runtime warmed");
+      console.log(`[Cron Warmup] executed at ${timestamp}`);
+
+      return res.status(200).json({
+        status: "ok",
+        service: "ssr-warmup",
+        timestamp,
+      });
+    } catch (error) {
+      const timestamp = Date.now();
+      console.error("[Cron Warmup] unexpected error:", error);
+      console.log(`[Cron Warmup] executed at ${timestamp}`);
+      return res.status(200).json({
+        status: "ok",
+        service: "ssr-warmup",
+        timestamp,
+      });
+    }
   });
 
   app.post("/api/contact", async (req: Request, res: Response) => {
@@ -2651,18 +2680,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await sendSitemap(res, generateCountriesSitemap, CACHE_MAX_AGE);
   });
 
-  // States sitemap - /sitemap-states.xml
-  app.get(/\/sitemap-states\.xml$/, async (_req: Request, res: Response) => {
-    console.log("[Sitemap] Serving states sitemap");
-    const { generateStatesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
-    await sendSitemap(res, generateStatesSitemap, CACHE_MAX_AGE);
+  // States sitemaps (paginated) - /sitemap-states-1.xml, /sitemap-states-2.xml, etc.
+  app.get(/\/sitemap-states-(\d+)\.xml$/, async (req: Request, res: Response) => {
+    const match = req.path.match(/\/sitemap-states-(\d+)\.xml$/);
+    const page = match ? parseInt(match[1]) : 1;
+
+    console.log(`[Sitemap] Serving states sitemap page ${page}`);
+
+    if (page < 1 || page > 1000) {
+      return res.status(400).json({ error: "Invalid page number" });
+    }
+
+    try {
+      const {
+        getStatesSitemapCount,
+        generateStatesSitemap,
+        CACHE_MAX_AGE,
+      } = await import("./services/sitemapService.js");
+
+      const totalPages = await getStatesSitemapCount();
+      if (page > totalPages) {
+        return res
+          .status(404)
+          .json({ error: `Page ${page} does not exist` });
+      }
+
+      await sendSitemap(res, () => generateStatesSitemap(page), CACHE_MAX_AGE);
+    } catch (error) {
+      console.error("[Sitemap] Error with states page:", error);
+      res.status(500).json({ error: "Failed to generate states sitemap" });
+    }
   });
 
-  // Cities sitemap - /sitemap-cities.xml
-  app.get(/\/sitemap-cities\.xml$/, async (_req: Request, res: Response) => {
-    console.log("[Sitemap] Serving cities sitemap");
-    const { generateCitiesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
-    await sendSitemap(res, generateCitiesSitemap, CACHE_MAX_AGE);
+  // Cities sitemaps (paginated) - /sitemap-cities-1.xml, /sitemap-cities-2.xml, etc.
+  app.get(/\/sitemap-cities-(\d+)\.xml$/, async (req: Request, res: Response) => {
+    const match = req.path.match(/\/sitemap-cities-(\d+)\.xml$/);
+    const page = match ? parseInt(match[1]) : 1;
+
+    console.log(`[Sitemap] Serving cities sitemap page ${page}`);
+
+    if (page < 1 || page > 1000) {
+      return res.status(400).json({ error: "Invalid page number" });
+    }
+
+    try {
+      const {
+        getCitiesSitemapCount,
+        generateCitiesSitemap,
+        CACHE_MAX_AGE,
+      } = await import("./services/sitemapService.js");
+
+      const totalPages = await getCitiesSitemapCount();
+      if (page > totalPages) {
+        return res
+          .status(404)
+          .json({ error: `Page ${page} does not exist` });
+      }
+
+      await sendSitemap(res, () => generateCitiesSitemap(page), CACHE_MAX_AGE);
+    } catch (error) {
+      console.error("[Sitemap] Error with cities page:", error);
+      res.status(500).json({ error: "Failed to generate cities sitemap" });
+    }
   });
 
   // Detectives sitemap - /sitemap-detectives.xml
@@ -2670,6 +2749,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log("[Sitemap] Serving detectives sitemap");
     const { generateDetectivesSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
     await sendSitemap(res, generateDetectivesSitemap, CACHE_MAX_AGE);
+  });
+
+  // News/Articles sitemap - /sitemap-news.xml
+  app.get(/\/sitemap-news\.xml$/, async (_req: Request, res: Response) => {
+    console.log("[Sitemap] Serving news sitemap");
+    const { generateNewsSitemap, CACHE_MAX_AGE } = await import("./services/sitemapService.js");
+    await sendSitemap(res, generateNewsSitemap, CACHE_MAX_AGE);
   });
 
   // Services sitemaps (paginated) - /sitemap-services-1.xml, /sitemap-services-2.xml, etc.
@@ -2745,6 +2831,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Keep the router mounted at /sitemap/ for backward compatibility if needed, but routes are handled above
   // app.use("/sitemap", sitemapRouter);
+
+  // RSS Feed - Blog articles and insights
+  app.use("/rss.xml", rssRouter);
 
   // llms.txt - AI agent discovery guide
   app.use("/llms.txt", llmsTxtRouter);

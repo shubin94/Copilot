@@ -175,17 +175,22 @@ async function generateCountriesSitemap(): Promise<string> {
   return xml;
 }
 
-// ============= STATES =============
-async function generateStatesSitemap(): Promise<string> {
-  const cached = getCachedSitemap("states.xml");
+// ============= STATES (PAGINATED) =============
+async function generateStatesSitemap(page: number = 1): Promise<string> {
+  const cacheFile = `states-${page}.xml`;
+  const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
   const today = new Date().toISOString().split("T")[0];
+  const pageSize = 5000;
+  const offset = (page - 1) * pageSize;
+
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
 
-  const result = await pool.query(`
+  const result = await pool.query(
+    `
     SELECT DISTINCT 
       c.name as country_name,
       c.slug as country_slug,
@@ -198,8 +203,10 @@ async function generateStatesSitemap(): Promise<string> {
     WHERE d.status = 'active'
     GROUP BY c.name, c.slug, s.name, s.slug
     ORDER BY c.name, s.name
-    LIMIT 5000
-  `);
+    LIMIT $1 OFFSET $2
+  `,
+    [pageSize, offset]
+  );
 
   for (const row of result.rows) {
     const lastmod = row.last_mod
@@ -218,21 +225,26 @@ async function generateStatesSitemap(): Promise<string> {
   }
 
   xml += `</urlset>`;
-  cacheSitemap("states.xml", xml);
+  cacheSitemap(cacheFile, xml);
   return xml;
 }
 
-// ============= CITIES =============
-async function generateCitiesSitemap(): Promise<string> {
-  const cached = getCachedSitemap("cities.xml");
+// ============= CITIES (PAGINATED) =============
+async function generateCitiesSitemap(page: number = 1): Promise<string> {
+  const cacheFile = `cities-${page}.xml`;
+  const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
   const today = new Date().toISOString().split("T")[0];
+  const pageSize = 5000;
+  const offset = (page - 1) * pageSize;
+
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
 
-  const result = await pool.query(`
+  const result = await pool.query(
+    `
     SELECT DISTINCT 
       c.name as country_name,
       c.slug as country_slug,
@@ -248,8 +260,10 @@ async function generateCitiesSitemap(): Promise<string> {
     WHERE d.status = 'active'
     GROUP BY c.name, c.slug, s.name, s.slug, ci.name, ci.slug
     ORDER BY c.name, s.name, ci.name
-    LIMIT 5000
-  `);
+    LIMIT $1 OFFSET $2
+  `,
+    [pageSize, offset]
+  );
 
   for (const row of result.rows) {
     const lastmod = row.last_mod
@@ -269,8 +283,30 @@ async function generateCitiesSitemap(): Promise<string> {
   }
 
   xml += `</urlset>`;
-  cacheSitemap("cities.xml", xml);
+  cacheSitemap(cacheFile, xml);
   return xml;
+}
+
+// ============= GET STATES SITEMAP COUNT =============
+async function getStatesSitemapCount(): Promise<number> {
+  const result = await pool.query(`
+    SELECT COUNT(DISTINCT s.id) as count FROM states s
+    INNER JOIN detectives d ON d.state_id = s.id
+    WHERE d.status = 'active'
+  `);
+  const totalStates = result.rows[0].count;
+  return Math.ceil(totalStates / 5000);
+}
+
+// ============= GET CITIES SITEMAP COUNT =============
+async function getCitiesSitemapCount(): Promise<number> {
+  const result = await pool.query(`
+    SELECT COUNT(DISTINCT ci.id) as count FROM cities ci
+    INNER JOIN detectives d ON d.city_id = ci.id
+    WHERE d.status = 'active'
+  `);
+  const totalCities = result.rows[0].count;
+  return Math.ceil(totalCities / 5000);
 }
 
 // ============= DETECTIVES =============
@@ -412,12 +448,58 @@ async function getServiceSitemapCount(): Promise<number> {
   return Math.ceil(totalServices / 5000);
 }
 
+// ============= NEWS/ARTICLES =============
+async function generateNewsSitemap(): Promise<string> {
+  const cached = getCachedSitemap("news.xml");
+  if (cached) return cached;
+
+  const today = new Date().toISOString().split("T")[0];
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+`;
+
+  const result = await pool.query(`
+    SELECT 
+      cs.slug,
+      cs.updated_at,
+      cs.published_at
+    FROM case_studies cs
+    ORDER BY cs.published_at DESC
+  `);
+
+  for (const article of result.rows) {
+    if (!article.slug) {
+      continue;
+    }
+
+    const lastmod = article.updated_at
+      ? new Date(article.updated_at).toISOString().split("T")[0]
+      : today;
+
+    const url = `https://www.askdetectives.com/news/${article.slug}`;
+
+    xml += `  <url>
+    <loc>${url}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+`;
+  }
+
+  xml += `</urlset>`;
+  cacheSitemap("news.xml", xml);
+  return xml;
+}
+
 // ============= SITEMAP INDEX =============
 async function generateSitemapIndex(): Promise<string> {
   const cached = getCachedSitemap("index.xml");
   if (cached) return cached;
 
   const servicePages = await getServiceSitemapCount();
+  const statesPages = await getStatesSitemapCount();
+  const citiesPages = await getCitiesSitemapCount();
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -427,14 +509,27 @@ async function generateSitemapIndex(): Promise<string> {
   <sitemap>
     <loc>https://www.askdetectives.com/sitemap-countries.xml</loc>
   </sitemap>
-  <sitemap>
-    <loc>https://www.askdetectives.com/sitemap-states.xml</loc>
+`;
+
+  for (let i = 1; i <= statesPages; i++) {
+    xml += `  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-states-${i}.xml</loc>
   </sitemap>
-  <sitemap>
-    <loc>https://www.askdetectives.com/sitemap-cities.xml</loc>
+`;
+  }
+
+  for (let i = 1; i <= citiesPages; i++) {
+    xml += `  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-cities-${i}.xml</loc>
   </sitemap>
-  <sitemap>
+`;
+  }
+
+  xml += `  <sitemap>
     <loc>https://www.askdetectives.com/sitemap-detectives.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-news.xml</loc>
   </sitemap>
 `;
 
@@ -457,7 +552,10 @@ export {
   generateCitiesSitemap,
   generateDetectivesSitemap,
   generateServicesSitemap,
+  generateNewsSitemap,
   generateSitemapIndex,
   getServiceSitemapCount,
+  getStatesSitemapCount,
+  getCitiesSitemapCount,
   CACHE_MAX_AGE,
 };

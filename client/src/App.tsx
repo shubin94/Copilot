@@ -23,6 +23,7 @@ const DetectiveProfile = lazy(() => import("@/pages/detective-profile"));
 const DetectivePublicPage = lazy(() => import("@/pages/detective"));
 const CityDetectivesPage = lazy(() => import("@/pages/city-detectives"));
 const ArticlePage = lazy(() => import("@/pages/news"));
+const NewsHub = lazy(() => import("@/pages/news-hub"));
 const ClaimProfile = lazy(() => import("@/pages/claim-profile"));
 const ClaimAccount = lazy(() => import("@/pages/claim-account"));
 const Login = lazy(() => import("@/pages/auth/login"));
@@ -212,6 +213,7 @@ function Router() {
           <Route path="/detectives/:country/:state" component={CityDetectivesPage} />
           <Route path="/detectives/:country" component={CityDetectivesPage} />
           <Route path="/services/background-checks/:country/:state/:city" component={ServiceBackgroundChecksPage} />
+          <Route path="/news" component={NewsHub} />
           <Route path="/news/:slug" component={ArticlePage} />
 
           {/* User Routes - MUST come before catch-all CMS routes */}

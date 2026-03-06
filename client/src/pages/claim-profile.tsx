@@ -12,6 +12,7 @@ import { CheckCircle2, AlertCircle, Loader2, Upload, X } from "lucide-react";
 import { api, getOrFetchCsrfToken } from "@/lib/api";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
+import { SEO } from "@/components/seo";
 
 export default function ClaimProfile() {
   const [, params] = useRoute("/claim-profile/:id");
@@ -103,6 +104,12 @@ export default function ClaimProfile() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col bg-white">
+        <SEO 
+          title="Claim Profile | AskDetectives"
+          description="Claim your detective profile to manage your business listing."
+          robots="noindex,nofollow"
+          canonical="/claim-profile"
+        />
         <Navbar />
         <div className="flex-1 container mx-auto px-6 py-12">
           <div className="max-w-2xl mx-auto space-y-6">
@@ -118,6 +125,12 @@ export default function ClaimProfile() {
   if (!detective) {
     return (
       <div className="min-h-screen flex flex-col bg-white">
+        <SEO 
+          title="Claim Profile | AskDetectives"
+          description="Claim your detective profile to manage your business listing."
+          robots="noindex,nofollow"
+          canonical="/claim-profile"
+        />
         <Navbar />
         <div className="flex-1 flex items-center justify-center">
           <Alert className="max-w-md">
@@ -133,6 +146,12 @@ export default function ClaimProfile() {
   if (!detective.isClaimable || detective.isClaimed) {
     return (
       <div className="min-h-screen flex flex-col bg-white">
+        <SEO 
+          title="Claim Profile | AskDetectives"
+          description="Claim your detective profile to manage your business listing."
+          robots="noindex,nofollow"
+          canonical="/claim-profile"
+        />
         <Navbar />
         <div className="flex-1 flex items-center justify-center">
           <Alert className="max-w-md">
@@ -147,6 +166,12 @@ export default function ClaimProfile() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
+      <SEO 
+        title="Claim Profile | AskDetectives"
+        description="Claim your detective profile to manage your business listing."
+        robots="noindex,nofollow"
+        canonical="/claim-profile"
+      />
       <Navbar />
       
       <main className="flex-1 container mx-auto px-6 py-12">
