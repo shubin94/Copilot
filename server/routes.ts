@@ -2666,34 +2666,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/tags", publicTagsRouter);
 
   // robots.txt - explicit route to prevent SPA HTML fallback on serverless/proxy setups
-  app.get("/robots.txt", async (_req: Request, res: Response) => {
-    try {
-      const [{ readFile }, { resolve }] = await Promise.all([
-        import("node:fs/promises"),
-        import("node:path"),
-      ]);
+  app.get("/robots.txt", (_req: Request, res: Response) => {
+    // Serve robots.txt directly with hardcoded content (reliable in serverless environments)
+    // Content is sourced from client/public/robots.txt
+    const robotsTxt = `Sitemap: https://www.askdetectives.com/sitemap.xml
 
-      const candidates = [
-        resolve(process.cwd(), "dist", "public", "robots.txt"),
-        resolve(process.cwd(), "client", "public", "robots.txt"),
-      ];
+# Primary crawl policy for general search engines (Google, Bing, etc.)
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /user/
+Disallow: /detective/dashboard
+Disallow: /login
+Disallow: /signup
+Disallow: /claim-account
+Disallow: /claim-profile
+Disallow: /application-under-review
 
-      for (const filePath of candidates) {
-        try {
-          const content = await readFile(filePath, "utf-8");
-          res.setHeader("Content-Type", "text/plain; charset=utf-8");
-          res.setHeader("Cache-Control", "public, max-age=3600");
-          return res.status(200).send(content);
-        } catch {
-          continue;
-        }
-      }
+# Crawl-budget controls for low-value faceted URLs
+Disallow: /search?*q=
+Disallow: /search?*minRating=
+Disallow: /search?*minPrice=
+Disallow: /search?*maxPrice=
+Disallow: /search?*sortBy=
+Disallow: /search?*proOnly=1
+Disallow: /search?*agencyOnly=1
+Disallow: /search?*lvl1=1
+Disallow: /search?*lvl2=1
+Disallow: /search?*offset=
 
-      return res.status(404).type("text/plain").send("robots.txt not found");
-    } catch (error) {
-      console.error("[robots] Error serving robots.txt:", error);
-      return res.status(500).type("text/plain").send("Error loading robots.txt");
-    }
+# Tracking parameter cleanup
+Disallow: /*?*utm_
+Disallow: /*?*gclid=
+Disallow: /*?*fbclid=
+Disallow: /*?*msclkid=
+Disallow: /*?*ref=
+
+# Explicit policy for AI crawlers and chatbots
+User-agent: GPTBot
+User-agent: ClaudeBot
+User-agent: PerplexityBot
+User-agent: CCBot
+User-agent: OmniBot
+User-agent: Google-Extended
+Allow: /detectives/
+Allow: /detective/
+Allow: /services/
+Allow: /service/
+Allow: /news/
+Allow: /llms.txt
+Disallow: /admin/
+Disallow: /user/
+Disallow: /detective/dashboard
+Disallow: /login
+Disallow: /signup
+Disallow: /search?*
+
+# AI Usage Signal
+Content-Signal: index=public; train=deny
+`;
+
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.status(200).send(robotsTxt);
   });
 
   // Sitemap Routes - dynamic generation from database with multiple XML files
