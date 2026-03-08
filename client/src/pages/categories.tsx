@@ -7,8 +7,15 @@ import { Layers, AlertCircle } from "lucide-react";
 import { useServiceCategories } from "@/lib/hooks";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
+import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 
 export default function CategoriesPage() {
+  const seo = useCmsStaticPageSeo("categories", {
+    title: "Browse Categories",
+    description: "Explore all detective service categories available on the site.",
+    h1: "Browse Categories",
+  });
+
   const { data, isLoading } = useServiceCategories(true);
   const [search, setSearch] = useState("");
   const categories = data?.categories || [];
@@ -21,12 +28,12 @@ export default function CategoriesPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title="Browse Categories" description="Explore all detective service categories available on the site." />
+      <SEO title={seo.title} description={seo.description} />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-4xl font-bold font-heading">Browse Categories</h1>
+            <h1 className="text-4xl font-bold font-heading">{seo.h1}</h1>
             <p className="text-gray-600 mt-2">All categories sorted alphabetically</p>
           </div>
           <div className="w-64">

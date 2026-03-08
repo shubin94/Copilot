@@ -17,7 +17,7 @@ import { useUser } from "@/lib/user-context";
 import { useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { useState, useEffect } from "react";
-import { useRoute, Link } from "wouter";
+import { useLocation, useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
@@ -25,16 +25,42 @@ import { ServiceFAQ, getServiceFAQs } from "@/components/service-faq";
 import { buildServiceUrl, getCountryName } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
 import { getDetectiveProfileUrl } from "@/lib/utils";
-import { format } from "date-fns";
+
+const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+const reviewDateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 export default function DetectiveProfile() {
+  const [locationPath] = useLocation();
   const [, params] = useRoute("/service/:country/:state/:city/:detectiveSlug/:serviceSlug");
   const serviceSlug = params?.serviceSlug;
   const detectiveSlug = params?.detectiveSlug;
-  
-  const searchParams = new URLSearchParams(window.location.search);
-  const previewParam = searchParams.get("preview");
-  const isPreview = previewParam === "1" || previewParam === "true";
+  const [isPreview, setIsPreview] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const searchParams = new URLSearchParams(window.location.search);
+    const previewParam = searchParams.get("preview");
+    setIsPreview(previewParam === "1" || previewParam === "true");
+  }, []);
+
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      setIsMobileDevice(/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+    }
+  }, []);
+
   const { data: serviceData, isLoading: isLoadingService, error: serviceError } = useServiceBySlug(serviceSlug, detectiveSlug, isPreview);
   const detectiveIdForServices = serviceData?.detective?.id;
   useServicesByDetective(detectiveIdForServices);
@@ -153,7 +179,7 @@ export default function DetectiveProfile() {
           title="Service Not Found | Ask Detectives"
           description="The requested service was not found."
           robots="noindex, follow"
-          canonical={`https://www.askdetectives.com${window.location.pathname}`}
+          canonical={`https://www.askdetectives.com${locationPath}`}
         />
         <Navbar />
         <main className="container mx-auto px-6 md:px-12 lg:px-24 py-8">
@@ -178,7 +204,7 @@ export default function DetectiveProfile() {
           title="Detective Not Available | Ask Detectives"
           description="The requested detective profile is not available."
           robots="noindex, follow"
-          canonical={`https://www.askdetectives.com${window.location.pathname}`}
+          canonical={`https://www.askdetectives.com${locationPath}`}
         />
         <Navbar />
         <main className="flex-grow container mx-auto px-4 py-8">
@@ -217,7 +243,7 @@ export default function DetectiveProfile() {
     blueTickLabel: detective.hasBlueTick ? 'Verified' : 'Unverified'
   };
   
-  const memberSince = format(new Date(detective.memberSince), "MMMM yyyy");
+  const memberSince = monthYearFormatter.format(new Date(detective.memberSince));
   
   const displayCountryName = detective.country ? getCountryName(detective.country) : "India";
 
@@ -287,8 +313,6 @@ export default function DetectiveProfile() {
     },
     (price) => formatPriceFromTo && formatPriceFromTo(price, detective.country, selectedCountryCode) || String(price)
   );
-  const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  
   // Use actual detective logo and service images from database - NO MOCK DATA
   const detectiveLogo = detective.logo;
   const serviceImage = service.images && service.images.length > 0 ? service.images[0] : null;
@@ -803,7 +827,7 @@ export default function DetectiveProfile() {
                           </AvatarFallback>
                         </Avatar>
                         <span className="font-bold text-sm">{reviewUsers[review.userId]?.name || "Anonymous"}</span>
-                        <span className="text-xs text-gray-500 ml-2">{format(new Date((review as any).createdAt), "MMM d, yyyy")}</span>
+                        <span className="text-xs text-gray-500 ml-2">{reviewDateFormatter.format(new Date((review as any).createdAt))}</span>
                          <div className="flex text-yellow-500">
                            {[...Array(5)].map((_, i) => (
                              <Star 

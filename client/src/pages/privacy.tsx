@@ -1,14 +1,21 @@
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { SEO } from "@/components/seo";
+import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 
 export default function PrivacyPage() {
+  const seo = useCmsStaticPageSeo("privacy", {
+    title: "Privacy Policy",
+    description: "Our commitment to protecting your privacy and data.",
+    h1: "Privacy Policy",
+  });
+
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title="Privacy Policy" description="Our commitment to protecting your privacy and data." />
+      <SEO title={seo.title} description={seo.description} />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
-        <h1 className="text-4xl font-bold font-heading mb-6">Privacy Policy</h1>
+        <h1 className="text-4xl font-bold font-heading mb-6">{seo.h1}</h1>
         <div className="prose max-w-none text-gray-600">
           <p className="mb-4 text-sm text-gray-500">Last updated: February 12, 2026</p>
           

@@ -895,6 +895,38 @@ CREATE TABLE IF NOT EXISTS "public"."site_settings" (
 ALTER TABLE "public"."site_settings" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."smart_search_logs" (
+    "id" integer NOT NULL,
+    "query" "text" NOT NULL,
+    "expanded_query" "text",
+    "result_type" "text" NOT NULL,
+    "matched_categories" "text"[],
+    "confidence_scores" "jsonb",
+    "total_results" integer,
+    "execution_time_ms" integer,
+    "created_at" timestamp without time zone DEFAULT "now"()
+);
+
+
+ALTER TABLE "public"."smart_search_logs" OWNER TO "postgres";
+
+
+CREATE SEQUENCE IF NOT EXISTS "public"."smart_search_logs_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE "public"."smart_search_logs_id_seq" OWNER TO "postgres";
+
+
+ALTER SEQUENCE "public"."smart_search_logs_id_seq" OWNED BY "public"."smart_search_logs"."id";
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."states" (
     "id" integer NOT NULL,
     "country_id" integer,
@@ -999,6 +1031,10 @@ ALTER TABLE ONLY "public"."countries" ALTER COLUMN "id" SET DEFAULT "nextval"('"
 
 
 ALTER TABLE ONLY "public"."payment_gateways" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."payment_gateways_id_seq"'::"regclass");
+
+
+
+ALTER TABLE ONLY "public"."smart_search_logs" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."smart_search_logs_id_seq"'::"regclass");
 
 
 
@@ -1246,6 +1282,11 @@ ALTER TABLE ONLY "public"."site_settings"
 
 
 
+ALTER TABLE ONLY "public"."smart_search_logs"
+    ADD CONSTRAINT "smart_search_logs_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."states"
     ADD CONSTRAINT "states_country_id_slug_key" UNIQUE ("country_id", "slug");
 
@@ -1436,7 +1477,19 @@ CREATE INDEX "idx_categories_status" ON "public"."categories" USING "btree" ("st
 
 
 
+CREATE INDEX "idx_cities_slug_state" ON "public"."cities" USING "btree" ("slug", "state_id");
+
+
+
 CREATE INDEX "idx_cities_state_id" ON "public"."cities" USING "btree" ("state_id");
+
+
+
+CREATE INDEX "idx_countries_code" ON "public"."countries" USING "btree" ("code");
+
+
+
+CREATE INDEX "idx_countries_slug" ON "public"."countries" USING "btree" ("slug");
 
 
 
@@ -1476,6 +1529,18 @@ CREATE INDEX "idx_detectives_has_blue_tick" ON "public"."detectives" USING "btre
 
 
 
+CREATE INDEX "idx_detectives_location" ON "public"."detectives" USING "btree" ("status", "country", "state", "city", "last_active" DESC);
+
+
+
+CREATE INDEX "idx_detectives_location_lastactive" ON "public"."detectives" USING "btree" ("country", "state", "city", "last_active" DESC) WHERE ("status" = 'active'::"public"."detective_status");
+
+
+
+CREATE INDEX "idx_detectives_location_status" ON "public"."detectives" USING "btree" ("country", "state", "city", "status") WHERE ("status" = 'active'::"public"."detective_status");
+
+
+
 CREATE INDEX "idx_detectives_slug" ON "public"."detectives" USING "btree" ("slug");
 
 
@@ -1501,6 +1566,10 @@ CREATE INDEX "idx_homepage_country" ON "public"."homepage_featured_services" USI
 
 
 CREATE UNIQUE INDEX "idx_homepage_country_position" ON "public"."homepage_featured_services" USING "btree" ("country", "position");
+
+
+
+CREATE INDEX "idx_location_seo_overrides_lookup" ON "public"."location_seo_overrides" USING "btree" ("entity_type", "entity_id");
 
 
 
@@ -1568,7 +1637,23 @@ CREATE INDEX "idx_services_order_count_active" ON "public"."services" USING "btr
 
 
 
+CREATE INDEX "idx_smart_search_logs_created_at" ON "public"."smart_search_logs" USING "btree" ("created_at");
+
+
+
+CREATE INDEX "idx_smart_search_logs_query" ON "public"."smart_search_logs" USING "btree" ("query");
+
+
+
+CREATE INDEX "idx_smart_search_logs_result_type" ON "public"."smart_search_logs" USING "btree" ("result_type");
+
+
+
 CREATE INDEX "idx_states_country_id" ON "public"."states" USING "btree" ("country_id");
+
+
+
+CREATE INDEX "idx_states_slug_country" ON "public"."states" USING "btree" ("slug", "country_id");
 
 
 
@@ -2454,6 +2539,18 @@ GRANT ALL ON TABLE "public"."site_settings" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."smart_search_logs" TO "anon";
+GRANT ALL ON TABLE "public"."smart_search_logs" TO "authenticated";
+GRANT ALL ON TABLE "public"."smart_search_logs" TO "service_role";
+
+
+
+GRANT ALL ON SEQUENCE "public"."smart_search_logs_id_seq" TO "anon";
+GRANT ALL ON SEQUENCE "public"."smart_search_logs_id_seq" TO "authenticated";
+GRANT ALL ON SEQUENCE "public"."smart_search_logs_id_seq" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."states" TO "anon";
 GRANT ALL ON TABLE "public"."states" TO "authenticated";
 GRANT ALL ON TABLE "public"."states" TO "service_role";
@@ -2581,75 +2678,12 @@ using ((bucket_id = 'detective-profiles'::text));
 
 
 
-  create policy "DP beinbk_1"
-  on "storage"."objects"
-  as permissive
-  for delete
-  to public
-using ((bucket_id = 'detective-profiles'::text));
-
-
-
-  create policy "DP beinbk_2"
-  on "storage"."objects"
-  as permissive
-  for update
-  to public
-using ((bucket_id = 'detective-profiles'::text));
-
-
-
-  create policy "DP beinbk_3"
-  on "storage"."objects"
-  as permissive
-  for insert
-  to public
-with check ((bucket_id = 'detective-profiles'::text));
-
-
-
   create policy "New policy flrqo9_0"
   on "storage"."objects"
   as permissive
   for select
   to public
 using ((bucket_id = 'site-assets'::text));
-
-
-
-  create policy "New policy flrqo9_1"
-  on "storage"."objects"
-  as permissive
-  for insert
-  to public
-with check ((bucket_id = 'site-assets'::text));
-
-
-
-  create policy "New policy flrqo9_2"
-  on "storage"."objects"
-  as permissive
-  for update
-  to public
-using ((bucket_id = 'site-assets'::text));
-
-
-
-  create policy "New policy flrqo9_3"
-  on "storage"."objects"
-  as permissive
-  for delete
-  to public
-using ((bucket_id = 'site-assets'::text));
-
-
-
-  create policy "SE beinbk_0"
-  on "storage"."objects"
-  as permissive
-  for insert
-  to public
-with check ((bucket_id = 'service-images'::text));
 
 
 
@@ -2662,30 +2696,63 @@ using ((bucket_id = 'service-images'::text));
 
 
 
-  create policy "SE beinbk_2"
+  create policy "detective_assets_delete_auth"
   on "storage"."objects"
   as permissive
   for delete
-  to public
-using ((bucket_id = 'service-images'::text));
+  to authenticated
+using (((bucket_id = 'detective-assets'::text) AND ((storage.foldername(name))[1] = 'detectives'::text) AND ((storage.foldername(name))[2] = (auth.uid())::text)));
 
 
 
-  create policy "SE beinbk_3"
-  on "storage"."objects"
-  as permissive
-  for update
-  to public
-using ((bucket_id = 'service-images'::text));
-
-
-
-  create policy "auth_upload"
+  create policy "detective_assets_insert_auth"
   on "storage"."objects"
   as permissive
   for insert
-  to public
-with check (((bucket_id = ANY (ARRAY['site-assets'::text, 'detective-profiles'::text, 'service-images'::text, 'page-assets'::text])) AND (auth.role() = 'authenticated'::text)));
+  to authenticated
+with check (((bucket_id = 'detective-assets'::text) AND ((storage.foldername(name))[1] = 'detectives'::text) AND ((storage.foldername(name))[2] = (auth.uid())::text)));
+
+
+
+  create policy "detective_assets_update_auth"
+  on "storage"."objects"
+  as permissive
+  for update
+  to authenticated
+using (((bucket_id = 'detective-assets'::text) AND ((storage.foldername(name))[1] = 'detectives'::text) AND ((storage.foldername(name))[2] = (auth.uid())::text)));
+
+
+
+  create policy "page_assets_delete_auth"
+  on "storage"."objects"
+  as permissive
+  for delete
+  to authenticated
+using (((bucket_id = 'page-assets'::text) AND (EXISTS ( SELECT 1
+   FROM public.users
+  WHERE (((users.id)::text = (auth.uid())::text) AND (users.role = ANY (ARRAY['admin'::public.user_role, 'employee'::public.user_role])))))));
+
+
+
+  create policy "page_assets_insert_auth"
+  on "storage"."objects"
+  as permissive
+  for insert
+  to authenticated
+with check (((bucket_id = 'page-assets'::text) AND (EXISTS ( SELECT 1
+   FROM public.users
+  WHERE (((users.id)::text = (auth.uid())::text) AND (users.role = ANY (ARRAY['admin'::public.user_role, 'employee'::public.user_role])))))));
+
+
+
+  create policy "page_assets_update_auth"
+  on "storage"."objects"
+  as permissive
+  for update
+  to authenticated
+using (((bucket_id = 'page-assets'::text) AND (EXISTS ( SELECT 1
+   FROM public.users
+  WHERE (((users.id)::text = (auth.uid())::text) AND (users.role = ANY (ARRAY['admin'::public.user_role, 'employee'::public.user_role])))))));
 
 
 
@@ -2695,6 +2762,66 @@ with check (((bucket_id = ANY (ARRAY['site-assets'::text, 'detective-profiles'::
   for select
   to public
 using ((bucket_id = ANY (ARRAY['site-assets'::text, 'detective-profiles'::text, 'service-images'::text, 'page-assets'::text])));
+
+
+
+  create policy "service_images_delete_auth"
+  on "storage"."objects"
+  as permissive
+  for delete
+  to authenticated
+using (((bucket_id = 'service-images'::text) AND ((((storage.foldername(name))[1] = 'detectives'::text) AND ((storage.foldername(name))[2] = (auth.uid())::text)) OR (array_length(storage.foldername(name), 1) < 2))));
+
+
+
+  create policy "service_images_insert_auth"
+  on "storage"."objects"
+  as permissive
+  for insert
+  to authenticated
+with check (((bucket_id = 'service-images'::text) AND ((((storage.foldername(name))[1] = 'detectives'::text) AND ((storage.foldername(name))[2] = (auth.uid())::text)) OR (array_length(storage.foldername(name), 1) < 2))));
+
+
+
+  create policy "service_images_update_auth"
+  on "storage"."objects"
+  as permissive
+  for update
+  to authenticated
+using (((bucket_id = 'service-images'::text) AND ((((storage.foldername(name))[1] = 'detectives'::text) AND ((storage.foldername(name))[2] = (auth.uid())::text)) OR (array_length(storage.foldername(name), 1) < 2))));
+
+
+
+  create policy "site_assets_delete_auth"
+  on "storage"."objects"
+  as permissive
+  for delete
+  to authenticated
+using (((bucket_id = 'site-assets'::text) AND (EXISTS ( SELECT 1
+   FROM public.users
+  WHERE (((users.id)::text = (auth.uid())::text) AND (users.role = ANY (ARRAY['admin'::public.user_role, 'employee'::public.user_role])))))));
+
+
+
+  create policy "site_assets_insert_auth"
+  on "storage"."objects"
+  as permissive
+  for insert
+  to authenticated
+with check (((bucket_id = 'site-assets'::text) AND (EXISTS ( SELECT 1
+   FROM public.users
+  WHERE (((users.id)::text = (auth.uid())::text) AND (users.role = ANY (ARRAY['admin'::public.user_role, 'employee'::public.user_role])))))));
+
+
+
+  create policy "site_assets_update_auth"
+  on "storage"."objects"
+  as permissive
+  for update
+  to authenticated
+using (((bucket_id = 'site-assets'::text) AND (EXISTS ( SELECT 1
+   FROM public.users
+  WHERE (((users.id)::text = (auth.uid())::text) AND (users.role = ANY (ARRAY['admin'::public.user_role, 'employee'::public.user_role])))))));
 
 
 CREATE TRIGGER protect_buckets_delete BEFORE DELETE ON storage.buckets FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete();

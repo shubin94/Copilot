@@ -283,6 +283,7 @@ export async function updateTag(id: string, name?: string, slug?: string, status
 export interface Page {
   id: string;
   title: string;
+  titleTag?: string;
   slug: string;
   categoryId: string;
   content: string; // JSON string OR plain text (backward compatible)
@@ -305,6 +306,7 @@ export interface Page {
   status: "published" | "draft" | "archived";
   metaTitle?: string;
   metaDescription?: string;
+  h1?: string;
   createdAt: string;
   updatedAt: string;
   tags?: Tag[];
@@ -332,6 +334,7 @@ export async function getPages(status?: string): Promise<Page[]> {
     return {
       id: row.id,
       title: row.title,
+      titleTag: row.meta_title,
       slug: row.slug,
       categoryId: row.category_id,
       content: row.content,
@@ -340,6 +343,7 @@ export async function getPages(status?: string): Promise<Page[]> {
       status: row.status,
       metaTitle: row.meta_title,
       metaDescription: row.meta_description,
+      h1: row.h1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       tags: row.tags?.filter((t: any) => t.id) || [],
@@ -372,6 +376,7 @@ export async function getPageById(id: string): Promise<Page | null> {
   return {
     id: row.id,
     title: row.title,
+    titleTag: row.meta_title,
     slug: row.slug,
     categoryId: row.category_id,
     content: row.content,
@@ -383,6 +388,7 @@ export async function getPageById(id: string): Promise<Page | null> {
     status: row.status,
     metaTitle: row.meta_title,
     metaDescription: row.meta_description,
+    h1: row.h1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     tags: row.tags?.filter((t: any) => t.id) || [],
@@ -506,6 +512,7 @@ export async function createPage(
     return {
       id: pageRow.id,
       title: pageRow.title,
+      titleTag: pageRow.meta_title,
       slug: pageRow.slug,
       categoryId: pageRow.category_id,
       content: pageRow.content,
@@ -513,6 +520,7 @@ export async function createPage(
       status: pageRow.status,
       metaTitle: pageRow.meta_title,
       metaDescription: pageRow.meta_description,
+      h1: pageRow.h1,
       author: pageRow.author_name ? {
         name: pageRow.author_name,
         email: pageRow.author_email || undefined
@@ -549,8 +557,9 @@ export async function updatePage(
   content?: string,
   bannerImage?: string,
   tagIds?: string[],
-  metaTitle?: string,
-  metaDescription?: string
+  metaTitle?: string | null,
+  metaDescription?: string | null,
+  h1?: string | null
 ): Promise<Page | null> {
   const updates: string[] = [];
   const params: any[] = [];
@@ -588,6 +597,10 @@ export async function updatePage(
     updates.push(`meta_description = $${paramIndex++}`);
     params.push(metaDescription);
   }
+  if (h1 !== undefined) {
+    updates.push(`h1 = $${paramIndex++}`);
+    params.push(h1);
+  }
 
   const client = await pool.connect();
   try {
@@ -617,6 +630,25 @@ export async function updatePage(
     } catch (rollbackError) {
       console.error("[cms] Rollback error in updatePage:", rollbackError);
     }
+
+    const pgError = error as { code?: string; message?: string };
+    const includesH1Update = updates.some((update) => update.startsWith("h1 ="));
+    if (pgError?.code === "42703" && includesH1Update) {
+      return updatePage(
+        id,
+        title,
+        slug,
+        categoryId,
+        status,
+        content,
+        bannerImage,
+        tagIds,
+        metaTitle,
+        metaDescription,
+        undefined
+      );
+    }
+
     throw error;
   } finally {
     client.release();

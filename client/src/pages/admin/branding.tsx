@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useSiteSettings, useUpdateSiteSettings } from "@/lib/hooks";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function AdminBranding() {
@@ -18,14 +18,13 @@ export default function AdminBranding() {
     return JSON.stringify(arr, null, 2);
   });
 
-  if (typeof window !== "undefined") {
-    // keep preview in sync when settings load
+  useEffect(() => {
     const s = data?.settings;
     if (s && logoUrl === null) {
       setLogoUrl(s.logoUrl ?? null);
       setFooterJson(JSON.stringify((s.footerLinks || []) as any[], null, 2));
     }
-  }
+  }, [data?.settings, logoUrl]);
 
   const handleUploadLogo = async (file: File) => {
     const reader = new FileReader();

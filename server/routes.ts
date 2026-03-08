@@ -69,7 +69,7 @@ import publicPagesRouter from "./routes/public-pages.js";
 import publicCategoriesRouter from "./routes/public-categories.js";
 import publicTagsRouter from "./routes/public-tags.js";
 import rssRouter from "./routes/rss.js";
-// import sitemapRouter from "./routes/sitemap.js"; // Unused
+import sitemapRouter from "./routes/sitemap.js";
 import llmsTxtRouter from "./routes/llms-txt.js";
 import featuredHomeServicesRouter from "./routes/featured-home-services.js";
 import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
@@ -6974,18 +6974,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[API] masking contacts...", { detectivesToMask: paginatedDetectives.length });
 
-      // ✅ MASK SENSITIVE FIELDS
-      const maskedDetectives = paginatedDetectives.map((d: any) => ({
-        ...d,
-        phone: undefined,
-        whatsapp: undefined,
-        contactEmail: undefined,
-        userId: undefined,
-        businessDocuments: undefined,
-        identityDocuments: undefined,
-        slug: d.slug || "pending-generation",
-        requireLocationUpdate: false,
-      }));
+      // ✅ MASK SENSITIVE FIELDS (package-aware contact visibility)
+      const maskedDetectives = await Promise.all(
+        paginatedDetectives.map(async (d: any) => {
+          const masked = await maskDetectiveContactsPublic(d);
+          return {
+            ...masked,
+            userId: undefined,
+            businessDocuments: undefined,
+            identityDocuments: undefined,
+            slug: d.slug || "pending-generation",
+            requireLocationUpdate: false,
+          };
+        })
+      );
 
       console.log("[API] masking finished", { maskedCount: maskedDetectives.length });
 
@@ -7108,19 +7110,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[API] masking contacts...", { detectivesToMask: paginatedDetectives.length });
 
-      // ✅ MASK SENSITIVE FIELDS
-      // Keep this endpoint lightweight: avoid per-item async plan lookups.
-      const maskedDetectives = paginatedDetectives.map((d: any) => ({
-        ...d,
-        phone: undefined,
-        whatsapp: undefined,
-        contactEmail: undefined,
-        userId: undefined,
-        businessDocuments: undefined,
-        identityDocuments: undefined,
-        slug: d.slug || "pending-generation",
-        requireLocationUpdate: false,
-      }));
+      // ✅ MASK SENSITIVE FIELDS (package-aware contact visibility)
+      const maskedDetectives = await Promise.all(
+        paginatedDetectives.map(async (d: any) => {
+          const masked = await maskDetectiveContactsPublic(d);
+          return {
+            ...masked,
+            userId: undefined,
+            businessDocuments: undefined,
+            identityDocuments: undefined,
+            slug: d.slug || "pending-generation",
+            requireLocationUpdate: false,
+          };
+        })
+      );
 
       console.log("[API] masking finished", { maskedCount: maskedDetectives.length });
 

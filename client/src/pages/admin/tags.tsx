@@ -16,6 +16,13 @@ interface Tag {
   updatedAt: string;
 }
 
+const adminDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
+
 export default function TagsAdmin() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
@@ -234,7 +241,7 @@ export default function TagsAdmin() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">
-                    {new Date(tag.createdAt).toLocaleDateString()}
+                    {adminDateFormatter.format(new Date(tag.createdAt))}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex gap-2">

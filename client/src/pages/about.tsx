@@ -1,14 +1,21 @@
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { SEO } from "@/components/seo";
+import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 
 export default function AboutPage() {
+  const seo = useCmsStaticPageSeo("about", {
+    title: "About AskDetectives",
+    description: "Learn more about AskDetectives, the dedicated platform for discovering and connecting with professional private investigators.",
+    h1: "About AskDetectives",
+  });
+
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title="About AskDetectives" description="Learn more about AskDetectives, the dedicated platform for discovering and connecting with professional private investigators." />
+      <SEO title={seo.title} description={seo.description} />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
-        <h1 className="text-4xl font-bold font-heading mb-6">About AskDetectives</h1>
+        <h1 className="text-4xl font-bold font-heading mb-6">{seo.h1}</h1>
         <div className="prose max-w-none text-gray-600">
           <p className="mb-4 text-lg">
             AskDetectives was created to bring structure, transparency, and trust to the private investigation industry. Finding a reliable private investigator can often feel uncertain, unverified, and confusing. AskDetectives simplifies this process by providing a dedicated platform where individuals and businesses can discover, evaluate, and connect with professional detectives across different locations.

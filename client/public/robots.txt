@@ -1,4 +1,6 @@
-# Primary crawl policy
+Sitemap: https://www.askdetectives.com/sitemap.xml
+
+# Primary crawl policy for general search engines (Google, Bing, etc.)
 User-agent: *
 Allow: /
 Disallow: /admin/
@@ -29,9 +31,7 @@ Disallow: /*?*fbclid=
 Disallow: /*?*msclkid=
 Disallow: /*?*ref=
 
-Sitemap: https://www.askdetectives.com/sitemap.xml
-
-# Explicit allow-list for AI crawlers and chatbots
+# Explicit policy for AI crawlers and chatbots
 User-agent: GPTBot
 User-agent: ClaudeBot
 User-agent: PerplexityBot
@@ -49,9 +49,7 @@ Disallow: /user/
 Disallow: /detective/dashboard
 Disallow: /login
 Disallow: /signup
-Disallow: /search?*q=
-Disallow: /search?*minRating=
-Disallow: /search?*minPrice=
-Disallow: /search?*maxPrice=
-Disallow: /search?*sortBy=
-Disallow: /search?*offset=
+Disallow: /search?*
+
+# AI Usage Signal
+Content-Signal: index=public; train=deny

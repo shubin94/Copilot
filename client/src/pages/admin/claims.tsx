@@ -8,7 +8,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle, XCircle, Inbox } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useClaims, useUpdateClaimStatus, useDetective } from "@/lib/hooks";
-import { format } from "date-fns";
+
+const claimDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
 
 function ClaimItem({ claim }: { claim: any }) {
   const { data: detectiveData } = useDetective(claim.detectiveId);
@@ -87,7 +93,7 @@ function ClaimItem({ claim }: { claim: any }) {
             <div className="text-xs text-gray-500">{claim.claimantPhone}</div>
           )}
           <div className="text-xs text-gray-500 mt-1">
-            Submitted {format(new Date(claim.createdAt), "MMM dd, yyyy")}
+            Submitted {claimDateFormatter.format(new Date(claim.createdAt))}
           </div>
           {showDetails && (
             <div className="mt-3 space-y-2">

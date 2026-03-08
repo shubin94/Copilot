@@ -37,7 +37,7 @@ function renderHeadingBlock(block: HeadingBlock): React.ReactNode {
   };
 
   return (
-    <Tag className={headingClasses[block.level]} key={Math.random()}>
+    <Tag className={headingClasses[block.level]}>
       {block.text}
     </Tag>
   );
@@ -48,13 +48,13 @@ function renderParagraphBlock(block: ParagraphBlock): React.ReactNode {
   const snippetId = parseDetectiveSnippetId(trimmed);
   if (snippetId && isSnippetOnly(trimmed)) {
     return (
-      <div className="my-8" key={Math.random()}>
+      <div className="my-8">
         <DetectiveSnippetGrid snippetId={snippetId} />
       </div>
     );
   }
   return (
-    <p className="text-gray-800 text-lg leading-relaxed mb-6 whitespace-pre-wrap" key={Math.random()}>
+    <p className="text-gray-800 text-lg leading-relaxed mb-6 whitespace-pre-wrap">
       {block.text}
     </p>
   );
@@ -62,7 +62,7 @@ function renderParagraphBlock(block: ParagraphBlock): React.ReactNode {
 
 function renderImageBlock(block: ImageBlock): React.ReactNode {
   return (
-    <figure className="my-8" key={Math.random()}>
+    <figure className="my-8">
       <img
         src={block.url}
         alt={block.alt || ""}
@@ -83,14 +83,14 @@ function renderVideoBlock(block: VideoBlock): React.ReactNode {
 
   if (!embedUrl) {
     return (
-      <div className="bg-gray-100 border border-gray-300 rounded p-4 my-6 text-center" key={Math.random()}>
+      <div className="bg-gray-100 border border-gray-300 rounded p-4 my-6 text-center">
         <p className="text-gray-600 text-sm">Invalid video URL</p>
       </div>
     );
   }
 
   return (
-    <div className="my-8" key={Math.random()}>
+    <div className="my-8">
       <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ paddingBottom: "56.25%" }}>
         <iframe
           src={embedUrl}
@@ -132,13 +132,13 @@ function renderShortcodeBlock(block: ShortcodeBlock): React.ReactNode {
   const snippetId = parseDetectiveSnippetId(block.value);
   if (snippetId) {
     return (
-      <div className="my-8" key={Math.random()}>
+      <div className="my-8">
         <DetectiveSnippetGrid snippetId={snippetId} />
       </div>
     );
   }
   return (
-    <div className="bg-amber-50 border border-amber-300 rounded p-4 my-6" key={Math.random()}>
+    <div className="bg-amber-50 border border-amber-300 rounded p-4 my-6">
       <p className="text-sm text-amber-800 font-mono">{block.value}</p>
       <p className="text-xs text-amber-600 mt-2">
         ℹ️ Shortcode not recognized. Use [detective_snippet id=&quot;your-snippet-id&quot;] for detective grids.

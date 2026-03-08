@@ -3,7 +3,7 @@ import { Footer } from "@/components/layout/footer";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ServiceCardGrid } from "@/components/common/service-card-grid";
-import { useRoute } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { useDetectiveBySlug, useServicesByDetective } from "@/lib/hooks";
 import { NotFoundFallback, SkeletonLoader } from "@/components/fallback-ui";
 import { MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
@@ -18,7 +18,21 @@ import { getDetectiveProfileUrl } from "@/lib/utils";
 import { getCountryName } from "@/lib/slug-utils";
 import { useState, useEffect } from "react";
 
+const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 export default function DetectivePublicPage() {
+  const [locationPath] = useLocation();
   const [, params] = useRoute("/detectives/:country/:state/:city/:slug");
   const country = params?.country || null;
   const state = params?.state || null;
@@ -36,6 +50,7 @@ export default function DetectivePublicPage() {
   // Featured Articles State
   const [featuredArticles, setFeaturedArticles] = useState<any[]>([]);
   const [articlesLoading, setArticlesLoading] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
 
   // Fetch featured articles for this detective
   useEffect(() => {
@@ -59,7 +74,11 @@ export default function DetectivePublicPage() {
     fetchFeaturedArticles();
   }, [detective?.id]);
 
-  const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      setIsMobileDevice(/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+    }
+  }, []);
 
   // Helper function to generate URL slugs from location names
   const createSlug = (text: string): string => {
@@ -104,7 +123,7 @@ export default function DetectivePublicPage() {
   const citySlug = detective?.city ? createSlug(detective.city) : "";
   const canonicalUrl = detective 
     ? `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`
-    : `https://www.askdetectives.com${window.location.pathname}`;
+    : `https://www.askdetectives.com${locationPath}`;
   
   const breadcrumbs = [
     { name: "Home", url: "/" },
@@ -339,10 +358,7 @@ export default function DetectivePublicPage() {
                 <div className="mt-6 pt-6 border-t border-gray-200">
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Member Since</h3>
                   <p className="text-gray-700 text-sm">
-                    {new Date(detective.memberSince || detective.createdAt).toLocaleDateString('en-US', {
-                      month: 'long',
-                      year: 'numeric'
-                    })}
+                    {monthYearFormatter.format(new Date(detective.memberSince || detective.createdAt))}
                   </p>
                 </div>
               )}
@@ -409,11 +425,7 @@ export default function DetectivePublicPage() {
                         </span>
                         {article.publishedAt && (
                           <span>
-                            {new Date(article.publishedAt).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric'
-                            })}
+                              {shortDateFormatter.format(new Date(article.publishedAt))}
                           </span>
                         )}
                       </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Edit2, AlertCircle, Loader2 } from "lucide-react";
+import { Edit2, AlertCircle, Loader2, ExternalLink } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/user-context";
@@ -277,13 +277,24 @@ export default function AdminLocationSeoStates() {
                         : "-"}
                     </td>
                     <td className="px-6 py-4">
-                      <button
-                        onClick={() => handleEditState(state)}
-                        className="p-2 hover:bg-blue-100 text-blue-600 rounded"
-                        title="Edit"
-                      >
-                        <Edit2 size={18} />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleEditState(state)}
+                          className="p-2 hover:bg-blue-100 text-blue-600 rounded"
+                          title="Edit"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <a
+                          href={`/detectives/${state.country_slug}/${state.state_slug}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 hover:bg-green-100 text-green-600 rounded"
+                          title="Open state page"
+                        >
+                          <ExternalLink size={18} />
+                        </a>
+                      </div>
                     </td>
                   </tr>
                 ))}

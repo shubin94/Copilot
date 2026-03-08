@@ -25,7 +25,18 @@ import {
   injectDetectiveLocationAuthorityLink,
   resolveLocationIds,
 } from "./lib/seo-injection.js";
+import { getPublishedCmsPageSeo, injectCmsPageSeoTags } from "./lib/cms-page-seo.js";
 import { storage } from "./storage.js";
+
+const STATIC_CMS_SEO_SLUGS = new Set([
+  "about",
+  "contact",
+  "support",
+  "privacy",
+  "terms",
+  "packages",
+  "categories",
+]);
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 
@@ -475,6 +486,41 @@ export async function serveStatic(app: Express, _server: Server) {
     }
   });
 
+  // STATIC CMS PAGE SEO INJECTION (Production)
+  // Intercepts specific static routes and injects title/description in server HTML source.
+  app.get(/^\/(about|contact|support|privacy|terms|packages|categories)\/?$/, async (req: Request, res: Response) => {
+    try {
+      const slug = req.path.replace(/^\/+|\/+$/g, "");
+      if (!STATIC_CMS_SEO_SLUGS.has(slug)) {
+        return res.status(404).type("text/plain").send("Not Found");
+      }
+
+      if (!cachedIndexHtml) {
+        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
+      }
+
+      const seo = await getPublishedCmsPageSeo(slug);
+      let html = cachedIndexHtml;
+
+      if (seo) {
+        const canonicalPath = req.path.replace(/\/$/, "") || `/${slug}`;
+        const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+        html = injectCmsPageSeoTags(cachedIndexHtml, seo, canonicalUrl);
+      }
+
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(html);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[SEO] Static CMS page SEO injection failed:", {
+        url: req.originalUrl,
+        message: errorMsg,
+      });
+      return res.status(500).type("text/plain").send("Error loading page");
+    }
+  });
+
   // Homepage route - serves client index.html
   app.get("/", async (_req: Request, res: Response) => {
     try {
@@ -483,9 +529,15 @@ export async function serveStatic(app: Express, _server: Server) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
       }
 
+      let html = cachedIndexHtml;
+      const seo = await getPublishedCmsPageSeo("/");
+      if (seo) {
+        html = injectCmsPageSeoTags(cachedIndexHtml, seo, "https://www.askdetectives.com/");
+      }
+
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.send(cachedIndexHtml);
+      res.send(html);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error("[Homepage] Error:", {

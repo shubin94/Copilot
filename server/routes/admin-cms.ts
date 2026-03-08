@@ -392,12 +392,12 @@ router.delete("/tags/:id", requireRole("admin", "employee"), async (req: Request
 // GET /api/admin/pages
 router.get("/pages", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
-    const status = req.query.status as string | undefined;
-    // By default, exclude archived items. Only show archived if explicitly requested.
-    const pages = await getPages(status === "archived" ? "archived" : undefined);
-    const filtered = status === "archived" 
-      ? pages.filter(p => p.status === "archived")
-      : pages.filter(p => p.status !== "archived");
+    const statusParam = req.query.status as string | undefined;
+    const allowedStatuses = new Set(["published", "draft", "archived"]);
+    const status = allowedStatuses.has(statusParam || "") ? statusParam as "published" | "draft" | "archived" : "published";
+
+    const pages = await getPages(status);
+    const filtered = pages.filter((p) => p.status === status);
     res.json({ pages: filtered });
   } catch (error) {
     console.error("[cms] Get pages error:", error);
@@ -527,7 +527,14 @@ router.get("/pages/:id", requireRole("admin", "employee"), async (req: Request, 
     if (!page) {
       return res.status(404).json({ error: "Page not found" });
     }
-    res.json({ page });
+    res.json({
+      page: {
+        ...page,
+        title_tag: page.metaTitle ?? null,
+        meta_description: page.metaDescription ?? null,
+        h1: page.h1 ?? null,
+      },
+    });
   } catch (error) {
     console.error("[cms] Get page by ID error:", error);
     res.status(500).json({ error: "Failed to fetch page" });
@@ -537,7 +544,20 @@ router.get("/pages/:id", requireRole("admin", "employee"), async (req: Request, 
 // PATCH /api/admin/pages/:id
 router.patch("/pages/:id", requireRole("admin", "employee"), async (req: Request, res: Response) => {
   try {
-    const { title, slug, categoryId, status, content, bannerImage, tagIds, metaTitle, metaDescription } = z
+    const {
+      title,
+      slug,
+      categoryId,
+      status,
+      content,
+      bannerImage,
+      tagIds,
+      metaTitle,
+      metaDescription,
+      title_tag,
+      meta_description,
+      h1,
+    } = z
       .object({
         title: z.string().optional(),
         slug: z.string().optional(),
@@ -548,8 +568,14 @@ router.patch("/pages/:id", requireRole("admin", "employee"), async (req: Request
         tagIds: z.array(z.string().uuid()).optional(),
         metaTitle: z.string().optional(),
         metaDescription: z.string().optional(),
+        title_tag: z.string().optional(),
+        meta_description: z.string().optional(),
+        h1: z.string().optional(),
       })
       .parse(req.body);
+
+    const resolvedMetaTitle = title_tag !== undefined ? title_tag : metaTitle;
+    const resolvedMetaDescription = meta_description !== undefined ? meta_description : metaDescription;
 
     // Check slug uniqueness if changing slug
     if (slug) {
@@ -604,14 +630,22 @@ router.patch("/pages/:id", requireRole("admin", "employee"), async (req: Request
       uploadedContent ?? content,
       bannerImageUrl,
       tagIds,
-      metaTitle,
-      metaDescription
+      resolvedMetaTitle,
+      resolvedMetaDescription,
+      h1
     );
     if (!page) {
       return res.status(404).json({ error: "Page not found" });
     }
 
-    res.json({ page });
+    res.json({
+      page: {
+        ...page,
+        title_tag: page.metaTitle ?? null,
+        meta_description: page.metaDescription ?? null,
+        h1: page.h1 ?? null,
+      },
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       const errorMsg = (error as any).message || "Validation failed";
@@ -620,6 +654,64 @@ router.patch("/pages/:id", requireRole("admin", "employee"), async (req: Request
     }
     console.error("[cms] Update page error - system error:", error instanceof Error ? error.message : String(error));
     res.status(500).json({ error: "Failed to update page" });
+  }
+});
+
+// PUT /api/admin/pages/:id
+// Admin-only SEO editor endpoint for title tag, meta description, and H1
+router.put("/pages/:id", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const payload = z.object({
+      title_tag: z.string().nullable().optional(),
+      meta_description: z.string().nullable().optional(),
+      h1: z.string().nullable().optional(),
+    }).refine(
+      (value) => value.title_tag !== undefined || value.meta_description !== undefined || value.h1 !== undefined,
+      { message: "At least one SEO field is required" }
+    ).parse(req.body);
+
+    const page = await updatePage(
+      req.params.id,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      payload.title_tag,
+      payload.meta_description,
+      payload.h1
+    );
+
+    if (!page) {
+      return res.status(404).json({ error: "Page not found" });
+    }
+
+    try {
+      cache.del(`cms:page:${page.slug}`);
+      if (page.category?.slug) {
+        cache.del(`cms:page:${page.category.slug}:${page.slug}`);
+      }
+    } catch (_) {
+      // Cache invalidation failure should not break SEO updates
+    }
+
+    res.json({
+      page: {
+        ...page,
+        title_tag: page.metaTitle ?? null,
+        meta_description: page.metaDescription ?? null,
+        h1: page.h1 ?? null,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: fromZodError(error).message });
+    }
+
+    console.error("[cms] SEO PUT update error:", error instanceof Error ? error.message : String(error));
+    res.status(500).json({ error: "Failed to update page SEO" });
   }
 });
 

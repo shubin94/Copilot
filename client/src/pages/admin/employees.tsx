@@ -23,6 +23,13 @@ type Employee = {
   updatedAt: string;
 };
 
+const employeeDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
+
 export default function EmployeesManagement() {
   const [, setLocation] = useLocation();
   const { data: user } = useAuth();
@@ -356,7 +363,7 @@ export default function EmployeesManagement() {
                       </td>
                       <td className="p-4 text-sm">{employee.allowedPages.join(", ")}</td>
                       <td className="p-4 text-sm text-gray-600">
-                        {new Date(employee.createdAt).toLocaleDateString()}
+                        {employeeDateFormatter.format(new Date(employee.createdAt))}
                       </td>
                       <td className="p-4 flex gap-2">
                         <button

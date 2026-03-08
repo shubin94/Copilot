@@ -18,7 +18,7 @@ import { NetworkErrorHandler } from "@/components/network-error-handler";
 
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
-const Home = lazy(() => import("@/pages/home"));
+const Home = lazy(() => import("./pages/home"));
 const DetectiveProfile = lazy(() => import("@/pages/detective-profile"));
 const DetectivePublicPage = lazy(() => import("@/pages/detective"));
 const CityDetectivesPage = lazy(() => import("@/pages/city-detectives"));

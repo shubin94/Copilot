@@ -22,6 +22,15 @@ interface PaymentGateway {
   updated_at: string;
 }
 
+const gatewayDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 export default function AdminPaymentGateways() {
   const { toast } = useToast();
   const [gateways, setGateways] = useState<PaymentGateway[]>([]);
@@ -254,7 +263,7 @@ export default function AdminPaymentGateways() {
 
                 {/* Last Updated */}
                 <p className="text-xs text-gray-500 text-right">
-                  Last updated: {new Date(gateway.updated_at).toLocaleString()}
+                  Last updated: {gatewayDateTimeFormatter.format(new Date(gateway.updated_at))}
                 </p>
               </CardContent>
             </Card>
