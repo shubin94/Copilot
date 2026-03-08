@@ -8,9 +8,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Check, X, FileText, Download, Shield, User, Mail, Phone, MapPin } from "lucide-react";
 import { Link, useRoute, useLocation } from "wouter";
 import { useApplication, useUpdateApplicationNotes, useUpdateApplicationStatus } from "@/lib/hooks";
-import { format } from "date-fns";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+
+const signupDetailsDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
 
 export default function AdminSignupDetails() {
   const [, params] = useRoute("/admin/signups/:id");
@@ -55,7 +61,7 @@ export default function AdminSignupDetails() {
             <h2 className="text-3xl font-bold font-heading text-gray-900">Application #{application?.id || id}</h2>
             {application && (
               <div className="flex items-center gap-2 text-sm text-gray-500">
-                <span>Applied on {format(new Date(application.createdAt), "MMM dd, yyyy")}</span>
+                <span>Applied on {signupDetailsDateFormatter.format(new Date(application.createdAt))}</span>
                 <span>•</span>
                 <Badge className={application.status === "pending" ? "bg-yellow-100 text-yellow-700" : application.status === "approved" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>{application.status}</Badge>
               </div>

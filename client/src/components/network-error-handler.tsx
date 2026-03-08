@@ -24,26 +24,25 @@ export function NetworkErrorHandler({
   dismissable = false,
   onDismiss,
 }: NetworkErrorProps) {
-  const [isOnline, setIsOnline] = useState(() => {
-    if (typeof navigator !== 'undefined') {
-      return navigator.onLine;
-    }
-    return true;
-  });
+  const [isOnline, setIsOnline] = useState(true);
+  const [pathname, setPathname] = useState('/');
 
   const [isDismissed, setIsDismissed] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+    const updatePathname = () => setPathname(window.location.pathname);
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    updateOnlineStatus();
+    updatePathname();
+
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
     };
   }, []);
 
@@ -71,7 +70,7 @@ export function NetworkErrorHandler({
   }
 
   // Full page error modal for offline state
-  if (!isOnline && typeof window !== 'undefined' && window.location.pathname !== '/') {
+  if (!isOnline && pathname !== '/') {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
         <Card className="bg-white max-w-md w-full mx-4">

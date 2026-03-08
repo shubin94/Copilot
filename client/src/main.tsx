@@ -40,8 +40,23 @@ if (!rootElement) {
   throw new Error('Root element not found');
 }
 
+function hasServerRenderedMarkup(container: HTMLElement): boolean {
+  return Array.from(container.childNodes).some((node) => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      return true;
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      return Boolean(node.textContent?.trim());
+    }
+
+    // Ignore comment nodes like <!--app-html--> used by the HTML shell.
+    return false;
+  });
+}
+
 console.log('[App Startup] Mounting React app...');
-if (rootElement.hasChildNodes()) {
+if (hasServerRenderedMarkup(rootElement)) {
   console.log('[App Startup] Detected pre-rendered HTML, hydrating React app...');
   hydrateRoot(rootElement, <App />);
 } else {

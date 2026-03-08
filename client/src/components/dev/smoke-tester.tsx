@@ -6,11 +6,15 @@ import { getDetectiveProfileUrl } from "@/lib/utils";
 type Result = { name: string; ok: boolean; detail?: string };
 
 export function SmokeTester() {
-  const searchParams = new URLSearchParams(window.location.search);
-  const enabled = searchParams.get("smoke") === "1" || searchParams.get("smoke") === "true";
   const [, setLocation] = useLocation();
+  const [enabled, setEnabled] = useState(false);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<Result[]>([]);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    setEnabled(searchParams.get("smoke") === "1" || searchParams.get("smoke") === "true");
+  }, []);
 
   useEffect(() => {
     if (!enabled || running) return;

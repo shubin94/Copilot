@@ -132,6 +132,63 @@ export function registerLocationRoutes(app: Express): void {
     }
   });
 
+  /**
+   * Get top states within a specific country
+   * Used for "Top States in {Country}" section on country detective pages
+   */
+  app.get("/api/locations/top-states/:countrySlug", async (req: Request, res: Response) => {
+    try {
+      const { countrySlug } = req.params;
+      const limit = Math.min(Number(req.query.limit) || 10, 50);
+
+      const topStates = await storage.getTopStatesByCountry(countrySlug, limit);
+
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+      res.json({ states: topStates });
+    } catch (error) {
+      console.error("[API /api/locations/top-states] Error:", error);
+      res.status(500).json({ error: "Failed to fetch top states", states: [] });
+    }
+  });
+
+  /**
+   * Get top cities within a specific state
+   * Used for "Top Cities in {State}" section on state detective pages
+   */
+  app.get("/api/locations/top-cities/:countrySlug/:stateSlug", async (req: Request, res: Response) => {
+    try {
+      const { countrySlug, stateSlug } = req.params;
+      const limit = Math.min(Number(req.query.limit) || 10, 50);
+
+      const topCities = await storage.getTopCitiesByState(countrySlug, stateSlug, limit);
+
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+      res.json({ cities: topCities });
+    } catch (error) {
+      console.error("[API /api/locations/top-cities] Error:", error);
+      res.status(500).json({ error: "Failed to fetch top cities", cities: [] });
+    }
+  });
+
+  /**
+   * Get other cities within a state (excluding current city)
+   * Used for "Other Cities in {State}" section on city detective pages
+   */
+  app.get("/api/locations/other-cities/:countrySlug/:stateSlug/:citySlug", async (req: Request, res: Response) => {
+    try {
+      const { countrySlug, stateSlug, citySlug } = req.params;
+      const limit = Math.min(Number(req.query.limit) || 10, 50);
+
+      const otherCities = await storage.getOtherCitiesByState(countrySlug, stateSlug, citySlug, limit);
+
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+      res.json({ cities: otherCities });
+    } catch (error) {
+      console.error("[API /api/locations/other-cities] Error:", error);
+      res.status(500).json({ error: "Failed to fetch other cities", cities: [] });
+    }
+  });
+
   // ========================================
   // AUTHENTICATED DETECTIVE LOCATION ROUTES
   // ========================================
@@ -345,7 +402,7 @@ export function registerLocationRoutes(app: Express): void {
           lso.updated_at
         FROM cities ci
         INNER JOIN states s ON ci.state_id = s.id
-        INNER JOIN countries c ON ci.country_id = c.id
+        INNER JOIN countries c ON s.country_id = c.id
         LEFT JOIN detectives d ON d.city_id = ci.id
         LEFT JOIN location_seo_overrides lso
           ON lso.entity_type = 'city'
@@ -422,7 +479,7 @@ export function registerLocationRoutes(app: Express): void {
         const cityResult = await pool.query(
           `SELECT ci.id FROM cities ci
            INNER JOIN states s ON ci.state_id = s.id
-           INNER JOIN countries c ON ci.country_id = c.id
+           INNER JOIN countries c ON s.country_id = c.id
            WHERE ci.slug = $1 AND s.slug = $2 AND c.slug = $3
            LIMIT 1`,
           [city_slug, state_slug, country_slug]

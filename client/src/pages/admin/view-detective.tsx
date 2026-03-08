@@ -149,8 +149,15 @@ export default function ViewDetective() {
     languages: [] as string[],
   });
 
+  const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
+
   // Initialize form when detective data loads
-  useState(() => {
+  useEffect(() => {
     if (detective && !isEditing) {
       setEditForm({
         businessName: detective.businessName || "",
@@ -161,7 +168,7 @@ export default function ViewDetective() {
         languages: detective.languages || [],
       });
     }
-  });
+  }, [detective, isEditing]);
 
   const [autoSeeded, setAutoSeeded] = useState(false);
   const seedInFlight = useRef(false);
@@ -456,14 +463,14 @@ export default function ViewDetective() {
                   <div className="flex items-center gap-2 text-gray-600">
                     <Calendar className="h-4 w-4" />
                     <span data-testid="text-member-since">
-                      Member since {format(new Date(detective.memberSince), "MMM d, yyyy")}
+                      Member since {shortDateFormatter.format(new Date(detective.memberSince))}
                     </span>
                   </div>
                   {detective.isClaimed && claimInfo?.claimedAt && (
                     <div className="flex items-center gap-2 text-gray-600">
                       <ShieldCheck className="h-4 w-4" />
                       <span data-testid="text-claimed-at">
-                        Claimed on {format(new Date(claimInfo.claimedAt), "MMM d, yyyy")}
+                        Claimed on {shortDateFormatter.format(new Date(claimInfo.claimedAt))}
                       </span>
                     </div>
                   )}
@@ -480,7 +487,7 @@ export default function ViewDetective() {
                     <div className="flex items-center gap-2 text-gray-600">
                       <Clock className="h-4 w-4" />
                       <span data-testid="text-last-active">
-                        Last active {format(new Date(detective.lastActive), "MMM d, yyyy")}
+                        Last active {shortDateFormatter.format(new Date(detective.lastActive))}
                       </span>
                     </div>
                   )}

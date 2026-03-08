@@ -21,6 +21,7 @@ interface Detective {
   phone?: string | null;
   whatsapp?: string | null;
   contactEmail?: string | null;
+  email?: string | null;
   bio?: string | null;
   avgRating?: number;
   reviewCount?: number;
@@ -58,15 +59,19 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
         .slice(0, 2)
     : "PI";
 
-  const hasPhone = detective.phone || detective.whatsapp;
-  const contactButtonText = detective.phone ? "Call Now" : detective.whatsapp ? "Contact" : "Email Now";
-  const contactHref = detective.phone
-    ? `tel:${detective.phone}`
-    : detective.whatsapp
-    ? `https://wa.me/${detective.whatsapp}`
-    : detective.contactEmail
-    ? `mailto:${detective.contactEmail}`
-    : "#";
+  const contactEmail = detective.contactEmail || detective.email || null;
+  const hasPhoneContact = Boolean(detective.phone || detective.whatsapp);
+  const hasEmailContact = Boolean(contactEmail);
+  const contactButtonText = hasPhoneContact
+    ? "Call Now"
+    : hasEmailContact
+    ? "Email Now"
+    : null;
+  const contactHref = hasPhoneContact
+    ? `tel:${detective.phone || detective.whatsapp}`
+    : hasEmailContact
+    ? `mailto:${contactEmail}`
+    : null;
 
   if (variant === "homeFeatured") {
     const planBadges = detective.subscriptionPackage?.badges || null;
@@ -282,7 +287,7 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
         <div className="flex-1" />
 
         <div className="flex gap-2 pt-4 border-t border-gray-100">
-          {hasPhone || detective.contactEmail ? (
+          {contactButtonText && contactHref ? (
             <a
               href={contactHref}
               className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-3 rounded-lg text-sm text-center transition-colors duration-200 flex items-center justify-center gap-2"

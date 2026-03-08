@@ -443,10 +443,21 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 console.log("[MIDDLEWARE] after session");
 
 // Public endpoints that should work without authentication (incognito mode, mobile, etc.)
+// NOTE: CSRF middleware is mounted at "/api", so req.path here is "/smart-search" or "/metrics".
 const CSRF_EXEMPT_PATHS = [
-  "/api/smart-search",  // Homepage AI search - must work for all public users
-  "/api/metrics",       // Client perf metrics - public, no session required
+  "/smart-search",  // Homepage AI search - must work for all public users
+  "/metrics",       // Client perf metrics - public, no session required
 ];
+
+function normalizeApiPath(pathValue: string): string {
+  if (!pathValue) return pathValue;
+  return pathValue.startsWith("/api/") ? pathValue.slice(4) : pathValue;
+}
+
+function isCsrfExemptPath(pathValue: string): boolean {
+  const normalized = normalizeApiPath(pathValue);
+  return CSRF_EXEMPT_PATHS.includes(pathValue) || CSRF_EXEMPT_PATHS.includes(normalized);
+}
 
 function getCookieValue(req: Request, name: string): string | undefined {
   const header = req.headers.cookie;
@@ -480,7 +491,7 @@ app.use("/api", (req, res, next) => {
 
   // CSRF validation only for mutation methods: POST, PUT, PATCH, DELETE
   // Skip CSRF validation for public endpoints
-  if (CSRF_EXEMPT_PATHS.includes(req.path)) {
+  if (isCsrfExemptPath(req.path)) {
     return next();
   }
 
@@ -495,7 +506,7 @@ app.use("/api", (req, res, next) => {
   log(`CSRF debug: ${req.method} ${req.path} session=${sessionId.substring(0, 20)}... header=${token ? token.substring(0, 20) + "..." : "MISSING"} sessionToken=${sessionToken ? sessionToken.substring(0, 20) + "..." : "MISSING"}`, "csrf");
 
   if (!req.session) {
-    if (CSRF_EXEMPT_PATHS.includes(req.path)) {
+    if (isCsrfExemptPath(req.path)) {
       return next();
     }
     if (cookieToken && token === cookieToken) {

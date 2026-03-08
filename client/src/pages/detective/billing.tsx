@@ -7,6 +7,26 @@ import { useCurrentDetective } from "@/lib/hooks";
 import { useEffect, useState } from "react";
 import { buildApiUrl } from "@/lib/api";
 
+const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
+
+const longDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+
+const timeFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 interface PaymentHistoryItem {
   id: string;
   packageName: string;
@@ -178,7 +198,7 @@ export default function DetectiveBilling() {
                       <div>
                         <p className="text-sm font-medium text-amber-900">Scheduled Downgrade</p>
                         <p className="text-sm text-amber-700 mt-1">
-                          On <span className="font-semibold">{new Date(detective.subscriptionExpiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>, your plan will be downgraded to <span className="font-semibold">{detective.pendingPackage.displayName || detective.pendingPackage.name}</span> ({detective.pendingBillingCycle || 'monthly'}) based on your preference.
+                          On <span className="font-semibold">{longDateFormatter.format(new Date(detective.subscriptionExpiresAt))}</span>, your plan will be downgraded to <span className="font-semibold">{detective.pendingPackage.displayName || detective.pendingPackage.name}</span> ({detective.pendingBillingCycle || 'monthly'}) based on your preference.
                         </p>
                       </div>
                     </div>
@@ -404,7 +424,7 @@ export default function DetectiveBilling() {
                 Scheduled Next Package
               </CardTitle>
               <CardDescription>
-                Your plan will automatically change to this package on {detective.subscriptionExpiresAt ? new Date(detective.subscriptionExpiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'renewal date'}
+                Your plan will automatically change to this package on {detective.subscriptionExpiresAt ? longDateFormatter.format(new Date(detective.subscriptionExpiresAt)) : 'renewal date'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -507,8 +527,8 @@ export default function DetectiveBilling() {
                           <div className="flex items-center gap-2">
                             <Calendar className="h-4 w-4 text-gray-400" />
                             <div>
-                              <p className="font-medium">{new Date(payment.createdAt).toLocaleDateString()}</p>
-                              <p className="text-xs text-gray-500">{new Date(payment.createdAt).toLocaleTimeString()}</p>
+                              <p className="font-medium">{shortDateFormatter.format(new Date(payment.createdAt))}</p>
+                              <p className="text-xs text-gray-500">{timeFormatter.format(new Date(payment.createdAt))}</p>
                             </div>
                           </div>
                         </td>

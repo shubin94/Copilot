@@ -3,6 +3,7 @@ import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { SEO } from "@/components/seo";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 
 const FAQS = [
   {
@@ -28,11 +29,17 @@ const FAQS = [
 ];
 
 export default function SupportPage() {
+  const seo = useCmsStaticPageSeo("support", {
+    title: "Support Center & FAQ | AskDetectives",
+    description: "Find answers to common questions about hiring a detective, privacy policies, and verification processes at AskDetectives.",
+    h1: "Help Center",
+  });
+
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <SEO 
-        title="Support Center & FAQ | AskDetectives" 
-        description="Find answers to common questions about hiring a detective, privacy policies, and verification processes at AskDetectives."
+        title={seo.title}
+        description={seo.description}
         canonical="https://www.askdetectives.com/support"
         structuredData={{
           faqs: FAQS
@@ -58,7 +65,7 @@ export default function SupportPage() {
       </script>
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
-        <h1 className="text-4xl font-bold font-heading mb-6">Help Center</h1>
+        <h1 className="text-4xl font-bold font-heading mb-6">{seo.h1}</h1>
         <h2 className="text-xl text-gray-600 font-normal mb-12">
           Frequently asked questions and support resources.
         </h2>

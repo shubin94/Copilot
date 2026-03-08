@@ -31,6 +31,29 @@ function toSlug(value: string | null | undefined): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/**
+ * Get a valid lastmod date - uses current date if DB timestamp is older than 30 days
+ * This ensures search engines see fresh dates even if DB records haven't been updated
+ */
+function getValidLastmod(dbTimestamp: any): string {
+  const today = new Date().toISOString().split("T")[0];
+  
+  if (!dbTimestamp) {
+    return today;
+  }
+  
+  const dbDate = new Date(dbTimestamp);
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+  // If DB timestamp is older than 30 days, use current date
+  if (dbDate < thirtyDaysAgo) {
+    return today;
+  }
+  
+  return dbDate.toISOString().split("T")[0];
+}
+
 function isCacheValid(filename: string): boolean {
   try {
     const filepath = join(SITEMAP_CACHE_DIR, filename);
@@ -138,9 +161,7 @@ async function generateCountriesSitemap(): Promise<string> {
   const cached = getCachedSitemap("countries.xml");
   if (cached) return cached;
 
-  const today = new Date().toISOString().split("T")[0];
-  let xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  let xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
 
   const result = await pool.query(`
@@ -181,7 +202,6 @@ async function generateStatesSitemap(page: number = 1): Promise<string> {
   const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
-  const today = new Date().toISOString().split("T")[0];
   const pageSize = 5000;
   const offset = (page - 1) * pageSize;
 
@@ -209,9 +229,7 @@ async function generateStatesSitemap(page: number = 1): Promise<string> {
   );
 
   for (const row of result.rows) {
-    const lastmod = row.last_mod
-      ? new Date(row.last_mod).toISOString().split("T")[0]
-      : today;
+    const lastmod = getValidLastmod(row.last_mod);
     const countrySlug = row.country_slug || toSlug(row.country_name);
     const stateSlug = row.state_slug || toSlug(row.state_name);
 
@@ -235,7 +253,6 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
   const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
-  const today = new Date().toISOString().split("T")[0];
   const pageSize = 5000;
   const offset = (page - 1) * pageSize;
 
@@ -266,9 +283,7 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
   );
 
   for (const row of result.rows) {
-    const lastmod = row.last_mod
-      ? new Date(row.last_mod).toISOString().split("T")[0]
-      : today;
+    const lastmod = getValidLastmod(row.last_mod);
     const countrySlug = row.country_slug || toSlug(row.country_name);
     const stateSlug = row.state_slug || toSlug(row.state_name);
     const citySlug = row.city_slug || toSlug(row.city_name);
@@ -314,7 +329,6 @@ async function generateDetectivesSitemap(): Promise<string> {
   const cached = getCachedSitemap("detectives.xml");
   if (cached) return cached;
 
-  const today = new Date().toISOString().split("T")[0];
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
@@ -335,9 +349,7 @@ async function generateDetectivesSitemap(): Promise<string> {
   `);
 
   for (const profile of result.rows) {
-    const lastmod = profile.updated_at
-      ? new Date(profile.updated_at).toISOString().split("T")[0]
-      : today;
+    const lastmod = getValidLastmod(profile.updated_at);
     const countrySlug = toSlug(profile.country_name || profile.country_slug);
     const stateSlug = profile.state_name ? toSlug(profile.state_name) : "";
     const citySlug = profile.city_name ? toSlug(profile.city_name) : "";
@@ -371,7 +383,6 @@ async function generateServicesSitemap(page: number = 1): Promise<string> {
   const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
-  const today = new Date().toISOString().split("T")[0];
   const pageSize = 5000;
   const offset = (page - 1) * pageSize;
 
@@ -402,9 +413,7 @@ async function generateServicesSitemap(page: number = 1): Promise<string> {
   );
 
   for (const service of result.rows) {
-    const lastmod = service.updated_at
-      ? new Date(service.updated_at).toISOString().split("T")[0]
-      : today;
+    const lastmod = getValidLastmod(service.updated_at);
 
     if (!service.slug || !service.country_slug) {
       continue;
@@ -453,7 +462,6 @@ async function generateNewsSitemap(): Promise<string> {
   const cached = getCachedSitemap("news.xml");
   if (cached) return cached;
 
-  const today = new Date().toISOString().split("T")[0];
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
@@ -472,9 +480,7 @@ async function generateNewsSitemap(): Promise<string> {
       continue;
     }
 
-    const lastmod = article.updated_at
-      ? new Date(article.updated_at).toISOString().split("T")[0]
-      : today;
+    const lastmod = getValidLastmod(article.updated_at);
 
     const url = `https://www.askdetectives.com/news/${article.slug}`;
 

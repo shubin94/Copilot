@@ -9,15 +9,28 @@ import { renderBlocks } from "@/utils/render-blocks";
 import { RelatedPosts } from "@/components/related-posts";
 import NotFound from "./not-found";
 
+const publishedDateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+function formatPublishedDate(value: string) {
+  return publishedDateFormatter.format(new Date(value));
+}
+
 interface PageData {
   id: string;
   title: string;
+  titleTag?: string;
   slug: string;
   content: string;
   bannerImage?: string;
   status: string;
   metaTitle?: string;
   metaDescription?: string;
+  h1?: string;
   createdAt: string;
   updatedAt: string;
   author?: {
@@ -42,7 +55,7 @@ interface PageData {
 }
 
 export default function PageView() {
-  const [, setLocation] = useLocation();
+  const [locationPath, setLocation] = useLocation();
   const [matchNested, paramsNested] = useRoute("/:parent/:category/:slug");
   const [matchNew, paramsNew] = useRoute("/:category/:slug");
   const [matchLegacyNested, paramsLegacyNested] = useRoute("/pages/:parent/:category/:slug");
@@ -110,8 +123,7 @@ export default function PageView() {
   const page = data.page;
   
   // Normalize canonical URL by removing legacy "/pages" prefix
-  const pathname = window.location.pathname;
-  const cleanedPath = pathname.startsWith('/pages/') ? pathname.replace('/pages', '') : pathname;
+  const cleanedPath = locationPath.startsWith('/pages/') ? locationPath.replace('/pages', '') : locationPath;
   const canonicalUrl = `https://www.askdetectives.com${cleanedPath}`;
   
   const breadcrumbs = page.category
@@ -141,7 +153,7 @@ export default function PageView() {
         } : undefined}
         structuredData={{
           article: {
-            headline: page.title,
+            headline: page.h1 || page.title,
             author: page.author?.name || "Ask Detectives",
             datePublished: page.createdAt,
             dateModified: page.updatedAt,
@@ -164,14 +176,10 @@ export default function PageView() {
                   </span>
                 )}
                 <h1 className="text-4xl md:text-5xl font-bold leading-tight mb-4">
-                  {page.title}
+                  {page.h1 || page.title}
                 </h1>
                 <p className="text-sm text-emerald-100">
-                  Published: {new Date(page.createdAt).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
+                  Published: {formatPublishedDate(page.createdAt)}
                 </p>
               </div>
               <div className="w-full">
@@ -217,7 +225,7 @@ export default function PageView() {
           {!page.bannerImage && (
             <header className="mb-8">
               <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-                {page.title}
+                {page.h1 || page.title}
               </h1>
 
               {/* Meta Info */}
@@ -229,11 +237,7 @@ export default function PageView() {
                 )}
 
                 <span className="text-sm">
-                  Published: {new Date(page.createdAt).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
+                  Published: {formatPublishedDate(page.createdAt)}
                 </span>
 
                 {page.tags.length > 0 && (

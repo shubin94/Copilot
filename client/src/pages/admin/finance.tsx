@@ -22,7 +22,19 @@ import {
   Download,
   Filter
 } from "lucide-react";
-import { format } from "date-fns";
+
+const financeDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
+
+const financeTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 interface Transaction {
   id: string;
@@ -462,10 +474,10 @@ export default function AdminFinancePage() {
                         </td>
                         <td className="py-4">
                           <div className="text-sm">
-                            {format(new Date(transaction.created_at), "MMM dd, yyyy")}
+                            {financeDateFormatter.format(new Date(transaction.created_at))}
                           </div>
                           <div className="text-xs text-gray-500">
-                            {format(new Date(transaction.created_at), "HH:mm")}
+                            {financeTimeFormatter.format(new Date(transaction.created_at))}
                           </div>
                         </td>
                       </tr>

@@ -17,6 +17,13 @@ interface Category {
   updatedAt: string;
 }
 
+const categoryDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
+
 export default function CategoriesAdmin() {
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: isLoadingUser } = useUser();
@@ -235,7 +242,7 @@ export default function CategoriesAdmin() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">
-                    {new Date(cat.createdAt).toLocaleDateString()}
+                    {categoryDateFormatter.format(new Date(cat.createdAt))}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex gap-2">

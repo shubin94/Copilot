@@ -8,6 +8,15 @@ import { Mail } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { api, getOrFetchCsrfToken } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+
+interface PublicPageSeoResponse {
+  page: {
+    metaTitle?: string;
+    metaDescription?: string;
+    h1?: string;
+  };
+}
 
 export default function ContactPage() {
   const { toast } = useToast();
@@ -16,6 +25,23 @@ export default function ContactPage() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { data: cmsPageSeo } = useQuery<PublicPageSeoResponse>({
+    queryKey: ["public-static-page-seo", "contact"],
+    queryFn: async () => {
+      const response = await fetch("/api/public/pages/contact");
+      if (!response.ok) {
+        throw new Error("Failed to fetch contact SEO");
+      }
+      return response.json();
+    },
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  const seoTitle = cmsPageSeo?.page?.metaTitle?.trim() || "Contact Us";
+  const seoDescription = cmsPageSeo?.page?.metaDescription?.trim() || "Get in touch with the Ask Detectives team.";
+  const heading = cmsPageSeo?.page?.h1?.trim() || "Contact Us";
 
   // Fetch CSRF token on page load to establish session
   useEffect(() => {
@@ -45,12 +71,12 @@ export default function ContactPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title="Contact Us" description="Get in touch with the Ask Detectives team." />
+      <SEO title={seoTitle} description={seoDescription} />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
           <div>
-            <h1 className="text-4xl font-bold font-heading mb-6">Contact Us</h1>
+            <h1 className="text-4xl font-bold font-heading mb-6">{heading}</h1>
             <p className="text-xl text-gray-600 mb-8">
               Have questions? We'd love to hear from you. Send us a message and we'll respond as soon as possible.
             </p>

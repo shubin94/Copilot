@@ -26,6 +26,50 @@ import { useCurrency } from "@/lib/currency-context";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
 import { getCountryName } from "@/lib/slug-utils";
 
+const DEFAULT_FILTERS: FilterState = {
+  category: undefined,
+  minRating: undefined,
+  country: undefined,
+  state: "",
+  city: "",
+  minPrice: undefined,
+  maxPrice: undefined,
+  minPriceInput: "",
+  maxPriceInput: "",
+  proOnly: false,
+  agencyOnly: false,
+  level1Only: false,
+  level2Only: false,
+  sortBy: "popular",
+  offset: 0,
+  limit: 15,
+};
+
+function getFiltersFromSearch(search: string): { query: string; filters: FilterState } {
+  const params = new URLSearchParams(search);
+
+  return {
+    query: params.get("q") || "All Services",
+    filters: {
+      ...DEFAULT_FILTERS,
+      category: params.get("category") || undefined,
+      minRating: params.get("minRating") ? parseFloat(params.get("minRating")!) : undefined,
+      country: params.get("country") || undefined,
+      state: params.get("state") || "",
+      city: params.get("city") || "",
+      minPrice: params.get("minPrice") ? parseFloat(params.get("minPrice")!) : undefined,
+      maxPrice: params.get("maxPrice") ? parseFloat(params.get("maxPrice")!) : undefined,
+      minPriceInput: params.get("minPrice") || "",
+      maxPriceInput: params.get("maxPrice") || "",
+      proOnly: params.get("proOnly") === "1",
+      agencyOnly: params.get("agencyOnly") === "1",
+      level1Only: params.get("lvl1") === "1",
+      level2Only: params.get("lvl2") === "1",
+      sortBy: params.get("sortBy") || "popular",
+    },
+  };
+}
+
 // Consolidated filter state using reducer
 type FilterState = {
   category?: string;
@@ -62,6 +106,7 @@ type FilterAction =
   | { type: 'SET_LEVEL2_ONLY'; payload: boolean }
   | { type: 'SET_SORT_BY'; payload: string }
   | { type: 'SET_OFFSET'; payload: number }
+  | { type: 'HYDRATE_FROM_URL'; payload: { query: string; filters: FilterState } }
   | { type: 'RESET_FILTERS' }
   | { type: 'LOAD_MORE' };
 
@@ -97,24 +142,14 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
       return { ...state, sortBy: action.payload, offset: 0 };
     case 'SET_OFFSET':
       return { ...state, offset: action.payload };
+    case 'HYDRATE_FROM_URL':
+      return action.payload.filters;
     case 'LOAD_MORE':
       return { ...state, offset: state.offset + state.limit };
     case 'RESET_FILTERS':
       return {
         ...state,
-        category: undefined,
-        minRating: undefined,
-        country: undefined,
-        state: '',
-        city: '',
-        minPrice: undefined,
-        maxPrice: undefined,
-        minPriceInput: '',
-        maxPriceInput: '',
-        proOnly: false,
-        agencyOnly: false,
-        level1Only: false,
-        level2Only: false,
+        ...DEFAULT_FILTERS,
         offset: 0,
       };
     default:
@@ -125,29 +160,8 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
 export default function SearchPage() {
   console.log("[search-page] Component initializing...");
   const [location] = useLocation();
-  
-  // Initialize filter state from URL params
-  const initialSearchParams = useRef(new URLSearchParams(window.location.search));
-  const query = initialSearchParams.current.get("q") || "All Services";
-  
-  const [filters, dispatch] = useReducer(filterReducer, {
-    category: initialSearchParams.current.get("category") || undefined,
-    minRating: initialSearchParams.current.get("minRating") ? parseFloat(initialSearchParams.current.get("minRating")!) : undefined,
-    country: initialSearchParams.current.get("country") || undefined,
-    state: initialSearchParams.current.get("state") || "",
-    city: initialSearchParams.current.get("city") || "",
-    minPrice: initialSearchParams.current.get("minPrice") ? parseFloat(initialSearchParams.current.get("minPrice")!) : undefined,
-    maxPrice: initialSearchParams.current.get("maxPrice") ? parseFloat(initialSearchParams.current.get("maxPrice")!) : undefined,
-    minPriceInput: initialSearchParams.current.get("minPrice") || "",
-    maxPriceInput: initialSearchParams.current.get("maxPrice") || "",
-    proOnly: initialSearchParams.current.get("proOnly") === "1",
-    agencyOnly: initialSearchParams.current.get("agencyOnly") === "1",
-    level1Only: initialSearchParams.current.get("lvl1") === "1",
-    level2Only: initialSearchParams.current.get("lvl2") === "1",
-    sortBy: initialSearchParams.current.get("sortBy") || "popular",
-    offset: 0,
-    limit: 15,
-  });
+  const [query, setQuery] = useState("All Services");
+  const [filters, dispatch] = useReducer(filterReducer, DEFAULT_FILTERS);
 
   // Sync filters when navigating to this page with new URL params
   useEffect(() => {
@@ -155,21 +169,12 @@ export default function SearchPage() {
     const urlCategory = currentParams.get("category") || undefined;
     const urlCountry = currentParams.get("country") || undefined;
     const urlState = currentParams.get("state") || "";
+    const nextState = getFiltersFromSearch(window.location.search);
+    setQuery(nextState.query);
+    dispatch({ type: 'HYDRATE_FROM_URL', payload: nextState });
     
     console.log("[search-page] URL changed, params:", { urlCategory, urlCountry, urlState });
     console.log("[search-page] Current filters:", filters);
-    
-    // Only update if different from current filter state
-    if (urlCategory && urlCategory !== filters.category) {
-      console.log("[search-page] Setting category filter:", urlCategory);
-      dispatch({ type: 'SET_CATEGORY', payload: urlCategory });
-    }
-    if (urlCountry && urlCountry !== filters.country) {
-      dispatch({ type: 'SET_COUNTRY', payload: urlCountry });
-    }
-    if (urlState && urlState !== filters.state) {
-      dispatch({ type: 'SET_STATE', payload: urlState });
-    }
   }, [location]); // Re-run when location (route) changes
 
   // UI state (not filter-related, kept as useState)
@@ -623,8 +628,7 @@ export default function SearchPage() {
   const canonicalUrl = `https://www.askdetectives.com/search${canonicalParams.toString() ? `?${canonicalParams.toString()}` : ''}`;
 
   // SEO: Prevent faceted/filter combinations from bloating the index.
-  const currentSearchParams = new URLSearchParams(window.location.search);
-  const hasFreeTextQuery = Boolean(currentSearchParams.get("q")?.trim());
+  const hasFreeTextQuery = query !== "All Services";
   const hasFacetedFilters =
     filters.minRating !== undefined ||
     filters.minPrice !== undefined ||

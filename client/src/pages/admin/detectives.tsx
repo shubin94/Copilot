@@ -39,6 +39,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const detectiveDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "long",
+  day: "2-digit",
+});
+
 import { Link, useLocation } from "wouter";
 import { useSearchDetectives, useAdminUpdateDetective, useAdminDeleteDetective, useServicesByDetective } from "@/lib/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -339,7 +346,7 @@ export default function AdminDetectives() {
                   <div className="col-span-2">
                     <p className="text-sm font-medium text-gray-500">Member Since</p>
                     <p className="text-lg font-semibold" data-testid="text-member-since">
-                      {format(new Date(selectedDetective.memberSince), "MMMM d, yyyy")}
+                      {detectiveDateFormatter.format(new Date(selectedDetective.memberSince))}
                     </p>
                   </div>
                 </div>

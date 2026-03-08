@@ -336,6 +336,9 @@ export const ServiceCard = memo(ServiceCardComponent, (prevProps, nextProps) => 
     prevProps.reviewCount === nextProps.reviewCount &&
     prevProps.priceDisplay === nextProps.priceDisplay &&
     prevProps.isUnclaimed === nextProps.isUnclaimed &&
+    prevProps.phone === nextProps.phone &&
+    prevProps.whatsapp === nextProps.whatsapp &&
+    prevProps.contactEmail === nextProps.contactEmail &&
     prevProps.images === nextProps.images &&
     prevProps.badgeState === nextProps.badgeState
   );

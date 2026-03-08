@@ -53,6 +53,25 @@ async function fetchPage(slug: string, category?: string) {
      LEFT JOIN categories c ON p.category_id = c.id
      WHERE`;
 
+  const selectWithH1 = `SELECT 
+      p.id,
+      p.title,
+      p.slug,
+      p.content,
+      p.banner_image,
+      p.status,
+      p.meta_title,
+      p.meta_description,
+      p.h1,
+      p.created_at,
+      p.updated_at,
+      c.id as category_id,
+      c.name as category_name,
+      c.slug as category_slug
+     FROM pages p
+     LEFT JOIN categories c ON p.category_id = c.id
+     WHERE`;
+
   const selectWithAuthor = `SELECT 
       p.id,
       p.title,
@@ -62,6 +81,7 @@ async function fetchPage(slug: string, category?: string) {
       p.status,
       p.meta_title,
       p.meta_description,
+      p.h1,
       p.created_at,
       p.updated_at,
       c.id as category_id,
@@ -80,7 +100,14 @@ async function fetchPage(slug: string, category?: string) {
       return await pool.query(`${selectWithAuthor} ${where}`, params);
     } catch (error: any) {
       if (error?.message?.includes("column") && error?.message?.includes("does not exist")) {
-        return await pool.query(`${baseSelect} ${where}`, params);
+        try {
+          return await pool.query(`${selectWithH1} ${where}`, params);
+        } catch (innerError: any) {
+          if (innerError?.message?.includes("column") && innerError?.message?.includes("does not exist")) {
+            return await pool.query(`${baseSelect} ${where}`, params);
+          }
+          throw innerError;
+        }
       }
       throw error;
     }
@@ -124,6 +151,7 @@ async function fetchPage(slug: string, category?: string) {
     status: pageRow.status,
     metaTitle: pageRow.meta_title,
     metaDescription: pageRow.meta_description,
+    h1: pageRow.h1,
     createdAt: pageRow.created_at,
     updatedAt: pageRow.updated_at,
     author: pageRow.author_name ? {

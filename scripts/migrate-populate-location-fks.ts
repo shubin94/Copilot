@@ -54,31 +54,60 @@ function normalizeForMatch(name: string): string {
 async function buildLocationMaps() {
   console.log("📦 Building in-memory location maps...");
 
-  // Fetch all countries into memory
-  const allCountries = await db.select().from(countries);
+  // Fetch all countries into memory - explicitly select only fields that exist
+  const allCountries = await db.select({
+    id: countries.id,
+    code: countries.code,
+    name: countries.name,
+    slug: countries.slug,
+  }).from(countries);
   const countryMap: CountryMap = {};
   for (const country of allCountries) {
-    countryMap[country.code.toUpperCase()] = country.id;
-    countryMap[country.name.toLowerCase()] = country.id;
-    countryMap[normalizeForMatch(country.slug)] = country.id;
+    if (country.code) {
+      countryMap[country.code.toUpperCase()] = country.id.toString();
+    }
+    if (country.name) {
+      countryMap[country.name.toLowerCase()] = country.id.toString();
+    }
+    if (country.slug) {
+      countryMap[normalizeForMatch(country.slug)] = country.id.toString();
+    }
   }
 
-  // Fetch all states into memory
-  const allStates = await db.select().from(states);
+  // Fetch all states into memory - explicitly select only fields that exist
+  const allStates = await db.select({
+    id: states.id,
+    countryId: states.countryId,
+    name: states.name,
+    slug: states.slug,
+  }).from(states);
   const stateMap: StateMap = {};
   for (const state of allStates) {
     const cId = state.countryId;
-    stateMap[`${cId}-${state.name.toLowerCase()}`] = state.id;
-    stateMap[`${cId}-${normalizeForMatch(state.slug)}`] = state.id;
+    if (state.name) {
+      stateMap[`${cId}-${state.name.toLowerCase()}`] = state.id.toString();
+    }
+    if (state.slug) {
+      stateMap[`${cId}-${normalizeForMatch(state.slug)}`] = state.id.toString();
+    }
   }
 
-  // Fetch all cities into memory
-  const allCities = await db.select().from(cities);
+  // Fetch all cities into memory - explicitly select only fields that exist
+  const allCities = await db.select({
+    id: cities.id,
+    stateId: cities.stateId,
+    name: cities.name,
+    slug: cities.slug,
+  }).from(cities);
   const cityMap: CityMap = {};
   for (const city of allCities) {
     const sId = city.stateId;
-    cityMap[`${sId}-${city.name.toLowerCase()}`] = city.id;
-    cityMap[`${sId}-${normalizeForMatch(city.slug)}`] = city.id;
+    if (city.name) {
+      cityMap[`${sId}-${city.name.toLowerCase()}`] = city.id.toString();
+    }
+    if (city.slug) {
+      cityMap[`${sId}-${normalizeForMatch(city.slug)}`] = city.id.toString();
+    }
   }
 
   console.log(`   ✅ Countries: ${Object.keys(countryMap).length} entries`);

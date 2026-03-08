@@ -10,12 +10,18 @@ import { SEO } from "@/components/seo";
 import { Link } from "wouter";
 import { useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
+import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 import type { ServiceCategory } from "@shared/schema";
 import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
 
 export default function Home() {
-  // ...existing code...
+  const seo = useCmsStaticPageSeo("/", {
+    title: "Find Detectives - Hire Top Private Investigators | AskDetectives",
+    description:
+      "The world's first dedicated detective service platform. A single place to discover, compare, and hire professional detectives across verified categories",
+    h1: "Find Detectives - Hire Top Private Investigators",
+  });
 
   const { data: categoriesData, isLoading: isLoadingCategories } = useServiceCategories(true);
   const categories = (categoriesData?.categories || []) as ServiceCategory[];
@@ -115,8 +121,8 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900">
       <SEO 
-        title="Find Detectives - Hire Top Private Investigators | AskDetectives" 
-        description="The world's first dedicated detective service platform. A single place to discover, compare, and hire professional detectives across verified categories"
+        title={seo.title}
+        description={seo.description}
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
         canonical="https://www.askdetectives.com"
         robots="index, follow"
@@ -299,14 +305,14 @@ export default function Home() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {topCountries.map((item) => (
                         <Link key={`country-${item.slug}`} href={`/detectives/${item.slug}`}>
-                          <a className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100">
+                          <div className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100 cursor-pointer">
                             <div className="text-sm font-semibold text-green-900">
                               {item.name}
                             </div>
                             <div className="text-xs text-green-700">
                               {formatDetectiveCount(item.detectiveCount)}
                             </div>
-                          </a>
+                          </div>
                         </Link>
                       ))}
                     </div>
@@ -319,14 +325,14 @@ export default function Home() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {topStates.map((item) => (
                         <Link key={`state-${item.countrySlug}-${item.slug}`} href={`/detectives/${item.countrySlug}/${item.slug}`}>
-                          <a className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100">
+                          <div className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100 cursor-pointer">
                             <div className="text-sm font-semibold text-green-900">
                               {item.name}
                             </div>
                             <div className="text-xs text-green-700">
                               {formatDetectiveCount(item.detectiveCount)}
                             </div>
-                          </a>
+                          </div>
                         </Link>
                       ))}
                     </div>
@@ -339,14 +345,14 @@ export default function Home() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {topCities.map((item) => (
                         <Link key={`city-${item.countrySlug}-${item.stateSlug}-${item.slug}`} href={`/detectives/${item.countrySlug}/${item.stateSlug}/${item.slug}`}>
-                          <a className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100">
+                          <div className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100 cursor-pointer">
                             <div className="text-sm font-semibold text-green-900">
                               {item.name}
                             </div>
                             <div className="text-xs text-green-700">
                               {formatDetectiveCount(item.detectiveCount)}
                             </div>
-                          </a>
+                          </div>
                         </Link>
                       ))}
                     </div>

@@ -204,6 +204,32 @@ export function useSubscriptionLimits() {
   });
 }
 
+export function useUpdateSubscriptionPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) =>
+      api.subscriptionPlans.update(id, data),
+    onSuccess: async (response) => {
+      // ✅ KEY FIX: Invalidate services cache when package features change
+      // This forces React Query to refetch all service queries, which will then
+      // call the API with updated contact masking based on new package features
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      
+      // Also invalidate subscription plans cache to show updated plan details
+      await queryClient.invalidateQueries({ queryKey: ["subscription", "plans"] });
+      
+      // Refetch active service queries to ensure UI updates immediately
+      // Type "active" means only refetch queries that are currently being used (have active observers)
+      await queryClient.refetchQueries({ 
+        queryKey: ["services"],
+        type: "active"
+      });
+      
+      return response;
+    },
+  });
+}
+
 export function useDetectivesByCountry(country: string | null | undefined) {
   return useQuery({
     queryKey: ["detectives", "country", country],
