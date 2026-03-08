@@ -33,7 +33,7 @@ export async function handleSessionInvalid(reason: string = 'session_expired') {
   
   // CRITICAL: Don't redirect if already on login/public pages
   const currentPath = window.location.pathname;
-  const publicPaths = ['/login', '/signup', '/detective-signup'];
+  const publicPaths = ['/login', '/signup', '/detective/login', '/detective-signup'];
   if (publicPaths.some(path => currentPath.startsWith(path))) {
     console.log('[AUTH] Already on auth page, skipping redirect');
     // Still clear cache but don't redirect
@@ -134,6 +134,7 @@ export function createAuthInterceptor() {
       const publicPages = [
         '/login', 
         '/signup', 
+        '/detective/login',
         '/detective-signup', 
         '/',                  // Homepage
         '/search', 

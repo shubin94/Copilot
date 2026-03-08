@@ -1018,6 +1018,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const oauthState = randomBytes(32).toString("hex");
     req.session.oauthState = oauthState;
     req.session.oauthStateGeneratedAt = Date.now();
+    
+    // Capture intent from query parameter (default: general_user)
+    const intent = req.query.intent === "detective" ? "detective" : "general_user";
+    req.session.oauthIntent = intent;
 
     const redirectUri = `${baseUrl}/api/auth/google/callback`;
     const scope = "openid email profile";
@@ -1037,8 +1041,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const baseUrl = (config.baseUrl || "").replace(/\/$/, "");
     const redirectUri = `${baseUrl}/api/auth/google/callback`;
     const frontOrigin = baseUrl; // redirect to same origin after login
+    
+    // Retrieve intent (default: general_user for backward compatibility)
+    const intent = req.session.oauthIntent || "general_user";
+    const errorRedirect = intent === "detective" ? "/detective/login" : "/login";
+    
     if (!clientId || !clientSecret || !baseUrl) {
-      return res.redirect(`${frontOrigin}/login?error=google_not_configured`);
+      return res.redirect(`${frontOrigin}${errorRedirect}?error=google_not_configured`);
     }
 
     const state = req.query.state as string | undefined;
@@ -1046,21 +1055,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const sessionStateGeneratedAt = req.session.oauthStateGeneratedAt;
     req.session.oauthState = undefined;
     req.session.oauthStateGeneratedAt = undefined;
+    req.session.oauthIntent = undefined; // Clear intent after use
 
     if (!state || !sessionState || state !== sessionState) {
-      return res.redirect(`${frontOrigin}/login?error=google_state_invalid`);
+      return res.redirect(`${frontOrigin}${errorRedirect}?error=google_state_invalid`);
     }
 
     if (
       sessionStateGeneratedAt &&
       Date.now() - sessionStateGeneratedAt > 10 * 60 * 1000
     ) {
-      return res.redirect(`${frontOrigin}/login?error=google_state_expired`);
+      return res.redirect(`${frontOrigin}${errorRedirect}?error=google_state_expired`);
     }
 
     const code = req.query.code as string | undefined;
     if (!code) {
-      return res.redirect(`${frontOrigin}/login?error=google_no_code`);
+      return res.redirect(`${frontOrigin}${errorRedirect}?error=google_no_code`);
     }
     try {
       const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -1076,19 +1086,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       if (!tokenRes.ok) {
         console.warn("[auth] Google token exchange failed:", tokenRes.status);
-        return res.redirect(`${frontOrigin}/login?error=google_token_failed`);
+        return res.redirect(`${frontOrigin}${errorRedirect}?error=google_token_failed`);
       }
       const tokens = (await tokenRes.json()) as { access_token?: string };
       const accessToken = tokens.access_token;
       if (!accessToken) {
-        return res.redirect(`${frontOrigin}/login?error=google_no_token`);
+        return res.redirect(`${frontOrigin}${errorRedirect}?error=google_no_token`);
       }
       const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!userInfoRes.ok) {
         console.warn("[auth] Google userinfo failed:", userInfoRes.status);
-        return res.redirect(`${frontOrigin}/login?error=google_userinfo_failed`);
+        return res.redirect(`${frontOrigin}${errorRedirect}?error=google_userinfo_failed`);
       }
       const profile = (await userInfoRes.json()) as { id: string; email?: string; name?: string; picture?: string };
       const googleId = profile.id;
@@ -1096,8 +1106,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const name = (profile.name || email.split("@")[0] || "User").trim();
       const avatar = profile.picture || null;
       if (!email) {
-        return res.redirect(`${frontOrigin}/login?error=google_no_email`);
+        return res.redirect(`${frontOrigin}${errorRedirect}?error=google_no_email`);
       }
+      
+      // CRITICAL: Intent validation for detective flow
+      // Google OAuth is ONLY allowed for general user signup/login
+      // Detectives must apply via /detective-signup (email/password only)
+      if (intent === "detective") {
+        console.warn("[auth] Blocked Google OAuth for detective intent - detectives must use email/password");
+        return res.redirect(`${frontOrigin}/detective/login?error=google_detective_blocked`);
+      }
+      
       let user = await storage.getUserByGoogleId(googleId);
       if (!user) {
         const existingByEmail = await storage.getUserByEmail(email);
@@ -1108,23 +1127,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       if (!user) {
-        return res.redirect(`${frontOrigin}/login?error=google_login_failed`);
+        return res.redirect(`${frontOrigin}${errorRedirect}?error=google_login_failed`);
       }
       if (user.isActive === false) {
-        return res.redirect(`${frontOrigin}/login?error=account_disabled`);
+        return res.redirect(`${frontOrigin}${errorRedirect}?error=account_disabled`);
       }
       req.session.regenerate((err) => {
         if (err) {
           console.warn("[auth] Session error during Google login");
-          return res.redirect(`${frontOrigin}/login?error=session_failed`);
+          return res.redirect(`${frontOrigin}${errorRedirect}?error=session_failed`);
         }
         req.session.userId = user!.id;
         req.session.userRole = user!.role;
-        res.redirect(302, frontOrigin + "/");
+        
+        // Role-based redirect after successful Google login
+        if (user!.role === "detective") {
+          res.redirect(302, frontOrigin + "/detective/dashboard");
+        } else if (user!.role === "admin") {
+          res.redirect(302, frontOrigin + "/admin/dashboard");
+        } else if (user!.role === "employee") {
+          res.redirect(302, frontOrigin + "/employee/dashboard");
+        } else {
+          res.redirect(302, frontOrigin + "/");
+        }
       });
     } catch (e) {
       console.warn("[auth] Google callback error:", e instanceof Error ? e.message : "Unknown error");
-      res.redirect(`${frontOrigin}/login?error=google_login_failed`);
+      res.redirect(`${frontOrigin}${errorRedirect}?error=google_login_failed`);
     }
   });
 
@@ -5780,6 +5809,17 @@ Content-Signal: index=public; train=deny
       console.log("📝 [Applications] Inserting into database...");
       const application = await storage.createDetectiveApplication(applicationData);
       console.log("📝 [Applications] Application created with ID:", application.id);
+
+      const businessName = application.companyName || application.fullName;
+      const country = application.country || "Not specified";
+      const submittedAt = new Date(application.createdAt || Date.now()).toLocaleString("en-IN", {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
       
       // Send application confirmation email (non-blocking)
       smtpEmailService.sendTransactionalEmail(
@@ -5787,6 +5827,9 @@ Content-Signal: index=public; train=deny
         EMAIL_TEMPLATE_KEYS.DETECTIVE_APPLICATION_SUBMITTED,
         {
           detectiveName: application.fullName,
+          businessName,
+          country,
+          submittedAt,
           email: application.email,
           supportEmail: "support@askdetectives.com",
         }
@@ -5797,8 +5840,10 @@ Content-Signal: index=public; train=deny
         EMAIL_TEMPLATE_KEYS.ADMIN_APPLICATION_RECEIVED,
         {
           detectiveName: application.fullName,
+          businessName,
           email: application.email,
-          country: application.country || "Not specified",
+          country,
+          submittedAt,
           businessType: application.businessType || "Not specified",
           supportEmail: "support@askdetectives.com",
         }
@@ -6800,8 +6845,10 @@ Content-Signal: index=public; train=deny
       const mockVariables = {
         userName: "Ask Detectives",
         detectiveName: "Test Detective",
+        businessName: "Test Detective Agency",
         loginEmail: "contact@askdetectives.com",
         tempPassword: "Temp@12345",
+        temporaryPassword: "Temp@12345",
         packageName: "Pro Plan",
         billingCycle: "Monthly",
         amount: "999",
@@ -6815,10 +6862,10 @@ Content-Signal: index=public; train=deny
         fullName: "Test Detective",
         businessType: "individual",
         country: "US",
+        submittedAt: new Date().toISOString(),
         verificationLink: "https://askdetectives.com/verify?token=test",
         resetLink: "https://askdetectives.com/reset-password?token=test",
         wasNewUser: "true",
-        temporaryPassword: "Temp@12345",
         reviewNotes: "This is a test email for template verification",
       };
 

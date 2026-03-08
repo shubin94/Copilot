@@ -11,5 +11,6 @@ declare module "express-session" {
     csrfTokenGeneratedAt?: number;
     oauthState?: string;
     oauthStateGeneratedAt?: number;
+    oauthIntent?: string;
   }
 }

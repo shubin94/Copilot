@@ -1,9 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Link, useLocation, useRoute } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useState, useEffect } from "react";
-import { useLogin, useRegister } from "@/lib/hooks";
+import { useLogin } from "@/lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
@@ -15,6 +15,7 @@ import heroBgPng from "@assets/generated_images/professional_modern_city_skyline
 import heroBgWebp from "@assets/generated_images/professional_modern_city_skyline_at_dusk_with_subtle_mystery_vibes.webp";
 
 const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
+  google_detective_blocked: "Google sign-in is not available for detective accounts. Please use email/password to sign in.",
   google_not_configured: "Google sign-in is not configured.",
   google_no_code: "Google did not return a code. Please try again.",
   google_token_failed: "Could not verify with Google. Please try again.",
@@ -22,27 +23,22 @@ const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   google_userinfo_failed: "Could not load your Google profile. Please try again.",
   google_no_email: "Your Google account has no email we can use.",
   google_login_failed: "Sign-in with Google failed. Please try again.",
-  google_detective_blocked: "Google sign-in is not available for detective accounts. Please use email/password.",
   session_failed: "Session error. Please try again.",
 };
 
-export default function Login() {
+export default function DetectiveLogin() {
   const [, setLocation] = useLocation();
-  const [matchSignup] = useRoute("/signup");
-  const isSignup = !!matchSignup;
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSendingReset, setIsSendingReset] = useState(false);
   const loginMutation = useLogin();
-  const registerMutation = useRegister();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   // Fetch CSRF token on page load to establish session
   useEffect(() => {
     getOrFetchCsrfToken().catch((err) => {
-      console.error("[Login] Failed to fetch CSRF token:", err);
+      console.error("[DetectiveLogin] Failed to fetch CSRF token:", err);
       toast({
         title: "Session error",
         description: "Could not establish a secure session. Please refresh the page.",
@@ -77,75 +73,46 @@ export default function Login() {
       return;
     }
     try {
-      console.log("[Login] Starting mutateAsync");
+      console.log("[DetectiveLogin] Starting mutateAsync");
       const result = await loginMutation.mutateAsync({ email: email.trim().toLowerCase(), password });
-      console.log("[Login] mutateAsync resolved", { hasUser: !!result?.user, role: result?.user?.role });
+      console.log("[DetectiveLogin] mutateAsync resolved", { hasUser: !!result?.user, role: result?.user?.role });
       if (result.applicant) {
-        console.log("[Login] applicant detected, redirecting to application-under-review");
+        console.log("[DetectiveLogin] applicant detected, redirecting to application-under-review");
         setLocation("/application-under-review");
         return;
       }
-      console.log("[Login] refetchQueries start", { key: ["auth", "me"] });
+      console.log("[DetectiveLogin] refetchQueries start", { key: ["auth", "me"] });
       await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
-      console.log("[Login] refetchQueries done", { key: ["auth", "me"] });
-      console.log("[Login] cache after refetch", queryClient.getQueryData(["auth", "me"]));
+      console.log("[DetectiveLogin] refetchQueries done", { key: ["auth", "me"] });
+      console.log("[DetectiveLogin] cache after refetch", queryClient.getQueryData(["auth", "me"]));
       const user = result.user;
       if (user) {
         toast({ title: "Welcome back!", description: `Logged in as ${user.name}` });
         if (user.role === "admin") {
-          console.log("[Login] navigate -> /admin/dashboard");
+          console.log("[DetectiveLogin] navigate -> /admin/dashboard");
           setLocation("/admin/dashboard");
         } else if (user.role === "employee") {
-          console.log("[Login] navigate -> /employee/dashboard");
+          console.log("[DetectiveLogin] navigate -> /employee/dashboard");
           setLocation("/employee/dashboard");
         } else if (user.role === "detective") {
-          console.log("[Login] navigate -> /detective/dashboard");
+          console.log("[DetectiveLogin] navigate -> /detective/dashboard");
           setLocation("/detective/dashboard");
         } else {
-          console.log("[Login] navigate -> /");
-          setLocation("/");
+          // General user trying to use detective login - redirect to detective signup
+          console.log("[DetectiveLogin] non-detective user, redirecting to detective-signup");
+          toast({
+            title: "Detective account required",
+            description: "Please apply to become a detective first.",
+            variant: "default",
+          });
+          setLocation("/detective-signup");
         }
       }
     } catch (error: any) {
-      console.error("[Login] mutateAsync failed", error);
+      console.error("[DetectiveLogin] mutateAsync failed", error);
       toast({
         title: "Login failed",
         description: error.message || "Invalid email or password",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !email || !password) {
-      toast({
-        title: "Error",
-        description: "Please enter name, email, and password",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (password.length < 8) {
-      toast({
-        title: "Error",
-        description: "Password must be at least 8 characters",
-        variant: "destructive",
-      });
-      return;
-    }
-    try {
-      await registerMutation.mutateAsync({
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        password,
-      });
-      toast({ title: "Account created", description: "Welcome! You are now signed in." });
-      setLocation("/");
-    } catch (error: any) {
-      toast({
-        title: "Sign up failed",
-        description: error.message || "Could not create account",
         variant: "destructive",
       });
     }
@@ -180,14 +147,11 @@ export default function Login() {
     }
   };
 
-  const handleSubmit = isSignup ? handleSignup : handleLogin;
-  const isPending = isSignup ? registerMutation.isPending : loginMutation.isPending;
-
   return (
     <>
       <SEO 
-        title={isSignup ? "Sign Up | Ask Detectives" : "Sign In | Ask Detectives"}
-        description={isSignup ? "Create a free Ask Detectives account to find private investigators and manage your cases." : "Sign in to your Ask Detectives account to access your dashboard and manage investigations."}
+        title="Detective Sign In | Ask Detectives"
+        description="Sign in to your Ask Detectives detective account to manage your profile, cases, and client communications."
         robots="noindex, follow"
       />
       <div className="min-h-screen flex bg-white">
@@ -208,12 +172,10 @@ export default function Login() {
         </picture>
         <div className="relative z-10 p-12 text-white max-w-xl">
           <h1 className="text-5xl font-bold font-heading mb-6">
-            {isSignup ? "Join Ask Detectives." : "Welcome Back."}
+            Detective Portal.
           </h1>
           <p className="text-xl text-gray-200">
-            {isSignup
-              ? "Create an account to find detectives, save favorites, and manage your cases."
-              : "Log in to access your dashboard, manage investigations, or find the perfect detective for your case."}
+            Sign in to access your detective dashboard, manage cases, and communicate with clients.
           </p>
         </div>
       </div>
@@ -223,34 +185,17 @@ export default function Login() {
         <div className="w-full max-w-md space-y-8">
           <div className="text-center lg:text-left">
             <h2 className="text-3xl font-bold text-gray-900 font-heading">
-              {isSignup ? "Create your account" : "Sign in to Ask Detectives"}
+              Detective Sign In
             </h2>
             <p className="mt-2 text-gray-600">
-              {isSignup ? (
-                <>Already have an account? <Link href="/login" className="text-green-600 font-semibold hover:underline">Sign in</Link></>
-              ) : (
-                <>Don&apos;t have an account? <Link href="/signup" className="text-green-600 font-semibold hover:underline">Join here</Link></>
-              )}
+              Not a detective yet? <Link href="/detective-signup" className="text-green-600 font-semibold hover:underline">Apply here</Link>
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Looking for a detective? <Link href="/login" className="text-green-600 hover:underline">User login</Link>
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {isSignup && (
-              <div className="space-y-2">
-                <Label htmlFor="name">Full name</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  type="text"
-                  placeholder="Your name"
-                  className="h-12 bg-gray-50 border-gray-200"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoComplete="name"
-                  required
-                />
-              </div>
-            )}
+          <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -268,22 +213,20 @@ export default function Login() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                {!isSignup && (
-                  <button
-                    type="button"
-                    className="text-sm text-green-600 hover:underline bg-transparent border-0 p-0 cursor-pointer"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      if (!isSendingReset) {
-                        handleForgotPassword();
-                      }
-                    }}
-                    disabled={isSendingReset}
-                    title={isSendingReset ? "Sending reset link..." : "Send password reset email"}
-                  >
-                    {isSendingReset ? "Sending..." : "Forgot password?"}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="text-sm text-green-600 hover:underline bg-transparent border-0 p-0 cursor-pointer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (!isSendingReset) {
+                      handleForgotPassword();
+                    }
+                  }}
+                  disabled={isSendingReset}
+                  title={isSendingReset ? "Sending reset link..." : "Send password reset email"}
+                >
+                  {isSendingReset ? "Sending..." : "Forgot password?"}
+                </button>
               </div>
               <Input
                 id="password"
@@ -292,39 +235,19 @@ export default function Login() {
                 className="h-12 bg-gray-50 border-gray-200"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoComplete={isSignup ? "new-password" : "current-password"}
+                autoComplete="current-password"
                 required
-                minLength={isSignup ? 8 : undefined}
               />
-              {isSignup && (
-                <p className="text-xs text-gray-500">At least 8 characters</p>
-              )}
             </div>
 
             <Button
               type="submit"
               className="w-full h-12 bg-green-600 hover:bg-green-700 text-lg font-bold"
-              disabled={isPending}
-              data-testid={isSignup ? "button-signup" : "button-login"}
+              disabled={loginMutation.isPending}
+              data-testid="button-detective-login"
             >
-              {isPending ? (isSignup ? "Creating account..." : "Signing in...") : (isSignup ? "Create account" : "Continue")}
+              {loginMutation.isPending ? "Signing in..." : "Sign In"}
             </Button>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-gray-200" /></div>
-              <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">OR</span></div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-12 w-full"
-                onClick={() => { window.location.href = "/api/auth/google"; }}
-              >
-                Continue with Google
-              </Button>
-            </div>
           </form>
 
           <div className="text-xs text-gray-500 text-center mt-8">
