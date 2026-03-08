@@ -2665,6 +2665,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/categories", publicCategoriesRouter);
   app.use("/api/public/tags", publicTagsRouter);
 
+  // robots.txt - explicit route to prevent SPA HTML fallback on serverless/proxy setups
+  app.get("/robots.txt", async (_req: Request, res: Response) => {
+    try {
+      const [{ readFile }, { resolve }] = await Promise.all([
+        import("node:fs/promises"),
+        import("node:path"),
+      ]);
+
+      const candidates = [
+        resolve(process.cwd(), "dist", "public", "robots.txt"),
+        resolve(process.cwd(), "client", "public", "robots.txt"),
+      ];
+
+      for (const filePath of candidates) {
+        try {
+          const content = await readFile(filePath, "utf-8");
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.setHeader("Cache-Control", "public, max-age=3600");
+          return res.status(200).send(content);
+        } catch {
+          continue;
+        }
+      }
+
+      return res.status(404).type("text/plain").send("robots.txt not found");
+    } catch (error) {
+      console.error("[robots] Error serving robots.txt:", error);
+      return res.status(500).type("text/plain").send("Error loading robots.txt");
+    }
+  });
+
   // Sitemap Routes - dynamic generation from database with multiple XML files
   // CRITICAL: Keep registerRoutes startup non-blocking. All heavy imports are lazy inside handlers.
   const sendSitemap = async (
