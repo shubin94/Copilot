@@ -106,13 +106,14 @@ export function SEO({
 
     // Helper for Schema (JSON-LD) - supports multiple schemas
     const updateSchemas = (schemas: Record<string, any>[]) => {
-      // Remove existing schema scripts
-      document.querySelectorAll('script[type="application/ld+json"]').forEach(el => el.remove());
+      // Remove only SEO-component-created schema scripts (preserve global schemas from index.html)
+      document.querySelectorAll('script[type="application/ld+json"][data-seo-schema="true"]').forEach(el => el.remove());
       
       // Add new schemas
       schemas.forEach(data => {
         const element = document.createElement('script');
         element.setAttribute('type', 'application/ld+json');
+        element.setAttribute('data-seo-schema', 'true');
         element.textContent = JSON.stringify(data);
         document.head.appendChild(element);
       });

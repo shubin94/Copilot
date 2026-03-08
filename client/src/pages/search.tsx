@@ -649,9 +649,9 @@ export default function SearchPage() {
       "position": index + 1,
       "item": {
         "@type": "Service",
-        "@id": `https://www.askdetectives.com/services/${service.slug}`,
+        "@id": `https://www.askdetectives.com/service/${service.detective?.country}/${service.detective?.state}/${service.detective?.city}/${service.detective?.slug}/${service.slug}`,
         "name": service.title,
-        "url": `https://www.askdetectives.com/services/${service.slug}`,
+        "url": `https://www.askdetectives.com/service/${service.detective?.country}/${service.detective?.state}/${service.detective?.city}/${service.detective?.slug}/${service.slug}`,
         "provider": {
           "@type": "Organization",
           "name": service.detective?.businessName || service.title

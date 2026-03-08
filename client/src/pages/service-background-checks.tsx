@@ -295,7 +295,7 @@ export default function ServiceBackgroundChecksPage() {
             <h1 className="text-3xl font-bold text-gray-900 mb-4">Services Not Found</h1>
             <p className="text-gray-600 mb-8">{error}</p>
             <Button asChild className="bg-blue-600 hover:bg-blue-700">
-              <a href="/services/">Browse All Services</a>
+              <a href="/search">Browse All Services</a>
             </Button>
           </div>
         </main>
