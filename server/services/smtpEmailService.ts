@@ -30,6 +30,73 @@ class SMTPEmailService {
   private templates: Map<string, { subject: string; body: string }> = new Map();
   private templatesLoaded: boolean = false;
 
+  private extractPlaceholders(content: string): string[] {
+    const matches = content.match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g) || [];
+    const keys = new Set<string>();
+
+    for (const token of matches) {
+      const key = token.replace(/\{\{|\}\}/g, "").trim();
+      if (key) keys.add(key);
+    }
+
+    return Array.from(keys);
+  }
+
+  private enrichVariables(templateKey: string, input: EmailVariable): EmailVariable {
+    const enriched: EmailVariable = { ...input };
+
+    const getFirst = (...keys: string[]) => {
+      for (const key of keys) {
+        const value = enriched[key];
+        if (value !== undefined && value !== null && String(value).trim() !== "") {
+          return value;
+        }
+      }
+      return undefined;
+    };
+
+    const setIfMissing = (key: string, value: string | number | boolean | undefined) => {
+      if ((enriched[key] === undefined || enriched[key] === null || String(enriched[key]).trim() === "") && value !== undefined) {
+        enriched[key] = value;
+      }
+    };
+
+    const baseUrl = (config.baseUrl || "https://askdetectives.com").replace(/\/$/, "");
+    const nowFormatted = new Date().toLocaleString("en-IN", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+
+    const nameLike = getFirst("businessName", "companyName", "detectiveName", "userName", "fullName", "claimantName", "name");
+    setIfMissing("businessName", nameLike as any);
+    setIfMissing("detectiveName", nameLike as any);
+    setIfMissing("userName", getFirst("userName", "fullName", "detectiveName", "businessName", "name") as any);
+    setIfMissing("fullName", getFirst("fullName", "userName", "detectiveName", "businessName") as any);
+
+    const emailLike = getFirst("email", "loginEmail", "claimantEmail");
+    setIfMissing("email", emailLike as any);
+    setIfMissing("loginEmail", emailLike as any);
+
+    setIfMissing("country", (getFirst("country", "countryName", "countryCode") as any) || "Not specified");
+    setIfMissing("submittedAt", (getFirst("submittedAt", "createdAt", "created_on") as any) || nowFormatted);
+    setIfMissing("supportEmail", "support@askdetectives.com");
+    setIfMissing("loginUrl", `${baseUrl}/login`);
+
+    setIfMissing("temporaryPassword", getFirst("temporaryPassword", "tempPassword") as any);
+    setIfMissing("tempPassword", getFirst("tempPassword", "temporaryPassword") as any);
+
+    setIfMissing("currency", (getFirst("currency") as any) || "USD");
+    setIfMissing("amount", (getFirst("amount") as any) || "0");
+
+    setIfMissing("templateKey", templateKey);
+
+    return enriched;
+  }
+
   /**
    * Load email templates from database into memory cache
    */
@@ -62,15 +129,10 @@ class SMTPEmailService {
    * Example: "Hello {{userName}}" + { userName: "John" } = "Hello John"
    */
   private replaceVariables(template: string, variables: EmailVariable): string {
-    let result = template;
-
-    for (const [key, value] of Object.entries(variables)) {
-      const placeholder = `{{${key}}}`;
-      const replacement = value != null ? String(value) : "";
-      result = result.split(placeholder).join(replacement);
-    }
-
-    return result;
+    return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
+      const value = variables[key];
+      return value != null ? String(value) : "";
+    });
   }
 
   /**
@@ -135,9 +197,24 @@ class SMTPEmailService {
         return { success: false, error: `Template not found: ${templateKey}` };
       }
 
+      const resolvedVariables = this.enrichVariables(templateKey, variables);
+      const placeholders = [
+        ...this.extractPlaceholders(template.subject),
+        ...this.extractPlaceholders(template.body),
+      ];
+
+      const missingPlaceholders = Array.from(new Set(placeholders)).filter((key) => {
+        const value = resolvedVariables[key];
+        return value === undefined || value === null || String(value).trim() === "";
+      });
+
+      if (missingPlaceholders.length > 0) {
+        console.warn(`[SMTP Email] Missing template variables for ${templateKey}: ${missingPlaceholders.join(", ")}`);
+      }
+
       // Replace variables in subject and body
-      const subject = this.replaceVariables(template.subject, variables);
-      const textBody = this.replaceVariables(template.body, variables);
+      const subject = this.replaceVariables(template.subject, resolvedVariables);
+      const textBody = this.replaceVariables(template.body, resolvedVariables);
       const htmlBody = this.textToHtml(textBody);
 
       // Check SMTP configuration

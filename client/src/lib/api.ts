@@ -341,6 +341,16 @@ export const api = {
       }
     },
 
+    forgotPassword: async (email: string): Promise<{ success: boolean }> => {
+      const response = await csrfFetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+        body: JSON.stringify({ email }),
+        credentials: "include",
+      });
+      return handleResponse<{ success: boolean }>(response);
+    },
+
     changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
       const response = await csrfFetch("/api/auth/change-password", {
         method: "POST",

@@ -143,9 +143,10 @@ export function validateConfig(secretsLoaded: boolean = true) {
   }
 
   // Email: warn if SMTP not configured, but allow startup
+  // Note: This only checks environment variables; app_secrets are loaded separately at runtime
   const hasSmtp = !!config.email.smtpHost && !!config.email.smtpFromEmail;
-  if (!hasSmtp) {
-    console.warn("⚠️  Warning: Email not configured (SMTP_HOST + SMTP_FROM_EMAIL). Email features will be disabled until configured. Set these in environment variables or app_secrets.");
+  if (!hasSmtp && !secretsLoaded) {
+    console.warn("⚠️  Warning: Email not configured via environment variables (SMTP_HOST + SMTP_FROM_EMAIL). Checking app_secrets database...");
   }
 
   // Supabase required for asset storage (environment variables only, never from database)
