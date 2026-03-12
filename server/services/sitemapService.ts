@@ -58,7 +58,7 @@ function isCacheValid(filename: string): boolean {
   try {
     const filepath = join(SITEMAP_CACHE_DIR, filename);
     if (!existsSync(filepath)) return false;
-    const stat = require("fs").statSync(filepath);
+    const stat = statSync(filepath);
     const age = (Date.now() - stat.mtimeMs) / 1000;
     return age < CACHE_MAX_AGE;
   } catch {
@@ -160,6 +160,8 @@ async function generateStaticSitemap(): Promise<string> {
 async function generateCountriesSitemap(): Promise<string> {
   const cached = getCachedSitemap("countries.xml");
   if (cached) return cached;
+  
+  const today = new Date().toISOString().split("T")[0];
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
@@ -168,7 +170,7 @@ async function generateCountriesSitemap(): Promise<string> {
     SELECT DISTINCT 
       c.name as country_name,
       c.slug as country_slug,
-      MAX(d.updated_at) as last_mod
+      MAX(d.created_at) as last_mod
     FROM countries c
     INNER JOIN detectives d ON d.country_id = c.id
     WHERE d.status = 'active'
@@ -337,7 +339,7 @@ async function generateDetectivesSitemap(): Promise<string> {
     SELECT 
       d.id,
       d.slug,
-      d.updated_at,
+      d.created_at,
       c.name as country_name,
       c.slug as country_slug,
       d.state as state_name,
@@ -345,11 +347,11 @@ async function generateDetectivesSitemap(): Promise<string> {
     FROM detectives d
     INNER JOIN countries c ON d.country_id = c.id
     WHERE d.status = 'active' AND d.slug IS NOT NULL AND d.slug != ''
-    ORDER BY d.updated_at DESC
+    ORDER BY d.created_at DESC
   `);
 
   for (const profile of result.rows) {
-    const lastmod = getValidLastmod(profile.updated_at);
+    const lastmod = getValidLastmod(profile.created_at);
     const countrySlug = toSlug(profile.country_name || profile.country_slug);
     const stateSlug = profile.state_name ? toSlug(profile.state_name) : "";
     const citySlug = profile.city_name ? toSlug(profile.city_name) : "";

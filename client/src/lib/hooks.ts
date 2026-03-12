@@ -256,6 +256,21 @@ export function useSearchDetectives(params?: {
   });
 }
 
+export function useAdminSearchDetectives(params?: {
+  status?: string;
+  plan?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: ["admin", "detectives", "search", params],
+    queryFn: () => api.detectives.adminSearch(params),
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+  });
+}
+
 export function useCreateDetective() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -351,11 +366,18 @@ export function useService(id: string | null | undefined, preview?: boolean) {
   });
 }
 
-export function useServiceBySlug(serviceSlug: string | null | undefined, detectiveSlug?: string | null, preview?: boolean) {
+export function useServiceBySlug(
+  serviceSlug: string | null | undefined,
+  detectiveSlug?: string | null,
+  preview?: boolean,
+  country?: string,
+  state?: string,
+  city?: string
+) {
   return useQuery({
-    queryKey: ["services", "by-slug", detectiveSlug, serviceSlug, preview ? "preview" : "public"],
-    queryFn: () => api.services.getBySlug(serviceSlug!, detectiveSlug, { preview }),
-    enabled: !!serviceSlug,
+    queryKey: ["services", "by-slug", detectiveSlug, serviceSlug, country, state, city, preview ? "preview" : "public"],
+    queryFn: () => api.services.getBySlug(serviceSlug!, detectiveSlug, { preview }, country, state, city),
+    enabled: !!serviceSlug && !!detectiveSlug && !!country && !!state && !!city,
     staleTime: 60 * 1000, // 60 seconds - public service pages cached for better UX
     gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });

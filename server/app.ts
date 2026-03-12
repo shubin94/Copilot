@@ -640,8 +640,9 @@ export default async function runApp(
 
     // Capture 5xx errors in Sentry (skip 4xx user errors)
     if (status >= 500 && config.env.isProd && config.sentryDsn) {
-      const Sentry = require("@sentry/node");
-      Sentry.captureException(err);
+      import("@sentry/node").then(Sentry => {
+        Sentry.captureException(err);
+      });
     }
 
     // Log full error details server-side for debugging

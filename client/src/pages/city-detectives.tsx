@@ -26,6 +26,8 @@ interface Detective {
   phone?: string;
   whatsapp?: string;
   contactEmail?: string;
+  avgRating?: number;
+  reviewCount?: number;
 }
 
 interface LocationMeta {
@@ -217,7 +219,7 @@ export default function CityDetectivesPage() {
         }
 
         const data = await response.json();
-        const nextDetectives = data.detectives || [];
+        const nextDetectives = Array.isArray(data?.detectives) ? data.detectives : [];
         setDetectives(nextDetectives);
         setCurrentOffset(nextDetectives.length);
         setTotalCount(typeof data.total === "number" ? data.total : nextDetectives.length);
@@ -316,7 +318,7 @@ export default function CityDetectivesPage() {
       }
 
       const data = await response.json();
-      const newDetectives: Detective[] = Array.isArray(data.detectives) ? data.detectives : [];
+      const newDetectives: Detective[] = Array.isArray(data?.detectives) ? data.detectives : [];
 
       setDetectives((prev) => [...prev, ...newDetectives]);
       setCurrentOffset((prev) => prev + newDetectives.length);

@@ -126,7 +126,9 @@ export default function PageTag() {
                   {page.bannerImage && (
                     <img
                       src={page.bannerImage}
-                      alt={`${page.title} - ${page.category?.name || 'Article'}`}
+                      alt="Tag banner"
+                      width={800}
+                      height={176}
                       className="w-full h-44 object-cover"
                       loading="lazy"
                     />

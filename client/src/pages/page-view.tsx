@@ -183,12 +183,14 @@ export default function PageView() {
                 </p>
               </div>
               <div className="w-full">
-                <img
-                  src={page.bannerImage}
-                  alt={`${page.title} - ${page.category?.name || 'Article'} banner image`}
-                  className="w-full h-64 md:h-80 lg:h-96 object-cover rounded-2xl shadow-xl"
-                  loading="lazy"
-                />
+                  <img
+                    src={page.bannerImage}
+                    alt="Article banner image"
+                    width={800}
+                    height={320}
+                    className="w-full h-64 md:h-80 lg:h-96 object-cover rounded-2xl shadow-xl"
+                    loading="lazy"
+                  />
               </div>
             </div>
           </div>

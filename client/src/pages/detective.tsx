@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,7 +17,9 @@ import {
   generateCompleteDetectiveSchema} from "@/lib/structured-data";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { getCountryName } from "@/lib/slug-utils";
-import { useState, useEffect } from "react";
+// ...existing code...
+import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
+import { computeServiceBadges } from "@/lib/service-badges";
 
 const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
   month: "long",
@@ -41,6 +44,26 @@ export default function DetectivePublicPage() {
   
   const { data: detectiveData, isLoading: detectiveLoading } = useDetectiveBySlug(country, state, city, slug);
   const detective = detectiveData?.detective;
+
+  // --- SEO OVERRIDE FETCH ---
+  const [seoOverride, setSeoOverride] = useState<{ title_tag: string | null, meta_description: string | null, h1: string | null } | null>(null);
+  useEffect(() => {
+    if (!detective?.id) return;
+    fetch(`/api/detective-seo/${detective.id}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && (data.title_tag || data.meta_description || data.h1)) {
+          setSeoOverride({
+            title_tag: data.title_tag || null,
+            meta_description: data.meta_description || null,
+            h1: data.h1 || null,
+          });
+        } else {
+          setSeoOverride(null);
+        }
+      })
+      .catch(() => setSeoOverride(null));
+  }, [detective?.id]);
   
   // For querying services, we need the detective ID - will be available once detective loads
   const { data: servicesData, isLoading: isLoadingServices } = useServicesByDetective(detective?.id || null);
@@ -89,29 +112,31 @@ export default function DetectivePublicPage() {
       .replace(/^-+|-+$/g, "");
   };
 
-  // SEO: Generate optimal title and description
+  // SEO: Use override if present, else fallback to generated
   const detectiveName = detective?.businessName || `${(detective as any)?.firstName || ''} ${(detective as any)?.lastName || ''}`.trim() || 'Detective';
   const countryNameForDisplay = detective?.country ? getCountryName(detective.country) : detective?.country || '';
   const location = detective?.city && countryNameForDisplay 
     ? `${detective.city}, ${countryNameForDisplay}`
     : detective?.location || countryNameForDisplay || '';
-  
+
   const isMissingDetective = !detectiveLoading && !detective;
-  const seoTitle = isMissingDetective
-    ? "Detective Not Found | Ask Detectives"
-    : location
+  const fallbackTitle = location
     ? `${detectiveName} - Private Detective in ${location} | Ask Detectives`
     : `${detectiveName} - Professional Detective Services | Ask Detectives`;
-  
-  const seoDescription = isMissingDetective
-    ? "The detective profile you requested was not found."
-    : detective
+  const fallbackDescription = detective
     ? `Find contact details, reviews, and services for ${detectiveName}${location ? ` in ${location}` : ''}. Professional private investigation services. ${(detective as any).phone ? 'Call or WhatsApp for inquiry.' : ''}`
     : 'View detective profile on Ask Detectives';
-  
-  const h1Text = location
+  const fallbackH1 = location
     ? `${detectiveName} - Private Investigator in ${location}`
     : `${detectiveName} - Professional Detective Services`;
+
+  const seoTitle = isMissingDetective
+    ? "Detective Not Found | Ask Detectives"
+    : seoOverride?.title_tag?.trim() || fallbackTitle;
+  const seoDescription = isMissingDetective
+    ? "The detective profile you requested was not found."
+    : seoOverride?.meta_description?.trim() || fallbackDescription;
+  // h1Text is now inlined where needed
 
   // Breadcrumb navigation for SEO and user context
   // Format: Home > Country > State > City > Detective Name
@@ -168,6 +193,12 @@ export default function DetectivePublicPage() {
     citySlug
   ) : undefined;
 
+  // Compute badge state for detective
+  const badgeState = detective ? computeServiceBadges({
+    isVerified: detective.hasBlueTick || detective.isVerified,
+    effectiveBadges: (detective as any).effectiveBadges || [],
+  }) : undefined;
+
   return (
     <div className="min-h-screen bg-white">
       <SEO 
@@ -202,8 +233,9 @@ export default function DetectivePublicPage() {
           <>
             {/* Breadcrumb Navigation */}
             <Breadcrumb items={breadcrumbs} />
-            
-            <h1 className="text-3xl font-bold mb-6" data-testid="heading-detective-name">{h1Text}</h1>
+
+            {/* H1 at the very top */}
+            <h1 className="text-3xl font-bold mb-6">{seoOverride?.h1?.trim() || fallbackH1}</h1>
             
             {/* Machine-Readable Summary for AI Agents (Hidden but Present in First 500 Bytes) */}
             <dl className="sr-only">
@@ -228,39 +260,14 @@ export default function DetectivePublicPage() {
             <Card className="mb-6">
             <CardContent className="p-6">
               <div className="flex items-center gap-4">
-                <img src={detective.logo || "/placeholder-avatar.png"} alt="avatar" className="h-16 w-16 rounded-full object-cover border" />
+                <img src={detective.logo || "/placeholder-avatar.png"} alt="avatar" className="h-16 w-16 rounded-full object-cover border" width="64" height="64" />
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-lg" data-testid="text-detective-name">{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</span>
-                    {(() => {
-                      const planBadges = detective?.subscriptionPackage?.badges || null;
-                      const badgeState = planBadges
-                        ? {
-                            showBlueTick: !!planBadges.blueTick,
-                            showPro: !!planBadges.pro,
-                            showRecommended: !!planBadges.recommended,
-                            blueTickLabel: planBadges.blueTick ? "Verified" : null,
-                          }
-                        : null;
-
-                      if (!badgeState) return null;
-
-                      return (
-                        <>
-                          {badgeState.showBlueTick && (
-                            <img src="/blue-tick.png" alt={badgeState.blueTickLabel || "Verified"} className="h-5 w-5 flex-shrink-0" title={badgeState.blueTickLabel || "Verified"} data-testid="badge-blue-tick" />
-                          )}
-                          {badgeState.showPro && (
-                            <img src="/crown.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" />
-                          )}
-                          {badgeState.showRecommended && (
-                            <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-0.5">Recommended</Badge>
-                          )}
-                        </>
-                      );
-                    })()}
+                  {/* Detective name and badge restored inside the card */}
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-bold text-xl" data-testid="text-detective-name">{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</span>
+                    <DetectiveBadges badgeState={badgeState} />
                   </div>
-                  <div className="flex items-center gap-3 text-sm text-gray-700 mt-1">
+                  <div className="flex items-center gap-3 text-sm text-gray-700 mb-2">
                     {detective.location && (
                       <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {detective.location}</span>
                     )}
@@ -268,7 +275,7 @@ export default function DetectivePublicPage() {
                       <span className="inline-flex items-center gap-1"><Languages className="h-3 w-3" /> {(detective.languages as string[]).join(', ')}</span>
                     )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button className="bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 shadow-sm h-9 px-3" data-testid="button-contact-email" onClick={() => {
                       const to = (detective as any).contactEmail || (detective as any).email;
                       if (to) {
@@ -333,7 +340,9 @@ export default function DetectivePublicPage() {
                             {rec?.image ? (
                               <img
                                 src={rec.image}
-                                alt={rec.title || "Recognition"}
+                                alt="Recognition image"
+                                width={40}
+                                height={40}
                                 className="h-10 w-10 object-cover rounded"
                               />
                             ) : (
@@ -400,7 +409,9 @@ export default function DetectivePublicPage() {
                       <div className="relative h-40 bg-gray-200 overflow-hidden">
                         <img
                           src={article.thumbnail}
-                          alt={article.title}
+                          alt="Article thumbnail"
+                          width={320}
+                          height={160}
                           className="w-full h-full object-cover hover:scale-105 transition-transform"
                         />
                       </div>

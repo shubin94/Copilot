@@ -27,6 +27,8 @@ export default function ClaimAccount() {
   const token = new URLSearchParams(search).get("token");
 
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [verificationStatus, setVerificationStatus] = useState<"loading" | "valid" | "invalid">("loading");
   const [detectiveInfo, setDetectiveInfo] = useState<VerificationResponse["detective"] | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -58,12 +60,12 @@ export default function ClaimAccount() {
   }, [token]);
 
   const claimAccount = useMutation({
-    mutationFn: async (claimData: { token: string; email: string }) => {
+    mutationFn: async (claimData: { token: string; email: string; password: string }) => {
       return api.post("/api/claim-account", claimData);
     },
     onSuccess: () => {
       setTimeout(() => {
-        setLocation("/");
+        setLocation("/login");
       }, 3000);
     },
   });
@@ -80,7 +82,17 @@ export default function ClaimAccount() {
       return;
     }
 
-    claimAccount.mutate({ token, email });
+    if (!password || password.length < 8) {
+      setErrorMessage("Password must be at least 8 characters");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setErrorMessage("Passwords do not match");
+      return;
+    }
+
+    claimAccount.mutate({ token, email, password });
   };
 
   // Loading state while verifying token
@@ -174,11 +186,11 @@ export default function ClaimAccount() {
               <CardContent className="space-y-4">
                 <Alert className="border-green-200 bg-green-50">
                   <AlertDescription className="text-green-800">
-                    Your account has been claimed successfully. You will be redirected to the home page shortly.
+                    Your account has been claimed successfully! You can now log in with your email and password.
                   </AlertDescription>
                 </Alert>
                 <p className="text-sm text-gray-600">
-                  Please check your email for further instructions on setting up your password and accessing your account.
+                  You will be redirected to the login page shortly. Use your email and the password you just set to sign in.
                 </p>
               </CardContent>
             </Card>
@@ -245,7 +257,47 @@ export default function ClaimAccount() {
                     disabled={claimAccount.isPending}
                   />
                   <p className="text-xs text-gray-500">
-                    This email will be used for your account communications.
+                    This email will be used to log in to your account.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password *</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter a secure password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setErrorMessage("");
+                    }}
+                    required
+                    disabled={claimAccount.isPending}
+                    minLength={8}
+                  />
+                  <p className="text-xs text-gray-500">
+                    Minimum 8 characters. Use a strong password with letters, numbers, and symbols.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword">Confirm Password *</Label>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="Confirm your password"
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setErrorMessage("");
+                    }}
+                    required
+                    disabled={claimAccount.isPending}
+                    minLength={8}
+                  />
+                  <p className="text-xs text-gray-500">
+                    Must match the password above.
                   </p>
                 </div>
 

@@ -9,6 +9,7 @@ import { Link } from "wouter";
 import { useState, useEffect } from "react";
 import { useService } from "@/lib/hooks";
 import type { Service, Detective } from "@shared/schema";
+import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
 
 export default function FavoritesPage() {
   const { favorites, user } = useUser();
@@ -118,30 +119,11 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
   };
   
   return (
-    <ServiceCard
-      id={svc.id}
-      slug={svc.slug}
-      detectiveId={svc.detective.id}
-      images={images}
-      avatar={avatar}
-      name={detectiveName}
-      level={level}
-      title={svc.title}
-      rating={svc.avgRating}
-      reviews={svc.reviewCount}
-      price={Number(svc.basePrice)}
-      offerPrice={svc.offerPrice ? Number(svc.offerPrice) : null}
-      isOnEnquiry={svc.isOnEnquiry}
-      category={svc.category}
-      badgeState={badgeState}
-      phone={svc.detective.phone ?? undefined}
-      whatsapp={svc.detective.whatsapp ?? undefined}
-      contactEmail={svc.detective.contactEmail ?? undefined}
-      countryCode={svc.detective.country ?? undefined}
-      detectiveCountry={svc.detective.country ?? undefined}
-      detectiveState={svc.detective.state ?? undefined}
-      detectiveCity={svc.detective.city ?? undefined}
-      detectiveSlug={svc.detective.slug ?? undefined}
-    />
+    <div className="flex items-center gap-1">
+      <span className="font-medium">
+        {detectiveName}
+      </span>
+      <DetectiveBadges badgeState={badgeState} />
+    </div>
   );
 }

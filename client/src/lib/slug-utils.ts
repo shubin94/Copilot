@@ -1,40 +1,15 @@
+import { WORLD_COUNTRIES } from "./world-countries";
+
 /**
  * Country code to country name mapping
  */
-const countryCodeMap: Record<string, string> = {
-  'IN': 'India',
-  'US': 'United States',
-  'UK': 'United Kingdom',
-  'GB': 'United Kingdom',
-  'CA': 'Canada',
-  'AU': 'Australia',
-  'DE': 'Germany',
-  'FR': 'France',
-  'IT': 'Italy',
-  'ES': 'Spain',
-  'NZ': 'New Zealand',
-  'IE': 'Ireland',
-  'SG': 'Singapore',
-  'MY': 'Malaysia',
-  'PH': 'Philippines',
-  'TH': 'Thailand',
-  'VN': 'Vietnam',
-  'PK': 'Pakistan',
-  'BD': 'Bangladesh',
-  'ZA': 'South Africa',
-  'AE': 'United Arab Emirates',
-  'KW': 'Kuwait',
-  'SA': 'Saudi Arabia',
-  'QA': 'Qatar',
-  'OM': 'Oman',
-  'JP': 'Japan',
-  'CN': 'China',
-  'HK': 'Hong Kong',
-  'MX': 'Mexico',
-  'BR': 'Brazil',
-  'AR': 'Argentina',
-  'CL': 'Chile',
-};
+const countryCodeMap: Record<string, string> = WORLD_COUNTRIES.reduce(
+  (acc, country) => {
+    acc[country.code.toUpperCase()] = country.name;
+    return acc;
+  },
+  { UK: "United Kingdom" } as Record<string, string>,
+);
 
 /**
  * Convert country code to full country name
@@ -100,23 +75,35 @@ function formatLocationPart(part: string | undefined): string {
  * Format: /service/{country}/{state}/{city}/{detective-slug}/{service-slug}
  */
 export function buildServiceUrl(
-  detective: { country?: string | null; state?: string | null; city?: string | null; slug?: string | null; businessName?: string | null; [key: string]: any } | null,
+  detective: {
+    country?: string | null;
+    state?: string | null;
+    city?: string | null;
+    countrySlug?: string | null;
+    stateSlug?: string | null;
+    citySlug?: string | null;
+    slug?: string | null;
+    businessName?: string | null;
+    [key: string]: any;
+  } | null,
   service: { slug?: string | null; [key: string]: any } | null
 ): string {
   if (!detective || !service?.slug) return '/service';
-  
-  // Convert country code to full name (convert null to undefined)
-  const country = formatLocationPart(getCountryName(detective.country ?? undefined));
-  // Use full state and city names (already in full form)
-  const state = formatLocationPart(detective.state ?? undefined) || 'region';
-  const city = formatLocationPart(detective.city ?? undefined) || 'area';
-  
+
+  // Prefer canonical slugs from database payload.
+  const country = formatLocationPart(detective.countrySlug ?? undefined) || formatLocationPart(getCountryName(detective.country ?? undefined));
+  const state = formatLocationPart(detective.stateSlug ?? undefined) || formatLocationPart(detective.state ?? undefined) || 'region';
+  const city = formatLocationPart(detective.citySlug ?? undefined) || formatLocationPart(detective.city ?? undefined) || 'area';
+
   // Use detective slug or generate from business name for uniqueness
   const detectiveSlug = detective.slug || (detective.businessName ? generateSlug(detective.businessName) : 'detective');
-  
+
+  // Remove UUID prefix from service slug if present
+  const cleanSlug = service.slug?.replace(/^[0-9a-fA-F-]{36}-/, "");
+
   if (!country) return '/service';
-  
-  return `/service/${country}/${state}/${city}/${detectiveSlug}/${service.slug}`;
+
+  return `/service/${country}/${state}/${city}/${detectiveSlug}/${cleanSlug}`;
 }
 
 /**

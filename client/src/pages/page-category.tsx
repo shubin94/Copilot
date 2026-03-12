@@ -118,12 +118,14 @@ export default function PageCategory() {
               <Link key={page.id} href={`/${page.category.slug}/${page.slug}`}>
                 <div className="border rounded-xl overflow-hidden hover:shadow-lg transition-shadow bg-white">
                   {page.bannerImage && (
-                    <img
-                      src={page.bannerImage}
-                      alt={`${page.title} - ${page.category.name}`}
-                      className="w-full h-44 object-cover"
-                      loading="lazy"
-                    />
+                      <img
+                        src={page.bannerImage}
+                        alt="Category banner"
+                        width={800}
+                        height={176}
+                        className="w-full h-44 object-cover"
+                        loading="lazy"
+                      />
                   )}
                   <div className="p-5 space-y-3">
                     <div className="flex flex-wrap gap-2">

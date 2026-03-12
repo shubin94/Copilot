@@ -612,6 +612,18 @@ export class DatabaseStorage implements IStorage {
     };
 
     const sanitizedInsert: any = { ...insertDetective };
+
+    if (!sanitizedInsert.contactEmail && sanitizedInsert.userId) {
+      const [userRow] = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, sanitizedInsert.userId))
+        .limit(1);
+      if (userRow?.email) {
+        sanitizedInsert.contactEmail = userRow.email.toLowerCase().trim();
+      }
+    }
+
     sanitizedInsert.languages = toStringArray(insertDetective.languages, { splitComma: true });
     sanitizedInsert.businessDocuments = toStringArray(insertDetective.businessDocuments);
     sanitizedInsert.identityDocuments = toStringArray(insertDetective.identityDocuments);
@@ -731,25 +743,11 @@ export class DatabaseStorage implements IStorage {
       throw new Error("Invalid city selection");
     }
 
-    // Step 3: Auto-generate slug if missing
+    // Step 3: Auto-generate slug if missing, using centralized uniqueness logic
     let slug = detective.slug;
     if (!slug && detective.businessName) {
-      slug = generateSlug(detective.businessName);
-      // Ensure uniqueness
-      let counter = 1;
-      let uniqueSlug = slug;
-      while (true) {
-        const [existing] = await db.select().from(detectives)
-          .where(and(
-            eq(detectives.slug, uniqueSlug),
-            ne(detectives.id, id)
-          ))
-          .limit(1);
-        if (!existing) break;
-        uniqueSlug = `${slug}-${counter}`;
-        counter++;
-      }
-      slug = uniqueSlug;
+      const baseSlug = generateSlug(detective.businessName);
+      slug = await this.ensureUniqueDetectiveSlug(baseSlug, id);
     }
 
     // Step 4: Update detective with IDs, names, and slug
@@ -780,11 +778,12 @@ export class DatabaseStorage implements IStorage {
   async updateDetectiveAdmin(id: string, updates: Partial<Detective>): Promise<Detective | undefined> {
     // Admin can update more fields including status, verification, and subscription info
     const allowedFields: (keyof Detective)[] = [
-      'businessName', 'bio', 'location', 'phone', 'whatsapp', 'languages',
-      'status', 'isVerified', 'country', 'level', 'planActivatedAt', 'planExpiresAt',
+      'businessName', 'bio', 'location', 'country', 'state', 'city', 'phone', 'phoneCountryCode', 'phoneNumber', 'whatsapp', 'licenseNumber', 'languages',
+      'status', 'isVerified', 'level', 'planActivatedAt', 'planExpiresAt',
       'subscriptionPackageId', 'billingCycle', 'subscriptionActivatedAt', 'subscriptionExpiresAt',
       'pendingPackageId', 'pendingBillingCycle',
       'hasBlueTick', 'blueTickActivatedAt', 'blueTickAddon',
+      'businessType', 'businessDocuments', 'identityDocuments',
     ];
     const safeUpdates: Partial<Detective> = {};
     
@@ -1211,12 +1210,16 @@ export class DatabaseStorage implements IStorage {
       
       // Detective fields needed by ServiceCard
       detectiveId: detectives.id,
+      detectiveUserId: detectives.userId,
       detectiveBusinessName: detectives.businessName,
       detectiveLevel: detectives.level,
       detectiveLogo: detectives.logo,
       detectiveCountry: detectives.country,
       detectiveState: detectives.state,
       detectiveCity: detectives.city,
+      detectiveCountrySlug: countries.slug,
+      detectiveStateSlug: states.slug,
+      detectiveCitySlug: cities.slug,
       detectiveSlug: detectives.slug,
       detectivePhone: detectives.phone,
       detectiveWhatsapp: detectives.whatsapp,
@@ -1242,22 +1245,17 @@ export class DatabaseStorage implements IStorage {
     const cappedLimit = limit;
 
     if (sortBy === 'popular') {
-      // Popular sort: Query services that are the best per detective (from materialized view)
-      // The materialized view pre-selects 1 best service per detective, so we just check membership
-      // This avoids DISTINCT ON full table sort, instead filtering by the view's pre-computed results
-      
+      // Popular sort: Sort by order_count DESC (most popular first)
+      // Shows ALL services, not just one per detective
       query = db.select(baseSelect)
         .from(services)
-        .where(
-          and(
-            and(...conditions) ?? sql`true`,
-            // Only include services that are in the materialized view (best per detective)
-            sql`${services.id} IN (SELECT service_id FROM popular_service_per_detective)`
-          )
-        )
         .leftJoin(detectives, eq(services.detectiveId, detectives.id))
+        .leftJoin(countries, eq(detectives.countryId, countries.id))
+        .leftJoin(states, eq(detectives.stateId, states.id))
+        .leftJoin(cities, eq(detectives.cityId, cities.id))
         .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
         .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))
+        .where(and(...conditions) ?? sql`true`)
         .orderBy(desc(services.orderCount)) as any;
 
       if (filters.ratingMin !== undefined) {
@@ -1267,6 +1265,9 @@ export class DatabaseStorage implements IStorage {
       query = db.select(baseSelect)
         .from(services)
         .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
+        .leftJoin(countries, eq(detectives.countryId, countries.id))
+        .leftJoin(states, eq(detectives.stateId, states.id))
+        .leftJoin(cities, eq(detectives.cityId, cities.id))
         .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
         .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
         .where(and(...conditions) ?? sql`true`);
@@ -1320,12 +1321,16 @@ export class DatabaseStorage implements IStorage {
         orderCount: r.serviceOrderCount,
         detective: {
           id: r.detectiveId,
+          userId: r.detectiveUserId,
           businessName: r.detectiveBusinessName,
           level: r.detectiveLevel,
           logo: r.detectiveLogo,
           country: r.detectiveCountry,
           state: r.detectiveState,
           city: r.detectiveCity,
+          countrySlug: r.detectiveCountrySlug,
+          stateSlug: r.detectiveStateSlug,
+          citySlug: r.detectiveCitySlug,
           slug: detectiveSlug,
           phone: r.detectivePhone,
           whatsapp: r.detectiveWhatsapp,
