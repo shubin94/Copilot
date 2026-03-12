@@ -778,7 +778,7 @@ export class DatabaseStorage implements IStorage {
   async updateDetectiveAdmin(id: string, updates: Partial<Detective>): Promise<Detective | undefined> {
     // Admin can update more fields including status, verification, and subscription info
     const allowedFields: (keyof Detective)[] = [
-      'businessName', 'bio', 'location', 'country', 'state', 'city', 'phone', 'phoneCountryCode', 'phoneNumber', 'whatsapp', 'licenseNumber', 'languages',
+      'businessName', 'bio', 'location', 'country', 'state', 'city', 'phone', 'phoneCountryCode', 'whatsapp', 'licenseNumber', 'languages',
       'status', 'isVerified', 'level', 'planActivatedAt', 'planExpiresAt',
       'subscriptionPackageId', 'billingCycle', 'subscriptionActivatedAt', 'subscriptionExpiresAt',
       'pendingPackageId', 'pendingBillingCycle',
@@ -2542,7 +2542,7 @@ export class DatabaseStorage implements IStorage {
       .from(detectiveApplications)
       .where(and(
         eq(detectiveApplications.phoneCountryCode, phoneCountryCode),
-        eq(detectiveApplications.phoneNumber, phoneNumber)
+        eq(detectiveApplications.phone, phoneNumber)
       ))
       .limit(1);
     return application;

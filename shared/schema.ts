@@ -50,7 +50,6 @@ export const detectives = pgTable("detectives", {
   pincode: text("pincode"),
   phone: text("phone"),
   phoneCountryCode: text("phone_country_code"),
-  phoneNumber: text("phone_number"),
   whatsapp: text("whatsapp"),
   contactEmail: text("contact_email"),
   languages: text("languages").array().default(sql`ARRAY['English']::text[]`),
