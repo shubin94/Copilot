@@ -79,6 +79,7 @@ import featuredHomeServicesRouter from "./routes/featured-home-services.js";
 import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
 import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.js";
 import { getGoogleIndexing } from "./services/google-indexing-service.js";
+import { normalizeRouteSlugParam } from "./lib/location-normalizer.js";
 
 // Utility function to generate URL-safe slugs from text
 
@@ -4372,10 +4373,21 @@ Content-Signal: index=public; train=deny
   app.get("/api/detectives/:country/:state/:city/:slug", async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { country, state, city, slug } = req.params;
+      const countrySlug = normalizeRouteSlugParam(country);
+      const stateSlug = normalizeRouteSlugParam(state);
+      const citySlug = normalizeRouteSlugParam(city);
+      const detectiveSlug = normalizeRouteSlugParam(slug);
 
       // Route guard: allow dedicated location API route
-      if (String(country).toLowerCase() === "location") {
+      if (countrySlug === "location") {
         return next();
+      }
+
+      if (!countrySlug || !stateSlug || !citySlug || !detectiveSlug) {
+        return res.status(400).json({
+          error: "Invalid detective route parameters",
+          code: "INVALID_DETECTIVE_ROUTE_PARAMS",
+        });
       }
 
       // Join detectives with countries, states, cities and match by slug
@@ -4389,7 +4401,7 @@ Content-Signal: index=public; train=deny
         WHERE c.slug = $1 AND s.slug = $2 AND ct.slug = $3 AND d.slug = $4
         LIMIT 1
       `;
-      const values = [country, state, city, slug];
+      const values = [countrySlug, stateSlug, citySlug, detectiveSlug];
       const result = await pool.query(query, values);
       if (result.rows.length === 0) {
         return res.status(404).json({ error: "Detective not found" });
@@ -4669,7 +4681,6 @@ Content-Signal: index=public; train=deny
         location: z.string().optional(),
         phone: z.string().optional(),
         phoneCountryCode: z.string().optional(),
-        phoneNumber: z.string().optional(),
         whatsapp: z.string().optional(),
         licenseNumber: z.string().optional(),
         languages: z.array(z.string()).optional(),
@@ -4702,7 +4713,6 @@ Content-Signal: index=public; train=deny
         location: allowedData.location,
         phone: allowedData.phone,
         phoneCountryCode: allowedData.phoneCountryCode,
-        phoneNumber: allowedData.phoneNumber,
         whatsapp: allowedData.whatsapp,
         licenseNumber: allowedData.licenseNumber,
         languages: allowedData.languages,
@@ -6254,9 +6264,9 @@ Content-Signal: index=public; train=deny
       
       // Duplicate checks for email/phone
       const existingByEmail = await storage.getDetectiveApplicationByEmail(validatedData.email);
-      const hasPhone = !!validatedData.phoneCountryCode && !!validatedData.phoneNumber;
+      const hasPhone = !!validatedData.phoneCountryCode && !!validatedData.phone;
       const existingByPhone = hasPhone
-        ? await storage.getDetectiveApplicationByPhone(validatedData.phoneCountryCode!, validatedData.phoneNumber!)
+        ? await storage.getDetectiveApplicationByPhone(validatedData.phoneCountryCode!, validatedData.phone!)
         : undefined;
 
       // Check for duplicates - allow update if admin, else reject
@@ -6426,7 +6436,7 @@ Content-Signal: index=public; train=deny
 
           // Build phone number
           const phone = application.phoneCountryCode && application.phoneNumber 
-            ? `${application.phoneCountryCode}${application.phoneNumber}`
+            ? `${application.phoneCountryCode}${application.phone}`
             : undefined;
           const agencyBusinessDocuments = Array.isArray(application.businessDocuments)
             ? application.businessDocuments
@@ -7558,7 +7568,10 @@ Content-Signal: index=public; train=deny
   // API: Detectives filtered by location slugs (country/state/city)
   app.get('/api/detectives/location/:countrySlug/:stateSlug?/:citySlug?', async (req: Request, res: Response) => {
     try {
-      const { countrySlug, stateSlug, citySlug } = req.params as { countrySlug: string; stateSlug?: string; citySlug?: string };
+      const rawParams = req.params as { countrySlug: string; stateSlug?: string; citySlug?: string };
+      const countrySlug = normalizeRouteSlugParam(rawParams.countrySlug);
+      const stateSlug = rawParams.stateSlug ? normalizeRouteSlugParam(rawParams.stateSlug) : undefined;
+      const citySlug = rawParams.citySlug ? normalizeRouteSlugParam(rawParams.citySlug) : undefined;
       console.log("[API] detectives/location route start", { countrySlug, stateSlug, citySlug });
 
       const validationError = validateLocationSlugParams({ countrySlug, stateSlug, citySlug });
@@ -7575,6 +7588,23 @@ Content-Signal: index=public; train=deny
         offset,
       });
 
+      if (!result.locationFound) {
+        return res.status(404).json({
+          meta: {
+            country: result.location.country,
+            state: result.location.state || null,
+            city: result.location.city || null,
+            fallbackLevel: result.fallbackLevel,
+            found: false,
+          },
+          detectives: [],
+          total: 0,
+          hasMore: false,
+          limit,
+          offset,
+        });
+      }
+
       const maskedDetectives = await maskLocationDetectives(result.detectives);
 
       res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
@@ -7583,10 +7613,11 @@ Content-Signal: index=public; train=deny
           country: result.location.country,
           state: result.location.state || null,
           city: result.location.city || null,
+          fallbackLevel: result.fallbackLevel,
           found: true
         },
         detectives: maskedDetectives,
-        total: result.estimatedTotal,
+        total: result.totalCount,
         hasMore: result.hasMore,
         limit,
         offset
@@ -7600,7 +7631,10 @@ Content-Signal: index=public; train=deny
   // Returns: Array of services with detective info, filtered by location and category
   app.get('/api/services/background-checks/:country/:state/:city', async (req: Request, res: Response) => {
     try {
-      const { country: countrySlug, state: stateSlug, city: citySlug } = req.params as { country: string; state: string; city: string };
+      const rawParams = req.params as { country: string; state: string; city: string };
+      const countrySlug = normalizeRouteSlugParam(rawParams.country);
+      const stateSlug = normalizeRouteSlugParam(rawParams.state);
+      const citySlug = normalizeRouteSlugParam(rawParams.city);
 
       // Validation: All three segments required for Phase 1
       if (!countrySlug || !stateSlug || !citySlug) {

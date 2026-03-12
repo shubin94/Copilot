@@ -1,3 +1,3 @@
-SELECT id, business_name, city, state, country
-FROM detectives
-WHERE LOWER(TRIM(state)) = 'assam';
+UPDATE detectives
+SET phone_country_code = '+91'
+WHERE phone LIKE '+91%';

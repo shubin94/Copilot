@@ -3,15 +3,10 @@ const stateSlugCache = new Map<string, string>();
 const citySlugCache = new Map<string, string>();
 const countrySlugCache = new Map<string, string>();
 const countryRecordCache = new Map<string, { id: number; slug: string }>();
+import { normalizeRouteSlugParam, normalizeSlugSegment, toTitleFromSlug } from "./location-normalizer.js";
 
 function slugifySegment(value: string | undefined | null): string {
-  return String(value || "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return normalizeSlugSegment(value);
 }
 
 async function resolveCountryRecord(countryCodeOrName: string | undefined): Promise<{ id: number; slug: string } | null> {
@@ -198,6 +193,7 @@ import { db, pool } from "../../db/index.js";
 import { detectives, countries, states, cities } from "../../shared/schema.js";
 import { eq, and, or, ilike, desc, sql } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.js";
+import { resolveLocationHierarchyForSeo } from "../services/locationSeoResolutionService.js";
 
 /**
  * ✅ OPTIMIZATION: In-memory cache for location resolution (country/state/city IDs)
@@ -355,10 +351,10 @@ export async function getDetectiveBySlugForSEO(
   slug: string
 ): Promise<any | null> {
   try {
-    const countrySlug = country.toLowerCase();
-    const stateSlug = state.toLowerCase();
-    const citySlug = city.toLowerCase();
-    const detectiveSlug = slug.toLowerCase();
+    const countrySlug = normalizeRouteSlugParam(country);
+    const stateSlug = normalizeRouteSlugParam(state);
+    const citySlug = normalizeRouteSlugParam(city);
+    const detectiveSlug = normalizeRouteSlugParam(slug);
 
     // Primary lookup path: match by canonical location slugs.
     let detective = await fetchDetectiveSeoRow(
@@ -840,10 +836,10 @@ export function extractDetectiveRouteParams(
   
   if (segments.length === 5 && segments[0] === 'detectives') {
     return {
-      country: segments[1],
-      state: segments[2],
-      city: segments[3],
-      slug: segments[4],
+      country: normalizeRouteSlugParam(segments[1]),
+      state: normalizeRouteSlugParam(segments[2]),
+      city: normalizeRouteSlugParam(segments[3]),
+      slug: normalizeRouteSlugParam(segments[4]),
     };
   }
   
@@ -874,9 +870,9 @@ export function extractLocationRouteParams(
   
   if (segments.length >= 2 && segments.length <= 4 && segments[0] === 'detectives') {
     return {
-      country: segments[1],
-      state: segments[2],
-      city: segments[3],
+      country: normalizeRouteSlugParam(segments[1]),
+      state: segments[2] ? normalizeRouteSlugParam(segments[2]) : undefined,
+      city: segments[3] ? normalizeRouteSlugParam(segments[3]) : undefined,
     };
   }
   
@@ -892,7 +888,8 @@ export async function getLocationDetectivesForSEO(
   state?: string,
   city?: string,
   limit?: number,
-  offset?: number
+  offset?: number,
+  options?: { allowParentFallback?: boolean; includeTotalCount?: boolean }
 ): Promise<{
   detectives: Array<{
     id: string;
@@ -913,97 +910,55 @@ export async function getLocationDetectivesForSEO(
     effectiveBadges: { blueTick: boolean; pro: boolean; recommended: boolean };
   }>;
   hasMore: boolean;
+  totalCount: number;
+  locationFound: boolean;
+  fallbackLevel: "none" | "country" | "state";
   location: { country: string; state?: string; city?: string };
 }> {
+  const titleFromSlugIfPresent = (slugValue: string | undefined): string | undefined => {
+    if (!slugValue) return undefined;
+    return toTitleFromSlug(slugValue) || slugValue;
+  };
+
   try {
-    // Convert slug to title case
-    const slugToTitleCase = (slug: string): string => {
-      if (!slug) return "";
-      return slug
-        .split("-")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-        .join(" ");
-    };
-
-    const normalizeToSlug = (value: string): string => {
-      return value
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-    };
-
-    const getCountryCodeFromSlug = (countrySlugValue: string): string | undefined => {
-      try {
-        const displayNames = new Intl.DisplayNames(["en"], { type: "region" });
-        for (let first = 65; first <= 90; first += 1) {
-          for (let second = 65; second <= 90; second += 1) {
-            const code = String.fromCharCode(first) + String.fromCharCode(second);
-            const name = displayNames.of(code);
-            if (!name || name === code) continue;
-            if (normalizeToSlug(name) === countrySlugValue.toLowerCase()) {
-              return code;
-            }
-          }
-        }
-      } catch (_error) {
-        // Ignore runtime locale issues and fallback to title-case country matching
-      }
-      return undefined;
-    };
-
-
     // Build query conditions using only country_id, state_id, city_id
     const limitValue = typeof limit === "number" && limit > 0 ? Math.floor(limit) : 15;
     const offsetValue = typeof offset === "number" && offset > 0 ? Math.floor(offset) : 0;
+    const allowParentFallback = options?.allowParentFallback ?? true;
+    const includeTotalCount = options?.includeTotalCount ?? false;
+    const countrySlugParam = normalizeRouteSlugParam(country);
+    const stateSlugParam = state ? normalizeRouteSlugParam(state) : undefined;
+    const citySlugParam = city ? normalizeRouteSlugParam(city) : undefined;
 
-    // Resolve country by slug
-    const countrySlug = country.toLowerCase();
-    const countryRows = await db
-      .select({ id: countries.id, name: countries.name, code: countries.code })
-      .from(countries)
-      .where(eq(countries.slug, countrySlug))
-      .limit(1);
-    const resolvedCountryId = countryRows[0]?.id;
-    const resolvedCountryCode = countryRows[0]?.code;
-    const resolvedCountryName = countryRows[0]?.name;
-    if (!resolvedCountryId) {
-      return { detectives: [], hasMore: false, location: { country } };
-    }
+    const hierarchy = await resolveLocationHierarchyForSeo(
+      countrySlugParam,
+      stateSlugParam,
+      citySlugParam,
+      allowParentFallback,
+    );
+    const resolvedCountryId = hierarchy.countryId;
+    const resolvedCountryName = hierarchy.countryName;
+    const resolvedStateId = hierarchy.stateId;
+    const resolvedStateName = hierarchy.stateName;
+    const resolvedCityId = hierarchy.cityId;
+    const resolvedCityName = hierarchy.cityName;
+    const stateResolved = hierarchy.stateResolved;
+    const cityResolved = hierarchy.cityResolved;
+    const fallbackLevel = hierarchy.fallbackLevel;
 
-    // Resolve state by slug and countryId
-    let resolvedStateId: string | undefined = undefined;
-    let resolvedStateName: string | undefined = undefined;
-    if (state) {
-      const stateRows = await db
-        .select({ id: states.id, name: states.name })
-        .from(states)
-        .where(and(eq(states.countryId, resolvedCountryId), eq(states.slug, state.toLowerCase())))
-        .limit(1);
-      resolvedStateId = stateRows[0]?.id;
-      resolvedStateName = stateRows[0]?.name;
-      if (!resolvedStateId) {
-        resolvedStateName = undefined;
-        return { detectives: [], hasMore: false, location: { country, state } };
-      }
-    }
-
-    // Resolve city by slug and stateId
-    let resolvedCityId: string | undefined = undefined;
-    let resolvedCityName: string | undefined = undefined;
-    if (city && resolvedStateId) {
-      const cityRows = await db
-        .select({ id: cities.id, name: cities.name })
-        .from(cities)
-        .where(and(eq(cities.stateId, resolvedStateId), eq(cities.slug, city.toLowerCase())))
-        .limit(1);
-      resolvedCityId = cityRows[0]?.id;
-      resolvedCityName = cityRows[0]?.name;
-      if (!resolvedCityId) {
-        resolvedCityName = undefined;
-        return { detectives: [], hasMore: false, location: { country, state, city } };
-      }
+    if (!resolvedCountryId || !hierarchy.locationFound) {
+      return {
+        detectives: [],
+        hasMore: false,
+        totalCount: 0,
+        locationFound: false,
+        fallbackLevel,
+        location: {
+          country: resolvedCountryName || titleFromSlugIfPresent(countrySlugParam) || country,
+          state: stateResolved ? titleFromSlugIfPresent(stateSlugParam) : undefined,
+          city: cityResolved ? titleFromSlugIfPresent(citySlugParam) : undefined,
+        },
+      };
     }
 
     // Build detective filter conditions
@@ -1021,7 +976,16 @@ export async function getLocationDetectivesForSEO(
       city,
     });
 
-    // Query detectives with limit + 1 for efficient pagination (no COUNT needed)
+    let totalCount = 0;
+    if (includeTotalCount) {
+      const [countRow] = await db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(detectives)
+        .where(and(...conditions));
+      totalCount = Number(countRow?.count ?? 0);
+    }
+
+    // Query detectives with limit + 1 for pagination
     const rows = await db
       .select({
         id: detectives.id,
@@ -1050,6 +1014,9 @@ export async function getLocationDetectivesForSEO(
     // Determine if there are more results beyond the limit
     const hasMore = rows.length > limitValue;
     const limitedRows = hasMore ? rows.slice(0, limitValue) : rows;
+    if (!includeTotalCount) {
+      totalCount = hasMore ? offsetValue + limitedRows.length + 1 : offsetValue + limitedRows.length;
+    }
 
     const detectiveIds = limitedRows.map((row) => row.id).filter((id): id is string => typeof id === "string" && id.length > 0);
     const ratingsByDetective = new Map<string, { avgRating: number; reviewCount: number }>();
@@ -1120,14 +1087,32 @@ export async function getLocationDetectivesForSEO(
     return {
       detectives: detectivesWithBadges,
       hasMore,
-      location: { country, state, city },
+      totalCount,
+      locationFound: true,
+      fallbackLevel,
+      location: {
+        country: resolvedCountryName || titleFromSlugIfPresent(countrySlugParam) || countrySlugParam,
+        state: stateResolved ? (resolvedStateName || titleFromSlugIfPresent(stateSlugParam)) : undefined,
+        city: cityResolved ? (resolvedCityName || titleFromSlugIfPresent(citySlugParam)) : undefined,
+      },
     };
   } catch (error) {
+    const normalizedCountrySlug = normalizeRouteSlugParam(country);
+    const normalizedStateSlug = state ? normalizeRouteSlugParam(state) : undefined;
+    const normalizedCitySlug = city ? normalizeRouteSlugParam(city) : undefined;
+
     console.error("[SEO] Error fetching location detectives:", error);
     return {
       detectives: [],
       hasMore: false,
-      location: { country, state, city },
+      totalCount: 0,
+      locationFound: false,
+      fallbackLevel: "none",
+      location: {
+        country: titleFromSlugIfPresent(normalizedCountrySlug) || country,
+        state: titleFromSlugIfPresent(normalizedStateSlug),
+        city: titleFromSlugIfPresent(normalizedCitySlug),
+      },
     };
   }
 }

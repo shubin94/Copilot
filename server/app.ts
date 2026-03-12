@@ -14,6 +14,7 @@ type PgPool = InstanceType<typeof Pool>;
 // NOTE: registerRoutes is imported INSIDE runApp() to ensure environment is loaded first
 import { config } from "./config.js";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.js";
+import { formatLocationIntegrityReport, runLocationIntegrityCheck } from "./lib/location-integrity-check.js";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -699,6 +700,14 @@ export default async function runApp(
         } catch (e) {
           console.error('Failed to schedule subscription expiry:', e);
         }
+
+        // Non-blocking startup audit for location + slug integrity.
+        // This surfaces schema/data drift early without impacting uptime.
+        try {
+          scheduleLocationIntegrityCheck();
+        } catch (e) {
+          console.error('Failed to schedule location integrity check:', e);
+        }
         
         // Wait a tick to ensure socket is truly bound before resolving
         process.nextTick(() => {
@@ -715,6 +724,33 @@ export default async function runApp(
       reject(error);
     }
   });
+}
+
+function scheduleLocationIntegrityCheck() {
+  // Allow emergency disable via env without redeploying code
+  if (String(process.env.LOCATION_INTEGRITY_CHECK || "").toLowerCase() === "false") {
+    log("Location integrity check disabled by LOCATION_INTEGRITY_CHECK=false", "integrity");
+    return;
+  }
+
+  const delayMs = config.env.isProd ? 15000 : 3000;
+  setTimeout(async () => {
+    try {
+      const report = await runLocationIntegrityCheck({
+        mode: "light",
+        sampleLimit: config.env.isProd ? 3 : 5,
+      });
+      const reportText = formatLocationIntegrityReport(report);
+
+      if (report.ok) {
+        log(reportText, "integrity");
+      } else {
+        console.warn(reportText);
+      }
+    } catch (error) {
+      console.error("[Location Integrity] Startup audit failed:", error);
+    }
+  }, delayMs);
 }
 
 /**
