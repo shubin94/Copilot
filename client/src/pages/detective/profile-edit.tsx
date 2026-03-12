@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Upload, Save, Loader2, AlertCircle, Lock, Plus, Trash2 } from "lucide-react";
+import { Upload, Save, Loader2, AlertCircle, Lock, Plus, Trash2, FileUp } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -66,6 +67,15 @@ export default function DetectiveProfileEdit() {
   const [, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showChangeRequestDialog, setShowChangeRequestDialog] = useState(false);
+  const [changeRequestFormData, setChangeRequestFormData] = useState({
+    email: "",
+    businessName: "",
+    subject: "",
+    attachment: null as File | null,
+  });
+  const [attachmentFileName, setAttachmentFileName] = useState("");
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
 
   // Load detective data into form when it's available
   useEffect(() => {
@@ -258,6 +268,49 @@ export default function DetectiveProfileEdit() {
     );
   }
 
+    const handleSubmitChangeRequest = async () => {
+      try {
+        setIsSubmittingRequest(true);
+        const formDataToSend = new FormData();
+        formDataToSend.append("email", changeRequestFormData.email);
+        formDataToSend.append("businessName", changeRequestFormData.businessName);
+        formDataToSend.append("subject", changeRequestFormData.subject);
+        if (changeRequestFormData.attachment) {
+          formDataToSend.append("attachment", changeRequestFormData.attachment);
+        }
+
+        const response = await fetch("/api/detective/request-info-change", {
+          method: "POST",
+          body: formDataToSend,
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to submit change request");
+        }
+
+        toast({
+          title: "Request Submitted",
+          description: "Your request for information change has been submitted to our admin team. We will review and update your profile soon.",
+        });
+
+        setShowChangeRequestDialog(false);
+        setChangeRequestFormData({
+          email: "",
+          businessName: "",
+          subject: "",
+          attachment: null,
+        });
+        setAttachmentFileName("");
+      } catch (error: any) {
+        toast({
+          title: "Submission Failed",
+          description: error.message || "Failed to submit change request",
+          variant: "destructive",
+        });
+      } finally {
+        setIsSubmittingRequest(false);
+      }
+    };
   if (error || !detective) {
     return (
       <DashboardLayout role="detective">
@@ -421,7 +474,7 @@ export default function DetectiveProfileEdit() {
                 <Label htmlFor="state">State / Province</Label>
                 <Select value={formData.state} disabled>
                   <SelectTrigger id="state" data-testid="select-state" disabled className="bg-gray-100">
-                    <SelectValue />
+                    <SelectValue placeholder={formData.state || "Select State"} />
                   </SelectTrigger>
                   <SelectContent>
                     {statesData?.states && statesData.states.length > 0 ? (
@@ -807,8 +860,17 @@ export default function DetectiveProfileEdit() {
           </CardContent>
         </Card>
 
-        {/* Save Button */}
-        <div className="flex justify-end">
+        {/* Action Buttons */}
+        <div className="flex justify-between items-center">
+          <Button
+            onClick={() => setShowChangeRequestDialog(true)}
+            variant="outline"
+            className="border-blue-600 text-blue-600 hover:bg-blue-50"
+            data-testid="button-request-change"
+          >
+            <FileUp className="h-4 w-4 mr-2" />
+            Request for Change in Information
+          </Button>
           <Button
             onClick={handleSave}
             disabled={updateDetective.isPending}
@@ -828,6 +890,101 @@ export default function DetectiveProfileEdit() {
             )}
           </Button>
         </div>
+
+        {/* Request for Change Dialog */}
+        <Dialog open={showChangeRequestDialog} onOpenChange={setShowChangeRequestDialog}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Request for Change in Information</DialogTitle>
+              <DialogDescription>
+                Fill out this form to request changes to information that cannot be edited directly. Our admin team will review and update your profile.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="change-email">Email ID <span className="text-red-600">*</span></Label>
+                <Input
+                  id="change-email"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={changeRequestFormData.email}
+                  onChange={(e) => setChangeRequestFormData({ ...changeRequestFormData, email: e.target.value })}
+                  data-testid="input-change-email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="change-business-name">Business Name <span className="text-red-600">*</span></Label>
+                <Input
+                  id="change-business-name"
+                  placeholder="Your Business Name"
+                  value={changeRequestFormData.businessName}
+                  onChange={(e) => setChangeRequestFormData({ ...changeRequestFormData, businessName: e.target.value })}
+                  data-testid="input-change-business-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="change-subject">Subject <span className="text-red-600">*</span></Label>
+                <Input
+                  id="change-subject"
+                  placeholder="e.g., Update License Number, Change Business Category"
+                  value={changeRequestFormData.subject}
+                  onChange={(e) => setChangeRequestFormData({ ...changeRequestFormData, subject: e.target.value })}
+                  data-testid="input-change-subject"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="change-attachment">Attachment (Optional)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="change-attachment"
+                    type="file"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setChangeRequestFormData({ ...changeRequestFormData, attachment: file });
+                        setAttachmentFileName(file.name);
+                      }
+                    }}
+                    className="hidden"
+                    data-testid="input-change-attachment"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => document.getElementById('change-attachment')?.click()}
+                  >
+                    <FileUp className="h-4 w-4 mr-2" />
+                    Choose File
+                  </Button>
+                  {attachmentFileName && <span className="text-sm text-gray-600">{attachmentFileName}</span>}
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowChangeRequestDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmitChangeRequest}
+                disabled={!changeRequestFormData.email || !changeRequestFormData.businessName || !changeRequestFormData.subject || isSubmittingRequest}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-submit-change-request"
+              >
+                {isSubmittingRequest ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  "Submit Request"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

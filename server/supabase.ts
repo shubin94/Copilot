@@ -258,7 +258,8 @@ export async function uploadDataUrl(bucket: string, path: string, dataUrl: strin
 export async function uploadFromUrlOrDataUrl(bucket: string, path: string, source: string): Promise<string> {
   const supabase = getSupabaseClient();
   if (!supabase) {
-    if (require('./config.ts').config.env.isProd) throw new Error("Supabase not configured");
+    const { config } = await import('./config.js');
+    if (config.env.isProd) throw new Error("Supabase not configured");
     return source;
   }
   await ensureBucket(bucket);

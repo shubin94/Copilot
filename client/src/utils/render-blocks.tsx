@@ -65,7 +65,9 @@ function renderImageBlock(block: ImageBlock): React.ReactNode {
     <figure className="my-8">
       <img
         src={block.url}
-        alt={block.alt || ""}
+        alt="Content image"
+        width={320}
+        height={240}
         className="w-full h-auto rounded-lg shadow-md"
         loading="lazy"
       />

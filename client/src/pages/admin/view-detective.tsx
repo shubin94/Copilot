@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
-import { useDetective, useAdminServicesByDetective, useServicesByDetective, useAdminCreateServiceForDetective, useAdminUpdateService, useServiceCategories, useSubscriptionLimits } from "@/lib/hooks";
+import { useDetective, useAdminServicesByDetective, useServicesByDetective, useAdminCreateServiceForDetective, useAdminUpdateService, useServiceCategories, useSubscriptionLimits, useCountries, useStates, useCities } from "@/lib/hooks";
 import { useCurrency, COUNTRIES } from "@/lib/currency-context";
 import { useRef } from "react";
+import { getPhoneCodeForCountry, parsePhoneNumber, combinePhoneNumber } from "@/lib/country-phone-codes";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,8 @@ import {
   Save,
   ShieldCheck,
   Key,
-  Copy
+  Copy,
+  Download
 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -59,16 +61,20 @@ export default function ViewDetective() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [selectedDocument, setSelectedDocument] = useState<{ title: string; src: string; mimeType: string | null } | null>(null);
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [showEmailChangeDialog, setShowEmailChangeDialog] = useState(false);
   const [temporaryPassword, setTemporaryPassword] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [pendingProfileUpdate, setPendingProfileUpdate] = useState<any>(null);
 
   const { data: detectiveData, isLoading: loadingDetective } = useDetective(id);
   const { data: adminServicesData, isLoading: loadingAdminServices } = useAdminServicesByDetective(id);
   const { data: publicServicesData, isLoading: loadingPublicServices } = useServicesByDetective(id);
   const { data: categoriesData } = useServiceCategories(true);
   const { data: limitsData } = useSubscriptionLimits();
+  const { data: countriesData } = useCountries();
   const { selectedCountry, formatPriceExactForCountry } = useCurrency();
   
   const adminUpdateMutation = useMutation({
@@ -143,11 +149,37 @@ export default function ViewDetective() {
   const [editForm, setEditForm] = useState({
     businessName: "",
     bio: "",
-    location: "",
-    phone: "",
+    email: "",
+    countryId: "",
+    stateId: "",
+    cityId: "",
+    phoneCountryCode: "",
+    phoneNumber: "",
     whatsapp: "",
+    licenseNumber: "",
     languages: [] as string[],
   });
+
+  // Pre-resolve location IDs from text values if IDs are missing
+  const [resolvedLocationIds, setResolvedLocationIds] = useState<{
+    countryId?: string;
+    stateId?: string;
+    cityId?: string;
+  }>({});
+
+  const { data: statesData } = useStates(
+    editForm.countryId || 
+    resolvedLocationIds.countryId ||
+    (detective?.countryId ? String(detective.countryId) : undefined)
+  );
+  const { data: citiesData } = useCities(
+    editForm.countryId || 
+    resolvedLocationIds.countryId ||
+    (detective?.countryId ? String(detective.countryId) : undefined),
+    editForm.stateId || 
+    resolvedLocationIds.stateId ||
+    (detective?.stateId ? String(detective.stateId) : undefined)
+  );
 
   const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "UTC",
@@ -156,19 +188,125 @@ export default function ViewDetective() {
     day: "2-digit",
   });
 
-  // Initialize form when detective data loads
   useEffect(() => {
-    if (detective && !isEditing) {
+    if (!detective) return;
+
+    const resolved: { countryId?: string; stateId?: string; cityId?: string } = {};
+
+    // Resolve country ISO code from text name (location API uses ISO codes as IDs)
+    if (detective.country && countriesData?.countries) {
+      const countryMatch = countriesData.countries.find((c: any) => 
+        c.code === detective.country || 
+        c.name.toLowerCase() === detective.country.toLowerCase()
+      );
+      if (countryMatch) {
+        resolved.countryId = countryMatch.id; // This is the ISO code like "IN"
+        console.log('[Location Debug] Resolved country:', detective.country, '→', countryMatch.id);
+      } else {
+        console.warn('[Location Debug] Country not found:', detective.country);
+      }
+    }
+
+    setResolvedLocationIds(resolved);
+  }, [detective, countriesData]);
+
+  // Resolve state and city ISO codes after country is resolved
+  useEffect(() => {
+    if (!detective || !resolvedLocationIds.countryId) return;
+
+    const resolved = { ...resolvedLocationIds };
+
+    // Resolve state ISO code from text name
+    if (detective.state && statesData?.states) {
+      const stateMatch = statesData.states.find((s: any) => 
+        s.name.toLowerCase() === detective.state.toLowerCase()
+      );
+      if (stateMatch) {
+        resolved.stateId = stateMatch.id; // ISO code like "MH", "KA"
+        console.log('[Location Debug] Resolved state:', detective.state, '→', stateMatch.id);
+      } else {
+        console.warn('[Location Debug] State not found:', detective.state);
+      }
+    }
+
+    // Resolve city ISO code from text name
+    if (detective.city && citiesData?.cities) {
+      const cityMatch = citiesData.cities.find((c: any) => 
+        c.name.toLowerCase() === detective.city.toLowerCase()
+      );
+      if (cityMatch) {
+        resolved.cityId = cityMatch.id;
+        console.log('[Location Debug] Resolved city:', detective.city, '→', cityMatch.id);
+      } else {
+        console.warn('[Location Debug] City not found:', detective.city);
+      }
+    }
+
+    setResolvedLocationIds(resolved);
+  }, [detective, statesData, citiesData, resolvedLocationIds.countryId]);
+
+  // Initialize form when detective data loads or when entering edit mode
+  useEffect(() => {
+    if (detective && isEditing) {
+      // Parse phone number if it exists
+      let phoneCountryCode = "";
+      let phoneNumber = "";
+      
+      if (detective.phone) {
+        const parsed = parsePhoneNumber(detective.phone);
+        if (parsed) {
+          phoneCountryCode = parsed.countryCode;
+          phoneNumber = parsed.phoneNumber;
+        } else {
+          phoneNumber = detective.phone;
+        }
+      }
+      
+      // Use resolved ISO codes (text-based lookup, not numeric DB IDs)
+      const resolvedCountryId = resolvedLocationIds.countryId || "";
+      const resolvedStateId = resolvedLocationIds.stateId || "";
+      const resolvedCityId = resolvedLocationIds.cityId || "";
+      
+      console.log('[Form Init] Setting editForm with:', { resolvedCountryId, resolvedStateId, resolvedCityId });
+      
+      // If no country code was parsed, get it from the selected country
+      if (!phoneCountryCode && detective.country && countriesData?.countries) {
+        const countryData = countriesData.countries.find((c: any) => 
+          c.code === detective.country || c.name.toLowerCase() === detective.country.toLowerCase()
+        );
+        if (countryData) {
+          phoneCountryCode = getPhoneCodeForCountry(countryData.code);
+        }
+      }
+      
       setEditForm({
         businessName: detective.businessName || "",
+        email: (detective as any).email || "",
         bio: detective.bio || "",
-        location: detective.location || "",
-        phone: detective.phone || "",
+        countryId: resolvedCountryId,
+        stateId: resolvedStateId,
+        cityId: resolvedCityId,
+        phoneCountryCode,
+        phoneNumber,
         whatsapp: detective.whatsapp || "",
+        licenseNumber: detective.licenseNumber || "",
         languages: detective.languages || [],
       });
     }
-  }, [detective, isEditing]);
+  }, [detective, isEditing, countriesData, resolvedLocationIds]);
+
+  // Auto-update phone country code when country changes
+  useEffect(() => {
+    if (isEditing && editForm.countryId && countriesData?.countries) {
+      const selectedCountry = countriesData.countries.find((c: any) => String(c.id) === editForm.countryId);
+      if (selectedCountry) {
+        const newPhoneCode = getPhoneCodeForCountry(selectedCountry.code);
+        if (newPhoneCode && newPhoneCode !== editForm.phoneCountryCode) {
+          setEditForm(prev => ({ ...prev, phoneCountryCode: newPhoneCode }));
+        }
+      }
+    }
+  }, [editForm.countryId, countriesData, isEditing]);
 
   const [autoSeeded, setAutoSeeded] = useState(false);
   const seedInFlight = useRef(false);
@@ -259,9 +397,43 @@ export default function ViewDetective() {
     if (!detective) return;
 
     try {
+      const selectedCountry = countriesData?.countries?.find((c: any) => String(c.id) === editForm.countryId);
+      const selectedState = statesData?.states?.find((s: any) => String(s.id) === editForm.stateId);
+      const selectedCity = citiesData?.cities?.find((c: any) => String(c.id) === editForm.cityId);
+
+      const countryName = selectedCountry?.code || detective.country;
+      const stateName = selectedState?.name || detective.state;
+      const cityName = selectedCity?.name || detective.city;
+      const composedLocation = [cityName, stateName, countryName].filter(Boolean).join(", ");
+      
+      // Combine phone country code and phone number
+      const updateData = {
+        businessName: editForm.businessName,
+        bio: editForm.bio,
+        country: countryName,
+        state: stateName,
+        city: cityName,
+        location: composedLocation,
+        phone,
+        phoneCountryCode: editForm.phoneCountryCode,
+        phoneNumber: editForm.phoneNumber,
+        whatsapp: editForm.whatsapp,
+        licenseNumber: editForm.licenseNumber,
+        languages: editForm.languages,
+      };
+
+      // Check if email changed - if so, require confirmation
+      const emailChanged = editForm.email !== (detective as any).email;
+      if (emailChanged) {
+        setPendingProfileUpdate(updateData);
+        setShowEmailChangeDialog(true);
+        return; // Wait for confirmation
+      }
+
+      // No email change, proceed normally
       await adminUpdateMutation.mutateAsync({
         id: detective.id,
-        data: editForm,
+        data: updateData,
       });
 
       toast({
@@ -269,6 +441,36 @@ export default function ViewDetective() {
         description: "Detective profile has been successfully updated.",
       });
 
+      setIsEditing(false);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update detective profile",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConfirmEmailChange = async () => {
+    if (!detective || !pendingProfileUpdate) return;
+
+    try {
+      // Include email in the update
+      await adminUpdateMutation.mutateAsync({
+        id: detective.id,
+        data: {
+          ...pendingProfileUpdate,
+          email: editForm.email,
+        },
+      });
+
+      toast({
+        title: "Profile Updated",
+        description: "Detective profile and email have been successfully updated.",
+      });
+
+      setShowEmailChangeDialog(false);
+      setPendingProfileUpdate(null);
       setIsEditing(false);
     } catch (error: any) {
       toast({
@@ -367,6 +569,98 @@ export default function ViewDetective() {
       .toUpperCase()
       .slice(0, 2);
   };
+
+  const normalizeDocs = (value: unknown): string[] => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+    if (typeof value === "string" && value.length > 0) return [value];
+    return [];
+  };
+
+  const getMimeFromDataUrl = (value: string): string | null => {
+    const match = value.match(/^data:([^;,]+)[;,]/i);
+    return match?.[1]?.toLowerCase() ?? null;
+  };
+
+  const normalizeDocumentSource = (value: string): { src: string; mimeType: string | null } => {
+    const trimmedValue = value.trim();
+
+    if (/^data:/i.test(trimmedValue)) {
+      return {
+        src: trimmedValue,
+        mimeType: getMimeFromDataUrl(trimmedValue),
+      };
+    }
+
+    if (/^https?:\/\//i.test(trimmedValue)) {
+      return {
+        src: trimmedValue,
+        mimeType: null,
+      };
+    }
+
+    const rawBase64 = trimmedValue.replace(/\s+/g, "");
+    if (!rawBase64) {
+      return { src: "", mimeType: null };
+    }
+
+    if (rawBase64.startsWith("/9j/")) {
+      return { src: `data:image/jpeg;base64,${rawBase64}`, mimeType: "image/jpeg" };
+    }
+
+    if (rawBase64.startsWith("iVBORw0KGgo")) {
+      return { src: `data:image/png;base64,${rawBase64}`, mimeType: "image/png" };
+    }
+
+    if (rawBase64.startsWith("R0lGOD")) {
+      return { src: `data:image/gif;base64,${rawBase64}`, mimeType: "image/gif" };
+    }
+
+    if (rawBase64.startsWith("JVBERi0")) {
+      return { src: `data:application/pdf;base64,${rawBase64}`, mimeType: "application/pdf" };
+    }
+
+    return { src: `data:application/octet-stream;base64,${rawBase64}`, mimeType: "application/octet-stream" };
+  };
+
+  const openDocumentPreview = (doc: string, title: string) => {
+    const normalizedDoc = normalizeDocumentSource(doc);
+
+    if (!normalizedDoc.src) {
+      toast({
+        title: "Invalid document",
+        description: "This document cannot be opened because the source is empty or malformed.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectedDocument({
+      title,
+      src: normalizedDoc.src,
+      mimeType: normalizedDoc.mimeType,
+    });
+  };
+
+  const getDocumentDownloadName = (documentInfo: { title: string; mimeType: string | null }) => {
+    const safeBase = documentInfo.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "document";
+    const extensionMap: Record<string, string> = {
+      "application/pdf": "pdf",
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/gif": "gif",
+      "image/webp": "webp",
+    };
+    const extension = documentInfo.mimeType ? extensionMap[documentInfo.mimeType] : undefined;
+    return extension ? `${safeBase}.${extension}` : `${safeBase}.bin`;
+  };
+
+  const profileBusinessDocs = normalizeDocs((detective as any).businessDocuments);
+  const profileIdentityDocs = normalizeDocs((detective as any).identityDocuments);
+  const signupBusinessDocs = normalizeDocs((detective as any).signupBusinessDocuments);
+  const signupIdentityDocs = normalizeDocs((detective as any).signupIdentityDocuments);
+  const allBusinessDocs = Array.from(new Set([...profileBusinessDocs, ...signupBusinessDocs]));
+  const allIdentityDocs = Array.from(new Set([...profileIdentityDocs, ...signupIdentityDocs]));
 
   return (
     <DashboardLayout role="admin">
@@ -533,45 +827,128 @@ export default function ViewDetective() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Location</Label>
+                    <Label>State</Label>
                     {isEditing ? (
-                      <Input 
-                        value={editForm.location}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, location: e.target.value }))}
-                        data-testid="input-edit-location"
-                      />
+                      <Select
+                        value={editForm.stateId}
+                        onValueChange={(value) => setEditForm(prev => ({ ...prev, stateId: value, cityId: "" }))}
+                        disabled={!editForm.countryId}
+                      >
+                        <SelectTrigger data-testid="select-edit-state">
+                          <SelectValue placeholder="Select state">
+                            {editForm.stateId && (statesData?.states || []).find((s: any) => String(s.id) === editForm.stateId)?.name}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(statesData?.states || []).map((state: any) => (
+                            <SelectItem key={state.id} value={String(state.id)}>{state.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     ) : (
-                      <p className="text-gray-900 font-medium" data-testid="text-location">
-                        {detective.location || "Not provided"}
+                      <p className="text-gray-900 font-medium" data-testid="text-state">
+                        {detective.state || ""}
                       </p>
                     )}
                   </div>
 
                   <div className="space-y-2">
                     <Label>Country</Label>
-                    <p className="text-gray-900 font-medium" data-testid="text-country">
-                      {detective.country}
-                    </p>
+                    {isEditing ? (
+                      <Select
+                        value={editForm.countryId}
+                        onValueChange={(value) => setEditForm(prev => ({ ...prev, countryId: value, stateId: "", cityId: "" }))}
+                      >
+                        <SelectTrigger data-testid="select-edit-country">
+                          <SelectValue placeholder="Select country">
+                            {editForm.countryId && (countriesData?.countries || []).find((c: any) => String(c.id) === editForm.countryId)?.name}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(countriesData?.countries || []).map((country: any) => (
+                            <SelectItem key={country.id} value={String(country.id)}>{country.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="text-gray-900 font-medium" data-testid="text-country">
+                        {detective.country}
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Email Address (Login)</Label>
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-gray-400" />
-                      <p className="text-gray-900 font-medium" data-testid="text-email">
-                        {(detective as any).email || "Not available"}
+                    <Label>City</Label>
+                    {isEditing ? (
+                      <Select
+                        value={editForm.cityId}
+                        onValueChange={(value) => setEditForm(prev => ({ ...prev, cityId: value }))}
+                        disabled={!editForm.countryId || !editForm.stateId}
+                      >
+                        <SelectTrigger data-testid="select-edit-city">
+                          <SelectValue placeholder="Select city">
+                            {editForm.cityId && (citiesData?.cities || []).find((c: any) => String(c.id) === editForm.cityId)?.name}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(citiesData?.cities || []).map((city: any) => (
+                            <SelectItem key={city.id} value={String(city.id)}>{city.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="text-gray-900 font-medium" data-testid="text-city">
+                        {detective.city || ""}
                       </p>
-                    </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Email Address (Login)
+                      {isEditing && <span className="text-xs text-orange-600 font-normal">(Critical - will require confirmation)</span>}
+                    </Label>
+                    {isEditing ? (
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-gray-400" />
+                        <Input 
+                          type="email"
+                          value={editForm.email}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                          placeholder="user@example.com"
+                          className="flex-1"
+                          data-testid="input-edit-email"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-gray-400" />
+                        <p className="text-gray-900 font-medium" data-testid="text-email">
+                          {(detective as any).email || "Not available"}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">
                     <Label>Phone</Label>
                     {isEditing ? (
-                      <Input 
-                        value={editForm.phone}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, phone: e.target.value }))}
-                        data-testid="input-edit-phone"
-                      />
+                      <div className="flex gap-2">
+                        <Input 
+                          value={editForm.phoneCountryCode}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, phoneCountryCode: e.target.value }))}
+                          placeholder="+1"
+                          className="w-24"
+                          data-testid="input-edit-phone-country-code"
+                        />
+                        <Input 
+                          value={editForm.phoneNumber}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                          placeholder="Phone number"
+                          className="flex-1"
+                          data-testid="input-edit-phone-number"
+                        />
+                      </div>
                     ) : (
                       <p className="text-gray-900 font-medium" data-testid="text-phone">
                         {detective.phone || "Not provided"}
@@ -590,6 +967,21 @@ export default function ViewDetective() {
                     ) : (
                       <p className="text-gray-900 font-medium" data-testid="text-whatsapp">
                         {detective.whatsapp || "Not provided"}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Private Investigator License Number</Label>
+                    {isEditing ? (
+                      <Input
+                        value={editForm.licenseNumber}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, licenseNumber: e.target.value }))}
+                        data-testid="input-edit-licenseNumber"
+                      />
+                    ) : (
+                      <p className="text-gray-900 font-medium" data-testid="text-licenseNumber">
+                        {detective.licenseNumber || ""}
                       </p>
                     )}
                   </div>
@@ -623,6 +1015,55 @@ export default function ViewDetective() {
                     </div>
                   </div>
                 )}
+
+                <div className="space-y-4">
+                  <Label>Documents</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-gray-700">Business Documents</p>
+                      {allBusinessDocs.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {allBusinessDocs.map((doc, index) => (
+                            <Button
+                              key={`business-doc-${index}`}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openDocumentPreview(doc, `Business Document ${index + 1}`)}
+                              className="text-xs text-blue-600 underline bg-white px-2 py-1 rounded border border-gray-200"
+                            >
+                              Business Document {index + 1}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500">No business documents uploaded</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-gray-700">Identity Documents</p>
+                      {allIdentityDocs.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {allIdentityDocs.map((doc, index) => (
+                            <Button
+                              key={`identity-doc-${index}`}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openDocumentPreview(doc, `Identity Document ${index + 1}`)}
+                              className="text-xs text-blue-600 underline bg-white px-2 py-1 rounded border border-gray-200"
+                            >
+                              Identity Document {index + 1}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500">No identity documents uploaded</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1246,6 +1687,107 @@ export default function ViewDetective() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Email Change Confirmation Dialog */}
+        <AlertDialog open={showEmailChangeDialog} onOpenChange={setShowEmailChangeDialog}>
+          <AlertDialogContent data-testid="dialog-email-change">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-orange-600">⚠️ Confirm Email Change</AlertDialogTitle>
+              <AlertDialogDescription className="space-y-2">
+                <p className="font-semibold">You are about to change the login email address. This is a critical action.</p>
+                <div className="bg-orange-50 border border-orange-200 rounded p-3 text-sm">
+                  <p><strong>Current Email:</strong> {(detective as any).email}</p>
+                  <p><strong>New Email:</strong> {editForm.email}</p>
+                </div>
+                <p className="text-red-600 font-medium">The detective will need to use the new email to login. Make sure the email address is correct!</p>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel 
+                onClick={() => {
+                  setShowEmailChangeDialog(false);
+                  setPendingProfileUpdate(null);
+                }}
+                data-testid="button-cancel-email-change"
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleConfirmEmailChange}
+                className="bg-orange-600 hover:bg-orange-700"
+                disabled={adminUpdateMutation.isPending}
+                data-testid="button-confirm-email-change"
+              >
+                {adminUpdateMutation.isPending ? "Updating..." : "Confirm Email Change"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Document Preview Dialog */}
+        <Dialog open={!!selectedDocument} onOpenChange={(open) => !open && setSelectedDocument(null)}>
+          <DialogContent className="max-w-5xl h-[85vh]" data-testid="dialog-document-preview">
+            <DialogHeader>
+              <DialogTitle>{selectedDocument?.title || "Document"}</DialogTitle>
+              <DialogDescription>
+                Previewing uploaded document. If preview fails, use the open-in-new-tab button.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 min-h-0 border rounded bg-gray-50 p-2">
+              {selectedDocument?.mimeType?.startsWith("image/") ? (
+                <div className="w-full h-full overflow-auto flex items-center justify-center">
+                  <img
+                    src={selectedDocument.src}
+                    alt={selectedDocument.title}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                </div>
+              ) : selectedDocument?.mimeType === "application/pdf" ? (
+                <iframe
+                  src={selectedDocument.src}
+                  title={selectedDocument.title}
+                  className="w-full h-full rounded"
+                />
+              ) : selectedDocument?.src ? (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-4">
+                  <p className="text-sm text-gray-600">Preview is not available for this document type.</p>
+                  <a
+                    href={selectedDocument.src}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-blue-600 underline"
+                  >
+                    Open in new tab
+                  </a>
+                </div>
+              ) : null}
+            </div>
+
+            <DialogFooter>
+              {selectedDocument?.src && (
+                <Button asChild>
+                  <a
+                    href={selectedDocument.src}
+                    download={getDocumentDownloadName(selectedDocument)}
+                    data-testid="button-download-document"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </a>
+                </Button>
+              )}
+              {selectedDocument?.src && (
+                <Button asChild variant="outline">
+                  <a href={selectedDocument.src} target="_blank" rel="noreferrer">
+                    Open in New Tab
+                  </a>
+                </Button>
+              )}
+              <Button onClick={() => setSelectedDocument(null)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Password Reset Dialog */}
         <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>

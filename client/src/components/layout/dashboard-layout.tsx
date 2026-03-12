@@ -196,6 +196,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         { href: "/admin/location-seo/cities", label: "Cities", icon: MapPin },
       ]
     },
+    { href: "/admin/detective-pages", label: "Detective Pages", icon: Users },
     { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
     { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
     { href: "/admin/app-secrets", label: "App Secrets (Auth)", icon: Lock },

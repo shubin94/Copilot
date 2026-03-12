@@ -1,3 +1,151 @@
+// --- Cache-backed slug resolvers for state and city ---
+const stateSlugCache = new Map<string, string>();
+const citySlugCache = new Map<string, string>();
+const countrySlugCache = new Map<string, string>();
+const countryRecordCache = new Map<string, { id: number; slug: string }>();
+
+function slugifySegment(value: string | undefined | null): string {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function resolveCountryRecord(countryCodeOrName: string | undefined): Promise<{ id: number; slug: string } | null> {
+  if (!countryCodeOrName) return null;
+  const cacheKey = countryCodeOrName.toLowerCase().trim();
+  const cachedRecord = countryRecordCache.get(cacheKey);
+  if (cachedRecord) return cachedRecord;
+
+  try {
+    const row = await db.query.countries.findFirst({
+      where: or(
+        eq(countries.slug, cacheKey),
+        eq(countries.code, countryCodeOrName.toUpperCase()),
+        ilike(countries.name, countryCodeOrName)
+      ),
+    });
+
+    if (!row) return null;
+
+    const record = { id: row.id, slug: row.slug };
+    countryRecordCache.set(cacheKey, record);
+    countrySlugCache.set(cacheKey, row.slug);
+    return record;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveCountrySlug(countryCodeOrName: string | undefined): Promise<string> {
+  if (!countryCodeOrName) return "";
+  const cacheKey = countryCodeOrName.toLowerCase().trim();
+  const cached = countrySlugCache.get(cacheKey);
+  if (cached) return cached;
+
+  const countryRecord = await resolveCountryRecord(countryCodeOrName);
+  const resolved = countryRecord?.slug ?? slugifySegment(countryCodeOrName);
+  if (!countryRecord) {
+    console.warn("[SEO] Country canonical slug not found; using fallback slugify", {
+      input: countryCodeOrName,
+      fallbackSlug: resolved,
+    });
+  }
+  countrySlugCache.set(cacheKey, resolved);
+  return resolved;
+}
+
+/**
+ * Resolves state slug via database (canonical slug), with cache fallback.
+ */
+async function resolveStateSlug(stateName: string | undefined, countryCode: string | undefined): Promise<string> {
+  if (!stateName || !countryCode) return "";
+  const key = `${countryCode}:${stateName}`;
+  const cached = stateSlugCache.get(key);
+  if (cached) return cached;
+
+  const fallbackSlug = slugifySegment(stateName);
+
+  try {
+    const countryRecord = await resolveCountryRecord(countryCode);
+    if (countryRecord) {
+      const stateRow = await db.query.states.findFirst({
+        where: and(
+          eq(states.countryId, countryRecord.id),
+          or(
+            eq(states.slug, fallbackSlug),
+            ilike(states.name, stateName)
+          )
+        ),
+      });
+
+      if (stateRow?.slug) {
+        stateSlugCache.set(key, stateRow.slug);
+        return stateRow.slug;
+      }
+    }
+  } catch {
+    // fallback below
+  }
+
+  const slug = fallbackSlug;
+  stateSlugCache.set(key, slug);
+  return slug;
+}
+
+/**
+ * Resolves city slug via database (canonical slug), with cache fallback.
+ */
+async function resolveCitySlug(cityName: string | undefined, stateName: string | undefined, countryCode: string | undefined): Promise<string> {
+  if (!cityName || !stateName || !countryCode) return "";
+  const key = `${countryCode}:${stateName}:${cityName}`;
+  const cached = citySlugCache.get(key);
+  if (cached) return cached;
+
+  const fallbackStateSlug = slugifySegment(stateName);
+  const fallbackCitySlug = slugifySegment(cityName);
+
+  try {
+    const countryRecord = await resolveCountryRecord(countryCode);
+    if (countryRecord) {
+      const stateRow = await db.query.states.findFirst({
+        where: and(
+          eq(states.countryId, countryRecord.id),
+          or(
+            eq(states.slug, fallbackStateSlug),
+            ilike(states.name, stateName)
+          )
+        ),
+      });
+
+      if (stateRow?.id) {
+        const cityRow = await db.query.cities.findFirst({
+          where: and(
+            eq(cities.stateId, stateRow.id),
+            or(
+              eq(cities.slug, fallbackCitySlug),
+              ilike(cities.name, cityName)
+            )
+          ),
+        });
+
+        if (cityRow?.slug) {
+          citySlugCache.set(key, cityRow.slug);
+          return cityRow.slug;
+        }
+      }
+    }
+  } catch {
+    // fallback below
+  }
+
+  const slug = fallbackCitySlug;
+  citySlugCache.set(key, slug);
+  return slug;
+}
 /**
  * Builds homepage authority HTML block for SSR injection
  */
@@ -47,9 +195,8 @@ export function buildHomepageAuthorityHtml(
  */
 
 import { db, pool } from "../../db/index.js";
-import { detectives, reviews, services, countries, states, cities } from "../../shared/schema.js";
-import { eq, and, isNotNull, desc } from "drizzle-orm";
-import { avg, count } from "drizzle-orm";
+import { detectives, countries, states, cities } from "../../shared/schema.js";
+import { eq, and, or, ilike, desc, sql } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.js";
 
 /**
@@ -68,6 +215,139 @@ interface LocationResolution {
 }
 const locationCache = new Map<string, LocationResolution>();
 
+type DetectiveSeoRow = {
+  id: string;
+  businessName: string | null;
+  bio: string | null;
+  logo: string | null;
+  country: string;
+  state: string;
+  city: string;
+  location: string;
+  phone: string | null;
+  whatsapp: string | null;
+  contactEmail: string | null;
+  businessWebsite: string | null;
+  slug: string;
+  createdAt: string;
+};
+
+const DETECTIVE_SEO_SELECT_SQL = `
+  SELECT
+    d.id,
+    d.business_name AS "businessName",
+    d.bio,
+    d.logo,
+    d.country,
+    d.state,
+    d.city,
+    d.location,
+    d.phone,
+    d.whatsapp,
+    d.contact_email AS "contactEmail",
+    d.business_website AS "businessWebsite",
+    d.slug,
+    d.created_at AS "createdAt"
+  FROM detectives d
+`;
+
+async function fetchDetectiveSeoRow(
+  whereClause: string,
+  params: unknown[],
+  joinClause = ""
+): Promise<DetectiveSeoRow | null> {
+  const query = `
+    ${DETECTIVE_SEO_SELECT_SQL}
+    ${joinClause}
+    WHERE ${whereClause}
+    ORDER BY d.created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, params);
+  return (result.rows[0] as DetectiveSeoRow) || null;
+}
+
+async function fetchDetectiveRatings(detectiveId: string): Promise<{ avgRating: number; reviewCount: number }> {
+  const ratingsResult = await pool.query(
+    `
+      SELECT
+        COALESCE(AVG(r.rating), 0)::numeric AS "avgRating",
+        COUNT(r.id)::int AS "reviewCount"
+      FROM services s
+      LEFT JOIN reviews r
+        ON r.service_id = s.id
+       AND r.is_published = true
+       AND r.rating IS NOT NULL
+      WHERE s.detective_id = $1
+    `,
+    [detectiveId]
+  );
+
+  return {
+    avgRating: Number(ratingsResult.rows[0]?.avgRating || 0),
+    reviewCount: Number(ratingsResult.rows[0]?.reviewCount || 0),
+  };
+}
+
+function isMissingColumnError(error: unknown, columnName: string): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes(`column "${columnName.toLowerCase()}" does not exist`);
+}
+
+async function fetchDetectiveSeoOverride(detectiveId: string): Promise<{ metaTitle?: string | null; metaDescription?: string | null; h1?: string | null } | null> {
+  try {
+    try {
+      const seoResult = await pool.query(
+        `
+          SELECT
+            meta_title AS "metaTitle",
+            meta_description AS "metaDescription",
+            h1
+          FROM location_seo_overrides
+          WHERE entity_type = 'detective'
+            AND entity_id = $1::text
+          ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+          LIMIT 1
+        `,
+        [detectiveId]
+      );
+      return seoResult.rows[0] || null;
+    } catch (primaryError) {
+      if (!isMissingColumnError(primaryError, "updated_at")) {
+        throw primaryError;
+      }
+
+      console.warn("[SEO] location_seo_overrides.updated_at missing; using created_at fallback for detective override query", {
+        detectiveId,
+      });
+
+      const fallbackResult = await pool.query(
+        `
+          SELECT
+            meta_title AS "metaTitle",
+            meta_description AS "metaDescription",
+            h1
+          FROM location_seo_overrides
+          WHERE entity_type = 'detective'
+            AND entity_id = $1::text
+          ORDER BY created_at DESC NULLS LAST
+          LIMIT 1
+        `,
+        [detectiveId]
+      );
+      return fallbackResult.rows[0] || null;
+    }
+  } catch (seoError) {
+    console.warn("[SEO] Failed to fetch detective SEO override:", {
+      detectiveId,
+      message: seoError instanceof Error ? seoError.message : String(seoError),
+    });
+    return null;
+  }
+}
+
 export async function getDetectiveBySlugForSEO(
   country: string,
   state: string,
@@ -75,115 +355,55 @@ export async function getDetectiveBySlugForSEO(
   slug: string
 ): Promise<any | null> {
   try {
-    // Generate slugs from input (same logic as server/routes.ts)
-    const generateSlug = (text: string): string => {
-      if (!text) return "";
-      return text
-        .toLowerCase()
-        .trim()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-+|-+$/g, "");
-    };
+    const countrySlug = country.toLowerCase();
+    const stateSlug = state.toLowerCase();
+    const citySlug = city.toLowerCase();
+    const detectiveSlug = slug.toLowerCase();
 
-    // Get country code
-    const COUNTRY_CODE_MAP: Record<string, string> = {
-      'IN': 'India', 'US': 'United States', 'UK': 'United Kingdom', 'GB': 'United Kingdom',
-      'CA': 'Canada', 'AU': 'Australia', 'DE': 'Germany', 'FR': 'France', 'IT': 'Italy',
-      'ES': 'Spain', 'NZ': 'New Zealand', 'IE': 'Ireland', 'SG': 'Singapore', 'MY': 'Malaysia',
-      'PH': 'Philippines', 'TH': 'Thailand', 'VN': 'Vietnam', 'PK': 'Pakistan', 'BD': 'Bangladesh',
-      'ZA': 'South Africa', 'AE': 'United Arab Emirates', 'KW': 'Kuwait', 'SA': 'Saudi Arabia',
-      'QA': 'Qatar', 'OM': 'Oman', 'JP': 'Japan', 'CN': 'China', 'HK': 'Hong Kong', 'MX': 'Mexico',
-      'BR': 'Brazil', 'AR': 'Argentina', 'CL': 'Chile',
-    };
+    // Primary lookup path: match by canonical location slugs.
+    let detective = await fetchDetectiveSeoRow(
+      `
+        LOWER(c.slug) = $1
+        AND LOWER(s.slug) = $2
+        AND LOWER(ct.slug) = $3
+        AND LOWER(d.slug) = $4
+      `,
+      [countrySlug, stateSlug, citySlug, detectiveSlug],
+      `
+        INNER JOIN countries c ON c.id = d.country_id
+        INNER JOIN states s ON s.id = d.state_id
+        INNER JOIN cities ct ON ct.id = d.city_id
+      `
+    );
 
-    country.toUpperCase().length === 2
-      ? country.toUpperCase()
-      : Object.entries(COUNTRY_CODE_MAP).find(([_, name]) =>
-          name.toLowerCase().replace(/\s+/g, "-") === country.toLowerCase()
-        )?.[0] || country.toUpperCase();
-
-    const requestedStateSlug = generateSlug(state);
-    const requestedCitySlug = generateSlug(city);
-
-    // Query detective with ratings
-    const detectiveRows = await db
-      .select({
-        id: detectives.id,
-        businessName: detectives.businessName,
-        bio: detectives.bio,
-        logo: detectives.logo,
-        country: detectives.country,
-        state: detectives.state,
-        city: detectives.city,
-        location: detectives.location,
-        phone: detectives.phone,
-        whatsapp: detectives.whatsapp,
-        contactEmail: detectives.contactEmail,
-        businessWebsite: detectives.businessWebsite,
-        slug: detectives.slug,
-      })
-      .from(detectives)
-      .where(eq(detectives.slug, slug));
-
-    if (detectiveRows.length === 0) {
-      return null;
-    }
-
-    // Match by location slugs
-    const detective = detectiveRows.find((row) => {
-      const rowStateSlug = generateSlug(row.state || "");
-      const rowCitySlug = generateSlug(row.city || "");
-      return rowStateSlug === requestedStateSlug && rowCitySlug === requestedCitySlug;
-    }) || (detectiveRows.length === 1 ? detectiveRows[0] : null);
-
+    // Fallback path: match with text columns if FK/slug data is inconsistent.
     if (!detective) {
-      return null;
-    }
-
-    // Fetch average rating by joining services → reviews
-    let avgRating = 0;
-    let reviewCount = 0;
-    try {
-      console.log(`[SEO] Fetching ratings for detective ID: ${detective.id}`);
-      
-      // Query: Detective → Services → Reviews
-      const ratingData = await db.select({
-        avgRating: avg(reviews.rating),
-        reviewCount: count(reviews.id),
-      })
-        .from(services)
-        .innerJoin(reviews, eq(reviews.serviceId, services.id))
-        .where(
-          and(
-            eq(services.detectiveId, detective.id),
-            isNotNull(reviews.rating),
-            eq(reviews.isPublished, true)
-          )
-        );
-      
-      if (ratingData.length > 0 && ratingData[0]) {
-        const data = ratingData[0];
-        avgRating = data.avgRating ? Number(data.avgRating) : 0;
-        reviewCount = data.reviewCount ? Number(data.reviewCount) : 0;
-        console.log(`[SEO] Found ${reviewCount} reviews with avg rating ${avgRating} for detective: ${detective.businessName}`);
-      } else {
-        console.log(`[SEO] No published reviews found for detective: ${detective.businessName}`);
-      }
-    } catch (error) {
-      console.error(`[SEO] ERROR fetching ratings for detective ${detective.id}:`, {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
+      const countryRow = await db.query.countries.findFirst({
+        where: eq(countries.slug, countrySlug),
       });
-      // Don't fail - continue with avgRating = 0
+      const countryCode = countryRow?.code || country.toUpperCase();
+      const countryName = countryRow?.name || country.replace(/-/g, " ");
+
+      detective = await fetchDetectiveSeoRow(
+        `
+          LOWER(d.slug) = $1
+          AND LOWER(TRIM(d.state)) = $2
+          AND LOWER(TRIM(d.city)) = $3
+          AND (
+            UPPER(TRIM(d.country)) = UPPER(TRIM($4))
+            OR LOWER(TRIM(d.country)) = LOWER(TRIM($5))
+          )
+        `,
+        [detectiveSlug, stateSlug, citySlug, countryCode, countryName]
+      );
     }
 
-    return {
-      ...detective,
-      avgRating: Number(avgRating),
-      reviewCount,
-    };
+    if (!detective) return null;
+
+    const { avgRating, reviewCount } = await fetchDetectiveRatings(detective.id);
+    const seoOverride = await fetchDetectiveSeoOverride(detective.id);
+
+    return { ...detective, avgRating, reviewCount, seoOverride };
   } catch (error) {
     const errorDetails = error instanceof Error 
       ? { message: error.message, stack: error.stack }
@@ -191,131 +411,151 @@ export async function getDetectiveBySlugForSEO(
     console.error("[SEO] CRITICAL ERROR fetching detective for SEO:", errorDetails);
     return null;
   }
+
 }
 
 /**
  * Generates SEO meta tags HTML string
  */
 export function generateSeoMetaTags(detective: any, canonicalUrl: string): string {
-  const name = detective.businessName || `${detective.firstName} ${detective.lastName}`.trim() || 'Detective';
-  const location = detective.city && detective.state 
+  const name = detective.businessName || `${detective.firstName || ""} ${detective.lastName || ""}`.trim() || "Detective";
+  const location = detective.city && detective.state
     ? `${detective.city}, ${detective.state}`
-    : detective.city || detective.location || '';
-  
-  const shortDescription = detective.bio 
-    ? detective.bio.substring(0, 155) // Meta description limit
-    : `Professional private investigator services in ${location}`;
+    : detective.city || detective.location || "";
 
-  const metaTags = [
-    `<title>${escapeHtml(name)} - Private Detective${location ? ` in ${location}` : ''} | Ask Detectives</title>`,
+  const fallbackDescription = detective.bio
+    ? String(detective.bio).substring(0, 155)
+    : `Professional private investigator services${location ? ` in ${location}` : ""}`;
+
+  const fallbackTitle = `${name} - Private Detective${location ? ` in ${location}` : ""} | Ask Detectives`;
+  const title = detective?.seoOverride?.metaTitle?.trim() || fallbackTitle;
+  const shortDescription = detective?.seoOverride?.metaDescription?.trim() || fallbackDescription;
+
+  return [
+    `<title>${escapeHtml(title)}</title>`,
     `<meta name="description" content="${escapeHtml(shortDescription)}" />`,
-    `<meta property="og:title" content="${escapeHtml(name)} - Private Detective${location ? ` in ${location}` : ''}" />`,
+    `<meta property="og:title" content="${escapeHtml(title)}" />`,
     `<meta property="og:description" content="${escapeHtml(shortDescription)}" />`,
     `<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />`,
     `<meta property="og:type" content="profile" />`,
-    detective.logo ? `<meta property="og:image" content="${escapeHtml(detective.logo)}" />` : '',
-    `<meta name="twitter:title" content="${escapeHtml(name)} - Private Detective${location ? ` in ${location}` : ''}" />`,
+    detective.logo ? `<meta property="og:image" content="${escapeHtml(detective.logo)}" />` : "",
+    `<meta name="twitter:title" content="${escapeHtml(title)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(shortDescription)}" />`,
-    detective.logo ? `<meta name="twitter:image" content="${escapeHtml(detective.logo)}" />` : '',
+    detective.logo ? `<meta name="twitter:image" content="${escapeHtml(detective.logo)}" />` : "",
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
-  ].filter(tag => tag.length > 0).join('\n    ');
-
-  return metaTags;
+  ]
+    .filter(Boolean)
+    .join("\n    ");
 }
 
 /**
- * Maps country codes to lowercase slugs for canonical URLs
+ * Maps country values (slug/code/name) into canonical country slug.
  */
 export function getCountrySlug(country: string): string {
   if (!country) return "";
-  
-  // If already lowercase with hyphens, return as-is
-  if (country === country.toLowerCase() && !country.match(/^[A-Z]{2}$/)) {
-    return country;
-  }
-  
-  // Map country codes to slugs
+  const trimmed = country.trim();
+  const direct = trimmed.toLowerCase();
+
   const codeToSlug: Record<string, string> = {
-    'IN': 'india',
-    'US': 'united-states',
-    'GB': 'united-kingdom',
-    'UK': 'united-kingdom',
-    'CA': 'canada',
-    'AU': 'australia',
-    'DE': 'germany',
-    'FR': 'france',
-    'IT': 'italy',
-    'ES': 'spain',
-    'NZ': 'new-zealand',
-    'IE': 'ireland',
-    'SG': 'singapore',
-    'MY': 'malaysia',
-    'PH': 'philippines',
-    'TH': 'thailand',
-    'VN': 'vietnam',
-    'PK': 'pakistan',
-    'BD': 'bangladesh',
-    'ZA': 'south-africa',
-    'AE': 'united-arab-emirates',
-    'KW': 'kuwait',
-    'SA': 'saudi-arabia',
-    'QA': 'qatar',
-    'OM': 'oman',
-    'JP': 'japan',
-    'CN': 'china',
-    'HK': 'hong-kong',
-    'MX': 'mexico',
-    'BR': 'brazil',
-    'AR': 'argentina',
-    'CL': 'chile',
+    IN: "india",
+    US: "united-states",
+    GB: "united-kingdom",
+    UK: "united-kingdom",
+    CA: "canada",
+    AU: "australia",
+    DE: "germany",
+    FR: "france",
+    IT: "italy",
+    ES: "spain",
+    NZ: "new-zealand",
+    IE: "ireland",
+    SG: "singapore",
+    MY: "malaysia",
+    PH: "philippines",
+    TH: "thailand",
+    VN: "vietnam",
+    PK: "pakistan",
+    BD: "bangladesh",
+    ZA: "south-africa",
+    AE: "united-arab-emirates",
+    KW: "kuwait",
+    SA: "saudi-arabia",
+    QA: "qatar",
+    OM: "oman",
+    JP: "japan",
+    CN: "china",
+    HK: "hong-kong",
+    MX: "mexico",
+    BR: "brazil",
+    AR: "argentina",
+    CL: "chile",
   };
-  
-  return codeToSlug[country.toUpperCase()] || country.toLowerCase().replace(/\s+/g, '-');
+
+  if (codeToSlug[trimmed.toUpperCase()]) {
+    return codeToSlug[trimmed.toUpperCase()];
+  }
+
+  if (direct.includes("-")) {
+    return direct;
+  }
+
+  return slugifySegment(trimmed);
 }
 
 /**
- * Maps country codes to human-readable country names for breadcrumb labels
+ * Maps country values (code/slug) into human-readable country name.
  */
 function getCountryName(country: string): string {
   if (!country) return "";
-  
-  // Map country codes to display names
+
   const codeToName: Record<string, string> = {
-    'IN': 'India',
-    'US': 'United States',
-    'GB': 'United Kingdom',
-    'UK': 'United Kingdom',
-    'CA': 'Canada',
-    'AU': 'Australia',
-    'DE': 'Germany',
-    'FR': 'France',
-    'IT': 'Italy',
-    'ES': 'Spain',
-    'NZ': 'New Zealand',
-    'IE': 'Ireland',
-    'SG': 'Singapore',
-    'MY': 'Malaysia',
-    'PH': 'Philippines',
-    'TH': 'Thailand',
-    'VN': 'Vietnam',
-    'PK': 'Pakistan',
-    'BD': 'Bangladesh',
-    'ZA': 'South Africa',
-    'AE': 'United Arab Emirates',
-    'KW': 'Kuwait',
-    'SA': 'Saudi Arabia',
-    'QA': 'Qatar',
-    'OM': 'Oman',
-    'JP': 'Japan',
-    'CN': 'China',
-    'HK': 'Hong Kong',
-    'MX': 'Mexico',
-    'BR': 'Brazil',
-    'AR': 'Argentina',
-    'CL': 'Chile',
+    IN: "India",
+    US: "United States",
+    GB: "United Kingdom",
+    UK: "United Kingdom",
+    CA: "Canada",
+    AU: "Australia",
+    DE: "Germany",
+    FR: "France",
+    IT: "Italy",
+    ES: "Spain",
+    NZ: "New Zealand",
+    IE: "Ireland",
+    SG: "Singapore",
+    MY: "Malaysia",
+    PH: "Philippines",
+    TH: "Thailand",
+    VN: "Vietnam",
+    PK: "Pakistan",
+    BD: "Bangladesh",
+    ZA: "South Africa",
+    AE: "United Arab Emirates",
+    KW: "Kuwait",
+    SA: "Saudi Arabia",
+    QA: "Qatar",
+    OM: "Oman",
+    JP: "Japan",
+    CN: "China",
+    HK: "Hong Kong",
+    MX: "Mexico",
+    BR: "Brazil",
+    AR: "Argentina",
+    CL: "Chile",
   };
-  
-  return codeToName[country.toUpperCase()] || country;
+
+  const normalized = country.trim();
+  if (codeToName[normalized.toUpperCase()]) {
+    return codeToName[normalized.toUpperCase()];
+  }
+
+  if (normalized.includes("-")) {
+    return normalized
+      .split("-")
+      .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+      .join(" ");
+  }
+
+  return normalized;
 }
 
 /**
@@ -412,9 +652,9 @@ function generateDetectiveLocalBusinessSchema(detective: any, canonicalUrl: stri
  */
 function generateDetectiveBreadcrumbSchema(detective: any, canonicalUrl: string): string {
   const name = detective.businessName || `${detective.firstName} ${detective.lastName}`.trim() || 'Detective';
-  const countrySlug = getCountrySlug(detective.country);
-  const stateSlug = detective.state?.toLowerCase().replace(/\s+/g, '-') || '';
-  const citySlug = detective.city?.toLowerCase().replace(/\s+/g, '-') || '';
+  const countrySlug = getCountrySlug(detective.country || "");
+  const stateSlug = slugifySegment(detective.state);
+  const citySlug = slugifySegment(detective.city);
 
   const breadcrumbs: any = {
     "@context": "https://schema.org",
@@ -499,6 +739,19 @@ export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl:
   modified = modified.replace(
     /<!-- SEO_META_INJECTION_POINT -->/,
     `<!-- SEO_META_INJECTION_POINT -->\n    ${otherTags}`
+  );
+
+  // Inject H1 at SEO_H1_INJECTION_POINT (present in raw HTML source)
+  const detectiveName = detective.businessName || `${detective.firstName || ""} ${detective.lastName || ""}`.trim() || "Detective";
+  const countryName = getCountryName(detective.country || "");
+  const defaultH1 = detective.city
+    ? `${detectiveName} - Private Investigator in ${detective.city}, ${countryName || detective.country || ""}`
+    : `${detectiveName} - Private Investigator`;
+  const h1Value = detective?.seoOverride?.h1 || defaultH1;
+
+  modified = modified.replace(
+    /<!-- SEO_H1_INJECTION_POINT -->/,
+    `<!-- SEO_H1_INJECTION_POINT -->\n    <noscript><h1>${escapeHtml(h1Value)}</h1></noscript>`
   );
 
   // Inject JSON-LD at SEO_JSON_LD_INJECTION_POINT
@@ -638,7 +891,8 @@ export async function getLocationDetectivesForSEO(
   country: string,
   state?: string,
   city?: string,
-  limit?: number
+  limit?: number,
+  offset?: number
 ): Promise<{
   detectives: Array<{
     id: string;
@@ -654,6 +908,8 @@ export async function getLocationDetectivesForSEO(
     contactEmail: string | null;
     isVerified: boolean;
     level: string | null;
+    avgRating: number;
+    reviewCount: number;
     effectiveBadges: { blueTick: boolean; pro: boolean; recommended: boolean };
   }>;
   hasMore: boolean;
@@ -669,68 +925,100 @@ export async function getLocationDetectivesForSEO(
         .join(" ");
     };
 
-    // Map country slugs to COUNTRY CODES (as stored in DB)
-    const countrySlugToCode: Record<string, string> = {
-      "india": "IN",
-      "united-states": "US",
-      "united-kingdom": "GB",
-      "canada": "CA",
-      "australia": "AU",
-      "germany": "DE",
-      "france": "FR",
-      "italy": "IT",
-      "spain": "ES",
-      "new-zealand": "NZ",
-      "ireland": "IE",
-      "singapore": "SG",
-      "malaysia": "MY",
-      "philippines": "PH",
-      "thailand": "TH",
-      "vietnam": "VN",
-      "pakistan": "PK",
-      "bangladesh": "BD",
-      "south-africa": "ZA",
-      "united-arab-emirates": "AE",
-      "kuwait": "KW",
-      "saudi-arabia": "SA",
-      "qatar": "QA",
-      "oman": "OM",
-      "japan": "JP",
-      "china": "CN",
-      "hong-kong": "HK",
-      "mexico": "MX",
-      "brazil": "BR",
-      "argentina": "AR",
-      "chile": "CL",
+    const normalizeToSlug = (value: string): string => {
+      return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
     };
 
-    // Build query conditions
-    let conditions = [eq(detectives.status, "active")];
-    const limitValue = typeof limit === "number" && limit > 0 ? limit : 15;
+    const getCountryCodeFromSlug = (countrySlugValue: string): string | undefined => {
+      try {
+        const displayNames = new Intl.DisplayNames(["en"], { type: "region" });
+        for (let first = 65; first <= 90; first += 1) {
+          for (let second = 65; second <= 90; second += 1) {
+            const code = String.fromCharCode(first) + String.fromCharCode(second);
+            const name = displayNames.of(code);
+            if (!name || name === code) continue;
+            if (normalizeToSlug(name) === countrySlugValue.toLowerCase()) {
+              return code;
+            }
+          }
+        }
+      } catch (_error) {
+        // Ignore runtime locale issues and fallback to title-case country matching
+      }
+      return undefined;
+    };
 
-    // Normalize country to single value for index-friendly query
-    const countryCode = countrySlugToCode[country.toLowerCase()];
-    const normalizedCountry = countryCode || slugToTitleCase(country);
-    
-    // Use single equality condition (index-friendly, no OR)
-    conditions.push(eq(detectives.country, normalizedCountry));
 
-    // Convert and add state filter if provided
-    if (state) {
-      const normalizedState = slugToTitleCase(state);
-      conditions.push(eq(detectives.state, normalizedState));
+    // Build query conditions using only country_id, state_id, city_id
+    const limitValue = typeof limit === "number" && limit > 0 ? Math.floor(limit) : 15;
+    const offsetValue = typeof offset === "number" && offset > 0 ? Math.floor(offset) : 0;
+
+    // Resolve country by slug
+    const countrySlug = country.toLowerCase();
+    const countryRows = await db
+      .select({ id: countries.id, name: countries.name, code: countries.code })
+      .from(countries)
+      .where(eq(countries.slug, countrySlug))
+      .limit(1);
+    const resolvedCountryId = countryRows[0]?.id;
+    const resolvedCountryCode = countryRows[0]?.code;
+    const resolvedCountryName = countryRows[0]?.name;
+    if (!resolvedCountryId) {
+      return { detectives: [], hasMore: false, location: { country } };
     }
 
-    // Convert and add city filter if provided
-    if (city) {
-      const normalizedCity = slugToTitleCase(city);
-      conditions.push(eq(detectives.city, normalizedCity));
+    // Resolve state by slug and countryId
+    let resolvedStateId: string | undefined = undefined;
+    let resolvedStateName: string | undefined = undefined;
+    if (state) {
+      const stateRows = await db
+        .select({ id: states.id, name: states.name })
+        .from(states)
+        .where(and(eq(states.countryId, resolvedCountryId), eq(states.slug, state.toLowerCase())))
+        .limit(1);
+      resolvedStateId = stateRows[0]?.id;
+      resolvedStateName = stateRows[0]?.name;
+      if (!resolvedStateId) {
+        resolvedStateName = undefined;
+        return { detectives: [], hasMore: false, location: { country, state } };
+      }
+    }
+
+    // Resolve city by slug and stateId
+    let resolvedCityId: string | undefined = undefined;
+    let resolvedCityName: string | undefined = undefined;
+    if (city && resolvedStateId) {
+      const cityRows = await db
+        .select({ id: cities.id, name: cities.name })
+        .from(cities)
+        .where(and(eq(cities.stateId, resolvedStateId), eq(cities.slug, city.toLowerCase())))
+        .limit(1);
+      resolvedCityId = cityRows[0]?.id;
+      resolvedCityName = cityRows[0]?.name;
+      if (!resolvedCityId) {
+        resolvedCityName = undefined;
+        return { detectives: [], hasMore: false, location: { country, state, city } };
+      }
+    }
+
+    // Build detective filter conditions
+    let conditions = [eq(detectives.status, "active"), eq(detectives.countryId, resolvedCountryId)];
+    if (resolvedStateId) {
+      conditions.push(eq(detectives.stateId, resolvedStateId));
+    }
+    if (resolvedCityId) {
+      conditions.push(eq(detectives.cityId, resolvedCityId));
     }
 
     console.log("[Location SEO] Querying detectives for location:", {
-      normalizedCountry: normalizedCountry,
-      state: state ? slugToTitleCase(state) : undefined,
-      city: city ? slugToTitleCase(city) : undefined,
+      country,
+      state,
+      city,
     });
 
     // Query detectives with limit + 1 for efficient pagination (no COUNT needed)
@@ -756,13 +1044,50 @@ export async function getLocationDetectivesForSEO(
       .from(detectives)
       .where(and(...conditions))
       .orderBy(desc(detectives.lastActive))
-      .limit(limitValue + 1);
+      .limit(limitValue + 1)
+      .offset(offsetValue);
 
     // Determine if there are more results beyond the limit
     const hasMore = rows.length > limitValue;
     const limitedRows = hasMore ? rows.slice(0, limitValue) : rows;
 
-    console.log("[Location SEO] Query returned", limitedRows.length, "detectives (hasMore:", hasMore, ") for", {country, state, city});
+    const detectiveIds = limitedRows.map((row) => row.id).filter((id): id is string => typeof id === "string" && id.length > 0);
+    const ratingsByDetective = new Map<string, { avgRating: number; reviewCount: number }>();
+    if (detectiveIds.length > 0) {
+      const ratingRows = await pool.query<{
+        detective_id: string;
+        avg_rating: string | null;
+        review_count: string | null;
+      }>(
+        `
+          SELECT s.detective_id,
+                 AVG(sr.service_avg)::numeric AS avg_rating,
+                 SUM(sr.review_count)::int AS review_count
+          FROM services s
+          INNER JOIN (
+            SELECT r.service_id,
+                   AVG(r.rating)::numeric AS service_avg,
+                   COUNT(*)::int AS review_count
+            FROM reviews r
+            WHERE r.is_published = true
+            GROUP BY r.service_id
+          ) sr ON sr.service_id = s.id
+          WHERE s.is_active = true
+            AND s.detective_id = ANY($1::varchar[])
+          GROUP BY s.detective_id
+        `,
+        [detectiveIds]
+      );
+
+      for (const ratingRow of ratingRows.rows) {
+        ratingsByDetective.set(ratingRow.detective_id, {
+          avgRating: parseFloat(ratingRow.avg_rating ?? "0") || 0,
+          reviewCount: parseInt(ratingRow.review_count ?? "0", 10) || 0,
+        });
+      }
+    }
+
+    console.log("[Location SEO] Query returned", limitedRows.length, "detectives (hasMore:", hasMore, ") for", { country, state, city, offset: offsetValue });
 
     // Compute effectiveBadges for each detective
     const detectivesWithBadges = limitedRows.map((row) => {
@@ -786,6 +1111,8 @@ export async function getLocationDetectivesForSEO(
         contactEmail: row.contactEmail,
         isVerified: row.isVerified,
         level: row.level,
+        avgRating: ratingsByDetective.get(row.id)?.avgRating ?? 0,
+        reviewCount: ratingsByDetective.get(row.id)?.reviewCount ?? 0,
         effectiveBadges,
       };
     });
@@ -1010,19 +1337,43 @@ export async function generateLocationSeoMetaTags(
 /**
  * Generates JSON-LD ItemList schema for location listing pages
  */
-function generateLocationItemListSchema(
+async function generateLocationItemListSchema(
   location: { country: string; state?: string; city?: string },
   detectives: Array<{ slug: string; businessName: string; city: string; state: string; country: string }>,
   canonicalUrl: string
-): string {
+): Promise<string> {
   const locationLabel = [location.city, location.state, location.country]
     .filter(Boolean)
     .join(", ");
 
+  // Build a unique set of country codes and resolve all slugs with controlled concurrency
+  const uniqueCountryCodes = [...new Set(detectives.map(d => d.country))];
+  const countrySlugMap = new Map<string, string>();
+  for (const code of uniqueCountryCodes) {
+    countrySlugMap.set(code, await resolveCountrySlug(code));
+  }
+
+  // Build state/city slug maps for all unique (state, country) and (city, state, country) combos
+  const uniqueStates = new Set(detectives.map(d => `${d.state}|${d.country}`));
+  const stateSlugMap = new Map<string, string>();
+  for (const key of uniqueStates) {
+    const [state, country] = key.split("|");
+    stateSlugMap.set(key, await resolveStateSlug(state, country));
+  }
+
+  const uniqueCities = new Set(detectives.map(d => `${d.city}|${d.state}|${d.country}`));
+  const citySlugMap = new Map<string, string>();
+  for (const key of uniqueCities) {
+    const [city, state, country] = key.split("|");
+    citySlugMap.set(key, await resolveCitySlug(city, state, country));
+  }
+
   const itemListElement = detectives.slice(0, 10).map((detective, index) => {
-    const countrySlug = getCountrySlug(detective.country);
-    const stateSlug = detective.state?.toLowerCase().replace(/\s+/g, "-") || "";
-    const citySlug = detective.city?.toLowerCase().replace(/\s+/g, "-") || "";
+    const countrySlug = countrySlugMap.get(detective.country)!;
+    const stateKey = `${detective.state}|${detective.country}`;
+    const cityKey = `${detective.city}|${detective.state}|${detective.country}`;
+    const stateSlug = stateSlugMap.get(stateKey) || "";
+    const citySlug = citySlugMap.get(cityKey) || "";
     const detProfileUrl = `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/${detective.slug}/`;
 
     return {
@@ -1048,12 +1399,12 @@ function generateLocationItemListSchema(
 /**
  * Generates JSON-LD BreadcrumbList schema for location listing pages
  */
-function generateLocationBreadcrumbSchema(
+async function generateLocationBreadcrumbSchema(
   location: { country: string; state?: string; city?: string }
-): string {
-  const countrySlug = getCountrySlug(location.country);
-  const stateSlug = location.state?.toLowerCase().replace(/\s+/g, "-") || "";
-  const citySlug = location.city?.toLowerCase().replace(/\s+/g, "-") || "";
+): Promise<string> {
+  const countrySlug = await resolveCountrySlug(location.country);
+  const stateSlug = await resolveStateSlug(location.state, location.country);
+  const citySlug = await resolveCitySlug(location.city, location.state, location.country);
 
   const breadcrumbItems: any[] = [
     {
@@ -1062,18 +1413,15 @@ function generateLocationBreadcrumbSchema(
       "name": "Home",
       "item": "https://www.askdetectives.com",
     },
-  ];
-
-  if (location.country) {
-    breadcrumbItems.push({
+    {
       "@type": "ListItem",
       "position": 2,
       "name": getCountryName(location.country),
       "item": `https://www.askdetectives.com/detectives/${countrySlug}/`,
-    });
-  }
+    },
+  ];
 
-  if (stateSlug && location.country) {
+  if (stateSlug) {
     breadcrumbItems.push({
       "@type": "ListItem",
       "position": 3,
@@ -1082,7 +1430,7 @@ function generateLocationBreadcrumbSchema(
     });
   }
 
-  if (citySlug && stateSlug && location.country) {
+  if (citySlug) {
     breadcrumbItems.push({
       "@type": "ListItem",
       "position": 4,
@@ -1104,14 +1452,14 @@ function generateLocationBreadcrumbSchema(
  * Generates JSON-LD schema for location listing pages
  * Returns object with itemList and breadcrumbs as separate JSON strings
  */
-export function generateLocationJsonLd(
+export async function generateLocationJsonLd(
   location: { country: string; state?: string; city?: string },
   detectives: Array<{ slug: string; businessName: string; city: string; state: string; country: string }>,
   canonicalUrl: string
-): { itemList: string; breadcrumbs: string } {
+): Promise<{ itemList: string; breadcrumbs: string }> {
   return {
-    itemList: generateLocationItemListSchema(location, detectives, canonicalUrl),
-    breadcrumbs: generateLocationBreadcrumbSchema(location),
+    itemList: await generateLocationItemListSchema(location, detectives, canonicalUrl),
+    breadcrumbs: await generateLocationBreadcrumbSchema(location),
   };
 }
 
@@ -1126,26 +1474,15 @@ export async function injectLocationSeoTags(
   location: { country: string; state?: string; city?: string },
   detectives: Array<{ slug: string; businessName: string; city: string; state: string; country: string }>,
   canonicalUrl: string,
-  totalCount?: number | LocationResolution,
+  totalCount: number,
   resolvedLocation?: LocationResolution
 ): Promise<string> {
-  // Handle backwards compatibility: resolvedLocation may be passed as totalCount parameter
-  let actualTotalCount = detectives.length;
-  let passedResolvedLocation = resolvedLocation;
-  
-  if (typeof totalCount === 'number') {
-    actualTotalCount = totalCount;
-  } else if (totalCount && typeof totalCount === 'object' && 'countryId' in totalCount) {
-    // totalCount is actually the resolvedLocation (when called with 5 args)
-    passedResolvedLocation = totalCount;
-  }
-
   // STEP 1: Remove all existing default meta tags
   let modified = removeDefaultMetaTags(htmlContent);
 
   // STEP 2: Inject new SEO tags (now async with override support)
   // ✅ Pass resolved location to avoid duplicate queries
-  const seoData = await generateLocationSeoMetaTags(location, actualTotalCount, canonicalUrl, passedResolvedLocation);
+  const seoData = await generateLocationSeoMetaTags(location, totalCount, canonicalUrl, resolvedLocation);
   const metaTagsArray = seoData.html.split('\n');
   const titleTag = metaTagsArray[0];
   const otherTags = metaTagsArray.slice(1).join('\n    ');
@@ -1164,7 +1501,11 @@ export async function injectLocationSeoTags(
 
   // Inject JSON-LD at SEO_JSON_LD_INJECTION_POINT
   // Create two separate script tags: one for ItemList, one for BreadcrumbList
-  const jsonLd = generateLocationJsonLd(location, detectives, canonicalUrl);
+  const jsonLd = await generateLocationJsonLd(
+    location,
+    detectives,
+    canonicalUrl
+  );
   const jsonLdScripts = `<script type="application/ld+json">\n      ${jsonLd.itemList}\n    </script>\n    <script type="application/ld+json">\n      ${jsonLd.breadcrumbs}\n    </script>`;
   modified = modified.replace(
     /<!-- SEO_JSON_LD_INJECTION_POINT -->/,
@@ -1179,7 +1520,7 @@ export async function injectLocationSeoTags(
         description: ${JSON.stringify(seoData.description)},
         h1: ${JSON.stringify(seoData.h1)},
         location: ${JSON.stringify(location)},
-        totalCount: ${actualTotalCount}
+        totalCount: ${totalCount}
       };
     </script>`;
   
@@ -1458,19 +1799,43 @@ export function generateServiceLocationSeoMetaTags(
 /**
  * Generates JSON-LD ItemList schema for services
  */
-function generateServiceLocationItemListSchema(
+async function generateServiceLocationItemListSchema(
   location: { countryName: string; stateName: string; cityName: string },
   services: Array<any>,
   canonicalUrl: string
-): string {
+): Promise<string> {
   const locationLabel = `${location.cityName}, ${location.stateName}`;
-  
+
+  // Build a unique set of country codes and resolve all slugs with controlled concurrency
+  const uniqueCountryCodes = [...new Set(services.map(s => s.detective.country))];
+  const countrySlugMap = new Map<string, string>();
+  for (const code of uniqueCountryCodes) {
+    countrySlugMap.set(code, await resolveCountrySlug(code));
+  }
+
+  // Build state/city slug maps for all unique (state, country) and (city, state, country) combos
+  const uniqueStates = new Set(services.map(s => `${s.detective.state}|${s.detective.country}`));
+  const stateSlugMap = new Map<string, string>();
+  for (const key of uniqueStates) {
+    const [state, country] = key.split("|");
+    stateSlugMap.set(key, await resolveStateSlug(state, country));
+  }
+
+  const uniqueCities = new Set(services.map(s => `${s.detective.city}|${s.detective.state}|${s.detective.country}`));
+  const citySlugMap = new Map<string, string>();
+  for (const key of uniqueCities) {
+    const [city, state, country] = key.split("|");
+    citySlugMap.set(key, await resolveCitySlug(city, state, country));
+  }
+
   const itemListElement = services.slice(0, 20).map((service, index) => {
-    const countrySlug = getCountrySlug(service.detective.country);
-    const stateSlug = service.detective.state?.toLowerCase().replace(/\s+/g, "-") || "";
-    const citySlug = service.detective.city?.toLowerCase().replace(/\s+/g, "-") || "";
+    const countrySlug = countrySlugMap.get(service.detective.country)!;
+    const stateKey = `${service.detective.state}|${service.detective.country}`;
+    const cityKey = `${service.detective.city}|${service.detective.state}|${service.detective.country}`;
+    const stateSlug = stateSlugMap.get(stateKey) || "";
+    const citySlug = citySlugMap.get(cityKey) || "";
     const serviceUrl = `https://www.askdetectives.com/service/${countrySlug}/${stateSlug}/${citySlug}/${service.detective.slug}/${service.slug}/`;
-    
+
     return {
       "@type": "ListItem",
       "position": index + 1,
@@ -1496,7 +1861,7 @@ function generateServiceLocationItemListSchema(
       },
     };
   });
-  
+
   const itemList: any = {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -1505,7 +1870,7 @@ function generateServiceLocationItemListSchema(
     "url": canonicalUrl,
     "itemListElement": itemListElement.map(item => ({ ...item.item, position: item.position })),
   };
-  
+
   return JSON.stringify(itemList, null, 2);
 }
 
@@ -1566,13 +1931,17 @@ function generateServiceLocationBreadcrumbSchema(
 /**
  * Generates JSON-LD schema for service location pages
  */
-export function generateServiceLocationJsonLd(
+export async function generateServiceLocationJsonLd(
   location: { countrySlug: string; stateSlug: string; citySlug: string; countryName: string; stateName: string; cityName: string },
   services: Array<any>,
   canonicalUrl: string
-): { itemList: string; breadcrumbs: string } {
+): Promise<{ itemList: string; breadcrumbs: string }> {
   return {
-    itemList: generateServiceLocationItemListSchema({ countryName: location.countryName, stateName: location.stateName, cityName: location.cityName }, services, canonicalUrl),
+    itemList: await generateServiceLocationItemListSchema(
+      { countryName: location.countryName, stateName: location.stateName, cityName: location.cityName },
+      services,
+      canonicalUrl
+    ),
     breadcrumbs: generateServiceLocationBreadcrumbSchema(location),
   };
 }
@@ -1580,12 +1949,12 @@ export function generateServiceLocationJsonLd(
 /**
  * Injects service location SEO tags into HTML template
  */
-export function injectServiceLocationSeoTags(
+export async function injectServiceLocationSeoTags(
   htmlContent: string,
   location: { countrySlug: string; stateSlug: string; citySlug: string; countryName: string; stateName: string; cityName: string },
   services: Array<any>,
   canonicalUrl: string
-): string {
+): Promise<string> {
   // STEP 1: Remove all existing default meta tags
   let modified = removeDefaultMetaTags(htmlContent);
 
@@ -1608,7 +1977,7 @@ export function injectServiceLocationSeoTags(
   );
 
   // Inject JSON-LD at SEO_JSON_LD_INJECTION_POINT
-  const jsonLd = generateServiceLocationJsonLd(location, services, canonicalUrl);
+  const jsonLd = await generateServiceLocationJsonLd(location, services, canonicalUrl);
   const jsonLdScripts = `<script type="application/ld+json">\n      ${jsonLd.itemList}\n    </script>\n    <script type="application/ld+json">\n      ${jsonLd.breadcrumbs}\n    </script>`;
   modified = modified.replace(
     /<!-- SEO_JSON_LD_INJECTION_POINT -->/,
@@ -1665,3 +2034,4 @@ export function injectDetectiveLocationAuthorityLink(
   // Fallback: inject right after </h1>
   return htmlContent.substring(0, h1CloseIndex + 5) + authorityLinkHtml + htmlContent.substring(h1CloseIndex + 5);
 }
+

@@ -47,7 +47,7 @@ const detectiveDateFormatter = new Intl.DateTimeFormat("en-US", {
 });
 
 import { Link, useLocation } from "wouter";
-import { useSearchDetectives, useAdminUpdateDetective, useAdminDeleteDetective, useServicesByDetective } from "@/lib/hooks";
+import { useAdminSearchDetectives, useAdminUpdateDetective, useAdminDeleteDetective, useServicesByDetective } from "@/lib/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { Detective } from "@shared/schema";
@@ -60,9 +60,9 @@ export default function AdminDetectives() {
   const [planFilter, setPlanFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
   const pageSize = 10;
-  const { data: detectivesData, isLoading } = useSearchDetectives({
+  const { data: detectivesData, isLoading, isError } = useAdminSearchDetectives({
     search: searchTerm || undefined,
-    status: statusFilter !== "all" ? (statusFilter as any) : undefined,
+    status: statusFilter as any,
     plan: planFilter !== "all" ? (planFilter as any) : undefined,
     limit: pageSize,
     offset: (page - 1) * pageSize,
@@ -191,6 +191,7 @@ export default function AdminDetectives() {
                   <TableHead>Detective</TableHead>
                   <TableHead>Level</TableHead>
                   <TableHead>Plan</TableHead>
+                  <TableHead>Date of Approval</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -202,14 +203,20 @@ export default function AdminDetectives() {
                       <TableCell><Skeleton className="h-12 w-full" /></TableCell>
                       <TableCell><Skeleton className="h-6 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-6 w-16" /></TableCell>
-                      
+                      <TableCell><Skeleton className="h-6 w-32" /></TableCell>
                       <TableCell><Skeleton className="h-6 w-16" /></TableCell>
                       <TableCell><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
                     </TableRow>
                   ))
+                ) : isError ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-red-600">
+                      Failed to load detectives. Please refresh or check server/database connection.
+                    </TableCell>
+                  </TableRow>
                 ) : detectives.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                       No detectives yet
                     </TableCell>
                   </TableRow>
@@ -233,7 +240,9 @@ export default function AdminDetectives() {
                         </Badge>
                       </TableCell>
                       <TableCell className="capitalize">{(detective as any).subscriptionPackage?.displayName || (detective as any).subscriptionPackage?.name || 'Free'}</TableCell>
-
+                      <TableCell className="text-sm text-gray-600">
+                        {detective.memberSince ? format(new Date(detective.memberSince), 'MMM dd, yyyy') : 'N/A'}
+                      </TableCell>
                       <TableCell>
                         <Badge className={detective.status === "active" ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-red-100 text-red-700 hover:bg-red-200"} data-testid={`badge-status-${detective.id}`}>
                           {detective.status}

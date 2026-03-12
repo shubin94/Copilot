@@ -19,8 +19,8 @@ import { NetworkErrorHandler } from "@/components/network-error-handler";
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
 const Home = lazy(() => import("./pages/home"));
-const DetectiveProfile = lazy(() => import("@/pages/detective-profile"));
-const DetectivePublicPage = lazy(() => import("@/pages/detective"));
+const DetectiveProfile = lazy(() => import("./pages/detective-profile.tsx"));
+const DetectivePublicPage = lazy(() => import("./pages/detective.tsx"));
 const CityDetectivesPage = lazy(() => import("@/pages/city-detectives"));
 const ArticlePage = lazy(() => import("@/pages/news"));
 const NewsHub = lazy(() => import("@/pages/news-hub"));
@@ -33,6 +33,9 @@ const DetectiveSignup = lazy(() => import("@/pages/detective-signup"));
 const ApplicationUnderReview = lazy(() => import("@/pages/application-under-review"));
 const SearchPage = lazy(() => import("@/pages/search"));
 const CategoriesPage = lazy(() => import("@/pages/categories"));
+const LocationsCountriesPage = lazy(() => import("@/pages/locations-countries"));
+const LocationsStatesPage = lazy(() => import("@/pages/locations-states"));
+const LocationsCitiesPage = lazy(() => import("@/pages/locations-cities"));
 
 // Lazy load admin pages individually
 const AdminDashboard = lazy(() => import("@/pages/admin/dashboard"));
@@ -63,6 +66,7 @@ const AdminEmployees = lazy(() => import("@/pages/admin/employees"));
 const AdminLocationSeoCountries = lazy(() => import("@/pages/admin/location-seo-countries"));
 const AdminLocationSeoStates = lazy(() => import("@/pages/admin/location-seo-states"));
 const AdminLocationSeoCities = lazy(() => import("@/pages/admin/location-seo-cities"));
+const AdminDetectivePages = lazy(() => import("@/pages/admin/detective-pages"));
 const EmployeeDashboard = lazy(() => import("@/pages/employee/dashboard"));
 
 // CMS Public Routes
@@ -153,6 +157,9 @@ function Router() {
           <Route path="/search" component={SearchPage} />
           <Route path="/category/:name" component={SearchPage} />
           <Route path="/categories" component={CategoriesPage} />
+          <Route path="/locations/countries" component={LocationsCountriesPage} />
+          <Route path="/locations/states" component={LocationsStatesPage} />
+          <Route path="/locations/cities" component={LocationsCitiesPage} />
           <Route path="/blog/category/:parent/:slug" component={PageCategory} />
           <Route path="/blog/category/:slug" component={PageCategory} />
           <Route path="/blog/tag/:parent/:slug" component={PageTag} />
@@ -181,6 +188,7 @@ function Router() {
           <Route path="/admin/service-categories" component={withAdminRoute(AdminServiceCategories)} />
           <Route path="/admin/subscriptions" component={withAdminRoute(AdminSubscriptions)} />
           <Route path="/admin/pages" component={withAdminRoute(AdminPages)} />
+          <Route path="/admin/detective-pages" component={withAdminRoute(AdminDetectivePages)} />
           <Route path="/admin/settings" component={withAdminRoute(AdminSettings)} />
           <Route path="/admin/payment-gateways" component={withAdminRoute(AdminPaymentGateways)} />
           <Route path="/admin/app-secrets" component={withAdminRoute(AdminAppSecrets)} />

@@ -174,12 +174,12 @@ export default function DetectiveServices() {
     if (service) {
       setEditingService(service);
       setFormData({
-        category: service.category,
-        title: service.title,
-        description: service.description,
-        basePrice: service.basePrice,
-        offerPrice: service.offerPrice || "",
-        isOnEnquiry: service.isOnEnquiry,
+        category: service.category || "",
+        title: service.title || "",
+        description: service.description || "",
+        basePrice: service.basePrice ? String(service.basePrice) : "",
+        offerPrice: service.offerPrice ? String(service.offerPrice) : "",
+        isOnEnquiry: service.isOnEnquiry || false,
       });
       setBannerImage(service.images && service.images.length > 0 ? service.images[0] : "");
     } else {
@@ -675,11 +675,11 @@ export default function DetectiveServices() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-gray-600 mb-4">{service.description}</p>
+                  <p className="text-gray-600 mb-4 break-words">{service.description}</p>
                   <div className="flex items-center gap-4">
                     <div>
                       <span className="text-sm text-gray-500">Base Price:</span>
-                      <span className="ml-2 text-lg font-semibold">{formatPriceExactForCountry(parseFloat(service.basePrice), detective.country)}</span>
+                      <span className="ml-2 text-lg font-semibold">{service.isOnEnquiry ? "On Enquiry" : formatPriceExactForCountry(parseFloat(service.basePrice), detective.country)}</span>
                     </div>
                     {service.offerPrice && (
                       <div>

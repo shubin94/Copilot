@@ -262,7 +262,9 @@ export default function ArticlePage() {
           <div className="mb-8">
             <img
               src={article.thumbnail}
-              alt={article.title}
+              alt="News thumbnail"
+              width={320}
+              height={240}
               className="w-full h-96 object-cover rounded-lg border border-gray-200"
             />
           </div>

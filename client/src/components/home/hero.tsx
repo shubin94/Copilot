@@ -100,7 +100,9 @@ export function Hero() {
         {heroImage ? (
           <img
             src={heroImage}
-            alt=""
+            alt="Hero section image"
+            width={800}
+            height={400}
             className="object-cover w-full h-full"
             {...({
               fetchpriority: "low",
@@ -113,7 +115,9 @@ export function Hero() {
             <source srcSet={heroBgWebp} type="image/webp" />
             <img
               src={heroBgPng}
-              alt=""
+              alt="Hero background"
+              width={800}
+              height={400}
               className="object-cover w-full h-full"
               {...({
                 fetchpriority: "low",

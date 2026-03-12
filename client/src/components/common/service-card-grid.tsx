@@ -14,10 +14,6 @@ const SERVICE_CARD_SKELETON_ITEMS = [1, 2, 3, 4, 5, 6];
 
 const renderServiceCardSkeleton = (item: number) => <ServiceCardSkeleton key={item} />;
 
-const renderServiceCard = (service: ServiceCardGridItem) => (
-  <ServiceCard key={service.id} {...service} />
-);
-
 export function ServiceCardGrid({ services, isLoading, emptyMessage }: ServiceCardGridProps) {
   if (isLoading) {
     return (
@@ -37,7 +33,9 @@ export function ServiceCardGrid({ services, isLoading, emptyMessage }: ServiceCa
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-      {services.map(renderServiceCard)}
+      {services.map((service: any) => (
+        <ServiceCard key={service.id} {...service} />
+      ))}
     </div>
   );
 }
