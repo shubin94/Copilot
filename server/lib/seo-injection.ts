@@ -290,23 +290,55 @@ async function fetchDetectiveRatings(detectiveId: string): Promise<{ avgRating: 
   };
 }
 
+function isMissingColumnError(error: unknown, columnName: string): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes(`column "${columnName.toLowerCase()}" does not exist`);
+}
+
 async function fetchDetectiveSeoOverride(detectiveId: string): Promise<{ metaTitle?: string | null; metaDescription?: string | null; h1?: string | null } | null> {
   try {
-    const seoResult = await pool.query(
-      `
-        SELECT
-          meta_title AS "metaTitle",
-          meta_description AS "metaDescription",
-          h1
-        FROM location_seo_overrides
-        WHERE entity_type = 'detective'
-          AND entity_id = $1::text
-        ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
-        LIMIT 1
-      `,
-      [detectiveId]
-    );
-    return seoResult.rows[0] || null;
+    try {
+      const seoResult = await pool.query(
+        `
+          SELECT
+            meta_title AS "metaTitle",
+            meta_description AS "metaDescription",
+            h1
+          FROM location_seo_overrides
+          WHERE entity_type = 'detective'
+            AND entity_id = $1::text
+          ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+          LIMIT 1
+        `,
+        [detectiveId]
+      );
+      return seoResult.rows[0] || null;
+    } catch (primaryError) {
+      if (!isMissingColumnError(primaryError, "updated_at")) {
+        throw primaryError;
+      }
+
+      console.warn("[SEO] location_seo_overrides.updated_at missing; using created_at fallback for detective override query", {
+        detectiveId,
+      });
+
+      const fallbackResult = await pool.query(
+        `
+          SELECT
+            meta_title AS "metaTitle",
+            meta_description AS "metaDescription",
+            h1
+          FROM location_seo_overrides
+          WHERE entity_type = 'detective'
+            AND entity_id = $1::text
+          ORDER BY created_at DESC NULLS LAST
+          LIMIT 1
+        `,
+        [detectiveId]
+      );
+      return fallbackResult.rows[0] || null;
+    }
   } catch (seoError) {
     console.warn("[SEO] Failed to fetch detective SEO override:", {
       detectiveId,
@@ -391,11 +423,13 @@ export function generateSeoMetaTags(detective: any, canonicalUrl: string): strin
     ? `${detective.city}, ${detective.state}`
     : detective.city || detective.location || "";
 
-  const shortDescription = detective.bio
+  const fallbackDescription = detective.bio
     ? String(detective.bio).substring(0, 155)
     : `Professional private investigator services${location ? ` in ${location}` : ""}`;
 
-  const title = `${name} - Private Detective${location ? ` in ${location}` : ""} | Ask Detectives`;
+  const fallbackTitle = `${name} - Private Detective${location ? ` in ${location}` : ""} | Ask Detectives`;
+  const title = detective?.seoOverride?.metaTitle?.trim() || fallbackTitle;
+  const shortDescription = detective?.seoOverride?.metaDescription?.trim() || fallbackDescription;
 
   return [
     `<title>${escapeHtml(title)}</title>`,

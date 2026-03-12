@@ -7,7 +7,7 @@ import { ServiceCardGrid } from "@/components/common/service-card-grid";
 import { useLocation, useRoute } from "wouter";
 import { useDetectiveBySlug, useServicesByDetective } from "@/lib/hooks";
 import { NotFoundFallback, SkeletonLoader } from "@/components/fallback-ui";
-import { MapPin, Languages, Mail, Phone, MessageCircle, Globe } from "lucide-react";
+import { MapPin, Languages, Mail, Phone, MessageCircle, Globe, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
@@ -15,14 +15,19 @@ import { Breadcrumb } from "@/components/breadcrumb";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { 
   generateCompleteDetectiveSchema} from "@/lib/structured-data";
-import { getDetectiveProfileUrl } from "@/lib/utils";
-import { getCountryName } from "@/lib/slug-utils";
 // ...existing code...
 import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
-import { computeServiceBadges } from "@/lib/service-badges";
+import {
+  buildDetectiveSeoContext,
+  resolveAverageServiceRating,
+  resolveDetectiveBadgeState,
+  resolveDetectiveName,
+  resolveMemberSinceLabel,
+} from "./detective-page-helpers";
 
 const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
   month: "long",
+  day: "numeric",
   year: "numeric",
   timeZone: "UTC",
 });
@@ -103,21 +108,17 @@ export default function DetectivePublicPage() {
     }
   }, []);
 
-  // Helper function to generate URL slugs from location names
-  const createSlug = (text: string): string => {
-    return text.toLowerCase().trim()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-+|-+$/g, "");
-  };
-
-  // SEO: Use override if present, else fallback to generated
-  const detectiveName = detective?.businessName || `${(detective as any)?.firstName || ''} ${(detective as any)?.lastName || ''}`.trim() || 'Detective';
-  const countryNameForDisplay = detective?.country ? getCountryName(detective.country) : detective?.country || '';
-  const location = detective?.city && countryNameForDisplay 
-    ? `${detective.city}, ${countryNameForDisplay}`
-    : detective?.location || countryNameForDisplay || '';
+  const detectiveName = resolveDetectiveName(detective as any);
+  const memberSinceLabel = resolveMemberSinceLabel(detective as any, monthYearFormatter);
+  const {
+    countryNameForDisplay,
+    location,
+    countrySlug,
+    stateSlug,
+    citySlug,
+    canonicalUrl,
+    breadcrumbs,
+  } = buildDetectiveSeoContext(detective as any, detectiveName, locationPath);
 
   const isMissingDetective = !detectiveLoading && !detective;
   const fallbackTitle = location
@@ -138,48 +139,6 @@ export default function DetectivePublicPage() {
     : seoOverride?.meta_description?.trim() || fallbackDescription;
   // h1Text is now inlined where needed
 
-  // Breadcrumb navigation for SEO and user context
-  // Format: Home > Country > State > City > Detective Name
-  // Use slug-based URLs for directory pages
-  // Convert country code to full name before creating slug
-  const countryName = detective?.country ? getCountryName(detective.country) : "";
-  const countrySlug = countryName ? createSlug(countryName) : "";
-  const stateSlug = detective?.state ? createSlug(detective.state) : "";
-  const citySlug = detective?.city ? createSlug(detective.city) : "";
-  const canonicalUrl = detective 
-    ? `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`
-    : `https://www.askdetectives.com${locationPath}`;
-  
-  const breadcrumbs = [
-    { name: "Home", url: "/" },
-  ];
-  
-  if (countryName && countrySlug) {
-    breadcrumbs.push({
-      name: countryName,
-      url: `/detectives/${countrySlug}/`,
-    });
-  }
-  
-  if (detective?.state && stateSlug && countrySlug) {
-    breadcrumbs.push({
-      name: detective.state,
-      url: `/detectives/${countrySlug}/${stateSlug}/`,
-    });
-  }
-  
-  if (detective?.city && citySlug && stateSlug && countrySlug) {
-    breadcrumbs.push({
-      name: detective.city,
-      url: `/detectives/${countrySlug}/${stateSlug}/${citySlug}/`,
-    });
-  }
-  
-  breadcrumbs.push({
-    name: detectiveName,
-    url: canonicalUrl,
-  });
-  
   // SEO: Generate comprehensive JSON-LD schemas
   // Includes LocalBusiness, AggregateRating, BreadcrumbList, and Speakable for AI/voice assistants
   const detectiveSchemas = detective ? generateCompleteDetectiveSchema(
@@ -193,11 +152,8 @@ export default function DetectivePublicPage() {
     citySlug
   ) : undefined;
 
-  // Compute badge state for detective
-  const badgeState = detective ? computeServiceBadges({
-    isVerified: detective.hasBlueTick || detective.isVerified,
-    effectiveBadges: (detective as any).effectiveBadges || [],
-  }) : undefined;
+  const badgeState = resolveDetectiveBadgeState(detective as any);
+  const averageServiceRating = resolveAverageServiceRating(detectiveServices as any[]);
 
   return (
     <div className="min-h-screen bg-white">
@@ -240,7 +196,7 @@ export default function DetectivePublicPage() {
             {/* Machine-Readable Summary for AI Agents (Hidden but Present in First 500 Bytes) */}
             <dl className="sr-only">
               <dt>Business Name</dt>
-              <dd>{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</dd>
+              <dd>{detectiveName}</dd>
               <dt>Location</dt>
               <dd>{detective.city}, {detective.state}, {countryNameForDisplay}</dd>
               <dt>Verification Status</dt>
@@ -254,7 +210,7 @@ export default function DetectivePublicPage() {
               <dt>Services Count</dt>
               <dd>{detectiveServices.length}</dd>
               <dt>Average Rating</dt>
-              <dd>{detectiveServices.length > 0 ? (detectiveServices.reduce((sum: number, s: any) => sum + (s.avgRating || 0), 0) / detectiveServices.filter((s: any) => s.avgRating).length).toFixed(1) : 'Not rated'}</dd>
+              <dd>{averageServiceRating !== null ? averageServiceRating.toFixed(1) : 'Not rated'}</dd>
             </dl>
             
             <Card className="mb-6">
@@ -263,8 +219,8 @@ export default function DetectivePublicPage() {
                 <img src={detective.logo || "/placeholder-avatar.png"} alt="avatar" className="h-16 w-16 rounded-full object-cover border" width="64" height="64" />
                 <div className="flex-1">
                   {/* Detective name and badge restored inside the card */}
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-bold text-xl" data-testid="text-detective-name">{detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`}</span>
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="font-bold text-xl" data-testid="text-detective-name">{detectiveName}</span>
                     <DetectiveBadges badgeState={badgeState} />
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-700 mb-2">
@@ -275,6 +231,12 @@ export default function DetectivePublicPage() {
                       <span className="inline-flex items-center gap-1"><Languages className="h-3 w-3" /> {(detective.languages as string[]).join(', ')}</span>
                     )}
                   </div>
+                  {averageServiceRating !== null && (
+                    <div className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 mb-2">
+                      <Star className="h-4 w-4 fill-amber-500 text-amber-500" />
+                      <span>{averageServiceRating.toFixed(1)} Average Service Rating</span>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
                     <Button className="bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 shadow-sm h-9 px-3" data-testid="button-contact-email" onClick={() => {
                       const to = (detective as any).contactEmail || (detective as any).email;
@@ -363,12 +325,10 @@ export default function DetectivePublicPage() {
               )}
 
               {/* Member Since Section */}
-              {(detective.memberSince || detective.createdAt) && (
+              {memberSinceLabel && (
                 <div className="mt-6 pt-6 border-t border-gray-200">
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Member Since</h3>
-                  <p className="text-gray-700 text-sm">
-                    {monthYearFormatter.format(new Date(detective.memberSince || detective.createdAt))}
-                  </p>
+                  <p className="text-gray-700 text-sm">{memberSinceLabel}</p>
                 </div>
               )}
 

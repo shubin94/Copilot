@@ -1988,11 +1988,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Upsert SEO override
       const upsertQuery = `
-        INSERT INTO location_seo_overrides (id, entity_type, entity_id, meta_title, meta_description, h1, created_at)
-        VALUES (gen_random_uuid(), 'detective', $1, $2, $3, $4, NOW())
+        INSERT INTO location_seo_overrides (id, entity_type, entity_id, meta_title, meta_description, h1, created_at, updated_at)
+        VALUES (gen_random_uuid(), 'detective', $1, $2, $3, $4, NOW(), NOW())
         ON CONFLICT (entity_type, entity_id)
-        DO UPDATE SET meta_title = $2, meta_description = $3, h1 = $4, created_at = NOW()
-        RETURNING id, meta_title, meta_description, h1, created_at
+        DO UPDATE SET meta_title = $2, meta_description = $3, h1 = $4, updated_at = NOW()
+        RETURNING id, meta_title, meta_description, h1, created_at, updated_at
       `;
 
       let upsertResult, seoRecord;
@@ -4402,7 +4402,7 @@ Content-Signal: index=public; train=deny
       const payload = {
         detective: {
           id: maskedDetective.id,
-          businessName: maskedDetective.businessName,
+          businessName: maskedDetective.businessName ?? maskedDetective.business_name ?? null,
           bio: maskedDetective.bio,
           logo: maskedDetective.logo,
           location: maskedDetective.location,
@@ -4412,21 +4412,20 @@ Content-Signal: index=public; train=deny
           slug: maskedDetective.slug,
           phone: maskedDetective.phone,
           whatsapp: maskedDetective.whatsapp,
-          contactEmail: maskedDetective.contactEmail,
+          contactEmail: maskedDetective.contactEmail ?? maskedDetective.contact_email ?? null,
           languages: maskedDetective.languages,
-          yearsExperience: maskedDetective.yearsExperience,
-          businessWebsite: maskedDetective.businessWebsite,
+          yearsExperience: maskedDetective.yearsExperience ?? maskedDetective.years_experience ?? null,
+          businessWebsite: maskedDetective.businessWebsite ?? maskedDetective.business_website ?? null,
           recognitions: maskedDetective.recognitions,
-          memberSince: maskedDetective.memberSince,
-          isVerified: maskedDetective.isVerified,
+          memberSince: maskedDetective.memberSince ?? maskedDetective.member_since ?? maskedDetective.createdAt ?? maskedDetective.created_at ?? null,
+          isVerified: maskedDetective.isVerified ?? maskedDetective.is_verified,
           level: maskedDetective.level,
-          hasBlueTick: maskedDetective.hasBlueTick,
-          blueTickAddon: maskedDetective.blueTickAddon,
+          hasBlueTick: maskedDetective.hasBlueTick ?? maskedDetective.has_blue_tick,
+          blueTickAddon: maskedDetective.blueTickAddon ?? maskedDetective.blue_tick_addon,
           status: maskedDetective.status,
-          createdAt: maskedDetective.createdAt,
-          createdAt: maskedDetective.createdAt,
+          createdAt: maskedDetective.createdAt ?? maskedDetective.created_at ?? null,
           effectiveBadges: {
-            blueTick: maskedDetective.hasBlueTick || maskedDetective.blueTickAddon,
+            blueTick: (maskedDetective.hasBlueTick ?? maskedDetective.has_blue_tick) || (maskedDetective.blueTickAddon ?? maskedDetective.blue_tick_addon),
             pro: maskedDetective.level === 'pro',
             recommended: false
           }
