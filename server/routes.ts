@@ -6435,7 +6435,7 @@ Content-Signal: index=public; train=deny
           const cityValue = application.city || "Not specified";
 
           // Build phone number
-          const phone = application.phoneCountryCode && application.phoneNumber 
+          const phone = application.phoneCountryCode && application.phone 
             ? `${application.phoneCountryCode}${application.phone}`
             : undefined;
           const agencyBusinessDocuments = Array.isArray(application.businessDocuments)

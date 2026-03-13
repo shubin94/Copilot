@@ -16,6 +16,8 @@ import { EmployeeRoute } from "@/components/employee-route";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { NetworkErrorHandler } from "@/components/network-error-handler";
 
+import { KeepAlive } from "@/components/KeepAlive";
+
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
 const Home = lazy(() => import("./pages/home"));
@@ -142,7 +144,11 @@ function Router() {
           <Route path="/" component={Home} />
           
           {/* Service Page Route - MUST be BEFORE generic routes */}
-          <Route path="/service/:country/:state/:city/:detectiveSlug/:serviceSlug" component={DetectiveProfile} />
+          <Route path="/service/:country/:state/:city/:detectiveSlug/:serviceSlug" component={() => (
+            <KeepAlive id="detective-profile">
+              <DetectiveProfile />
+            </KeepAlive>
+          )} />
           
           {/* Claim and Auth Routes */}
           <Route path="/claim-profile/:id" component={ClaimProfile} />
@@ -154,8 +160,16 @@ function Router() {
           <Route path="/reset-password" component={ResetPassword} />
           <Route path="/detective-signup" component={DetectiveSignup} />
           <Route path="/application-under-review" component={ApplicationUnderReview} />
-          <Route path="/search" component={SearchPage} />
-          <Route path="/category/:name" component={SearchPage} />
+          <Route path="/search" component={() => (
+            <KeepAlive id="search-page">
+              <SearchPage />
+            </KeepAlive>
+          )} />
+          <Route path="/category/:name" component={() => (
+            <KeepAlive id="search-page">
+              <SearchPage />
+            </KeepAlive>
+          )} />
           <Route path="/categories" component={CategoriesPage} />
           <Route path="/locations/countries" component={LocationsCountriesPage} />
           <Route path="/locations/states" component={LocationsStatesPage} />

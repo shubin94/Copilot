@@ -60,12 +60,39 @@ export async function serveStatic(app: Express, _server: Server) {
     next();
   });
 
-  // Cache middleware for location listing pages
+
+  // GLOBAL URL NORMALIZATION MIDDLEWARE (production-safe)
   app.use((req: Request, res: Response, next: Function) => {
-    // Apply cache headers only to GET requests for location listing pages
-    if (req.method === 'GET' && /^\/detectives\/[^\/]+(?:\/[^\/]+)?(?:\/[^\/]+)?\/?$/.test(req.path)) {
-      res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    const originalPath = req.path;
+
+    // Ignore static files and assets
+    if (
+      originalPath.startsWith('/assets') ||
+      originalPath.startsWith('/static') ||
+      originalPath.startsWith('/images') ||
+      originalPath.startsWith('/js') ||
+      originalPath.startsWith('/css') ||
+      originalPath.startsWith('/build') ||
+      originalPath.startsWith('/favicon') ||
+      /\.[a-zA-Z0-9]+$/.test(originalPath)
+    ) {
+      return next();
     }
+
+    let normalizedPath = originalPath.toLowerCase();
+
+    // Remove trailing slash except root
+    if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
+      normalizedPath = normalizedPath.slice(0, -1);
+    }
+
+    if (normalizedPath !== originalPath) {
+      const query = req.url.includes('?')
+        ? req.url.slice(req.url.indexOf('?'))
+        : '';
+      return res.redirect(301, normalizedPath + query);
+    }
+
     next();
   });
 

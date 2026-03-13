@@ -10,6 +10,8 @@ import { ChevronDown } from "lucide-react";
 import { DetectiveCard } from "@/components/DetectiveCard";
 import { generateBreadcrumbListSchema, generateFAQPageSchema } from "@/lib/structured-data";
 import { getDetectiveProfileUrl } from "@/lib/utils";
+import { LocationContent } from "../components/LocationContent";
+import { CityFAQ } from "../components/CityFAQ";
 
 interface Detective {
   id: string;
