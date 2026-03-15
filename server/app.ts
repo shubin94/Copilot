@@ -15,6 +15,7 @@ type PgPool = InstanceType<typeof Pool>;
 import { config } from "./config.js";
 import { handleExpiredSubscriptions } from "./services/subscriptionExpiry.js";
 import { formatLocationIntegrityReport, runLocationIntegrityCheck } from "./lib/location-integrity-check.js";
+// PostHog removed
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -615,6 +616,8 @@ app.use("/api", (req, res, next) => {
   next();
 });
 console.log("[MIDDLEWARE] after api logger");
+
+// PostHog middleware removed
 
 // ✅ DIAGNOSTICS: Add request flow tracer before route matching
 app.use((req: Request, _res: Response, next: NextFunction) => {

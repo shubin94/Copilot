@@ -20,3 +20,4 @@ git/
 npm/
 # VS Code settings with API keys
 .vscode/settings.json
+.env

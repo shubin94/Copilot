@@ -246,46 +246,126 @@ export async function serveStatic(app: Express, _server: Server) {
 
   // DETECTIVE PROFILE SEO INJECTION
   // Intercepts /detectives/:country/:state/:city/:slug and injects SEO meta tags
-  app.get(/^\/detectives\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {
+  app.get(/^\/detectives\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const requestPath = req.path;
-      const params = extractDetectiveRouteParams(requestPath);
+      const segments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
 
-      if (!params) {
-        // Fallback to normal SPA if params don't match
-        return serveIndexHtmlWithSeo(res, indexHtmlPath, null, cachedIndexHtml);
+      if (segments.length !== 5 || segments[0] !== 'detectives') {
+        return next();
       }
 
-      // Fetch detective data for SEO
-      const detective = await getDetectiveBySlugForSEO(
-        params.country,
-        params.state,
-        params.city,
-        params.slug
-      );
+      const [, country, state, city, detectiveSlug] = segments;
 
-      if (!detective) {
-        // Detective not found - serve SPA to allow client-side 404 handling
-        console.log('[SEO] Detective not found, serving SPA fallback:', params);
-        if (!cachedIndexHtml) {
-          cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
-        }
-        res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        return res.send(cachedIndexHtml);
-      }
-
-      console.log('[SEO] Detective found:', { businessName: detective.businessName, avgRating: detective.avgRating, reviewCount: detective.reviewCount });
-
-      // Generate canonical URL
-      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-
-      // Load and inject SEO tags
       if (!cachedIndexHtml) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
       }
 
-      const seoHtml = injectSeoTags(cachedIndexHtml, detective, canonicalUrl);
+      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
+
+      // Fetch detective and service data for SEO
+      const detective = await getDetectiveBySlugForSEO(
+        country, state, city, detectiveSlug
+      );
+
+      // Fetch service title and description by slug + detective
+      let serviceTitle = '';
+      let serviceDescription = '';
+      let serviceCategory = '';
+
+      if (detective) {
+        const serviceResult = await pool.query(
+          `SELECT s.title, s.description, s.category
+           FROM services s
+           INNER JOIN detectives d ON s.detective_id = d.id
+           WHERE s.slug = $1 AND d.slug = $2
+           LIMIT 1`,
+          [serviceSlug, detectiveSlug]
+        );
+        if (serviceResult.rows.length > 0) {
+          serviceTitle = serviceResult.rows[0].title || '';
+          serviceDescription = serviceResult.rows[0].description || '';
+          serviceCategory = serviceResult.rows[0].category || '';
+        }
+      }
+
+      const detectiveName = detective?.businessName || detectiveSlug.replace(/-/g, ' ');
+      const cityName = detective?.city || city.replace(/-/g, ' ');
+      const stateName = detective?.state || state.replace(/-/g, ' ');
+
+      const finalTitle = serviceTitle
+        ? `${serviceTitle} by ${detectiveName} in ${cityName}, ${stateName} | Ask Detectives`
+        : `${detectiveName} - Private Detective Services in ${cityName} | Ask Detectives`;
+
+      const finalDescription = serviceDescription
+        ? `${serviceDescription.slice(0, 140)}... Hire ${detectiveName} in ${cityName}, ${stateName}.`
+        : `Hire ${detectiveName} in ${cityName} for professional ${serviceCategory || 'detective'} services. Verified private investigator serving ${stateName}.`;
+
+      const h1Text = serviceTitle
+        ? `${serviceTitle} in ${cityName} by ${detectiveName}`
+        : `Detective Services in ${cityName} by ${detectiveName}`;
+
+      let seoHtml = cachedIndexHtml;
+
+      // Inject title
+      seoHtml = seoHtml.replace(
+        /<!-- SEO_TITLE_INJECTION_POINT -->\s*<title>[^<]*<\/title>/,
+        `<!-- SEO_TITLE_INJECTION_POINT --><title>${finalTitle}</title>`
+      );
+
+      // Inject meta tags
+      const metaTags = `
+        <meta name="description" content="${finalDescription}" />
+        <meta property="og:title" content="${finalTitle}" />
+        <meta property="og:description" content="${finalDescription}" />
+        <meta property="og:url" content="${canonicalUrl}" />
+        <meta property="og:type" content="service" />
+        <meta name="twitter:title" content="${finalTitle}" />
+        <meta name="twitter:description" content="${finalDescription}" />
+        <link rel="canonical" href="${canonicalUrl}" />
+      `;
+      seoHtml = seoHtml.replace(
+        /<!-- SEO_META_INJECTION_POINT -->/,
+        `<!-- SEO_META_INJECTION_POINT -->${metaTags}`
+      );
+
+      // Inject H1
+      seoHtml = seoHtml.replace(
+        /<!-- SEO_H1_INJECTION_POINT -->/,
+        `<!-- SEO_H1_INJECTION_POINT --><noscript><h1>${h1Text}</h1></noscript>`
+      );
+
+      // Inject JSON-LD
+      const jsonLd = `
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Service",
+      "name": "${serviceTitle || detectiveName + ' Services'}",
+      "description": "${finalDescription}",
+      "provider": {
+        "@type": "LocalBusiness",
+        "name": "${detectiveName}",
+        "areaServed": "${cityName}, ${stateName}"
+      },
+      "areaServed": "${cityName}, ${stateName}",
+      "url": "${canonicalUrl}"
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://www.askdetectives.com"},
+        {"@type": "ListItem", "position": 2, "name": "${detectiveName}", "item": "https://www.askdetectives.com/detectives/${country}/${state}/${city}/${detectiveSlug}/"},
+        {"@type": "ListItem", "position": 3, "name": "${serviceTitle || 'Services'}", "item": "${canonicalUrl}"}
+      ]
+    }
+    </script>`;
+
+      seoHtml = seoHtml.replace('<!-- SEO_JSON_LD_INJECTION_POINT -->', 
+        `<!-- SEO_JSON_LD_INJECTION_POINT -->${jsonLd}`);
 
       res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -293,15 +373,10 @@ export async function serveStatic(app: Express, _server: Server) {
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error('[SEO Injection] CRITICAL ERROR:', {
-        url: req.originalUrl,
-        message: errorMsg,
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      // Return 500 error instead of silently falling back
+      console.error('[Service Detail SEO] Error:', { url: req.originalUrl, message: errorMsg });
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(500).send(
-        '<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1><p>Failed to load detective profile</p></body></html>'
+        '<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1></body></html>'
       );
     }
   });
@@ -332,82 +407,6 @@ export async function serveStatic(app: Express, _server: Server) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[Detectives Catch-All] Error:', errorMsg);
       res.status(500).type("text/plain").send("Error loading page");
-    }
-  });
-
-  // SERVICE DETAIL PAGE ROUTE (Production)
-  // Intercepts /service/:country/:state/:city/:detectiveSlug/:serviceSlug
-  app.get(/^\/service\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {
-    try {
-      const requestPath = req.path;
-      const segments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
-      
-      // Validate we have exactly 5 segments after /service
-      if (segments.length !== 6 || segments[0] !== 'service') {
-        return; // Fall through to static file serving
-      }
-
-      const [, country, state, city, detectiveSlug, serviceSlug] = segments;
-      
-      console.log("[Service Detail] Request matched:", {
-        country,
-        state,
-        city,
-        detectiveSlug,
-        serviceSlug,
-      });
-
-      // Optionally, you could fetch service + detective data for SEO injection here
-      // For now, serve with generic HTML that allows client-side routing to take over
-      if (!cachedIndexHtml) {
-        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
-      }
-
-      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-      
-      // Inject breadcrumb and basic service page meta tags
-      let seoHtml = cachedIndexHtml;
-      seoHtml = seoHtml.replace(
-        '</head>',
-        `<link rel="canonical" href="${canonicalUrl}" />
-       <script type="application/ld+json">
-       {
-         "@context": "https://schema.org",
-         "@type": "BreadcrumbList",
-         "itemListElement": [
-           {
-             "@type": "ListItem",
-             "position": 1,
-             "name": "Home",
-             "item": "https://www.askdetectives.com"
-           },
-           {
-             "@type": "ListItem",
-             "position": 2,
-             "name": "Service",
-             "item": "${canonicalUrl}"
-           }
-         ]
-       }
-       </script></head>`
-      );
-
-      console.log(`[Service Detail] Serving service page: ${detectiveSlug}/${serviceSlug}`);
-
-      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(seoHtml);
-
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error('[Service Detail] Error:', {
-        url: req.originalUrl,
-        message: errorMsg,
-      });
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.status(500).send(
-        '<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1></body></html>'
-      );
     }
   });
 
@@ -654,12 +653,12 @@ process.on('exit', (code) => {
   console.log(`Process exiting with code: ${code}`);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
   process.exit(0);
 });
