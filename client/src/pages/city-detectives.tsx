@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRoute } from "wouter";
+import { Link } from "wouter";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +10,8 @@ import { ChevronDown } from "lucide-react";
 import { DetectiveCard } from "@/components/DetectiveCard";
 import { generateBreadcrumbListSchema, generateFAQPageSchema } from "@/lib/structured-data";
 import { getDetectiveProfileUrl } from "@/lib/utils";
+import { LocationContent } from "../components/LocationContent";
+import { CityFAQ } from "../components/CityFAQ";
 
 interface Detective {
   id: string;
@@ -25,6 +28,8 @@ interface Detective {
   phone?: string;
   whatsapp?: string;
   contactEmail?: string;
+  avgRating?: number;
+  reviewCount?: number;
 }
 
 interface LocationMeta {
@@ -46,13 +51,32 @@ interface CityPageData {
   };
 }
 
-// Check for SSR data injected by server
-const getSSRData = (): CityPageData | null => {
-  if (typeof window !== 'undefined' && (window as any).__CITY_PAGE_DATA__) {
-    console.log('[CityDetectivesPage] Using SSR data from server');
-    return (window as any).__CITY_PAGE_DATA__;
-  }
-  return null;
+let initialHydrationCityPageData: CityPageData | null = typeof window !== "undefined"
+  ? (((window as any).__CITY_PAGE_DATA__ as CityPageData | undefined) ?? null)
+  : null;
+let initialHydrationSeoData: { title?: string; description?: string; h1?: string } | null = typeof window !== "undefined"
+  ? (((window as any).__SEO_DATA__ as { title?: string; description?: string; h1?: string } | undefined) ?? null)
+  : null;
+let initialHydrationOffset = typeof window !== "undefined"
+  ? Number(new URLSearchParams(window.location.search).get("offset") || 0)
+  : 0;
+
+const consumeInitialCityPageData = () => {
+  const data = initialHydrationCityPageData;
+  initialHydrationCityPageData = null;
+  return data;
+};
+
+const consumeInitialSeoData = () => {
+  const data = initialHydrationSeoData;
+  initialHydrationSeoData = null;
+  return data;
+};
+
+const consumeInitialOffset = () => {
+  const offset = initialHydrationOffset;
+  initialHydrationOffset = 0;
+  return offset;
 };
 
 interface RelatedLocation {
@@ -93,6 +117,12 @@ const getTopSpecialties = (detectives: Detective[], limit: number = 3): string[]
     .map(([type]) => type);
 };
 
+// Format detective count for display
+const formatDetectiveCount = (count: number): string => {
+  if (count === 1) return "1 Detective";
+  return `${count} Detectives`;
+};
+
 // Collapsible FAQ Item Component
 const FAQItem = ({ question, answer, isOpen, setIsOpen }: { question: string; answer: string; isOpen: boolean; setIsOpen: (open: boolean) => void }) => (
   <div className="border border-gray-200 rounded-lg mb-4">
@@ -119,32 +149,25 @@ export default function CityDetectivesPage() {
   
   // Use the matched route params
   const matchedParams = match ? params : (matchState ? paramsState : paramsCountry);
-
-  const preloadedDataRef = useRef<CityPageData | null>(getSSRData());
-  const initialData = preloadedDataRef.current;
-  
-  const [detectives, setDetectives] = useState<Detective[]>(initialData?.detectives || []);
-  const [currentOffset, setCurrentOffset] = useState<number>(initialData?.detectives?.length || 0);
-  const [totalCount, setTotalCount] = useState<number>(initialData?.count || initialData?.detectives?.length || 0);
-  const [locationMeta, setLocationMeta] = useState<LocationMeta | null>(
-    initialData
-      ? {
-          country: initialData.location.country,
-          state: initialData.location.state,
-          city: initialData.location.city,
-        }
-      : null
-  );
-  const [relatedLocations, setRelatedLocations] = useState<RelatedLocation[]>(
-    Array.isArray(initialData?.relatedLocations) ? initialData!.relatedLocations : []
-  );
-  const [seoMetadata, setSeoMetadata] = useState<{ metaTitle: string | null; metaDescription: string | null; h1: string | null } | null>(
-    initialData?.seoMetadata || null
-  );
-  const [loading, setLoading] = useState(!initialData);
+  const [ssrData] = useState<CityPageData | null>(() => consumeInitialCityPageData());
+  const [detectives, setDetectives] = useState<Detective[]>(() => ssrData?.detectives || []);
+  const [currentOffset, setCurrentOffset] = useState<number>(() => ssrData?.detectives?.length || 0);
+  const [totalCount, setTotalCount] = useState<number>(() => ssrData?.count || ssrData?.detectives?.length || 0);
+  const [locationMeta, setLocationMeta] = useState<LocationMeta | null>(() => ssrData ? {
+    country: ssrData.location.country,
+    state: ssrData.location.state,
+    city: ssrData.location.city,
+  } : null);
+  const [relatedLocations, setRelatedLocations] = useState<RelatedLocation[]>(() => Array.isArray(ssrData?.relatedLocations) ? ssrData.relatedLocations : []);
+  const [seoMetadata, setSeoMetadata] = useState<{ metaTitle: string | null; metaDescription: string | null; h1: string | null } | null>(() => ssrData?.seoMetadata || null);
+  const [clientSeoData, setClientSeoData] = useState<{ title?: string; description?: string; h1?: string } | null>(() => consumeInitialSeoData());
+  const [loading, setLoading] = useState(() => !ssrData);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedFAQs, setExpandedFAQs] = useState<{ [key: number]: boolean }>({ 0: false, 1: false, 2: false });
+  const [currentOffsetValue, setCurrentOffsetValue] = useState(() => consumeInitialOffset());
+  const [topLocations, setTopLocations] = useState<Array<{ name: string; slug: string; countrySlug?: string; stateSlug?: string; detectiveCount: number }>>([]);
+  const [topLocationsLoading, setTopLocationsLoading] = useState(false);
 
   const countrySlug = matchedParams?.country || "";
   const stateSlug = (matchedParams as any)?.state || "";
@@ -165,8 +188,7 @@ export default function CityDetectivesPage() {
     .join("/")}`;
 
   useEffect(() => {
-    if (preloadedDataRef.current) {
-      preloadedDataRef.current = null;
+    if (ssrData) {
       return;
     }
 
@@ -199,7 +221,7 @@ export default function CityDetectivesPage() {
         }
 
         const data = await response.json();
-        const nextDetectives = data.detectives || [];
+        const nextDetectives = Array.isArray(data?.detectives) ? data.detectives : [];
         setDetectives(nextDetectives);
         setCurrentOffset(nextDetectives.length);
         setTotalCount(typeof data.total === "number" ? data.total : nextDetectives.length);
@@ -222,7 +244,55 @@ export default function CityDetectivesPage() {
     if (countrySlug) {
       fetchLocationDetectives();
     }
-  }, [countrySlug, stateSlug, citySlug, locationApiPath]);
+  }, [countrySlug, stateSlug, citySlug, locationApiPath, ssrData]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const searchParams = new URLSearchParams(window.location.search);
+    setCurrentOffsetValue(Number(searchParams.get("offset") || 0));
+  }, []);
+
+  // Fetch contextual top locations based on page level
+  useEffect(() => {
+    const fetchTopLocations = async () => {
+      if (loading || !countrySlug) return;
+
+      try {
+        setTopLocationsLoading(true);
+        let endpoint = "";
+        
+        if (isCityLevel) {
+          // City page: fetch other cities in the same state
+          endpoint = `/api/locations/other-cities/${encodeURIComponent(countrySlug)}/${encodeURIComponent(stateSlug)}/${encodeURIComponent(citySlug)}?limit=9`;
+        } else if (isStateLevel) {
+          // State page: fetch top cities in the state
+          endpoint = `/api/locations/top-cities/${encodeURIComponent(countrySlug)}/${encodeURIComponent(stateSlug)}?limit=9`;
+        } else if (isCountryLevel) {
+          // Country page: fetch top states in the country
+          endpoint = `/api/locations/top-states/${encodeURIComponent(countrySlug)}?limit=9`;
+        }
+
+        if (endpoint) {
+          const response = await fetch(endpoint, { credentials: "include" });
+          if (response.ok) {
+            const data = await response.json();
+            
+            if (isCityLevel || isStateLevel) {
+              setTopLocations(data.cities || []);
+            } else {
+              setTopLocations(data.states || []);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching top locations:", err);
+      } finally {
+        setTopLocationsLoading(false);
+      }
+    };
+
+    fetchTopLocations();
+  }, [loading, countrySlug, stateSlug, citySlug, isCountryLevel, isStateLevel, isCityLevel]);
 
   const handleLoadMore = async () => {
     if (loadingMore || currentOffset >= totalCount) {
@@ -250,7 +320,7 @@ export default function CityDetectivesPage() {
       }
 
       const data = await response.json();
-      const newDetectives: Detective[] = Array.isArray(data.detectives) ? data.detectives : [];
+      const newDetectives: Detective[] = Array.isArray(data?.detectives) ? data.detectives : [];
 
       setDetectives((prev) => [...prev, ...newDetectives]);
       setCurrentOffset((prev) => prev + newDetectives.length);
@@ -281,7 +351,7 @@ export default function CityDetectivesPage() {
     : countryName || "India";
   
   // Enhanced SEO Title and Description with current year - Always have fallbacks
-  const currentYear = new Date().getFullYear();
+  const currentYear = new Date().getUTCFullYear();
   const defaultSeoTitle = isCityLevel && cityName && stateName
     ? `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${currentYear})`
     : isStateLevel && stateName && countryName
@@ -297,27 +367,23 @@ export default function CityDetectivesPage() {
     : `Best Private Detectives in ${countryName || "India"}`;
 
   // Read SEO data from server-injected script (SSR with database overrides)
-  const seoData = typeof window !== 'undefined' 
-    ? (window as any).__SEO_DATA__ 
-    : null;
-
   // SEO Title priority: SSR data > API override > default
-  const seoTitle = seoData?.title && seoData.title.trim() !== ""
-    ? seoData.title
+  const seoTitle = clientSeoData?.title && clientSeoData.title.trim() !== ""
+    ? clientSeoData.title
     : (seoMetadata?.metaTitle && seoMetadata.metaTitle.trim() !== "") 
     ? seoMetadata.metaTitle 
     : defaultSeoTitle;
   
   // SEO Description priority: SSR data > API override > default
-  const seoDescription = seoData?.description && seoData.description.trim() !== ""
-    ? seoData.description
+  const seoDescription = clientSeoData?.description && clientSeoData.description.trim() !== ""
+    ? clientSeoData.description
     : (seoMetadata?.metaDescription && seoMetadata.metaDescription.trim() !== "") 
     ? seoMetadata.metaDescription 
     : defaultSeoDescription;
   
   // H1 priority: SSR data > API override > default
-  const h1Text = seoData?.h1 && seoData.h1.trim() !== ""
-    ? seoData.h1
+  const h1Text = clientSeoData?.h1 && clientSeoData.h1.trim() !== ""
+    ? clientSeoData.h1
     : (seoMetadata?.h1 && seoMetadata.h1.trim() !== "") 
     ? seoMetadata.h1 
     : defaultH1Text;
@@ -455,8 +521,6 @@ export default function CityDetectivesPage() {
 
   // Calculate pagination links for SEO
   const pageSize = 15;
-  const searchParams = new URLSearchParams(window.location.search);
-  const currentOffsetValue = Number(searchParams.get("offset") || 0);
 
   const pagination = {
     prevUrl: currentOffsetValue > 0
@@ -582,6 +646,37 @@ export default function CityDetectivesPage() {
               <Button asChild>
                 <a href="/search">Search All Detectives</a>
               </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Top Locations Section - Contextual internal linking */}
+        {!loading && detectives.length > 0 && topLocations.length > 0 && (
+          <div className="mt-12 pt-8 border-t border-gray-200">
+            <h2 className="text-2xl font-bold mb-6">
+              {isCountryLevel && `Top States in ${countryName}`}
+              {isStateLevel && `Top Cities in ${stateName}`}
+              {isCityLevel && `Other Cities in ${stateName}`}
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {topLocations.map((location, idx) => {
+                const locationHref = isCountryLevel
+                  ? `/detectives/${countrySlug}/${location.slug}/`
+                  : `/detectives/${countrySlug}/${stateSlug}/${location.slug}/`;
+
+                return (
+                  <Link key={idx} href={locationHref}>
+                    <div className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100 cursor-pointer">
+                      <div className="text-sm font-semibold text-green-900">
+                        {location.name}
+                      </div>
+                      <div className="text-xs text-green-700">
+                        {formatDetectiveCount(location.detectiveCount)}
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           </div>
         )}

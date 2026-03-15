@@ -1,4 +1,4 @@
-import { useRoute } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
@@ -33,6 +33,7 @@ function getExcerpt(content: string): string {
 }
 
 export default function PageCategory() {
+  const [locationPath] = useLocation();
   const [matchNested, paramsNested] = useRoute("/blog/category/:parent/:slug");
   const [match, params] = useRoute("/blog/category/:slug");
   if (!matchNested && !match) return null;
@@ -61,7 +62,7 @@ export default function PageCategory() {
           title="Category Not Found"
           description="The requested category does not exist."
           robots="noindex, follow"
-          canonical={`https://www.askdetectives.com${window.location.pathname}`}
+          canonical={`https://www.askdetectives.com${locationPath}`}
         />
         <Navbar />
         <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
@@ -80,7 +81,7 @@ export default function PageCategory() {
   }
 
   const categoryName = data?.category?.name || "Category";
-  const canonicalUrl = `https://www.askdetectives.com${window.location.pathname}`;
+  const canonicalUrl = `https://www.askdetectives.com${locationPath}`;
   const archiveRobots = (data?.pages?.length || 0) > 0 ? "index, follow" : "noindex, follow";
 
   const breadcrumbs = [
@@ -117,12 +118,14 @@ export default function PageCategory() {
               <Link key={page.id} href={`/${page.category.slug}/${page.slug}`}>
                 <div className="border rounded-xl overflow-hidden hover:shadow-lg transition-shadow bg-white">
                   {page.bannerImage && (
-                    <img
-                      src={page.bannerImage}
-                      alt={`${page.title} - ${page.category.name}`}
-                      className="w-full h-44 object-cover"
-                      loading="lazy"
-                    />
+                      <img
+                        src={page.bannerImage}
+                        alt="Category banner"
+                        width={800}
+                        height={176}
+                        className="w-full h-44 object-cover"
+                        loading="lazy"
+                      />
                   )}
                   <div className="p-5 space-y-3">
                     <div className="flex flex-wrap gap-2">

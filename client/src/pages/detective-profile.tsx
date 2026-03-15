@@ -17,7 +17,7 @@ import { useUser } from "@/lib/user-context";
 import { useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { useState, useEffect } from "react";
-import { useRoute, Link } from "wouter";
+import { useLocation, useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
@@ -25,17 +25,66 @@ import { ServiceFAQ, getServiceFAQs } from "@/components/service-faq";
 import { buildServiceUrl, getCountryName } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
 import { getDetectiveProfileUrl } from "@/lib/utils";
-import { format } from "date-fns";
+import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
+
+const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+const reviewDateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 export default function DetectiveProfile() {
+  const [locationPath] = useLocation();
   const [, params] = useRoute("/service/:country/:state/:city/:detectiveSlug/:serviceSlug");
   const serviceSlug = params?.serviceSlug;
   const detectiveSlug = params?.detectiveSlug;
-  
-  const searchParams = new URLSearchParams(window.location.search);
-  const previewParam = searchParams.get("preview");
-  const isPreview = previewParam === "1" || previewParam === "true";
-  const { data: serviceData, isLoading: isLoadingService, error: serviceError } = useServiceBySlug(serviceSlug, detectiveSlug, isPreview);
+  const country = params?.country;
+  const state = params?.state;
+  const city = params?.city;
+  const [isPreview, setIsPreview] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [detailSeoH1, setDetailSeoH1] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const searchParams = new URLSearchParams(window.location.search);
+    const previewParam = searchParams.get("preview");
+    setIsPreview(previewParam === "1" || previewParam === "true");
+  }, []);
+
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      setIsMobileDevice(/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+    }
+  }, []);
+
+  const { data: serviceData, isLoading: isLoadingService, error: serviceError } = useServiceBySlug(serviceSlug, detectiveSlug, isPreview, country, state, city);
+  // Fetch detective page SEO data (H1 override)
+  useEffect(() => {
+    if (!serviceData?.detective?.id) return;
+
+    const fetchDetectiveSeo = async () => {
+      try {
+        const response = await api.get<{ h1?: string | null }>(`/api/detective-seo/${serviceData.detective.id}`);
+        if (response.h1) {
+          setDetailSeoH1(response.h1);
+        }
+      } catch (error) {
+        console.debug("Could not fetch detective SEO data");
+      }
+    };
+
+    fetchDetectiveSeo();
+  }, [serviceData?.detective?.id]);
+
   const detectiveIdForServices = serviceData?.detective?.id;
   useServicesByDetective(detectiveIdForServices);
   const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceData?.service?.id);
@@ -153,7 +202,7 @@ export default function DetectiveProfile() {
           title="Service Not Found | Ask Detectives"
           description="The requested service was not found."
           robots="noindex, follow"
-          canonical={`https://www.askdetectives.com${window.location.pathname}`}
+          canonical={`https://www.askdetectives.com${locationPath}`}
         />
         <Navbar />
         <main className="container mx-auto px-6 md:px-12 lg:px-24 py-8">
@@ -178,7 +227,7 @@ export default function DetectiveProfile() {
           title="Detective Not Available | Ask Detectives"
           description="The requested detective profile is not available."
           robots="noindex, follow"
-          canonical={`https://www.askdetectives.com${window.location.pathname}`}
+          canonical={`https://www.askdetectives.com${locationPath}`}
         />
         <Navbar />
         <main className="flex-grow container mx-auto px-4 py-8">
@@ -217,7 +266,7 @@ export default function DetectiveProfile() {
     blueTickLabel: detective.hasBlueTick ? 'Verified' : 'Unverified'
   };
   
-  const memberSince = format(new Date(detective.memberSince), "MMMM yyyy");
+  const memberSince = monthYearFormatter.format(new Date(detective.memberSince));
   
   const displayCountryName = detective.country ? getCountryName(detective.country) : "India";
 
@@ -264,9 +313,10 @@ export default function DetectiveProfile() {
   })();
   
   // SEO: Enhanced H1 with location for better ranking
-  const seoH1 = detective.city 
-    ? `${service.title} in ${detective.city}, ${displayCountryName || "India"} - ${detectiveName}`
-    : `${service.title} by ${detectiveName}`;
+  // Use detective pages override H1 if available, otherwise use computed default
+  const seoH1 = detailSeoH1 || (detective.city && displayCountryName
+    ? `${detectiveName} - Private Investigator in ${detective.city}, ${displayCountryName}`
+    : `${detectiveName} - Private Investigator`);
   
   // SEO: Generate FAQs for schema
   const serviceFaqs = getServiceFAQs(
@@ -287,8 +337,6 @@ export default function DetectiveProfile() {
     },
     (price) => formatPriceFromTo && formatPriceFromTo(price, detective.country, selectedCountryCode) || String(price)
   );
-  const isMobileDevice = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  
   // Use actual detective logo and service images from database - NO MOCK DATA
   const detectiveLogo = detective.logo;
   const serviceImage = service.images && service.images.length > 0 ? service.images[0] : null;
@@ -435,43 +483,7 @@ export default function DetectiveProfile() {
                   <Link href={getDetectiveProfileUrl(detective)}>
                     <span className="hover:underline cursor-pointer">{detectiveName}</span>
                   </Link>
-                  
-                  {/* Badge order: Blue Tick → Pro → Recommended (icon-only, no duplicates) */}
-                  {badgeState.showBlueTick && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <img 
-                          src="/blue-tick.png" 
-                          alt={badgeState.blueTickLabel} 
-                          className="h-5 w-5 flex-shrink-0 cursor-help"
-                          title={badgeState.blueTickLabel}
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{badgeState.blueTickLabel}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                  {badgeState.showPro && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <img 
-                          src="/crown.png" 
-                          alt="Pro" 
-                          className="h-5 w-5 flex-shrink-0 cursor-help"
-                          title="Pro"
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Pro</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                  {badgeState.showRecommended && (
-                    <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs px-2 py-1 whitespace-nowrap" data-testid="badge-recommended">
-                      Recommended
-                    </Badge>
-                  )}
+                  <DetectiveBadges badgeState={badgeState} />
                 </div>
                 <div className="flex items-center gap-3 text-sm font-bold text-gray-900">
                   <span>
@@ -656,19 +668,8 @@ export default function DetectiveProfile() {
                           <Link href={getDetectiveProfileUrl(detective)}>
                             <span className="hover:underline cursor-pointer">{detectiveName}</span>
                           </Link>
+                          <DetectiveBadges badgeState={badgeState} />
                         </h3>
-                        {/* Inline badges: Blue Tick → Pro → Recommended (using unified badge computation) */}
-                        {badgeState.showBlueTick && (
-                          <img src="/blue-tick.png" alt="Verified" className="h-5 w-5 flex-shrink-0" title={badgeState.blueTickLabel} data-testid="badge-verified-inline" width={5} height={5} />
-                        )}
-                        {badgeState.showPro && (
-                          <img src="/crown.png" alt="Pro" className="h-5 w-5 flex-shrink-0" title="Pro" data-testid="badge-pro-inline" width={5} height={5} />
-                        )}
-                        {badgeState.showRecommended && (
-                          <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 gap-1 text-xs px-2 py-0.5" data-testid="badge-agency-inline">
-                            Recommended
-                          </Badge>
-                        )}
                       </div>
                     );
                   })()}
@@ -803,7 +804,7 @@ export default function DetectiveProfile() {
                           </AvatarFallback>
                         </Avatar>
                         <span className="font-bold text-sm">{reviewUsers[review.userId]?.name || "Anonymous"}</span>
-                        <span className="text-xs text-gray-500 ml-2">{format(new Date((review as any).createdAt), "MMM d, yyyy")}</span>
+                        <span className="text-xs text-gray-500 ml-2">{reviewDateFormatter.format(new Date((review as any).createdAt))}</span>
                          <div className="flex text-yellow-500">
                            {[...Array(5)].map((_, i) => (
                              <Star 

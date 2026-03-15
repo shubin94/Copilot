@@ -6,6 +6,7 @@ import { MapPin } from "lucide-react";
 import { ArrowRight } from "lucide-react";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { computeServiceBadges } from "@/lib/service-badges";
+import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
 
 interface Detective {
   id: string;
@@ -21,6 +22,7 @@ interface Detective {
   phone?: string | null;
   whatsapp?: string | null;
   contactEmail?: string | null;
+  email?: string | null;
   bio?: string | null;
   avgRating?: number;
   reviewCount?: number;
@@ -58,15 +60,31 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
         .slice(0, 2)
     : "PI";
 
-  const hasPhone = detective.phone || detective.whatsapp;
-  const contactButtonText = detective.phone ? "Call Now" : detective.whatsapp ? "Contact" : "Email Now";
-  const contactHref = detective.phone
-    ? `tel:${detective.phone}`
-    : detective.whatsapp
-    ? `https://wa.me/${detective.whatsapp}`
-    : detective.contactEmail
-    ? `mailto:${detective.contactEmail}`
-    : "#";
+  const contactEmail = detective.contactEmail || detective.email || null;
+  const hasPhoneContact = Boolean(detective.phone || detective.whatsapp);
+  const hasEmailContact = Boolean(contactEmail);
+  const contactButtonText = hasPhoneContact
+    ? "Call Now"
+    : hasEmailContact
+    ? "Email Now"
+    : null;
+  const contactHref = hasPhoneContact
+    ? `tel:${detective.phone || detective.whatsapp}`
+    : hasEmailContact
+    ? `mailto:${contactEmail}`
+    : null;
+  const normalizedAvgRating = Number(detective.avgRating ?? 0);
+  const normalizedReviewCount = Number(detective.reviewCount ?? 0);
+  const showReviews =
+    Number.isFinite(normalizedAvgRating) &&
+    Number.isFinite(normalizedReviewCount) &&
+    normalizedAvgRating > 0 &&
+    normalizedReviewCount > 0;
+
+  const badgeState = computeServiceBadges({
+    isVerified: detective.isVerified || false,
+    effectiveBadges: detective.effectiveBadges,
+  });
 
   if (variant === "homeFeatured") {
     const planBadges = detective.subscriptionPackage?.badges || null;
@@ -88,47 +106,18 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
           <div className="flex gap-3 items-start">
             <div className="h-14 w-14 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
               {detective.logo ? (
-                <img src={detective.logo} alt={detective.businessName || "Detective"} width={56} height={56} className="h-14 w-14 object-cover" />
+                <img src={detective.logo} alt="Detective logo" width={56} height={56} className="h-14 w-14 object-cover" />
               ) : (
                 <div className="h-10 w-10 rounded-full bg-gray-200" />
               )}
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-sm line-clamp-2">
-                {detective.businessName || "Unknown Detective"}
-              </h3>
-              {badgeState && (
-                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                  {badgeState.showBlueTick && (
-                    <img
-                      src="/blue-tick.png"
-                      alt={badgeState.blueTickLabel || "Verified"}
-                      width={16}
-                      height={16}
-                      className="h-4 w-4 flex-shrink-0"
-                      title={badgeState.blueTickLabel || "Verified"}
-                    />
-                  )}
-                  {badgeState.showPro && (
-                    <img
-                      src="/crown.png"
-                      alt="Pro"
-                      width={16}
-                      height={16}
-                      className="h-4 w-4 flex-shrink-0"
-                      title="Pro"
-                    />
-                  )}
-                  {badgeState.showRecommended && (
-                    <Badge
-                      variant="secondary"
-                      className="bg-green-100 text-green-700 hover:bg-green-100 text-[10px] px-2 py-0.5"
-                    >
-                      Recommended
-                    </Badge>
-                  )}
-                </div>
-              )}
+              <div className="flex items-center gap-1 mt-1">
+                <span className="font-medium">
+                  {detective.businessName || "Unknown Detective"}
+                </span>
+                <DetectiveBadges badgeState={badgeState} />
+              </div>
             </div>
           </div>
         </CardContent>
@@ -147,33 +136,18 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
         <div className="flex gap-4 mb-4">
           <img
             src={detective.logo || "/placeholder-avatar.png"}
-            alt={detective.businessName || "Detective"}
+            alt="Detective logo"
             width={64}
             height={64}
             className="h-16 w-16 rounded-full object-cover border border-gray-200"
           />
           <div className="flex-1">
-            <h4 className="font-bold text-sm mb-1">
-              {detective.businessName || "Detective"}
-            </h4>
-            {badgeState && (
-              <div className="flex items-center gap-2">
-                {badgeState.showBlueTick && (
-                  <img
-                    src="/blue-tick.png"
-                    alt="Verified"
-                    width={16}
-                    height={16}
-                    className="h-4 w-4"
-                  />
-                )}
-                {badgeState.showPro && (
-                  <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
-                    Pro
-                  </Badge>
-                )}
-              </div>
-            )}
+            <div className="flex items-center gap-1 mb-1">
+              <span className="font-bold text-sm">
+                {detective.businessName || "Detective"}
+              </span>
+              <DetectiveBadges badgeState={badgeState} />
+            </div>
           </div>
         </div>
 
@@ -211,7 +185,7 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
           {detective.logo ? (
             <img
               src={detective.logo}
-              alt={detective.businessName || "Detective"}
+              alt="Detective logo"
               width={80}
               height={80}
               className="w-full h-full object-cover"
@@ -224,12 +198,9 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <a
-            href={detectiveUrl}
-            className="text-lg font-semibold text-gray-900 hover:underline line-clamp-1"
-          >
+          <span className="text-lg font-semibold text-gray-900 line-clamp-1">
             {detective.businessName || "Private Detective Service"}
-          </a>
+          </span>
           <span className="inline-flex items-center gap-1 ml-1 align-middle">
             {(detective.isVerified || detective.effectiveBadges?.blueTick) && (
               <BadgeIcon type="blueTick" className="h-4 w-4 inline-block align-middle" />
@@ -253,7 +224,11 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <MapPin className="h-4 w-4 flex-shrink-0" />
             <span className="line-clamp-1">
-              {[detective.city, detective.state].filter(Boolean).join(", ")}
+              {[
+                detective.city,
+                detective.state,
+                detective.country
+              ].filter(Boolean).join(", ")}
             </span>
           </div>
         )}
@@ -264,17 +239,17 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
           </p>
         )}
 
-        {detective.avgRating && detective.reviewCount && (
+        {showReviews && (
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1">
               {[...Array(5)].map((_, i) => (
-                <span key={i} className={i < Math.round(detective.avgRating || 0) ? "text-yellow-400" : "text-gray-300"}>
+                <span key={i} className={i < Math.round(normalizedAvgRating) ? "text-yellow-400" : "text-gray-300"}>
                   ★
                 </span>
               ))}
             </div>
             <span className="text-xs text-gray-500">
-              ({detective.reviewCount} reviews)
+              ({normalizedReviewCount} reviews)
             </span>
           </div>
         )}
@@ -282,7 +257,7 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
         <div className="flex-1" />
 
         <div className="flex gap-2 pt-4 border-t border-gray-100">
-          {hasPhone || detective.contactEmail ? (
+          {contactButtonText && contactHref ? (
             <a
               href={contactHref}
               className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-3 rounded-lg text-sm text-center transition-colors duration-200 flex items-center justify-center gap-2"

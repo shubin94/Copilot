@@ -74,7 +74,6 @@ export const WORLD_COUNTRIES: WorldCountry[] = [
   { code: "GW", name: "Guinea-Bissau" },
   { code: "GY", name: "Guyana" },
   { code: "HT", name: "Haiti" },
-  { code: "VA", name: "Holy See" },
   { code: "HN", name: "Honduras" },
   { code: "HU", name: "Hungary" },
   { code: "IS", name: "Iceland" },

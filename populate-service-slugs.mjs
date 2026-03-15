@@ -49,20 +49,20 @@ async function populateServiceSlugs() {
   
   for (const service of services) {
     try {
-      // Generate base slug from title
+      // Generate base slug from title (no ID prefix)
       let baseSlug = generateSlug(service.title);
-      
+
       // Ensure uniqueness
       let slug = baseSlug;
       let counter = slugCounts.get(baseSlug) || 0;
-      
+
       if (counter > 0) {
         slug = `${baseSlug}-${counter}`;
       }
-      
+
       slugCounts.set(baseSlug, counter + 1);
-      
-      // Update the service
+
+      // Update the service with clean slug only
       await pool.query(
         'UPDATE services SET slug = $1, updated_at = NOW() WHERE id = $2',
         [slug, service.id]

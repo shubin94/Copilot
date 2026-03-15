@@ -11,18 +11,31 @@ import { Calendar } from "lucide-react";
 import { DetectiveCard } from "@/components/DetectiveCard";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 
+const articleDateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
 // Simple HTML sanitization: removes dangerous content while preserving safe HTML
 function sanitizeHtml(html: string): string {
+  const stripped = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\bon\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\bon\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/\bon\w+\s*=\s*[^\s>]*/gi, '');
+
+  if (typeof document === "undefined") {
+    return stripped;
+  }
+
   const textarea = document.createElement('textarea');
   textarea.innerHTML = html;
   let sanitized = textarea.value;
   
   // Remove script tags and event handlers
-  sanitized = sanitized
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/\bon\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\bon\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/\bon\w+\s*=\s*[^\s>]*/gi, '');
+  sanitized = stripped;
   
   return sanitized;
 }
@@ -133,11 +146,7 @@ export default function ArticlePage() {
     );
   }
 
-  const formattedDate = new Date(article.publishedAt).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const formattedDate = articleDateFormatter.format(new Date(article.publishedAt));
 
   // SEO Metadata
   const seoTitle = `${article.title} | Case Studies | Ask Detectives`;
@@ -253,7 +262,9 @@ export default function ArticlePage() {
           <div className="mb-8">
             <img
               src={article.thumbnail}
-              alt={article.title}
+              alt="News thumbnail"
+              width={320}
+              height={240}
               className="w-full h-96 object-cover rounded-lg border border-gray-200"
             />
           </div>

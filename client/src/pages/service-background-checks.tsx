@@ -9,6 +9,7 @@ import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Star, MapPin, ExternalLink, ChevronDown, ShoppingCart } from "lucide-react";
 import { generateBreadcrumbListSchema } from "@/lib/structured-data";
+import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
 
 interface Detective {
   id: string;
@@ -381,13 +382,17 @@ export default function ServiceBackgroundChecksPage() {
                     {service.images?.[0] ? (
                       <img 
                         src={service.images[0]} 
-                        alt={service.title}
+                        alt="Service preview"
+                        width={128}
+                        height={128}
                         className="w-32 h-32 object-cover rounded-lg"
                       />
                     ) : service.detective.logo ? (
                       <img 
                         src={service.detective.logo}
-                        alt={service.detective.businessName}
+                        alt="Detective logo"
+                        width={128}
+                        height={128}
                         className="w-32 h-32 object-cover rounded-lg"
                       />
                     ) : (
@@ -408,9 +413,10 @@ export default function ServiceBackgroundChecksPage() {
                       </div>
                       
                       {/* Detective Name and Location */}
-                      <p className="text-sm text-gray-600 mb-2">
-                        by <span className="font-semibold">{service.detective.businessName}</span>
-                      </p>
+                      <div className="flex items-center gap-1 mb-2">
+                        <span className="font-medium">{service.detective.businessName}</span>
+                        <DetectiveBadges badgeState={service.badgeState} />
+                      </div>
                       <div className="flex items-center text-sm text-gray-600 mb-3">
                         <MapPin className="h-4 w-4 mr-1" />
                         {service.detective.city}, {service.detective.state}

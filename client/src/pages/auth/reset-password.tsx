@@ -3,8 +3,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
+import { useLocation } from "wouter";
 
 export default function ResetPassword() {
+  const [, setLocation] = useLocation();
   const [token, setToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -29,7 +31,10 @@ export default function ResetPassword() {
 
     try {
       await api.post("/api/auth/reset-password", { token, newPassword });
-      setStatus("Password reset successfully. You can now log in.");
+      setStatus("Password reset successfully. Redirecting to login...");
+      setTimeout(() => {
+        setLocation("/login");
+      }, 1200);
     } catch (err: any) {
       setStatus(err?.message || "Failed to reset password");
     } finally {

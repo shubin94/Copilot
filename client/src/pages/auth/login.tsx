@@ -7,7 +7,7 @@ import { useLogin, useRegister } from "@/lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
-import { getOrFetchCsrfToken } from "@/lib/api";
+import { api, getOrFetchCsrfToken } from "@/lib/api";
 
 // @ts-ignore
 import heroBgPng from "@assets/generated_images/professional_modern_city_skyline_at_dusk_with_subtle_mystery_vibes.png";
@@ -22,6 +22,7 @@ const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   google_userinfo_failed: "Could not load your Google profile. Please try again.",
   google_no_email: "Your Google account has no email we can use.",
   google_login_failed: "Sign-in with Google failed. Please try again.",
+  google_detective_blocked: "Google sign-in is not available for detective accounts. Please use email/password.",
   session_failed: "Session error. Please try again.",
 };
 
@@ -32,6 +33,7 @@ export default function Login() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isSendingReset, setIsSendingReset] = useState(false);
   const loginMutation = useLogin();
   const registerMutation = useRegister();
   const queryClient = useQueryClient();
@@ -149,6 +151,35 @@ export default function Login() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      toast({
+        title: "Email required",
+        description: "Enter your email first, then click Forgot password.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSendingReset(true);
+    try {
+      await api.auth.forgotPassword(normalizedEmail);
+      toast({
+        title: "Reset link sent",
+        description: "If this email exists, password reset instructions were sent.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Request failed",
+        description: error?.message || "Could not send reset email. Try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSendingReset(false);
+    }
+  };
+
   const handleSubmit = isSignup ? handleSignup : handleLogin;
   const isPending = isSignup ? registerMutation.isPending : loginMutation.isPending;
 
@@ -243,11 +274,14 @@ export default function Login() {
                     className="text-sm text-green-600 hover:underline bg-transparent border-0 p-0 cursor-pointer"
                     onClick={(e) => {
                       e.preventDefault();
-                      toast({ title: "Not available yet", description: "This feature is not available yet." });
+                      if (!isSendingReset) {
+                        handleForgotPassword();
+                      }
                     }}
-                    title="Not available yet"
+                    disabled={isSendingReset}
+                    title={isSendingReset ? "Sending reset link..." : "Send password reset email"}
                   >
-                    Forgot password?
+                    {isSendingReset ? "Sending..." : "Forgot password?"}
                   </button>
                 )}
               </div>

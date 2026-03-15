@@ -204,6 +204,32 @@ export function useSubscriptionLimits() {
   });
 }
 
+export function useUpdateSubscriptionPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) =>
+      api.subscriptionPlans.update(id, data),
+    onSuccess: async (response) => {
+      // ✅ KEY FIX: Invalidate services cache when package features change
+      // This forces React Query to refetch all service queries, which will then
+      // call the API with updated contact masking based on new package features
+      await queryClient.invalidateQueries({ queryKey: ["services"] });
+      
+      // Also invalidate subscription plans cache to show updated plan details
+      await queryClient.invalidateQueries({ queryKey: ["subscription", "plans"] });
+      
+      // Refetch active service queries to ensure UI updates immediately
+      // Type "active" means only refetch queries that are currently being used (have active observers)
+      await queryClient.refetchQueries({ 
+        queryKey: ["services"],
+        type: "active"
+      });
+      
+      return response;
+    },
+  });
+}
+
 export function useDetectivesByCountry(country: string | null | undefined) {
   return useQuery({
     queryKey: ["detectives", "country", country],
@@ -227,6 +253,21 @@ export function useSearchDetectives(params?: {
     queryFn: () => api.detectives.search(params),
     staleTime: 5 * 60 * 1000, // 5 minutes - search results valid for 5 mins
     gcTime: 10 * 60 * 1000, // 10 minutes - keep in memory for 10 mins
+  });
+}
+
+export function useAdminSearchDetectives(params?: {
+  status?: string;
+  plan?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: ["admin", "detectives", "search", params],
+    queryFn: () => api.detectives.adminSearch(params),
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
   });
 }
 
@@ -325,11 +366,18 @@ export function useService(id: string | null | undefined, preview?: boolean) {
   });
 }
 
-export function useServiceBySlug(serviceSlug: string | null | undefined, detectiveSlug?: string | null, preview?: boolean) {
+export function useServiceBySlug(
+  serviceSlug: string | null | undefined,
+  detectiveSlug?: string | null,
+  preview?: boolean,
+  country?: string,
+  state?: string,
+  city?: string
+) {
   return useQuery({
-    queryKey: ["services", "by-slug", detectiveSlug, serviceSlug, preview ? "preview" : "public"],
-    queryFn: () => api.services.getBySlug(serviceSlug!, detectiveSlug, { preview }),
-    enabled: !!serviceSlug,
+    queryKey: ["services", "by-slug", detectiveSlug, serviceSlug, country, state, city, preview ? "preview" : "public"],
+    queryFn: () => api.services.getBySlug(serviceSlug!, detectiveSlug, { preview }, country, state, city),
+    enabled: !!serviceSlug && !!detectiveSlug && !!country && !!state && !!city,
     staleTime: 60 * 1000, // 60 seconds - public service pages cached for better UX
     gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
   });

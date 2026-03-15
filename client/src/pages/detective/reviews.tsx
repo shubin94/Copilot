@@ -5,7 +5,13 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Star, MessageSquare } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useReviewsByDetective } from "@/lib/hooks";
-import { format } from "date-fns";
+
+const reviewDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
 
 export default function DetectiveReviews() {
   const { data, isLoading } = useReviewsByDetective();
@@ -93,7 +99,7 @@ export default function DetectiveReviews() {
                       </div>
                     </TableCell>
                     <TableCell className="text-gray-600 italic">"{review.comment}"</TableCell>
-                    <TableCell>{review.createdAt ? format(new Date(review.createdAt), "MMM d, yyyy") : ""}</TableCell>
+                    <TableCell>{review.createdAt ? reviewDateFormatter.format(new Date(review.createdAt)) : ""}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" className="text-green-600 hover:text-green-700 hover:bg-green-50">
                         <MessageSquare className="h-4 w-4 mr-2" /> Reply

@@ -25,7 +25,18 @@ import {
   injectDetectiveLocationAuthorityLink,
   resolveLocationIds,
 } from "./lib/seo-injection.js";
+import { getPublishedCmsPageSeo, injectCmsPageSeoTags } from "./lib/cms-page-seo.js";
 import { storage } from "./storage.js";
+
+const STATIC_CMS_SEO_SLUGS = new Set([
+  "about",
+  "contact",
+  "support",
+  "privacy",
+  "terms",
+  "packages",
+  "categories",
+]);
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 
@@ -49,12 +60,39 @@ export async function serveStatic(app: Express, _server: Server) {
     next();
   });
 
-  // Cache middleware for location listing pages
+
+  // GLOBAL URL NORMALIZATION MIDDLEWARE (production-safe)
   app.use((req: Request, res: Response, next: Function) => {
-    // Apply cache headers only to GET requests for location listing pages
-    if (req.method === 'GET' && /^\/detectives\/[^\/]+(?:\/[^\/]+)?(?:\/[^\/]+)?\/?$/.test(req.path)) {
-      res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    const originalPath = req.path;
+
+    // Ignore static files and assets
+    if (
+      originalPath.startsWith('/assets') ||
+      originalPath.startsWith('/static') ||
+      originalPath.startsWith('/images') ||
+      originalPath.startsWith('/js') ||
+      originalPath.startsWith('/css') ||
+      originalPath.startsWith('/build') ||
+      originalPath.startsWith('/favicon') ||
+      /\.[a-zA-Z0-9]+$/.test(originalPath)
+    ) {
+      return next();
     }
+
+    let normalizedPath = originalPath.toLowerCase();
+
+    // Remove trailing slash except root
+    if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
+      normalizedPath = normalizedPath.slice(0, -1);
+    }
+
+    if (normalizedPath !== originalPath) {
+      const query = req.url.includes('?')
+        ? req.url.slice(req.url.indexOf('?'))
+        : '';
+      return res.redirect(301, normalizedPath + query);
+    }
+
     next();
   });
 
@@ -103,49 +141,17 @@ export async function serveStatic(app: Express, _server: Server) {
       });
       console.log("[SSR] Location resolved", resolvedLocation);
 
-      // ✅ OPTIMIZATION: Run independent database calls in parallel
-      // Detectives fetch + services existence check (city pages only) run concurrently
-      console.log("[SSR] Fetching detectives...", { country: params.country, state: params.state, city: params.city });
-      const [locationSeoData, servicesCheckResult] = await Promise.all([
-        // Always fetch detectives for location
-        getLocationDetectivesForSEO(
-          params.country,
-          params.state,
-          params.city
-        ),
-        // Only check services for city-level pages; no-op for state/country pages
-        isCity ? storage.searchServices(
-          {
-            category: "Background Check",
-            country: params.country,
-            state: params.state,
-            city: params.city,
-          },
-          1,  // limit = 1 (existence check only)
-          0,  // offset = 0
-          'recent',
-          false,
-          resolvedLocation  // ✅ Pass pre-resolved location IDs to skip redundant queries
-        ) : Promise.resolve([])
-      ]);
 
-      console.log("[SSR] Detectives fetched", { count: locationSeoData.detectives.length });
-      if (isCity) {
-        console.log("[SSR] Checking services...", { hasServices: servicesCheckResult && servicesCheckResult.length > 0 });
-      }
 
+      console.log("[SSR] Fetching detectives...", { countrySlug: params.country, stateSlug: params.state, citySlug: params.city });
+      const locationSeoData = await getLocationDetectivesForSEO(
+        params.country,
+        params.state,
+        params.city
+      );
       const detectives = locationSeoData.detectives;
-      const seoDetectives = detectives
-        .filter((d) => Boolean(d.slug) && Boolean(d.businessName))
-        .map((d) => ({
-          slug: d.slug as string,
-          businessName: d.businessName as string,
-          city: d.city,
-          state: d.state,
-          country: d.country,
-        }));
       const hasMore = locationSeoData.hasMore;
-
+      console.log("[SSR] Detectives fetched", { count: detectives.length, hasMore });
       if (!detectives || detectives.length === 0) {
         // No detectives found - return 404
         console.log('[SEO] No detectives found for location:', params);
@@ -154,18 +160,41 @@ export async function serveStatic(app: Express, _server: Server) {
           '<html><head><title>Location Not Found</title></head><body><h1>404 - No detectives in this location</h1></body></html>'
         );
       }
-
+      const seoDetectives = detectives
+        .filter((d) => Boolean(d.slug) && Boolean(d.businessName))
+        .map((d) => ({
+          slug: d.slug,
+          businessName: d.businessName,
+          city: d.city,
+          state: d.state,
+          country: d.country,
+        }));
       console.log(`[SEO] Found ${detectives.length} detectives for location (hasMore: ${hasMore})`);
+
+      const servicesCheckResult = isCity
+        ? await storage.searchServices({
+            category: "Background Check",
+            country: params.country,
+            state: params.state,
+            city: params.city,
+          })
+        : [];
 
       // Generate canonical URL
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
 
       console.log(`[PROD-SEO] Before injectLocationSeoTags - template length: ${cachedIndexHtml.length}, has SSR_H1_INJECTION_POINT: ${cachedIndexHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
 
-      // Inject SEO tags (totalCount defaults to detectives.length in function)
-      // ✅ Pass resolved location to avoid duplicate queries in generateLocationSeoMetaTags()
+      // Inject SEO tags with explicit totalCount + resolved location
       console.log("[SSR] Generating SEO...", { detectiveCount: seoDetectives.length, hasMore });
-      const seoHtml = await injectLocationSeoTags(cachedIndexHtml, params, seoDetectives, canonicalUrl, resolvedLocation);
+      const seoHtml = await injectLocationSeoTags(
+        cachedIndexHtml,
+        params,
+        seoDetectives,
+        canonicalUrl,
+        detectives.length,
+        resolvedLocation
+      );
 
       console.log(`[PROD-SEO] After injectLocationSeoTags - template length: ${seoHtml.length}, has SSR_H1_INJECTION_POINT: ${seoHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
 
@@ -446,7 +475,7 @@ export async function serveStatic(app: Express, _server: Server) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
       }
 
-      const seoHtml = injectServiceLocationSeoTags(cachedIndexHtml, {
+      const seoHtml = await injectServiceLocationSeoTags(cachedIndexHtml, {
         countrySlug: params.countrySlug,
         stateSlug: params.stateSlug,
         citySlug: params.citySlug,
@@ -475,6 +504,41 @@ export async function serveStatic(app: Express, _server: Server) {
     }
   });
 
+  // STATIC CMS PAGE SEO INJECTION (Production)
+  // Intercepts specific static routes and injects title/description in server HTML source.
+  app.get(/^\/(about|contact|support|privacy|terms|packages|categories)\/?$/, async (req: Request, res: Response) => {
+    try {
+      const slug = req.path.replace(/^\/+|\/+$/g, "");
+      if (!STATIC_CMS_SEO_SLUGS.has(slug)) {
+        return res.status(404).type("text/plain").send("Not Found");
+      }
+
+      if (!cachedIndexHtml) {
+        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
+      }
+
+      const seo = await getPublishedCmsPageSeo(slug);
+      let html = cachedIndexHtml;
+
+      if (seo) {
+        const canonicalPath = req.path.replace(/\/$/, "") || `/${slug}`;
+        const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+        html = injectCmsPageSeoTags(cachedIndexHtml, seo, canonicalUrl);
+      }
+
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(html);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[SEO] Static CMS page SEO injection failed:", {
+        url: req.originalUrl,
+        message: errorMsg,
+      });
+      return res.status(500).type("text/plain").send("Error loading page");
+    }
+  });
+
   // Homepage route - serves client index.html
   app.get("/", async (_req: Request, res: Response) => {
     try {
@@ -483,9 +547,15 @@ export async function serveStatic(app: Express, _server: Server) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
       }
 
+      let html = cachedIndexHtml;
+      const seo = await getPublishedCmsPageSeo("/");
+      if (seo) {
+        html = injectCmsPageSeoTags(cachedIndexHtml, seo, "https://www.askdetectives.com/");
+      }
+
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.send(cachedIndexHtml);
+      res.send(html);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error("[Homepage] Error:", {
@@ -695,3 +765,4 @@ async function main() {
 
 // Start the server
 main();
+

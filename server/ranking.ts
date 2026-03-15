@@ -564,7 +564,8 @@ export async function getRankedDetectives(options?: {
     console.error("[Ranking] Error calculating detective rankings:", error);
     // Fallback: return active detectives in creation order with total count
     const opts = typeof options === "number" ? { limit: options } : options || {};
-    const statusValue = (opts.status || "active") as "active" | "pending" | "suspended" | "inactive";
+    const normalizedStatus = (!opts.status || opts.status === "all") ? "active" : opts.status;
+    const statusValue = normalizedStatus as "active" | "pending" | "suspended" | "inactive";
     const limitVal = opts.limit || 100;
     const offsetVal = typeof options === "object" && options && "offset" in options ? options.offset || 0 : 0;
     

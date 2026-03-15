@@ -99,23 +99,11 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
         console.error(`[API Error] CORS violation for ${url}:`, error.message);
         console.error('[API Error] Backend CORS headers likely not configured for this origin');
         
-        // In production, try fallback if not already activated
-        if (IS_PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
-          console.warn('[API Error] 🔄 Proxy CORS failed, activating direct backend URL fallback');
-          activateFallbackUrl();
-        }
-        
         throw new ApiError(0, 'CORS error: Backend API not accessible from this origin. Check network or contact support.');
       }
       
       if (isNetworkError) {
         console.error(`[API Error] Network error for ${url}:`, error);
-        
-        // In production, if using relative paths and network fails, try fallback
-        if (IS_PROD && !runtimeApiBaseUrl && url.startsWith('/api/')) {
-          console.warn('[API Error] 🔄 Proxy unavailable, activating fallback on next request');
-          activateFallbackUrl();
-        }
         
         throw new ApiError(503, 'Network error. Please check your internet connection.');
       }
@@ -341,6 +329,16 @@ export const api = {
       }
     },
 
+    forgotPassword: async (email: string): Promise<{ success: boolean }> => {
+      const response = await csrfFetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+        body: JSON.stringify({ email }),
+        credentials: "include",
+      });
+      return handleResponse<{ success: boolean }>(response);
+    },
+
     changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
       const response = await csrfFetch("/api/auth/change-password", {
         method: "POST",
@@ -458,11 +456,29 @@ export const api = {
         }
         return { detectives: result.detectives || [] };
       } catch (err: any) {
-        if (err?.name === "AbortError" || /network|fetch|failed|suspend/i.test(String(err?.message || ""))) {
-          return { detectives: [] } as any;
-        }
         throw err;
       }
+    },
+
+    adminSearch: async (params?: {
+      status?: string;
+      plan?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    }): Promise<{ detectives: Detective[]; total?: number }> => {
+      const queryParams = new URLSearchParams();
+      if (params?.status) queryParams.append("status", params.status);
+      if (params?.plan) queryParams.append("plan", params.plan);
+      if (params?.search) queryParams.append("search", params.search);
+      if (params?.limit !== undefined) queryParams.append("limit", params.limit.toString());
+      if (params?.offset !== undefined) queryParams.append("offset", params.offset.toString());
+
+      const queryString = queryParams.toString();
+      const response = await csrfFetch(`/api/admin/detectives/raw${queryString ? `?${queryString}` : ""}`, {
+        credentials: "include",
+      });
+      return handleResponse(response);
     },
 
     create: async (data: InsertDetective): Promise<{ detective: Detective }> => {
@@ -629,12 +645,19 @@ export const api = {
       return handleResponse(response);
     },
 
-    getBySlug: async (serviceSlug: string, detectiveSlug?: string | null, options?: { preview?: boolean }): Promise<{ service: Service; detective: Detective; avgRating: number; reviewCount: number }> => {
+    getBySlug: async (
+      serviceSlug: string,
+      detectiveSlug?: string | null,
+      options?: { preview?: boolean },
+      country?: string,
+      state?: string,
+      city?: string
+    ): Promise<{ service: Service; detective: Detective; avgRating: number; reviewCount: number }> => {
       const params = new URLSearchParams();
       if (options?.preview) params.set("preview", "1");
-      if (detectiveSlug) params.set("detectiveSlug", detectiveSlug);
       const qs = params.toString() ? `?${params.toString()}` : "";
-      const response = await csrfFetch(`/api/services/by-slug/${serviceSlug}${qs}`, {
+      if (!country || !state || !city || !detectiveSlug || !serviceSlug) throw new Error("Missing location or slug params");
+      const response = await csrfFetch(`/api/services/${country}/${state}/${city}/${detectiveSlug}/${serviceSlug}${qs}`, {
         credentials: "include",
       });
       return handleResponse(response);

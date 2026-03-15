@@ -65,6 +65,200 @@ export interface ResolvedLocationIds {
   cityId: number | null;
 }
 
+function normalizeText(input?: string): string {
+  return (input || "").trim();
+}
+
+function toTitleCase(input: string): string {
+  return input
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function normalizeCountryCode(input: string): string {
+  const trimmed = normalizeText(input);
+  return trimmed.length <= 3 ? trimmed.toUpperCase() : trimmed.slice(0, 3).toUpperCase();
+}
+
+function normalizeCountryName(input: string): string {
+  return toTitleCase(normalizeText(input));
+}
+
+function normalizeStateName(input: string, countryCode?: string): string {
+  const trimmed = normalizeText(input);
+  if (!trimmed) return "Not specified";
+
+  // Handle ISO-like state codes (e.g. AZ -> Arizona)
+  const codeLike = trimmed.toUpperCase();
+  if (codeLike.length <= 3 && countryCode) {
+    const lookup = (State.getStatesOfCountry(countryCode.toUpperCase()) || [])
+      .find((s) => s.isoCode.toUpperCase() === codeLike);
+    if (lookup?.name) {
+      return lookup.name;
+    }
+  }
+
+  return toTitleCase(trimmed);
+}
+
+function normalizeCityName(input?: string): string {
+  const trimmed = normalizeText(input);
+  if (!trimmed) return "Not specified";
+  return toTitleCase(trimmed);
+}
+
+async function upsertCountry(nameOrCode: string): Promise<number> {
+  const raw = normalizeText(nameOrCode);
+  const slug = generateSlug(raw);
+  const upperCode = normalizeCountryCode(raw);
+
+  const catalogCountry = Country.getAllCountries().find((c) =>
+    c.isoCode.toUpperCase() === upperCode ||
+    c.name.toLowerCase() === raw.toLowerCase() ||
+    generateSlug(c.name) === slug
+  );
+
+  const countryCode = catalogCountry?.isoCode || upperCode;
+  const countryName = catalogCountry?.name || normalizeCountryName(raw);
+  const countrySlug = generateSlug(countryName);
+
+  const existing = await db
+    .select({ id: countries.id })
+    .from(countries)
+    .where(
+      or(
+        sql`lower(${countries.code}) = lower(${countryCode})`,
+        sql`lower(trim(${countries.name})) = lower(trim(${countryName}))`,
+        sql`lower(${countries.slug}) = lower(${countrySlug})`
+      )!
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    return existing[0].id;
+  }
+
+  const inserted = await db.execute(sql`
+    INSERT INTO countries (code, name, slug)
+    VALUES (${countryCode}, ${countryName}, ${countrySlug})
+    ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, code = EXCLUDED.code
+    RETURNING id
+  `);
+
+  const insertedId = Number((inserted as any).rows?.[0]?.id);
+  if (Number.isFinite(insertedId) && insertedId > 0) {
+    return insertedId;
+  }
+
+  const fallback = await db
+    .select({ id: countries.id })
+    .from(countries)
+    .where(eq(countries.slug, countrySlug))
+    .limit(1);
+
+  if (fallback.length === 0) {
+    throw new Error(`Failed to upsert country: ${countryName}`);
+  }
+
+  return fallback[0].id;
+}
+
+async function upsertState(countryId: number, stateNameInput: string, countryCode?: string): Promise<number> {
+  const normalizedStateName = normalizeStateName(stateNameInput, countryCode);
+  const stateSlug = generateSlug(normalizedStateName);
+
+  const existing = await db
+    .select({ id: states.id })
+    .from(states)
+    .where(
+      and(
+        eq(states.countryId, countryId),
+        or(
+          sql`lower(trim(${states.name})) = lower(trim(${normalizedStateName}))`,
+          sql`lower(${states.slug}) = lower(${stateSlug})`
+        )!
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    return existing[0].id;
+  }
+
+  const inserted = await db.execute(sql`
+    INSERT INTO states (country_id, name, slug)
+    VALUES (${countryId}, ${normalizedStateName}, ${stateSlug})
+    ON CONFLICT (country_id, slug) DO UPDATE SET name = EXCLUDED.name
+    RETURNING id
+  `);
+
+  const insertedId = Number((inserted as any).rows?.[0]?.id);
+  if (Number.isFinite(insertedId) && insertedId > 0) {
+    return insertedId;
+  }
+
+  const fallback = await db
+    .select({ id: states.id })
+    .from(states)
+    .where(and(eq(states.countryId, countryId), eq(states.slug, stateSlug)))
+    .limit(1);
+
+  if (fallback.length === 0) {
+    throw new Error(`Failed to upsert state: ${normalizedStateName}`);
+  }
+
+  return fallback[0].id;
+}
+
+async function upsertCity(stateId: number, cityNameInput?: string): Promise<number> {
+  const normalizedCityName = normalizeCityName(cityNameInput);
+  const citySlug = generateSlug(normalizedCityName);
+
+  const existing = await db
+    .select({ id: cities.id })
+    .from(cities)
+    .where(
+      and(
+        eq(cities.stateId, stateId),
+        or(
+          sql`lower(trim(${cities.name})) = lower(trim(${normalizedCityName}))`,
+          sql`lower(${cities.slug}) = lower(${citySlug})`
+        )!
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    return existing[0].id;
+  }
+
+  const inserted = await db.execute(sql`
+    INSERT INTO cities (state_id, name, slug)
+    VALUES (${stateId}, ${normalizedCityName}, ${citySlug})
+    ON CONFLICT (state_id, slug) DO UPDATE SET name = EXCLUDED.name
+    RETURNING id
+  `);
+
+  const insertedId = Number((inserted as any).rows?.[0]?.id);
+  if (Number.isFinite(insertedId) && insertedId > 0) {
+    return insertedId;
+  }
+
+  const fallback = await db
+    .select({ id: cities.id })
+    .from(cities)
+    .where(and(eq(cities.stateId, stateId), eq(cities.slug, citySlug)))
+    .limit(1);
+
+  if (fallback.length === 0) {
+    throw new Error(`Failed to upsert city: ${normalizedCityName}`);
+  }
+
+  return fallback[0].id;
+}
+
 // ========================================
 // LOCATION ID RESOLUTION
 // ========================================
@@ -89,71 +283,13 @@ export async function resolveLocationIds(
   state?: string,
   city?: string
 ): Promise<ResolvedLocationIds> {
-  // Resolve country ID (REQUIRED)
-  const countryResult = await db
-    .select({ id: countries.id })
-    .from(countries)
-    .where(
-      or(
-        eq(countries.code, country),
-        eq(countries.name, country),
-        eq(countries.slug, country),
-        eq(countries.slug, generateSlug(country))
-      )!
-    )
-    .limit(1);
+  const normalizedCountryInput = normalizeText(country) || "US";
+  const countryCode = normalizeCountryCode(normalizedCountryInput);
 
-  if (countryResult.length === 0) {
-    throw new Error(`Country not found: ${country}. Please ensure the country exists in the database.`);
-  }
-
-  const countryId = countryResult[0].id;
-  let stateId: number | null = null;
-  let cityId: number | null = null;
-
-  // Resolve state ID if provided
-  if (state && state !== "Not specified" && state.trim()) {
-    const stateResult = await db
-      .select({ id: states.id })
-      .from(states)
-      .where(
-        and(
-          eq(states.countryId, countryId),
-          or(
-            eq(states.name, state),
-            eq(states.slug, generateSlug(state)),
-            sql`lower(trim(${states.name})) = lower(trim(${state}))`
-          )!
-        )
-      )
-      .limit(1);
-
-    if (stateResult.length > 0) {
-      stateId = stateResult[0].id;
-    }
-  }
-
-  // Resolve city ID if provided (requires stateId)
-  if (city && city !== "Not specified" && city.trim() && stateId !== null) {
-    const cityResult = await db
-      .select({ id: cities.id })
-      .from(cities)
-      .where(
-        and(
-          eq(cities.stateId, stateId),
-          or(
-            eq(cities.name, city),
-            eq(cities.slug, generateSlug(city)),
-            sql`lower(trim(${cities.name})) = lower(trim(${city}))`
-          )!
-        )
-      )
-      .limit(1);
-
-    if (cityResult.length > 0) {
-      cityId = cityResult[0].id;
-    }
-  }
+  // Permanent behavior: ensure hierarchy exists and always return IDs.
+  const countryId = await upsertCountry(normalizedCountryInput);
+  const stateId = await upsertState(countryId, normalizeText(state) || "Not specified", countryCode);
+  const cityId = await upsertCity(stateId, normalizeText(city) || "Not specified");
 
   return {
     countryId,
@@ -168,63 +304,9 @@ export async function resolveLocationIds(
  * Used when location resolution fails but detective creation must proceed
  */
 export async function getDefaultLocationIds(): Promise<ResolvedLocationIds> {
-  // Try to get US as default country
-  const defaultCountryResult = await db
-    .select({ id: countries.id })
-    .from(countries)
-    .where(eq(countries.code, "US"))
-    .limit(1);
-
-  if (defaultCountryResult.length === 0) {
-    // If US not found, get any country as fallback
-    const anyCountry = await db
-      .select({ id: countries.id })
-      .from(countries)
-      .limit(1);
-
-    if (anyCountry.length === 0) {
-      throw new Error("No countries found in database. Please seed location data.");
-    }
-
-    return {
-      countryId: anyCountry[0].id,
-      stateId: null,
-      cityId: null,
-    };
-  }
-
-  const countryId = defaultCountryResult[0].id;
-
-  // Try to get "Not specified" state for this country
-  const defaultStateResult = await db
-    .select({ id: states.id })
-    .from(states)
-    .where(
-      and(
-        eq(states.countryId, countryId),
-        eq(states.name, "Not specified")
-      )
-    )
-    .limit(1);
-
-  const stateId = defaultStateResult.length > 0 ? defaultStateResult[0].id : null;
-
-  // Try to get "Not specified" city for this state
-  let cityId: number | null = null;
-  if (stateId !== null) {
-    const defaultCityResult = await db
-      .select({ id: cities.id })
-      .from(cities)
-      .where(
-        and(
-          eq(cities.stateId, stateId),
-          eq(cities.name, "Not specified")
-        )
-      )
-      .limit(1);
-
-    cityId = defaultCityResult.length > 0 ? defaultCityResult[0].id : null;
-  }
+  const countryId = await upsertCountry("US");
+  const stateId = await upsertState(countryId, "Not specified", "US");
+  const cityId = await upsertCity(stateId, "Not specified");
 
   return {
     countryId,

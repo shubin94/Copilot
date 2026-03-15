@@ -8,7 +8,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle, XCircle, Inbox } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useClaims, useUpdateClaimStatus, useDetective } from "@/lib/hooks";
-import { format } from "date-fns";
+
+const claimDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
 
 function ClaimItem({ claim }: { claim: any }) {
   const { data: detectiveData } = useDetective(claim.detectiveId);
@@ -16,6 +22,45 @@ function ClaimItem({ claim }: { claim: any }) {
   const updateStatus = useUpdateClaimStatus();
   const { toast } = useToast();
   const [showDetails, setShowDetails] = useState(false);
+
+  const handleOpenDocument = (doc: string) => {
+    if (!doc) return;
+    if (!doc.startsWith("data:")) {
+      window.open(doc, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    try {
+      const commaIndex = doc.indexOf(",");
+      if (commaIndex === -1) {
+        throw new Error("Invalid document format");
+      }
+
+      const header = doc.slice(0, commaIndex);
+      const mimeMatch = header.match(/^data:([^;]+);base64$/i);
+      const mimeType = mimeMatch?.[1] || "application/octet-stream";
+      const base64 = doc.slice(commaIndex + 1);
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      const blob = new Blob([bytes], { type: mimeType });
+      const blobUrl = URL.createObjectURL(blob);
+      const newWindow = window.open(blobUrl, "_blank", "noopener,noreferrer");
+      if (!newWindow) {
+        throw new Error("Popup blocked");
+      }
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (_error) {
+      toast({
+        title: "Unable to open document",
+        description: "This document format could not be opened in browser.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleApprove = async () => {
     try {
@@ -87,7 +132,7 @@ function ClaimItem({ claim }: { claim: any }) {
             <div className="text-xs text-gray-500">{claim.claimantPhone}</div>
           )}
           <div className="text-xs text-gray-500 mt-1">
-            Submitted {format(new Date(claim.createdAt), "MMM dd, yyyy")}
+            Submitted {claimDateFormatter.format(new Date(claim.createdAt))}
           </div>
           {showDetails && (
             <div className="mt-3 space-y-2">
@@ -109,15 +154,14 @@ function ClaimItem({ claim }: { claim: any }) {
                   <div className="text-xs text-gray-500 mb-1">Uploaded Documents</div>
                   <div className="flex flex-wrap gap-2">
                     {claim.documents.map((doc: string, idx: number) => (
-                      <a
+                      <button
                         key={`${claim.id}-doc-${idx}`}
-                        href={doc}
-                        target="_blank"
-                        rel="noreferrer"
+                        type="button"
+                        onClick={() => handleOpenDocument(doc)}
                         className="text-xs text-blue-600 underline bg-white px-2 py-1 rounded border border-gray-200"
                       >
                         Document {idx + 1}
-                      </a>
+                      </button>
                     ))}
                   </div>
                 </div>

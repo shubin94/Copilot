@@ -8,10 +8,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Link } from "wouter";
 import { useApplications, useUpdateApplicationStatus } from "@/lib/hooks";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
 import { useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+
+const signupDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
 
 export default function AdminSignups() {
   const [newLimit] = useState(10);
@@ -109,7 +115,7 @@ export default function AdminSignups() {
                             {app.businessWebsite && (<a href={app.businessWebsite} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline block">Website →</a>)}
                           </div>
                         </TableCell>
-                        <TableCell>{format(new Date(app.createdAt), "MMM dd, yyyy")}</TableCell>
+                        <TableCell>{signupDateFormatter.format(new Date(app.createdAt))}</TableCell>
                         <TableCell>
                           <Badge className={app.status === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-blue-100 text-blue-700"}>{app.status}</Badge>
                         </TableCell>

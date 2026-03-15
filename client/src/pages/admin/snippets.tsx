@@ -14,6 +14,7 @@ import { api } from "@/lib/api";
 interface Snippet {
   id: string;
   name: string;
+  snippetType: "service_card_snippet" | "detectives_card_snippet";
   country: string;
   state?: string;
   city?: string;
@@ -41,6 +42,7 @@ export default function SnippetsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: "",
+    snippetType: "service_card_snippet" as "service_card_snippet" | "detectives_card_snippet",
     country: "",
     state: "",
     city: "",
@@ -49,7 +51,20 @@ export default function SnippetsPage() {
   });
 
   // Preview state
-  const [previewSnippetId, setPreviewSnippetId] = useState<string | null>(null);
+  const [previewSnippet, setPreviewSnippet] = useState<Snippet | null>(null);
+
+  const normalizeSnippetType = (value: unknown): "service_card_snippet" | "detectives_card_snippet" => {
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (normalized === "detectives_card_snippet" || normalized === "detective_card_snippet") {
+      return "detectives_card_snippet";
+    }
+    return "service_card_snippet";
+  };
+
+  const normalizeSnippet = (snippet: any): Snippet => ({
+    ...snippet,
+    snippetType: normalizeSnippetType(snippet?.snippetType ?? snippet?.snippet_type),
+  });
 
   useEffect(() => {
     if (!isLoadingUser && (!isAuthenticated || user?.role !== "admin")) {
@@ -63,7 +78,10 @@ export default function SnippetsPage() {
       try {
         setLoading(true);
         const data = await api.get<{ snippets: Snippet[] }>("/api/snippets");
-        setSnippets(data.snippets || []);
+        const normalized = Array.isArray(data?.snippets)
+          ? data.snippets.map((snippet: any) => normalizeSnippet(snippet))
+          : [];
+        setSnippets(normalized);
       } catch (error) {
         console.error("Error fetching snippets:", error);
       } finally {
@@ -172,31 +190,53 @@ export default function SnippetsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validate required fields
+    if (!formData.name.trim()) {
+      alert("Snippet Name is required.");
+      return;
+    }
+    if (!formData.country) {
+      alert("Country is required.");
+      return;
+    }
+
+    // Category is only required for service snippets
+    const isServiceSnippet = formData.snippetType === "service_card_snippet";
+    if (isServiceSnippet && !formData.category.trim()) {
+      alert("Category is required for service card snippets.");
+      return;
+    }
+
     const body = {
       name: formData.name,
+      snippetType: formData.snippetType,
       country: formData.country,
       state: formData.state || null,
       city: formData.city || null,
-      category: formData.category,
+      category: isServiceSnippet ? formData.category : (formData.category || ""),
       limit: parseInt(formData.limit, 10) || 4,
     };
 
     try {
       if (editingId) {
         const payload = await api.put<{ snippet: Snippet }>(`/api/snippets/${editingId}`, body);
-        if (payload?.snippet) setLastSavedSnippet(payload.snippet);
+        if (payload?.snippet) setLastSavedSnippet(normalizeSnippet(payload.snippet));
       } else {
         const payload = await api.post<{ snippet: Snippet }>("/api/snippets", body);
-        if (payload?.snippet) setLastSavedSnippet(payload.snippet);
+        if (payload?.snippet) setLastSavedSnippet(normalizeSnippet(payload.snippet));
       }
 
       // Refresh snippets list
       const data = await api.get<{ snippets: Snippet[] }>("/api/snippets");
-      setSnippets(data.snippets || []);
+      const normalized = Array.isArray(data?.snippets)
+        ? data.snippets.map((snippet: any) => normalizeSnippet(snippet))
+        : [];
+      setSnippets(normalized);
 
       // Reset form
       setFormData({
         name: "",
+        snippetType: "service_card_snippet",
         country: availableCountries[0] ?? "",
         state: "",
         city: "",
@@ -217,6 +257,7 @@ export default function SnippetsPage() {
   const handleEdit = (snippet: Snippet) => {
     setFormData({
       name: snippet.name,
+      snippetType: snippet.snippetType || "service_card_snippet",
       country: snippet.country,
       state: snippet.state || "",
       city: snippet.city || "",
@@ -254,6 +295,7 @@ export default function SnippetsPage() {
                 setEditingId(null);
                 setFormData({
                   name: "",
+                  snippetType: "service_card_snippet",
                   country: availableCountries[0] ?? "",
                   state: "",
                   city: "",
@@ -277,7 +319,7 @@ export default function SnippetsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                   <div>
                     <Label htmlFor="name">Snippet Name *</Label>
                     <Input
@@ -289,6 +331,25 @@ export default function SnippetsPage() {
                       }
                       required
                     />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="snippetType">Snippet Type *</Label>
+                    <select
+                      id="snippetType"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      value={formData.snippetType}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          snippetType: e.target.value as "service_card_snippet" | "detectives_card_snippet",
+                        })
+                      }
+                      required
+                    >
+                      <option value="service_card_snippet">Service Card Snippet</option>
+                      <option value="detectives_card_snippet">Detectives Card Snippet</option>
+                    </select>
                   </div>
 
                   <div>
@@ -355,7 +416,9 @@ export default function SnippetsPage() {
                   </div>
 
                   <div>
-                    <Label htmlFor="category">Category *</Label>
+                    <Label htmlFor="category">
+                      {formData.snippetType === "service_card_snippet" ? "Category *" : "Category (Optional)"}
+                    </Label>
                     <select
                       id="category"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md"
@@ -363,11 +426,14 @@ export default function SnippetsPage() {
                       onChange={(e) =>
                         setFormData({ ...formData, category: e.target.value })
                       }
-                      required
                       disabled={categoriesLoading}
                     >
                       <option value="">
-                        {categoriesLoading ? "Loading categories..." : "Select a category"}
+                        {categoriesLoading
+                          ? "Loading categories..."
+                          : formData.snippetType === "service_card_snippet"
+                          ? "Select a category"
+                          : "All categories"}
                       </option>
                       {categories.map((c) => (
                         <option key={c} value={c}>
@@ -440,16 +506,17 @@ export default function SnippetsPage() {
                         <div>
                           <p className="font-semibold">{snippet.name}</p>
                           <p className="text-sm text-gray-600">
+                            {snippet.snippetType === "detectives_card_snippet" ? "Detectives Card" : "Service Card"} • {" "}
                             {snippet.country}
                             {snippet.state && `, ${snippet.state}`}
-                            {snippet.city && `, ${snippet.city}`} • {snippet.category} • {snippet.limit} results
+                            {snippet.city && `, ${snippet.city}`} • {snippet.category || "All categories"} • {snippet.limit} results
                           </p>
                         </div>
                         <div className="flex gap-2">
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => setPreviewSnippetId(snippet.id)}
+                            onClick={() => setPreviewSnippet(snippet)}
                             title="Preview"
                           >
                             <Eye className="h-4 w-4" />
@@ -480,20 +547,20 @@ export default function SnippetsPage() {
             </Card>
 
             {/* Live Preview */}
-            {previewSnippetId && (
+            {previewSnippet && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle>Live Preview</CardTitle>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setPreviewSnippetId(null)}
+                    onClick={() => setPreviewSnippet(null)}
                   >
                     Close
                   </Button>
                 </CardHeader>
                 <CardContent>
-                  <DetectiveSnippetGrid snippetId={previewSnippetId} />
+                  <DetectiveSnippetGrid snippetId={previewSnippet.id} snippetType={previewSnippet.snippetType} previewMode />
                 </CardContent>
               </Card>
             )}

@@ -10,12 +10,18 @@ import { SEO } from "@/components/seo";
 import { Link } from "wouter";
 import { useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
+import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 import type { ServiceCategory } from "@shared/schema";
 import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
 
 export default function Home() {
-  // ...existing code...
+  const seo = useCmsStaticPageSeo("/", {
+    title: "Find Detectives - Hire Top Private Investigators | AskDetectives",
+    description:
+      "The world's first dedicated detective service platform. A single place to discover, compare, and hire professional detectives across verified categories",
+    h1: "Find Detectives - Hire Top Private Investigators",
+  });
 
   const { data: categoriesData, isLoading: isLoadingCategories } = useServiceCategories(true);
   const categories = (categoriesData?.categories || []) as ServiceCategory[];
@@ -107,6 +113,9 @@ export default function Home() {
   const topCountries = (topLocations?.countries || []).filter((item) => item.detectiveCount > 0);
   const topStates = (topLocations?.states || []).filter((item) => item.detectiveCount > 0);
   const topCities = (topLocations?.cities || []).filter((item) => item.detectiveCount > 0);
+  const topCountriesHome = topCountries.slice(0, 6);
+  const topStatesHome = topStates.slice(0, 6);
+  const topCitiesHome = topCities.slice(0, 6);
   const hasTopLocations = topCountries.length > 0 || topStates.length > 0 || topCities.length > 0;
 
   const formatDetectiveCount = (count: number) =>
@@ -115,8 +124,8 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900">
       <SEO 
-        title="Find Detectives - Hire Top Private Investigators | AskDetectives" 
-        description="The world's first dedicated detective service platform. A single place to discover, compare, and hire professional detectives across verified categories"
+        title={seo.title}
+        description={seo.description}
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
         canonical="https://www.askdetectives.com"
         robots="index, follow"
@@ -266,11 +275,13 @@ export default function Home() {
               <div className="absolute -inset-6 rounded-3xl bg-gradient-to-tr from-emerald-100 via-white to-slate-100 blur-2xl opacity-70" />
               <div className="relative overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-lg">
                 {featuresImage ? (
-                  <img
-                    src={featuresImage}
-                    alt="Investigation insights"
-                    className="h-full w-full object-cover"
-                    loading="lazy"
+                     <img
+                       src={featuresImage}
+                       alt="Investigation insights"
+                       width={320}
+                       height={240}
+                       className="h-full w-full object-cover"
+                       loading="lazy"
                   />
                 ) : (
                   <div className="aspect-[4/3] flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-100">
@@ -295,18 +306,25 @@ export default function Home() {
             <div className="space-y-10">
                 {topCountries.length > 0 && (
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Countries</h3>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Top Countries</h3>
+                      <Link href="/locations/countries">
+                        <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 font-normal">
+                          View Countries <ArrowRight className="ml-2 h-4 w-4" />
+                        </Button>
+                      </Link>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {topCountries.map((item) => (
+                      {topCountriesHome.map((item) => (
                         <Link key={`country-${item.slug}`} href={`/detectives/${item.slug}`}>
-                          <a className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100">
+                          <div className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100 cursor-pointer">
                             <div className="text-sm font-semibold text-green-900">
                               {item.name}
                             </div>
                             <div className="text-xs text-green-700">
                               {formatDetectiveCount(item.detectiveCount)}
                             </div>
-                          </a>
+                          </div>
                         </Link>
                       ))}
                     </div>
@@ -315,18 +333,25 @@ export default function Home() {
 
                 {topStates.length > 0 && (
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top States</h3>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Top States</h3>
+                      <Link href="/locations/states">
+                        <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 font-normal">
+                          View States <ArrowRight className="ml-2 h-4 w-4" />
+                        </Button>
+                      </Link>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {topStates.map((item) => (
+                      {topStatesHome.map((item) => (
                         <Link key={`state-${item.countrySlug}-${item.slug}`} href={`/detectives/${item.countrySlug}/${item.slug}`}>
-                          <a className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100">
+                          <div className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100 cursor-pointer">
                             <div className="text-sm font-semibold text-green-900">
                               {item.name}
                             </div>
                             <div className="text-xs text-green-700">
                               {formatDetectiveCount(item.detectiveCount)}
                             </div>
-                          </a>
+                          </div>
                         </Link>
                       ))}
                     </div>
@@ -335,18 +360,25 @@ export default function Home() {
 
                 {topCities.length > 0 && (
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Cities</h3>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Top Cities</h3>
+                      <Link href="/locations/cities">
+                        <Button variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 font-normal">
+                          View Cities <ArrowRight className="ml-2 h-4 w-4" />
+                        </Button>
+                      </Link>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {topCities.map((item) => (
+                      {topCitiesHome.map((item) => (
                         <Link key={`city-${item.countrySlug}-${item.stateSlug}-${item.slug}`} href={`/detectives/${item.countrySlug}/${item.stateSlug}/${item.slug}`}>
-                          <a className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100">
+                          <div className="block rounded-lg border border-green-100 bg-green-50 px-4 py-3 transition-colors hover:bg-green-100 cursor-pointer">
                             <div className="text-sm font-semibold text-green-900">
                               {item.name}
                             </div>
                             <div className="text-xs text-green-700">
                               {formatDetectiveCount(item.detectiveCount)}
                             </div>
-                          </a>
+                          </div>
                         </Link>
                       ))}
                     </div>

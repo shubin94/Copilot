@@ -18,13 +18,11 @@ export function buildServiceCardDTO({
     ? "On Enquiry"
     : String(service?.offerPrice ?? service?.basePrice ?? "");
 
-  const features = detective?.subscriptionPackage?.features || [];
-  const canShowPhone = features.includes("contact_phone");
-  const canShowEmail = features.includes("contact_email");
-
-  const phone = canShowPhone ? detective?.phone ?? null : null;
-  const whatsapp = canShowPhone ? detective?.whatsapp ?? null : null;
-  const contactEmail = canShowEmail ? detective?.contactEmail ?? null : null;
+  // Contact masking is already handled by maskDetectiveContactsPublic
+  // Just pass through whatever contacts the detective has
+  const phone = detective?.phone ?? null;
+  const whatsapp = detective?.whatsapp ?? null;
+  const contactEmail = detective?.contactEmail ?? detective?.email ?? null;
 
   const detectiveName =
     detective?.businessName ??
@@ -37,14 +35,15 @@ export function buildServiceCardDTO({
   const detectiveCountry =
     detective?.country ?? service?.detective?.country ?? null;
 
-  const planBadges = detective?.subscriptionPackage?.badges || null;
+  // Use effectiveBadges if present, else fallback to subscriptionPackage.badges
+  const badges = detective?.effectiveBadges ?? detective?.subscriptionPackage?.badges ?? null;
 
-  const badgeState = planBadges
+  const badgeState = badges
     ? {
-        showBlueTick: !!planBadges.blueTick,
-        showPro: !!planBadges.pro,
-        showRecommended: !!planBadges.recommended,
-        blueTickLabel: planBadges.blueTick ? "Verified" : null,
+        showBlueTick: !!badges.blueTick,
+        showPro: !!badges.pro,
+        showRecommended: !!badges.recommended,
+        blueTickLabel: badges.blueTick ? "Verified" : null,
       }
     : null;
   const isUnclaimed = !!detective?.isUnclaimed;
@@ -62,6 +61,9 @@ export function buildServiceCardDTO({
     detectiveCountry,
     detectiveState: detective?.state ?? null,
     detectiveCity: detective?.city ?? null,
+    detectiveCountrySlug: detective?.countrySlug ?? null,
+    detectiveStateSlug: detective?.stateSlug ?? null,
+    detectiveCitySlug: detective?.citySlug ?? null,
     detectiveSlug: detective?.slug ?? null,
     detectiveBusinessName: detective?.businessName ?? null,
     badgeState,
@@ -69,5 +71,6 @@ export function buildServiceCardDTO({
     whatsapp,
     contactEmail,
     isUnclaimed,
+    detectiveLevel: detective?.level ?? null,
   };
 }

@@ -24,15 +24,27 @@ import {
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
   injectDetectiveLocationAuthorityLink,
+  resolveLocationIds,
 } from "./lib/seo-injection.js";
+import { getPublishedCmsPageSeo, injectCmsPageSeoTags } from "./lib/cms-page-seo.js";
 import { storage } from "./storage.js";
 
 const viteLogger = createLogger();
+const STATIC_CMS_SEO_SLUGS = new Set([
+  "about",
+  "contact",
+  "support",
+  "privacy",
+  "terms",
+  "packages",
+  "categories",
+]);
 
-export async function setupVite(app: Express, _server: Server) {
+export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: true,
+    // Reuse the existing HTTP server for HMR websocket to avoid standalone WS port conflicts.
+    hmr: { server },
     allowedHosts: true as const,
   };
 
@@ -124,8 +136,21 @@ export async function setupVite(app: Express, _server: Server) {
       
       console.log(`[DEV-SEO] Before injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
       
-      // Inject SEO tags (totalCount defaults to detectives.length in function)
-      template = await injectLocationSeoTags(template, params, seoDetectives, canonicalUrl);
+      const resolvedLocation = await resolveLocationIds({
+        country: params.country,
+        state: params.state,
+        city: params.city,
+      });
+
+      // Inject SEO tags with explicit totalCount + resolved location
+      template = await injectLocationSeoTags(
+        template,
+        params,
+        seoDetectives,
+        canonicalUrl,
+        detectives.length,
+        resolvedLocation
+      );
       
       console.log(`[DEV-SEO] After injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
       console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${detectives.length} detectives rendered, hasMore: ${hasMore})`);
@@ -438,7 +463,7 @@ export async function setupVite(app: Express, _server: Server) {
       );
 
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-      template = injectServiceLocationSeoTags(template, {
+      template = await injectServiceLocationSeoTags(template, {
         countrySlug: params.countrySlug,
         stateSlug: params.stateSlug,
         citySlug: params.citySlug,
@@ -462,6 +487,48 @@ export async function setupVite(app: Express, _server: Server) {
       return res.status(500).set({ "Content-Type": "text/html" }).send(
         "<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1><p>Failed to load services</p></body></html>"
       );
+    }
+  });
+
+  // STATIC CMS PAGE SEO INJECTION (Development)
+  // Intercepts specific static routes and injects title/description in server HTML source.
+  app.get(/^\/(about|contact|support|privacy|terms|packages|categories)\/?$/, async (req: Request, res: Response) => {
+    try {
+      const slug = req.path.replace(/^\/+|\/+$/g, "");
+      if (!STATIC_CMS_SEO_SLUGS.has(slug)) {
+        return attachViteTransform(vite, res, req, "");
+      }
+
+      const clientTemplate = path.resolve(
+        import.meta.dirname,
+        "..",
+        "client",
+        "index.html",
+      );
+
+      let template = await fs.promises.readFile(clientTemplate, "utf-8");
+      template = template.replace(
+        `src="/src/main.tsx"`,
+        `src="/src/main.tsx?v=${nanoid()}"`,
+      );
+
+      const seo = await getPublishedCmsPageSeo(slug);
+      if (seo) {
+        const canonicalPath = req.path.replace(/\/$/, "") || `/${slug}`;
+        const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+        template = injectCmsPageSeoTags(template, seo, canonicalUrl);
+      }
+
+      const page = await vite.transformIndexHtml(req.originalUrl, template);
+      res.setHeader("Cache-Control", "no-store");
+      res.set({ "Content-Type": "text/html; charset=utf-8" }).end(page);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[DEV-SEO] Static CMS page SEO injection failed:", {
+        url: req.originalUrl,
+        message: errorMsg,
+      });
+      return attachViteTransform(vite, res, req, "");
     }
   });
 
@@ -492,6 +559,11 @@ export async function setupVite(app: Express, _server: Server) {
       );
 
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
+
+      const seo = await getPublishedCmsPageSeo("/");
+      if (seo) {
+        template = injectCmsPageSeoTags(template, seo, "https://www.askdetectives.com/");
+      }
       
       template = template.replace(
         `src="/src/main.tsx"`,

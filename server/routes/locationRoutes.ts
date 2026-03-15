@@ -106,6 +106,123 @@ export function registerLocationRoutes(app: Express): void {
   });
 
   /**
+   * Get all countries with active detective counts
+   * Used for dedicated countries listing page
+   */
+  app.get("/api/locations/countries-list", async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 500, 1000);
+
+      const result = await pool.query(
+        `
+          SELECT c.name, c.slug, COUNT(d.id)::int AS detective_count
+          FROM detectives d
+          INNER JOIN countries c ON d.country_id = c.id
+          WHERE d.status = 'active'
+          GROUP BY c.id, c.name, c.slug
+          ORDER BY COUNT(d.id) DESC
+          LIMIT $1
+        `,
+        [limit]
+      );
+
+      const countries = result.rows
+        .map((row: any) => ({
+          name: row.name,
+          slug: row.slug,
+          detectiveCount: Number(row.detective_count) || 0,
+        }))
+        .filter((item: any) => item.detectiveCount > 0);
+
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
+      res.json({ countries });
+    } catch (error) {
+      console.error("[API /api/locations/countries-list] Error:", error);
+      res.status(500).json({ error: "Failed to fetch countries list", countries: [] });
+    }
+  });
+
+  /**
+   * Get all states with active detective counts
+   * Used for dedicated states listing page
+   */
+  app.get("/api/locations/states-list", async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 500, 1000);
+
+      const result = await pool.query(
+        `
+          SELECT s.name, s.slug, c.slug AS country_slug, COUNT(d.id)::int AS detective_count
+          FROM detectives d
+          INNER JOIN countries c ON d.country_id = c.id
+          INNER JOIN states s ON d.state_id = s.id AND s.country_id = c.id
+          WHERE d.status = 'active'
+          GROUP BY s.id, s.name, s.slug, c.slug
+          ORDER BY COUNT(d.id) DESC
+          LIMIT $1
+        `,
+        [limit]
+      );
+
+      const states = result.rows
+        .map((row: any) => ({
+          name: row.name,
+          slug: row.slug,
+          countrySlug: row.country_slug,
+          detectiveCount: Number(row.detective_count) || 0,
+        }))
+        .filter((item: any) => item.detectiveCount > 0);
+
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
+      res.json({ states });
+    } catch (error) {
+      console.error("[API /api/locations/states-list] Error:", error);
+      res.status(500).json({ error: "Failed to fetch states list", states: [] });
+    }
+  });
+
+  /**
+   * Get all cities with active detective counts
+   * Used for dedicated cities listing page
+   */
+  app.get("/api/locations/cities-list", async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 1000, 2000);
+
+      const result = await pool.query(
+        `
+          SELECT ci.name, ci.slug, s.slug AS state_slug, c.slug AS country_slug, COUNT(d.id)::int AS detective_count
+          FROM detectives d
+          INNER JOIN countries c ON d.country_id = c.id
+          INNER JOIN states s ON d.state_id = s.id AND s.country_id = c.id
+          INNER JOIN cities ci ON d.city_id = ci.id AND ci.state_id = s.id
+          WHERE d.status = 'active'
+          GROUP BY ci.id, ci.name, ci.slug, s.slug, c.slug
+          ORDER BY COUNT(d.id) DESC
+          LIMIT $1
+        `,
+        [limit]
+      );
+
+      const cities = result.rows
+        .map((row: any) => ({
+          name: row.name,
+          slug: row.slug,
+          stateSlug: row.state_slug,
+          countrySlug: row.country_slug,
+          detectiveCount: Number(row.detective_count) || 0,
+        }))
+        .filter((item: any) => item.detectiveCount > 0);
+
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
+      res.json({ cities });
+    } catch (error) {
+      console.error("[API /api/locations/cities-list] Error:", error);
+      res.status(500).json({ error: "Failed to fetch cities list", cities: [] });
+    }
+  });
+
+  /**
    * Homepage API - Get top locations for the homepage location grid section
    * Uses location aggregation with homepage-specific limits (8 each)
    * SSR-friendly, cached for performance
@@ -129,6 +246,63 @@ export function registerLocationRoutes(app: Express): void {
         topCities: [],
         topStates: [],
       });
+    }
+  });
+
+  /**
+   * Get top states within a specific country
+   * Used for "Top States in {Country}" section on country detective pages
+   */
+  app.get("/api/locations/top-states/:countrySlug", async (req: Request, res: Response) => {
+    try {
+      const { countrySlug } = req.params;
+      const limit = Math.min(Number(req.query.limit) || 10, 50);
+
+      const topStates = await storage.getTopStatesByCountry(countrySlug, limit);
+
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+      res.json({ states: topStates });
+    } catch (error) {
+      console.error("[API /api/locations/top-states] Error:", error);
+      res.status(500).json({ error: "Failed to fetch top states", states: [] });
+    }
+  });
+
+  /**
+   * Get top cities within a specific state
+   * Used for "Top Cities in {State}" section on state detective pages
+   */
+  app.get("/api/locations/top-cities/:countrySlug/:stateSlug", async (req: Request, res: Response) => {
+    try {
+      const { countrySlug, stateSlug } = req.params;
+      const limit = Math.min(Number(req.query.limit) || 10, 50);
+
+      const topCities = await storage.getTopCitiesByState(countrySlug, stateSlug, limit);
+
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+      res.json({ cities: topCities });
+    } catch (error) {
+      console.error("[API /api/locations/top-cities] Error:", error);
+      res.status(500).json({ error: "Failed to fetch top cities", cities: [] });
+    }
+  });
+
+  /**
+   * Get other cities within a state (excluding current city)
+   * Used for "Other Cities in {State}" section on city detective pages
+   */
+  app.get("/api/locations/other-cities/:countrySlug/:stateSlug/:citySlug", async (req: Request, res: Response) => {
+    try {
+      const { countrySlug, stateSlug, citySlug } = req.params;
+      const limit = Math.min(Number(req.query.limit) || 10, 50);
+
+      const otherCities = await storage.getOtherCitiesByState(countrySlug, stateSlug, citySlug, limit);
+
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+      res.json({ cities: otherCities });
+    } catch (error) {
+      console.error("[API /api/locations/other-cities] Error:", error);
+      res.status(500).json({ error: "Failed to fetch other cities", cities: [] });
     }
   });
 
@@ -345,7 +519,7 @@ export function registerLocationRoutes(app: Express): void {
           lso.updated_at
         FROM cities ci
         INNER JOIN states s ON ci.state_id = s.id
-        INNER JOIN countries c ON ci.country_id = c.id
+        INNER JOIN countries c ON s.country_id = c.id
         LEFT JOIN detectives d ON d.city_id = ci.id
         LEFT JOIN location_seo_overrides lso
           ON lso.entity_type = 'city'
@@ -422,7 +596,7 @@ export function registerLocationRoutes(app: Express): void {
         const cityResult = await pool.query(
           `SELECT ci.id FROM cities ci
            INNER JOIN states s ON ci.state_id = s.id
-           INNER JOIN countries c ON ci.country_id = c.id
+           INNER JOIN countries c ON s.country_id = c.id
            WHERE ci.slug = $1 AND s.slug = $2 AND c.slug = $3
            LIMIT 1`,
           [city_slug, state_slug, country_slug]

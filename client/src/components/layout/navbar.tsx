@@ -343,7 +343,7 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                   <Link href="/login">
                     <DropdownMenuItem className="cursor-pointer">As a General User</DropdownMenuItem>
                   </Link>
-                  <Link href="/login">
+                  <Link href="/detective/login">
                     <DropdownMenuItem className="cursor-pointer">As a Detective</DropdownMenuItem>
                   </Link>
                 </DropdownMenuContent>
@@ -528,7 +528,7 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                       <Link href="/login" className="text-lg font-medium pl-2 border-l-2 border-transparent hover:border-green-500 hover:text-green-600 transition-colors">
                           As a General User
                       </Link>
-                      <Link href="/login" className="text-lg font-medium pl-2 border-l-2 border-transparent hover:border-green-500 hover:text-green-600 transition-colors">
+                      <Link href="/detective/login" className="text-lg font-medium pl-2 border-l-2 border-transparent hover:border-green-500 hover:text-green-600 transition-colors">
                           As a Detective
                       </Link>
                     </div>

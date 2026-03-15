@@ -34,6 +34,13 @@ import { useUser } from "@/lib/user-context";
 import { api, getOrFetchCsrfToken } from "@/lib/api";
 import { useCurrentDetective } from "@/lib/hooks";
 
+const renewalDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+});
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
   role: "admin" | "employee" | "detective" | "user";
@@ -189,6 +196,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         { href: "/admin/location-seo/cities", label: "Cities", icon: MapPin },
       ]
     },
+    { href: "/admin/detective-pages", label: "Detective Pages", icon: Users },
     { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
     { href: "/admin/payment-gateways", label: "Payment Gateways", icon: Wallet },
     { href: "/admin/app-secrets", label: "App Secrets (Auth)", icon: Lock },
@@ -359,7 +367,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                    <span className="text-gray-500 text-xs font-medium">Next Renewal</span>
                    <span className="font-bold text-gray-900">
                      {getNextRenewalDate()
-                       ? getNextRenewalDate()!.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+                       ? renewalDateFormatter.format(getNextRenewalDate()!)
                        : 'N/A'
                      }
                    </span>

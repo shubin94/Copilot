@@ -19,7 +19,7 @@ import {
   searchStats,
   subscriptionPlans
 } from "../shared/schema.js";
-import { eq, and, desc, sql, count, avg, or, ilike, inArray, isNotNull, ne, asc } from "drizzle-orm";
+import { eq, and, desc, sql, count, avg, or, ilike, inArray, isNotNull, ne, asc, not } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { getFreePlanId, ensureDetectiveHasPlan } from "./services/freePlan.js";
 import * as cache from "./lib/cache.js";
@@ -186,6 +186,9 @@ export interface IStorage {
   // Location aggregation APIs (FK-based optimized queries)
   getTopLocations(limitCountries?: number, limitStates?: number, limitCities?: number): Promise<TopLocationsResult>;
   getTopLocationsForHomepage(): Promise<TopLocationsResult>;
+  getTopStatesByCountry(countrySlug: string, limit?: number): Promise<Array<{ name: string; slug: string; countrySlug: string; detectiveCount: number }>>;
+  getTopCitiesByState(countrySlug: string, stateSlug: string, limit?: number): Promise<Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>>;
+  getOtherCitiesByState(countrySlug: string, stateSlug: string, currentCitySlug: string, limit?: number): Promise<Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>>;
 
   // File operations for detective profiles
   // Handles validation, uploading, and deleting detective profile files (logo, documents)
@@ -568,8 +571,108 @@ export class DatabaseStorage implements IStorage {
       insertDetective.subscriptionActivatedAt = new Date();
     }
 
+    const toStringArray = (value: unknown, options?: { splitComma?: boolean }): string[] | undefined => {
+      if (value == null) return undefined;
+
+      if (Array.isArray(value)) {
+        return value
+          .map((v) => (typeof v === "string" ? v.trim() : ""))
+          .filter((v) => v.length > 0);
+      }
+
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) return [];
+
+        // Handle stringified JSON arrays from form payloads
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) {
+              return parsed
+                .map((v) => (typeof v === "string" ? v.trim() : ""))
+                .filter((v) => v.length > 0);
+            }
+          } catch {
+            // fall through to string handling below
+          }
+        }
+
+        if (options?.splitComma && trimmed.includes(",")) {
+          return trimmed
+            .split(",")
+            .map((part) => part.trim())
+            .filter((part) => part.length > 0);
+        }
+
+        return [trimmed];
+      }
+
+      return undefined;
+    };
+
+    const sanitizedInsert: any = { ...insertDetective };
+
+    if (!sanitizedInsert.contactEmail && sanitizedInsert.userId) {
+      const [userRow] = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, sanitizedInsert.userId))
+        .limit(1);
+      if (userRow?.email) {
+        sanitizedInsert.contactEmail = userRow.email.toLowerCase().trim();
+      }
+    }
+
+    sanitizedInsert.languages = toStringArray(insertDetective.languages, { splitComma: true });
+    sanitizedInsert.businessDocuments = toStringArray(insertDetective.businessDocuments);
+    sanitizedInsert.identityDocuments = toStringArray(insertDetective.identityDocuments);
+
+    // Keep text location fields canonical and aligned with FK IDs.
+    // This prevents routing/query mismatches (e.g., "AZ" vs "Arizona").
+    if (sanitizedInsert.countryId) {
+      const countryRow = await db
+        .select({ code: countries.code, name: countries.name })
+        .from(countries)
+        .where(eq(countries.id, Number(sanitizedInsert.countryId)))
+        .limit(1);
+      if (countryRow.length > 0) {
+        sanitizedInsert.country = countryRow[0].code || countryRow[0].name;
+      }
+    }
+
+    if (sanitizedInsert.stateId) {
+      const stateRow = await db
+        .select({ name: states.name })
+        .from(states)
+        .where(eq(states.id, Number(sanitizedInsert.stateId)))
+        .limit(1);
+      if (stateRow.length > 0) {
+        sanitizedInsert.state = stateRow[0].name;
+      }
+    }
+
+    if (sanitizedInsert.cityId) {
+      const cityRow = await db
+        .select({ name: cities.name })
+        .from(cities)
+        .where(eq(cities.id, Number(sanitizedInsert.cityId)))
+        .limit(1);
+      if (cityRow.length > 0) {
+        sanitizedInsert.city = cityRow[0].name;
+      }
+    }
+
+    if (!sanitizedInsert.location || sanitizedInsert.location === "Not specified") {
+      const parts = [sanitizedInsert.city, sanitizedInsert.state, sanitizedInsert.country]
+        .filter((value: unknown) => typeof value === "string" && value.trim().length > 0);
+      if (parts.length > 0) {
+        sanitizedInsert.location = parts.join(", ");
+      }
+    }
+
     try {
-      const [detective] = await db.insert(detectives).values(insertDetective as any).returning();
+      const [detective] = await db.insert(detectives).values(sanitizedInsert as any).returning();
       return detective;
     } catch (err: any) {
       console.error('[createDetective] INSERT detectives failed — full error:', {
@@ -640,25 +743,11 @@ export class DatabaseStorage implements IStorage {
       throw new Error("Invalid city selection");
     }
 
-    // Step 3: Auto-generate slug if missing
+    // Step 3: Auto-generate slug if missing, using centralized uniqueness logic
     let slug = detective.slug;
     if (!slug && detective.businessName) {
-      slug = generateSlug(detective.businessName);
-      // Ensure uniqueness
-      let counter = 1;
-      let uniqueSlug = slug;
-      while (true) {
-        const [existing] = await db.select().from(detectives)
-          .where(and(
-            eq(detectives.slug, uniqueSlug),
-            ne(detectives.id, id)
-          ))
-          .limit(1);
-        if (!existing) break;
-        uniqueSlug = `${slug}-${counter}`;
-        counter++;
-      }
-      slug = uniqueSlug;
+      const baseSlug = generateSlug(detective.businessName);
+      slug = await this.ensureUniqueDetectiveSlug(baseSlug, id);
     }
 
     // Step 4: Update detective with IDs, names, and slug
@@ -689,11 +778,12 @@ export class DatabaseStorage implements IStorage {
   async updateDetectiveAdmin(id: string, updates: Partial<Detective>): Promise<Detective | undefined> {
     // Admin can update more fields including status, verification, and subscription info
     const allowedFields: (keyof Detective)[] = [
-      'businessName', 'bio', 'location', 'phone', 'whatsapp', 'languages',
-      'status', 'isVerified', 'country', 'level', 'planActivatedAt', 'planExpiresAt',
+      'businessName', 'bio', 'location', 'country', 'state', 'city', 'phone', 'phoneCountryCode', 'whatsapp', 'licenseNumber', 'languages',
+      'status', 'isVerified', 'level', 'planActivatedAt', 'planExpiresAt',
       'subscriptionPackageId', 'billingCycle', 'subscriptionActivatedAt', 'subscriptionExpiresAt',
       'pendingPackageId', 'pendingBillingCycle',
       'hasBlueTick', 'blueTickActivatedAt', 'blueTickAddon',
+      'businessType', 'businessDocuments', 'identityDocuments',
     ];
     const safeUpdates: Partial<Detective> = {};
     
@@ -1120,12 +1210,16 @@ export class DatabaseStorage implements IStorage {
       
       // Detective fields needed by ServiceCard
       detectiveId: detectives.id,
+      detectiveUserId: detectives.userId,
       detectiveBusinessName: detectives.businessName,
       detectiveLevel: detectives.level,
       detectiveLogo: detectives.logo,
       detectiveCountry: detectives.country,
       detectiveState: detectives.state,
       detectiveCity: detectives.city,
+      detectiveCountrySlug: countries.slug,
+      detectiveStateSlug: states.slug,
+      detectiveCitySlug: cities.slug,
       detectiveSlug: detectives.slug,
       detectivePhone: detectives.phone,
       detectiveWhatsapp: detectives.whatsapp,
@@ -1151,22 +1245,17 @@ export class DatabaseStorage implements IStorage {
     const cappedLimit = limit;
 
     if (sortBy === 'popular') {
-      // Popular sort: Query services that are the best per detective (from materialized view)
-      // The materialized view pre-selects 1 best service per detective, so we just check membership
-      // This avoids DISTINCT ON full table sort, instead filtering by the view's pre-computed results
-      
+      // Popular sort: Sort by order_count DESC (most popular first)
+      // Shows ALL services, not just one per detective
       query = db.select(baseSelect)
         .from(services)
-        .where(
-          and(
-            and(...conditions) ?? sql`true`,
-            // Only include services that are in the materialized view (best per detective)
-            sql`${services.id} IN (SELECT service_id FROM popular_service_per_detective)`
-          )
-        )
         .leftJoin(detectives, eq(services.detectiveId, detectives.id))
+        .leftJoin(countries, eq(detectives.countryId, countries.id))
+        .leftJoin(states, eq(detectives.stateId, states.id))
+        .leftJoin(cities, eq(detectives.cityId, cities.id))
         .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
         .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))
+        .where(and(...conditions) ?? sql`true`)
         .orderBy(desc(services.orderCount)) as any;
 
       if (filters.ratingMin !== undefined) {
@@ -1176,6 +1265,9 @@ export class DatabaseStorage implements IStorage {
       query = db.select(baseSelect)
         .from(services)
         .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
+        .leftJoin(countries, eq(detectives.countryId, countries.id))
+        .leftJoin(states, eq(detectives.stateId, states.id))
+        .leftJoin(cities, eq(detectives.cityId, cities.id))
         .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
         .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
         .where(and(...conditions) ?? sql`true`);
@@ -1229,12 +1321,16 @@ export class DatabaseStorage implements IStorage {
         orderCount: r.serviceOrderCount,
         detective: {
           id: r.detectiveId,
+          userId: r.detectiveUserId,
           businessName: r.detectiveBusinessName,
           level: r.detectiveLevel,
           logo: r.detectiveLogo,
           country: r.detectiveCountry,
           state: r.detectiveState,
           city: r.detectiveCity,
+          countrySlug: r.detectiveCountrySlug,
+          stateSlug: r.detectiveStateSlug,
+          citySlug: r.detectiveCitySlug,
           slug: detectiveSlug,
           phone: r.detectivePhone,
           whatsapp: r.detectiveWhatsapp,
@@ -1901,6 +1997,156 @@ export class DatabaseStorage implements IStorage {
   }
 
   /**
+   * Get top states within a specific country
+   * Used for showing "Top States in {Country}" on country detective pages
+   */
+  async getTopStatesByCountry(countrySlug: string, limit: number = 10): Promise<Array<{ name: string; slug: string; countrySlug: string; detectiveCount: number }>> {
+    const safeLimit = Math.min(limit || 10, 50);
+
+    const topStates = await db
+      .select({
+        name: states.name,
+        slug: states.slug,
+        countrySlug: countries.slug,
+        detectiveCount: count(detectives.id),
+      })
+      .from(detectives)
+      .innerJoin(countries, eq(detectives.countryId, countries.id))
+      .innerJoin(
+        states,
+        and(
+          eq(states.id, detectives.stateId),
+          eq(states.countryId, countries.id)
+        )
+      )
+      .where(
+        and(
+          eq(detectives.status, "active"),
+          eq(countries.slug, countrySlug)
+        )
+      )
+      .groupBy(states.id, states.name, states.slug, countries.slug)
+      .orderBy(desc(count(detectives.id)))
+      .limit(safeLimit);
+
+    return topStates
+      .map((row) => ({
+        name: row.name,
+        slug: row.slug,
+        countrySlug: row.countrySlug,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }))
+      .filter((item) => item.detectiveCount > 0);
+  }
+
+  /**
+   * Get top cities within a specific state
+   * Used for showing "Top Cities in {State}" on state detective pages
+   */
+  async getTopCitiesByState(countrySlug: string, stateSlug: string, limit: number = 10): Promise<Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>> {
+    const safeLimit = Math.min(limit || 10, 50);
+
+    const topCities = await db
+      .select({
+        name: cities.name,
+        slug: cities.slug,
+        stateSlug: states.slug,
+        countrySlug: countries.slug,
+        detectiveCount: count(detectives.id),
+      })
+      .from(detectives)
+      .innerJoin(countries, eq(detectives.countryId, countries.id))
+      .innerJoin(
+        states,
+        and(
+          eq(states.id, detectives.stateId),
+          eq(states.countryId, countries.id)
+        )
+      )
+      .innerJoin(
+        cities,
+        and(
+          eq(cities.id, detectives.cityId),
+          eq(cities.stateId, states.id)
+        )
+      )
+      .where(
+        and(
+          eq(detectives.status, "active"),
+          eq(countries.slug, countrySlug),
+          eq(states.slug, stateSlug)
+        )
+      )
+      .groupBy(cities.id, cities.name, cities.slug, states.slug, countries.slug)
+      .orderBy(desc(count(detectives.id)))
+      .limit(safeLimit);
+
+    return topCities
+      .map((row) => ({
+        name: row.name,
+        slug: row.slug,
+        stateSlug: row.stateSlug,
+        countrySlug: row.countrySlug,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }))
+      .filter((item) => item.detectiveCount > 0);
+  }
+
+  /**
+   * Get other cities within a state (excluding current city)
+   * Used for showing "Other Cities in {State}" on city detective pages
+   */
+  async getOtherCitiesByState(countrySlug: string, stateSlug: string, currentCitySlug: string, limit: number = 10): Promise<Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>> {
+    const safeLimit = Math.min(limit || 10, 50);
+
+    const otherCities = await db
+      .select({
+        name: cities.name,
+        slug: cities.slug,
+        stateSlug: states.slug,
+        countrySlug: countries.slug,
+        detectiveCount: count(detectives.id),
+      })
+      .from(detectives)
+      .innerJoin(countries, eq(detectives.countryId, countries.id))
+      .innerJoin(
+        states,
+        and(
+          eq(states.id, detectives.stateId),
+          eq(states.countryId, countries.id)
+        )
+      )
+      .innerJoin(
+        cities,
+        and(
+          eq(cities.id, detectives.cityId),
+          eq(cities.stateId, states.id)
+        )
+      )
+      .where(
+        and(
+          eq(detectives.status, "active"),
+          eq(countries.slug, countrySlug),
+          eq(states.slug, stateSlug),
+          not(eq(cities.slug, currentCitySlug))
+        )
+      )
+      .groupBy(cities.id, cities.name, cities.slug, states.slug, countries.slug)
+      .orderBy(desc(count(detectives.id)))
+      .limit(safeLimit);
+
+    return otherCities
+      .map((row) => ({
+        name: row.name,
+        slug: row.slug,
+        stateSlug: row.stateSlug,
+        countrySlug: row.countrySlug,
+        detectiveCount: Number(row.detectiveCount) || 0,
+      }))
+      .filter((item) => item.detectiveCount > 0);
+  }
+
+  /**
    * Process detective profile file updates (logo, business documents, identity documents)
    * Handles file URL validation, uploads new data: URLs, deletes old files, and updates URLs in validatedData
    * All file paths include detective ID for user-specific directory isolation
@@ -2296,7 +2542,7 @@ export class DatabaseStorage implements IStorage {
       .from(detectiveApplications)
       .where(and(
         eq(detectiveApplications.phoneCountryCode, phoneCountryCode),
-        eq(detectiveApplications.phoneNumber, phoneNumber)
+        eq(detectiveApplications.phone, phoneNumber)
       ))
       .limit(1);
     return application;

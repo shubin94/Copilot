@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ServiceCard } from "@/components/home/service-card";
 import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
+import { DetectiveCard } from "@/components/DetectiveCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
@@ -8,6 +9,8 @@ import { getDetectiveProfileUrl } from "@/lib/utils";
 
 interface DetectiveSnippetGridProps {
   snippetId?: string;
+  snippetType?: "service_card_snippet" | "detectives_card_snippet";
+  previewMode?: boolean;
   country?: string;
   state?: string;
   city?: string;
@@ -26,6 +29,7 @@ interface SnippetService {
   country?: string;
   state?: string;
   city?: string;
+  bio?: string;
   slug?: string;
   phone?: string;
   whatsapp?: string;
@@ -55,16 +59,29 @@ type AutocompleteSuggestion = {
 
 export function DetectiveSnippetGrid({
   snippetId,
+  snippetType,
+  previewMode = false,
   country,
   state,
   city,
   category,
   limit = 4,
 }: DetectiveSnippetGridProps) {
+  const normalizeSnippetType = (value: unknown): "service_card_snippet" | "detectives_card_snippet" => {
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (normalized === "detectives_card_snippet" || normalized === "detective_card_snippet") {
+      return "detectives_card_snippet";
+    }
+    return "service_card_snippet";
+  };
+
   const normalizedSnippetId = snippetId?.trim();
   const [items, setItems] = useState<SnippetService[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedSnippetType, setResolvedSnippetType] = useState<"service_card_snippet" | "detectives_card_snippet">(
+    normalizeSnippetType(snippetType)
+  );
   const [resolvedCategory, setResolvedCategory] = useState("");
   const [resolvedCountry, setResolvedCountry] = useState("");
   const [resolvedState, setResolvedState] = useState("");
@@ -103,14 +120,24 @@ export function DetectiveSnippetGrid({
           if (!snippet || typeof snippet !== "object") {
             throw new Error("Invalid snippet response");
           }
-          const s = snippet as { country?: string; state?: string; city?: string; category?: string; limit?: number };
+          const s = snippet as {
+            country?: string;
+            state?: string;
+            city?: string;
+            category?: string;
+            limit?: number;
+            snippetType?: "service_card_snippet" | "detectives_card_snippet";
+            snippet_type?: "service_card_snippet" | "detectives_card_snippet";
+          };
           queryParams = {
             country: s.country,
             state: s.state,
             city: s.city,
             category: s.category,
+            snippetType: s.snippetType ?? s.snippet_type,
             limit: s.limit,
           };
+          setResolvedSnippetType(normalizeSnippetType(s.snippetType ?? s.snippet_type));
           setResolvedCategory(String(s.category || ""));
           setResolvedCountry(String(s.country || ""));
           setResolvedState(String(s.state || ""));
@@ -119,7 +146,8 @@ export function DetectiveSnippetGrid({
           if (!country || !category) {
             throw new Error("Either snippetId or both country and category are required");
           }
-          queryParams = { country, state, city, category, limit };
+          queryParams = { country, state, city, category, snippetType, limit };
+          setResolvedSnippetType(normalizeSnippetType(snippetType));
           setResolvedCategory(String(category || ""));
           setResolvedCountry(String(country || ""));
           setResolvedState(String(state || ""));
@@ -155,7 +183,7 @@ export function DetectiveSnippetGrid({
     };
 
     fetchDetectives();
-  }, [normalizedSnippetId, country, state, city, category, limit]);
+  }, [normalizedSnippetId, snippetType, country, state, city, category, limit]);
 
   useEffect(() => {
     const query = searchText.trim();
@@ -218,7 +246,9 @@ export function DetectiveSnippetGrid({
   if (items.length === 0) {
     return (
       <div className="p-6 text-center text-gray-500 bg-gray-50 rounded-lg">
-        <p className="text-gray-500">No services in this snippet yet</p>
+        <p className="text-gray-500">
+          {resolvedSnippetType === "detectives_card_snippet" ? "No detectives in this snippet yet" : "No services in this snippet yet"}
+        </p>
       </div>
     );
   }
@@ -285,16 +315,17 @@ export function DetectiveSnippetGrid({
       id: item.serviceId,
       slug: item.slug,
       detectiveId: item.id,
+      detectiveBusinessName: item.fullName,
       images: item.serviceImages && item.serviceImages.length > 0 ? item.serviceImages : undefined,
-      avatar: item.profilePhoto || "",
-      name: item.fullName,
+      detectiveAvatar: item.profilePhoto || "",
+      detectiveName: item.fullName,
       level: item.level.replace("level", "Level "),
       category: item.serviceCategory || displayCategory,
       badgeState,
       title: item.serviceTitle || item.serviceCategory || displayCategory || "Service",
-      rating: item.avgRating,
-      reviews: item.reviewCount,
-      price: item.startingPrice,
+      avgRating: item.avgRating,
+      reviewCount: item.reviewCount,
+      priceDisplay: item.offerPrice != null ? `₹${item.offerPrice}` : `₹${item.startingPrice}`,
       offerPrice: item.offerPrice ?? null,
       isOnEnquiry: item.isOnEnquiry,
       location: item.location,
@@ -305,9 +336,34 @@ export function DetectiveSnippetGrid({
       detectiveCountry: item.country || displayCountry,
       detectiveState: item.state || resolvedState,
       detectiveCity: item.city || resolvedCity,
-      detectiveSlug: item.id,
+      detectiveSlug: item.slug,
     };
   });
+
+  const detectiveCards = Array.from(
+    new Map(items.map((item) => [item.id, item])).values()
+  ).map((item) => ({
+    id: item.id,
+    businessName: item.fullName,
+    logo: item.profilePhoto || "",
+    city: item.city || undefined,
+    state: item.state || undefined,
+    country: item.country || displayCountry,
+    level: item.level,
+    isVerified: item.isVerified,
+    avgRating: item.avgRating,
+    reviewCount: item.reviewCount,
+    bio: item.bio || undefined,
+    phone: item.phone,
+    whatsapp: item.whatsapp,
+    contactEmail: item.contactEmail,
+    effectiveBadges: item.effectiveBadges,
+    slug: item.slug,
+  }));
+
+  const previewGridClass = previewMode
+    ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+    : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6";
 
   return (
     <div className="space-y-6">
@@ -347,11 +403,19 @@ export function DetectiveSnippetGrid({
           Search
         </Button>
       </form>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {serviceCards.map((card) => (
-          <ServiceCard key={card.id} {...card} />
-        ))}
-      </div>
+      {resolvedSnippetType === "detectives_card_snippet" ? (
+        <div className={previewGridClass}>
+          {detectiveCards.map((card) => (
+            <DetectiveCard key={card.id} detective={card} variant="city" />
+          ))}
+        </div>
+      ) : (
+        <div className={previewGridClass}>
+          {serviceCards.map((card) => (
+            <ServiceCard key={card.id} {...card} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,12 +1,12 @@
 import { Star, Heart, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { useState, useEffect, memo } from "react";
 import { ServiceActionButton } from "@/components/home/service-action-button";
 import type { ServiceBadgeState } from "@/lib/service-badges";
 import { buildServiceUrl } from "@/lib/slug-utils";
-import { getDetectiveProfileUrl } from "@/lib/utils";
+import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
 
 interface ServiceCardProps {
   id: string;
@@ -17,6 +17,9 @@ interface ServiceCardProps {
   detectiveCountry?: string;
   detectiveState?: string;
   detectiveCity?: string;
+  detectiveCountrySlug?: string;
+  detectiveStateSlug?: string;
+  detectiveCitySlug?: string;
   images?: string[];
   image?: string; // Backward compatibility
   detectiveAvatar?: string | null;
@@ -41,7 +44,34 @@ import { AlertTriangle } from "lucide-react";
 
 import { useToast } from "@/hooks/use-toast";
 
-const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveBusinessName, detectiveCountry, detectiveState, detectiveCity, images, image, detectiveAvatar, detectiveName, level, badgeState, title, avgRating, reviewCount, priceDisplay, isUnclaimed, phone, whatsapp, contactEmail }: ServiceCardProps) => {
+const ServiceCardComponent = ({
+  id,
+  slug,
+  detectiveId,
+  detectiveSlug,
+  detectiveBusinessName,
+  detectiveCountry,
+  detectiveState,
+  detectiveCity,
+  detectiveCountrySlug,
+  detectiveStateSlug,
+  detectiveCitySlug,
+  images,
+  image,
+  detectiveAvatar,
+  detectiveName,
+  level,
+  badgeState,
+  title,
+  avgRating,
+  reviewCount,
+  priceDisplay,
+  isUnclaimed,
+  phone,
+  whatsapp,
+  contactEmail,
+  detectiveLevel
+}: ServiceCardProps) => {
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
@@ -50,7 +80,7 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
 
   const { user, isFavorite, toggleFavorite } = useUserSafe();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
+  // const [, setLocation] = useLocation(); // Removed unused setLocation
 
   // Reset image loaded state when image changes
   useEffect(() => {
@@ -87,6 +117,9 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
         country: detectiveCountry || "",
         state: detectiveState || "",
         city: detectiveCity || "",
+        countrySlug: detectiveCountrySlug || "",
+        stateSlug: detectiveStateSlug || "",
+        citySlug: detectiveCitySlug || "",
         slug: detectiveSlug,
         businessName: detectiveBusinessName,
       },
@@ -129,9 +162,20 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
     
     toggleFavorite(id);
   };
+                  {/* Display Name and Level at the top */}
+                  <div className="service-card-header" style={{ marginBottom: '8px' }}>
+                    <span className="service-card-name" style={{ fontWeight: 600, fontSize: '1.1em', marginRight: '12px' }}>
+                      {detectiveName || 'No Name'}
+                    </span>
+                    {level && (
+                      <span className="service-card-level" style={{ background: '#e0e0e0', borderRadius: '8px', padding: '2px 8px', fontSize: '0.95em', color: '#333' }}>
+                        Level: {level}
+                      </span>
+                    )}
+                  </div>
 
   return (
-    <Link href={profileLink} className="block h-full relative group/card">
+    <Link to={profileLink} className="block h-full relative group/card">
         <Card 
           className={`h-full overflow-hidden border-gray-200 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col ${isUnclaimed ? 'opacity-90 border-dashed border-2' : ''}`}
           onMouseEnter={() => setIsHovered(true)}
@@ -162,8 +206,9 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
             {displayImages.length > 0 && displayImages[currentImageIndex] && !imageError ? (
               <>
                 <img 
-                  src={displayImages[currentImageIndex]} 
-                  alt={`${title} - ${detectiveName} | Professional Detective Service`}
+                  alt="Detective Service Image"
+                  src={displayImages[currentImageIndex]}
+                  width={320} height={240}
                   loading="lazy"
                   onLoad={() => setImageLoaded(true)}
                   onError={() => {
@@ -172,7 +217,6 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
                   }}
                   className={`object-cover w-full h-full ${isUnclaimed ? 'grayscale' : ''}`}
                 />
-                
                 {/* Fade overlay */}
                 <div
                   className={`absolute inset-0 bg-gray-100 transition-opacity duration-300 pointer-events-none ${
@@ -237,45 +281,23 @@ const ServiceCardComponent = ({ id, slug, detectiveId, detectiveSlug, detectiveB
                 <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">{detectiveName?.[0] || "?"}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col overflow-hidden">
-                <div className="min-w-0">
-                  <span
-                    role="link"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setLocation(
-                        getDetectiveProfileUrl({
-                          country: detectiveCountry,
-                          state: detectiveState,
-                          city: detectiveCity,
-                          id: detectiveId || "",
-                          businessName: detectiveBusinessName,
-                          slug: detectiveSlug,
-                        })
-                      );
-                    }}
-                    className="font-semibold cursor-pointer hover:underline"
-                  >
-                    {detectiveName}
-                  </span>
-
-                  <span className="inline-flex items-center gap-1 ml-1 align-middle">
-                    {badgeState?.showBlueTick && (
-                      <img src="/blue-tick.png" alt="Verified" className="h-4 w-4 inline-block align-middle" />
-                    )}
-
-                    {badgeState?.showPro && (
-                      <img src="/crown.png" alt="Pro" className="h-4 w-4 inline-block align-middle" />
-                    )}
-
-                    {badgeState?.showRecommended && (
-                      <span className="text-[10px] bg-green-100 px-1 rounded inline-block">
-                        Recommended
-                      </span>
-                    )}
-                  </span>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-1">
+                    <h3 className="font-semibold text-base text-gray-900">
+                      {detectiveBusinessName ?? detectiveName}
+                    </h3>
+                    <DetectiveBadges badgeState={badgeState} />
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {detectiveCity}
+                    {detectiveState && `, ${detectiveState}`}
+                  </p>
+                  {detectiveLevel && (
+                    <span className="text-green-600 text-sm font-medium">
+                      {detectiveLevel.replace("level", "Level ")}
+                    </span>
+                  )}
                 </div>
-                <span className="text-xs font-bold text-green-600">{level || "Level 1"}</span>
               </div>
             </div>
 
@@ -336,6 +358,9 @@ export const ServiceCard = memo(ServiceCardComponent, (prevProps, nextProps) => 
     prevProps.reviewCount === nextProps.reviewCount &&
     prevProps.priceDisplay === nextProps.priceDisplay &&
     prevProps.isUnclaimed === nextProps.isUnclaimed &&
+    prevProps.phone === nextProps.phone &&
+    prevProps.whatsapp === nextProps.whatsapp &&
+    prevProps.contactEmail === nextProps.contactEmail &&
     prevProps.images === nextProps.images &&
     prevProps.badgeState === nextProps.badgeState
   );

@@ -93,6 +93,9 @@ router.get("/", async (req: Request, res: Response) => {
         d.country,
         d.state,
         d.city,
+        c.slug AS country_slug,
+        st.slug AS state_slug,
+        ci.slug AS city_slug,
         d.phone,
         d.whatsapp,
         d.contact_email,
@@ -107,6 +110,7 @@ router.get("/", async (req: Request, res: Response) => {
         sp.features AS subscription_features
       FROM (
         SELECT d.id as detective_id_value, d.user_id, d.business_name, d.bio, d.logo, d.location, d.slug, 
+               d.country_id, d.state_id, d.city_id,
                d.country, d.state, d.city, d.phone, d.whatsapp, d.contact_email, 
            d.status, d.is_verified, d.level, d.subscription_package_id,
                COALESCE(dv.visibility_score, 0) as visibility_score, 
@@ -128,6 +132,9 @@ router.get("/", async (req: Request, res: Response) => {
       ) d
       JOIN users u ON d.user_id = u.id
       LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
+      LEFT JOIN countries c ON c.id = d.country_id
+      LEFT JOIN states st ON st.id = d.state_id
+      LEFT JOIN cities ci ON ci.id = d.city_id
       JOIN LATERAL (
         SELECT s.id, s.slug, s.detective_id, s.title, s.category, s.description, s.images,
                s.base_price, s.offer_price, s.is_on_enquiry, s.order_count, s.updated_at
@@ -145,7 +152,7 @@ router.get("/", async (req: Request, res: Response) => {
         s.base_price, s.offer_price, s.is_on_enquiry, s.order_count, s.updated_at,
         d.detective_id_value, d.user_id, d.business_name, d.bio, d.logo, d.location, d.slug,
         d.country, d.state, d.city, d.phone, d.whatsapp, d.contact_email, d.status,
-        d.is_verified, d.level, d.visibility_score, d.is_featured, u.email,
+        d.is_verified, d.level, d.visibility_score, d.is_featured, u.email, c.slug, st.slug, ci.slug,
         sp.name, sp.badges, sp.features
     `,
       values: params
@@ -202,6 +209,9 @@ router.get("/", async (req: Request, res: Response) => {
           country: row.country,
           state: row.state,
           city: row.city,
+          countrySlug: row.country_slug,
+          stateSlug: row.state_slug,
+          citySlug: row.city_slug,
           phone: row.phone,
           whatsapp: row.whatsapp,
           contactEmail: row.contact_email,

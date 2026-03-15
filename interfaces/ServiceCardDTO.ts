@@ -10,6 +10,9 @@ export interface ServiceCardDTO {
   detectiveCountry: string | null;
   detectiveState: string | null;
   detectiveCity: string | null;
+  detectiveCountrySlug?: string | null;
+  detectiveStateSlug?: string | null;
+  detectiveCitySlug?: string | null;
   detectiveSlug: string | null;
   detectiveBusinessName: string | null;
   slug: string | null;
@@ -18,4 +21,5 @@ export interface ServiceCardDTO {
   whatsapp: string | null;
   contactEmail: string | null;
   isUnclaimed: boolean;
+  detectiveLevel: number | null;
 }

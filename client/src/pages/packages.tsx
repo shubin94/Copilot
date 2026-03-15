@@ -5,8 +5,17 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import { useCurrency } from "@/lib/currency-context";
+import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
+
+const SITE_ORIGIN = "https://www.askdetectives.com";
 
 export default function PackagesPage() {
+  const seo = useCmsStaticPageSeo("packages", {
+    title: "Pricing & Packages",
+    description: "Choose the right plan for your detective agency.",
+    h1: "Simple, Transparent Pricing",
+  });
+
   let formatPrice = null;
   try {
     const currencyContext = useCurrency();
@@ -33,7 +42,7 @@ export default function PackagesPage() {
         priceCurrency: "USD",
         unitText: "MONTH"
       },
-      url: window.location.origin + "/detective-signup"
+      url: SITE_ORIGIN + "/detective-signup"
     },
     {
       "@type": "Offer",
@@ -47,7 +56,7 @@ export default function PackagesPage() {
         priceCurrency: "USD",
         unitText: "MONTH"
       },
-      url: window.location.origin + "/detective-signup"
+      url: SITE_ORIGIN + "/detective-signup"
     },
     {
       "@type": "Offer",
@@ -61,15 +70,15 @@ export default function PackagesPage() {
         priceCurrency: "USD",
         unitText: "MONTH"
       },
-      url: window.location.origin + "/contact"
+      url: SITE_ORIGIN + "/contact"
     }
   ];
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <SEO 
-        title="Pricing & Packages" 
-        description="Choose the right plan for your detective agency."
+        title={seo.title}
+        description={seo.description}
         structuredData={{
           offers: offers
         }}
@@ -77,7 +86,7 @@ export default function PackagesPage() {
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold font-heading mb-4">Simple, Transparent Pricing</h1>
+          <h1 className="text-4xl font-bold font-heading mb-4">{seo.h1}</h1>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
             Start for free and upgrade as you grow. No hidden fees.
           </p>
