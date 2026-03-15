@@ -6,7 +6,7 @@ import { type Server } from "node:http";
 import path from "node:path";
 
 import express from "express";
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 
 import runApp from "./app.js";
 import { config, validateConfig } from "./config.js";
@@ -309,14 +309,14 @@ export async function serveStatic(app: Express, _server: Server) {
   // CATCH-ALL ROUTE FOR UNMATCHED /detectives PATHS (6+ segments or invalid patterns)
   // Prevents hard 404s for paths like /detectives/:country/:state/:city/:agency/:something
   // Serves SPA to allow client-side routing to handle navigation
-  app.get(/^\/detectives\//, async (req: Request, res: Response) => {
+  app.get(/^\/detectives\//, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const requestPath = req.path;
       const segments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
       
       // Skip if already handled by earlier routes (2-5 segments)
       if (segments.length <= 5) {
-        return; // Pass through to next middleware/catch-all
+        return next(); // Pass through to next middleware/catch-all
       }
 
       console.log(`[Detectives Catch-All] Serving SPA for unmatched path: ${requestPath} (${segments.length} segments)`);
