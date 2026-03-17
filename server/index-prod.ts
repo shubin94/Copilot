@@ -558,9 +558,6 @@ export async function serveStatic(app: Express, _server: Server) {
     }
   });
 
-  // ✅ OPTIMIZATION: Register static file middleware AFTER SSR routes
-  // This prevents filesystem lookups from blocking SSR route handlers
-  // SSR routes match immediately, static assets still serve correctly
   // Register static file middleware AFTER SSR routes
   app.use(express.static(distPath, {
     maxAge: "1y",
@@ -572,29 +569,10 @@ export async function serveStatic(app: Express, _server: Server) {
     }
   }));
 
-  // Route-aware SPA fallback: unknown routes return true HTTP 404
-  app.use("*", (req, res) => {
-    const requestPath = req.path;
-
-    if (requestPath.startsWith("/api/")) {
-      return res.status(404).json({ error: "Not Found" });
-    }
-
-    if (isStaticAssetPath(requestPath)) {
-      return res.status(404).end();
-    }
-
-    res.setHeader("Cache-Control", "no-store");
-
-    if (isKnownSpaPath(requestPath)) {
-      return res.status(200).sendFile(path.resolve(distPath, "index.html"));
-    }
-
-    if (fs.existsSync(fallback404File)) {
-      return res.status(404).sendFile(fallback404File);
-    }
-
-    return res.status(404).type("text/plain").send("404 Not Found");
+  // SPA fallback: only after all API routes and middleware
+  app.get("*", (req, res) => {
+    if (req.path.startsWith("/api")) return res.status(404).end();
+    res.sendFile(path.resolve("dist/public/index.html"));
   });
 }
 

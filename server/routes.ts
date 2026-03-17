@@ -119,30 +119,6 @@ const COUNTRY_CODE_MAP: Record<string, string> = {
   'CL': 'Chile',
 };
 
-/**
- * Convert country name or slug back to country code
- * Handles: "India" -> "IN", "india" -> "IN", "united-states" -> "US"
- */
-function getCountryCode(countryNameOrSlug: string): string {
-  if (!countryNameOrSlug) return '';
-  
-  // Normalize: convert slug to title case (e.g., "united-states" -> "United States")
-  const normalized = countryNameOrSlug
-    .toLowerCase()
-    .split('-')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-  
-  // Find the country code by looking up the value
-  for (const [code, name] of Object.entries(COUNTRY_CODE_MAP)) {
-    if (name.toLowerCase() === normalized.toLowerCase()) {
-      return code;
-    }
-  }
-  
-  // If not found, assume it's already a country code
-  return countryNameOrSlug.toUpperCase();
-}
 
 // Razorpay client initialization has been moved to server/routes/paymentRoutes.ts
 
@@ -2008,7 +1984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           h1,
           query: upsertQuery
         });
-        return res.status(500).json({ error: "Failed to update detective page (DB error)", details: dbError.message });
+        return res.status(500).json({ error: "Failed to update detective page (DB error)", details: dbError instanceof Error ? dbError.message : String(dbError) });
       }
 
       const page = {
@@ -2028,7 +2004,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         id: req.params?.id,
         body: req.body
       });
-      res.status(500).json({ error: "Failed to update detective page (server error)", details: error.message });
+      res.status(500).json({ error: "Failed to update detective page (server error)", details: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -5497,7 +5473,7 @@ Content-Signal: index=public; train=deny
             .where(
               and(
                 eq(services.detectiveId, detective.id),
-                eq(db.raw(`regexp_replace(??, '^[0-9a-fA-F-]+-', '')`, [services.slug]), slug)
+                eq(sql`regexp_replace(${services.slug}, '^[0-9a-fA-F-]+-', '')`, slug)
               )
             )
             .limit(10);
@@ -5517,7 +5493,7 @@ Content-Signal: index=public; train=deny
           })
           .from(services)
           .innerJoin(detectives, eq(services.detectiveId, detectives.id))
-          .where(db.raw(`regexp_replace(??, '^[0-9a-fA-F-]+-', '') = ?`, [services.slug, slug]))
+          .where(sql`regexp_replace(${services.slug}, '^[0-9a-fA-F-]+-', '') = ${slug}`)
           .limit(1);
       }
 
@@ -6382,9 +6358,9 @@ Content-Signal: index=public; train=deny
       
       // Duplicate checks for email/phone
       const existingByEmail = await storage.getDetectiveApplicationByEmail(validatedData.email);
-      const hasPhone = !!validatedData.phoneCountryCode && !!validatedData.phone;
+      const hasPhone = !!validatedData.phoneCountryCode && !!validatedData.phoneNumber;
       const existingByPhone = hasPhone
-        ? await storage.getDetectiveApplicationByPhone(validatedData.phoneCountryCode!, validatedData.phone!)
+        ? await storage.getDetectiveApplicationByPhone(validatedData.phoneCountryCode!, validatedData.phoneNumber!)
         : undefined;
 
       // Check for duplicates - allow update if admin, else reject
@@ -6553,8 +6529,8 @@ Content-Signal: index=public; train=deny
           const cityValue = application.city || "Not specified";
 
           // Build phone number
-          const phone = application.phoneCountryCode && application.phone 
-            ? `${application.phoneCountryCode}${application.phone}`
+          const phone = application.phoneCountryCode && application.phoneNumber
+            ? `${application.phoneCountryCode}${application.phoneNumber}`
             : undefined;
           const agencyBusinessDocuments = Array.isArray(application.businessDocuments)
             ? application.businessDocuments
