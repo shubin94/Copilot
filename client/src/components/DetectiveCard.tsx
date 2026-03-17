@@ -106,7 +106,7 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
           <div className="flex gap-3 items-start">
             <div className="h-14 w-14 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
               {detective.logo ? (
-                <img src={detective.logo} alt="Detective logo" width={56} height={56} className="h-14 w-14 object-cover" />
+                <img src={detective.logo} alt="Detective logo" width={56} height={56} loading="lazy" decoding="async" className="h-14 w-14 object-cover" />
               ) : (
                 <div className="h-10 w-10 rounded-full bg-gray-200" />
               )}
@@ -139,6 +139,8 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
             alt="Detective logo"
             width={64}
             height={64}
+            loading="lazy"
+            decoding="async"
             className="h-16 w-16 rounded-full object-cover border border-gray-200"
           />
           <div className="flex-1">
@@ -188,6 +190,8 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
               alt="Detective logo"
               width={80}
               height={80}
+              loading="lazy"
+              decoding="async"
               className="w-full h-full object-cover"
             />
           ) : (

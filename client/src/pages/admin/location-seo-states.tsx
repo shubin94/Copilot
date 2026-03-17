@@ -119,7 +119,7 @@ export default function AdminLocationSeoStates() {
       setIsSaving(true);
       setError("");
 
-      await api.post<{ success: boolean }>("/api/admin/location-seo/override", {
+      await api.post<{ success: boolean }>("/api/admin/detective-seo", {
         country_slug: selectedState.country_slug,
         state_slug: selectedState.state_slug,
         city_slug: null,

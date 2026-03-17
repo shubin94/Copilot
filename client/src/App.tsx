@@ -68,6 +68,9 @@ const AdminEmployees = lazy(() => import("@/pages/admin/employees"));
 const AdminLocationSeoCountries = lazy(() => import("@/pages/admin/location-seo-countries"));
 const AdminLocationSeoStates = lazy(() => import("@/pages/admin/location-seo-states"));
 const AdminLocationSeoCities = lazy(() => import("@/pages/admin/location-seo-cities"));
+const AdminLocationSeoServiceCountries = lazy(() => import("@/pages/admin/location-seo-service-countries"));
+const AdminLocationSeoServiceStates = lazy(() => import("@/pages/admin/location-seo-service-states"));
+const AdminLocationSeoServiceCities = lazy(() => import("@/pages/admin/location-seo-service-cities"));
 const AdminDetectivePages = lazy(() => import("@/pages/admin/detective-pages"));
 const EmployeeDashboard = lazy(() => import("@/pages/employee/dashboard"));
 
@@ -87,8 +90,8 @@ const DetectiveSettings = lazy(() => import("@/pages/detective/settings"));
 const UserDashboard = lazy(() => import("@/pages/user/dashboard"));
 const FavoritesPage = lazy(() => import("@/pages/user/favorites"));
 
-// Service + Location Pages (Phase 1: Background Checks)
-const ServiceBackgroundChecksPage = lazy(() => import("@/pages/service-background-checks"));
+// Service + Location Pages (all categories — generic component)
+const ServiceCategoryPage = lazy(() => import("@/pages/service-category-page"));
 
 // Static Pages
 const AboutPage = lazy(() => import("@/pages/about"));
@@ -213,6 +216,9 @@ function Router() {
           <Route path="/admin/location-seo/countries" component={withAdminRoute(AdminLocationSeoCountries)} />
           <Route path="/admin/location-seo/states" component={withAdminRoute(AdminLocationSeoStates)} />
           <Route path="/admin/location-seo/cities" component={withAdminRoute(AdminLocationSeoCities)} />
+          <Route path="/admin/location-seo/service-countries" component={withAdminRoute(AdminLocationSeoServiceCountries)} />
+          <Route path="/admin/location-seo/service-states" component={withAdminRoute(AdminLocationSeoServiceStates)} />
+          <Route path="/admin/location-seo/service-cities" component={withAdminRoute(AdminLocationSeoServiceCities)} />
           
           {/* CMS Admin Routes */}
           <Route path="/admin/cms" component={withAdminRoute(AdminDashboardCMS)} />
@@ -239,7 +245,9 @@ function Router() {
           <Route path="/detectives/:country/:state/:city" component={CityDetectivesPage} />
           <Route path="/detectives/:country/:state" component={CityDetectivesPage} />
           <Route path="/detectives/:country" component={CityDetectivesPage} />
-          <Route path="/services/background-checks/:country/:state/:city" component={ServiceBackgroundChecksPage} />
+          <Route path="/locations/:category/:country/:state/:city" component={ServiceCategoryPage} />
+          <Route path="/locations/:category/:country/:state" component={ServiceCategoryPage} />
+          <Route path="/locations/:category/:country" component={ServiceCategoryPage} />
           <Route path="/news" component={NewsHub} />
           <Route path="/news/:slug" component={ArticlePage} />
 
