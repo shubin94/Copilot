@@ -24,7 +24,17 @@ import {
   injectLocationSeoTags,
   injectDetectiveLocationAuthorityLink,
   resolveLocationIds,
+  generateDetectiveSeo,
+  getServiceLocationSeo,
+  generateServiceLocationSeo,
 } from "./lib/seo-injection.js";
+import {
+  getTopNearbyCities,
+  getPopularServicesInCity,
+  getOtherAreasInCity,
+  getOtherServicesInCity,
+  getNearbyCities,
+} from "./lib/internal-links.js";
 import { getPublishedCmsPageSeo, injectCmsPageSeoTags } from "./lib/cms-page-seo.js";
 import { storage } from "./storage.js";
 
@@ -372,7 +382,6 @@ export async function serveStatic(app: Express, _server: Server) {
       const {
         extractServiceLocationRouteParams,
         resolveServiceLocation,
-        injectServiceLocationSeoTags,
       } = await import("./lib/seo-injection.js");
 
       const params = extractServiceLocationRouteParams(requestPath);
@@ -423,21 +432,21 @@ export async function serveStatic(app: Express, _server: Server) {
 
       // Fetch SEO values and service listings in parallel
       let [otherAreas, otherServices, nearbyCities] = await Promise.all([
-        getOtherAreasInCity(params.citySlug, params.areaSlug, 20),
-        getOtherServicesInCity(params.citySlug, params.categorySlug, 20),
-        getNearbyCities(params.countrySlug, params.citySlug, 20)
+        getOtherAreasInCity(params.citySlug || '', '', 20),
+        getOtherServicesInCity(params.citySlug || '', params.categorySlug, 20),
+        getNearbyCities(params.countrySlug, params.citySlug || '', 20)
       ]);
       let seoValues;
       try {
-        seoValues = await getServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug, params.areaSlug);
+        seoValues = await getServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug || '', '');
       } catch (e) {
-        seoValues = generateServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug, params.areaSlug);
+        seoValues = generateServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug || '', '');
       }
       let seoHtml = injectSeoTags(cachedIndexHtml, {
         title: seoValues.meta_title,
         h1: seoValues.h1,
         meta_description: seoValues.meta_description
-      });
+      }, canonicalUrl);
 
       // Internal linking HTML
       let linksHtml = '<section style="margin-top:32px">';
@@ -450,13 +459,13 @@ export async function serveStatic(app: Express, _server: Server) {
       linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Other Services in ' + params.citySlug + '</h2>';
       linksHtml += '<ul style="margin-bottom:24px">';
       for (const svc of otherServices.rows.slice(0, 20)) {
-        linksHtml += `<li><a href="/locations/${svc.slug}/${params.countrySlug}/${params.citySlug}/${params.areaSlug}" style="color:#2563eb;text-decoration:none">${svc.name} in ${params.citySlug}</a></li>`;
+        linksHtml += `<li><a href="/locations/${svc.slug}/${params.countrySlug}/${params.stateSlug || ''}/${params.citySlug || ''}" style="color:#2563eb;text-decoration:none">${svc.name} in ${params.citySlug || params.stateSlug || params.countrySlug}</a></li>`;
       }
       linksHtml += '</ul>';
       linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Nearby Cities</h2>';
       linksHtml += '<ul>';
       for (const city of nearbyCities.rows.slice(0, 20)) {
-        linksHtml += `<li><a href="/locations/${params.categorySlug}/${params.countrySlug}/${city.slug}/${params.areaSlug}" style="color:#2563eb;text-decoration:none">${params.categorySlug} in ${city.name}, ${city.slug}</a></li>`;
+        linksHtml += `<li><a href="/locations/${params.categorySlug}/${params.countrySlug}/${params.stateSlug || city.slug}" style="color:#2563eb;text-decoration:none">${params.categorySlug} in ${city.name}</a></li>`;
       }
       linksHtml += '</ul>';
       linksHtml += '</section>';
