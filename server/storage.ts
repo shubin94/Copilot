@@ -2542,7 +2542,7 @@ export class DatabaseStorage implements IStorage {
       .from(detectiveApplications)
       .where(and(
         eq(detectiveApplications.phoneCountryCode, phoneCountryCode),
-        eq(detectiveApplications.phone, phoneNumber)
+        eq(detectiveApplications.phoneNumber, phoneNumber)
       ))
       .limit(1);
     return application;

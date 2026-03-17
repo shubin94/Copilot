@@ -49,6 +49,11 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [location, setLocation] = useLocation();
   const [] = useState(false);
+  useEffect(() => {
+    if (role === "admin") {
+      console.log("NEW ADMIN SIDEBAR LOADED");
+    }
+  }, [role]);
   // Always keep all dropdowns open
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
   const { user, isLoading, isAuthenticated, logout } = useUser();
