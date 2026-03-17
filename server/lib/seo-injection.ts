@@ -779,7 +779,7 @@ function generateDetectiveLocalBusinessSchema(detective: any, canonicalUrl: stri
   // Build base schema with required properties
   const localBusiness: Record<string, any> = {
     "@context": "https://schema.org",
-    "@type": "LocalBusiness",
+    "@type": ["LocalBusiness", "ProfessionalService"],
     "@id": canonicalUrl,
     "name": name,
     "description": detective.bio || `Professional private investigator in ${location}`,
@@ -828,14 +828,16 @@ function generateDetectiveLocalBusinessSchema(detective: any, canonicalUrl: stri
   // Add aggregate rating ONLY if reviewCount > 0
   // Ensure ratingValue is numeric (not string) and reviewCount is integer
   if (detective.reviewCount && Number(detective.reviewCount) > 0) {
-    const ratingValue = Number(detective.avgRating);
-    const reviewCount = Number(detective.reviewCount);
+    const ratingValue = Math.round(Number(detective.avgRating) * 10) / 10;
+    const reviewCount = Math.round(Number(detective.reviewCount));
 
     // Only add if both values are valid numbers
     if (!isNaN(ratingValue) && !isNaN(reviewCount)) {
       localBusiness.aggregateRating = {
         "@type": "AggregateRating",
         "ratingValue": ratingValue,
+        "bestRating": 5,
+        "worstRating": 1,
         "reviewCount": reviewCount,
       };
     }
@@ -996,7 +998,7 @@ function generateDetectivePersonSchema(detective: any, canonicalUrl: string): st
     "name": name,
     "jobTitle": "Private Detective",
     "worksFor": {
-      "@type": "LocalBusiness",
+      "@type": ["LocalBusiness", "ProfessionalService"],
       "@id": canonicalUrl,
       "name": name,
     },

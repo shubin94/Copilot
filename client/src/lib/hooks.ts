@@ -383,6 +383,20 @@ export function useServiceBySlug(
   });
 }
 
+export function useSimilarDetectives(detectiveId: string | null | undefined, limit = 8) {
+  return useQuery({
+    queryKey: ["detectives", detectiveId, "similar", limit],
+    queryFn: async () => {
+      const res = await fetch(`/api/detectives/${detectiveId}/similar?limit=${limit}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!detectiveId,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  });
+}
+
 export function usePublicServiceCount(detectiveId: string | null | undefined) {
   return useQuery({
     queryKey: ["detectives", detectiveId, "public-service-count"],

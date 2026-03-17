@@ -2,11 +2,33 @@ import { Card, CardContent } from "@/components/ui/card";
 import { BadgeIcon } from "@/components/detective-badges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MapPin } from "lucide-react";
+import { MapPin, Clock, Zap } from "lucide-react";
 import { ArrowRight } from "lucide-react";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { computeServiceBadges } from "@/lib/service-badges";
 import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
+
+function formatLastActive(lastActive: string | Date | null | undefined): string | null {
+  if (!lastActive) return null;
+  const date = new Date(lastActive);
+  if (isNaN(date.getTime())) return null;
+  const diffMs = Date.now() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return null;
+  if (diffDays === 0) return "Active today";
+  if (diffDays === 1) return "Active yesterday";
+  if (diffDays < 7) return `Active ${diffDays} days ago`;
+  if (diffDays < 30) return `Active ${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? "s" : ""} ago`;
+  return null; // too old to show
+}
+
+function formatResponseTime(avgResponseTime: number | null | undefined): string | null {
+  if (!avgResponseTime || avgResponseTime <= 0) return null;
+  if (avgResponseTime < 1) return "Responds within 1 hour";
+  if (avgResponseTime < 24) return `Responds within ${Math.round(avgResponseTime)} hour${Math.round(avgResponseTime) > 1 ? "s" : ""}`;
+  const days = Math.round(avgResponseTime / 24);
+  return `Responds within ${days} day${days > 1 ? "s" : ""}`;
+}
 
 interface Detective {
   id: string;
@@ -26,6 +48,8 @@ interface Detective {
   bio?: string | null;
   avgRating?: number;
   reviewCount?: number;
+  lastActive?: string | Date | null;
+  avgResponseTime?: number | null;
   badgeState?: {
     showBlueTick?: boolean;
     showPro?: boolean;
@@ -46,9 +70,10 @@ interface Detective {
 interface DetectiveCardProps {
   detective: Detective;
   variant?: "city" | "homeFeatured" | "newsFeatured";
+  isPriority?: boolean;
 }
 
-export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProps) {
+export function DetectiveCard({ detective, variant = "city", isPriority = false }: DetectiveCardProps) {
   const detectiveUrl = getDetectiveProfileUrl(detective);
 
   const initials = detective.businessName
@@ -190,8 +215,9 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
               alt="Detective logo"
               width={80}
               height={80}
-              loading="lazy"
+              loading={isPriority ? "eager" : "lazy"}
               decoding="async"
+              {...(isPriority ? ({ fetchpriority: "high" } as React.ImgHTMLAttributes<HTMLImageElement>) : {})}
               className="w-full h-full object-cover"
             />
           ) : (
@@ -255,6 +281,23 @@ export function DetectiveCard({ detective, variant = "city" }: DetectiveCardProp
             <span className="text-xs text-gray-500">
               ({normalizedReviewCount} reviews)
             </span>
+          </div>
+        )}
+
+        {(formatLastActive(detective.lastActive) || formatResponseTime(detective.avgResponseTime)) && (
+          <div className="flex flex-col gap-1">
+            {formatLastActive(detective.lastActive) && (
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>{formatLastActive(detective.lastActive)}</span>
+              </div>
+            )}
+            {formatResponseTime(detective.avgResponseTime) && (
+              <div className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
+                <Zap className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>{formatResponseTime(detective.avgResponseTime)}</span>
+              </div>
+            )}
           </div>
         )}
 

@@ -16,13 +16,14 @@ import { initializeEnv } from "./lib/loadEnv.js";
 import { getEnvironmentBadge } from "../db/validateDatabase.js";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
 import {
-  extractDetectiveRouteParams,
-  getDetectiveBySlugForSEO,
+  // extractDetectiveRouteParams,
+  // getDetectiveBySlugForSEO,
+  getDetectiveLocationSeo,
   injectSeoTags,
   extractLocationRouteParams,
   getLocationDetectivesForSEO,
-  injectLocationSeoTags,
-  injectDetectiveLocationAuthorityLink,
+  // injectLocationSeoTags,
+  // injectDetectiveLocationAuthorityLink,
   resolveLocationIds,
   generateDetectiveSeo,
   getServiceLocationSeo,
@@ -205,7 +206,7 @@ export async function serveStatic(app: Express, _server: Server) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
       }
 
-      const isCity = segments.length === 4; // /detectives/:country/:state/:city
+      // const isCity = segments.length === 4; // /detectives/:country/:state/:city
 
       // ✅ OPTIMIZATION: Resolve location once to avoid duplicate queries
       // Prevents redundant lookups in both searchServices() and generateLocationSeoMetaTags()
@@ -224,15 +225,15 @@ export async function serveStatic(app: Express, _server: Server) {
       const [seoValues, locationSeoData, nearbyCities, popularServices] = await Promise.all([
         getDetectiveLocationSeo(params.country, params.state, params.city),
         getLocationDetectivesForSEO(params.country, params.state, params.city),
-        getTopNearbyCities(params.country, params.city, 20),
-        getPopularServicesInCity(params.city, 20)
+        getTopNearbyCities(params.country, params.city ?? '', 20),
+        getPopularServicesInCity(params.city ?? '', 20)
       ]);
       const detectives = locationSeoData.detectives;
-      const hasMore = locationSeoData.hasMore;
+      // const hasMore = locationSeoData.hasMore;
       const detectiveCount = detectives ? detectives.length : 0;
 
       // Generate canonical URL
-      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
+      // const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
 
       // Internal linking HTML
       let linksHtml = '<section style="margin-top:32px">';
@@ -254,7 +255,7 @@ export async function serveStatic(app: Express, _server: Server) {
         title: seoValues.meta_title,
         h1: seoValues.h1,
         meta_description: seoValues.meta_description
-      });
+      }, '');
 
       // Handle zero-detective pages
       if (detectiveCount === 0) {
@@ -304,7 +305,7 @@ export async function serveStatic(app: Express, _server: Server) {
         return next();
       }
 
-      const [, country, state, city, detectiveSlug] = segments;
+      const [, country, state, city/*, detectiveSlug*/] = segments;
 
       if (!cachedIndexHtml) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
@@ -450,13 +451,13 @@ export async function serveStatic(app: Express, _server: Server) {
 
       // Internal linking HTML
       let linksHtml = '<section style="margin-top:32px">';
-      linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Other Areas in ' + params.citySlug + '</h2>';
+      linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Other Areas in ' + (params.citySlug || params.stateSlug || params.countrySlug) + '</h2>';
       linksHtml += '<ul style="margin-bottom:24px">';
-      for (const area of otherAreas.rows.slice(0, 20)) {
+      for (const area of (otherAreas.rows as Array<{slug: string; name: string}>).slice(0, 20)) {
         linksHtml += `<li><a href="/locations/${params.categorySlug}/${params.countrySlug}/${params.citySlug}/${area.slug}" style="color:#2563eb;text-decoration:none">${params.categorySlug} in ${area.name}, ${params.citySlug}</a></li>`;
       }
       linksHtml += '</ul>';
-      linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Other Services in ' + params.citySlug + '</h2>';
+      linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Other Services in ' + (params.citySlug || params.stateSlug || params.countrySlug) + '</h2>';
       linksHtml += '<ul style="margin-bottom:24px">';
       for (const svc of otherServices.rows.slice(0, 20)) {
         linksHtml += `<li><a href="/locations/${svc.slug}/${params.countrySlug}/${params.stateSlug || ''}/${params.citySlug || ''}" style="color:#2563eb;text-decoration:none">${svc.name} in ${params.citySlug || params.stateSlug || params.countrySlug}</a></li>`;
