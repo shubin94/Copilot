@@ -29,8 +29,8 @@ export function useAuth() {
       }
     },
     retry: false,
-    staleTime: Infinity,
-    gcTime: Infinity,
+    staleTime: 0,
+    gcTime: 0,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchOnMount: false,
@@ -80,8 +80,8 @@ export function useDetectives(limit?: number, offset?: number) {
   return useQuery({
     queryKey: ["detectives", "all", limit, offset],
     queryFn: () => api.detectives.getAll(limit, offset),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
+    staleTime: 0,
+    gcTime: 0,
     refetchOnWindowFocus: false,
   });
 }
@@ -91,8 +91,8 @@ export function useDetective(id: string | null | undefined) {
     queryKey: ["detectives", id],
     queryFn: () => api.detectives.getById(id!),
     enabled: !!id,
-    staleTime: 60 * 1000, // 60 seconds - public detective profiles cached for better UX
-    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 
@@ -106,8 +106,8 @@ export function useDetectiveBySlug(
     queryKey: ["detectives", "slug", country, state, city, slug],
     queryFn: () => api.detectives.getBySlug(country!, state!, city!, slug!),
     enabled: !!(country && state && city && slug),
-    staleTime: 60 * 1000, // 60 seconds - public detective profiles cached for better UX
-    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 
@@ -131,8 +131,8 @@ export function useCurrentDetective(enabled: boolean = true) {
       }
     },
     enabled,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
+    staleTime: 0,
+    gcTime: 0,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
     retry: false,
@@ -169,8 +169,8 @@ export function useDetectiveDashboard() {
   }>({
     queryKey: ["detectives", "dashboard"],
     queryFn: () => api.get("/api/detectives/me/dashboard"),
-    staleTime: 5 * 60 * 1000,    // 5 minutes - reuse cached data for 5 mins
-    gcTime: 10 * 60 * 1000,      // 10 minutes - keep in memory for 10 mins
+    staleTime: 0,
+    gcTime: 0,
     retry: 1,                    // Retry once on failure
   });
 }
@@ -189,8 +189,8 @@ export function useAdminDashboardSummary() {
   }>({
     queryKey: ["admin", "dashboard", "summary"],
     queryFn: () => api.get("/api/admin/dashboard/summary"),
-    staleTime: 5 * 60 * 1000,    // 5 minutes - reuse cached data for 5 mins
-    gcTime: 10 * 60 * 1000,      // 10 minutes - keep in memory for 10 mins
+    staleTime: 0,
+    gcTime: 0,
     refetchOnWindowFocus: false,  // Don't refetch on window focus - stable summary data
     retry: 1,                    // Retry once on failure
   });
@@ -200,7 +200,7 @@ export function useSubscriptionLimits() {
   return useQuery({
     queryKey: ["subscription", "limits"],
     queryFn: () => api.detectives.getSubscriptionLimits(),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
   });
 }
 
@@ -235,8 +235,8 @@ export function useDetectivesByCountry(country: string | null | undefined) {
     queryKey: ["detectives", "country", country],
     queryFn: () => api.detectives.getByCountry(country!),
     enabled: !!country,
-    staleTime: 60 * 1000, // 60 seconds - public detective listings cached for better UX
-    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache when navigating away
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 
@@ -251,8 +251,8 @@ export function useSearchDetectives(params?: {
   return useQuery({
     queryKey: ["detectives", "search", params],
     queryFn: () => api.detectives.search(params),
-    staleTime: 5 * 60 * 1000, // 5 minutes - search results valid for 5 mins
-    gcTime: 10 * 60 * 1000, // 10 minutes - keep in memory for 10 mins
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 
@@ -266,8 +266,8 @@ export function useAdminSearchDetectives(params?: {
   return useQuery({
     queryKey: ["admin", "detectives", "search", params],
     queryFn: () => api.detectives.adminSearch(params),
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 
