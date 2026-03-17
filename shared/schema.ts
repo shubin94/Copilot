@@ -1,3 +1,30 @@
+// Detective Location SEO table
+export const detective_location_seo = pgTable("detective_location_seo", {
+  id: integer("id").primaryKey(),
+  country_slug: text("country_slug").notNull(),
+  state_slug: text("state_slug"),
+  city_slug: text("city_slug"),
+  h1: text("h1"),
+  meta_title: text("meta_title"),
+  meta_description: text("meta_description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Service Location SEO table
+export const service_location_seo = pgTable("service_location_seo", {
+  id: integer("id").primaryKey(),
+  service_slug: text("service_slug").notNull(),
+  country_slug: text("country_slug").notNull(),
+  state_slug: text("state_slug"),
+  city_slug: text("city_slug"),
+  area_slug: text("area_slug"),
+  h1: text("h1"),
+  meta_title: text("meta_title"),
+  meta_description: text("meta_description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
 import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pgEnum, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
