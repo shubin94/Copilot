@@ -7798,6 +7798,7 @@ Content-Signal: index=public; train=deny
           images: service.images,
           avgRating: service.avgRating,
           reviewCount: service.reviewCount,
+          badgeState: (service as any).badgeState ?? null,
           detective: {
             id: service.detective.id,
             businessName: service.detective.businessName,
@@ -7811,6 +7812,7 @@ Content-Signal: index=public; train=deny
             phone: service.detective.phone,
             whatsapp: service.detective.whatsapp,
             contactEmail: service.detective.contactEmail,
+            badgeState: (service.detective as any).badgeState ?? null,
           },
         })),
       });

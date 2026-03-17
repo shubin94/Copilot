@@ -1138,27 +1138,22 @@ export class DatabaseStorage implements IStorage {
     }
 
     // ✅ LOCATION FILTERING - FK-based with text fallback
-    // Uses country_id/state_id/city_id when available, falls back to text columns during migration
-    if (filters.country) {
-      if (countryId !== null) {
-        conditions.push(eq(detectives.countryId, countryId));
-      } else {
-        conditions.push(eq(detectives.country, filters.country));
-      }
+    // countryId/stateId/cityId come from resolvedLocation (pre-resolved) or from the filter lookup above.
+    // Apply the condition whenever an ID was resolved; fall back to text match only when no ID available.
+    if (countryId !== null) {
+      conditions.push(eq(detectives.countryId, countryId));
+    } else if (filters.country) {
+      conditions.push(eq(detectives.country, filters.country));
     }
-    if (filters.state) {
-      if (stateId !== null) {
-        conditions.push(eq(detectives.stateId, stateId));
-      } else {
-        conditions.push(ilike(detectives.state, filters.state));
-      }
+    if (stateId !== null) {
+      conditions.push(eq(detectives.stateId, stateId));
+    } else if (filters.state) {
+      conditions.push(ilike(detectives.state, filters.state));
     }
-    if (filters.city) {
-      if (cityId !== null) {
-        conditions.push(eq(detectives.cityId, cityId));
-      } else {
-        conditions.push(ilike(detectives.city, filters.city));
-      }
+    if (cityId !== null) {
+      conditions.push(eq(detectives.cityId, cityId));
+    } else if (filters.city) {
+      conditions.push(ilike(detectives.city, filters.city));
     }
 
     // Filter by subscription plan (pro, agency, etc)
