@@ -64,7 +64,7 @@ export async function resolveLocationHierarchyForSeo(
   const countryId = countryRows[0]?.id ?? null;
   const countryName = countryRows[0]?.name;
   if (!countryId) {
-    const result = {
+    const result: ResolvedLocationHierarchyForSeo = {
       countryId: null,
       countryName,
       stateResolved: !stateSlugParam,
@@ -93,7 +93,7 @@ export async function resolveLocationHierarchyForSeo(
     if (!stateId) {
       stateResolved = false;
       if (!allowParentFallback) {
-        const result = {
+        const result: ResolvedLocationHierarchyForSeo = {
           countryId,
           countryName,
           stateResolved,
@@ -124,7 +124,7 @@ export async function resolveLocationHierarchyForSeo(
     if (!cityId) {
       cityResolved = false;
       if (!allowParentFallback) {
-        const result = {
+        const result: ResolvedLocationHierarchyForSeo = {
           countryId,
           countryName,
           stateId,
