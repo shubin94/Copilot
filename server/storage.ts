@@ -80,6 +80,7 @@ export interface IStorage {
   reassignService(serviceId: string, detectiveId: string): Promise<Service | undefined>;
   searchServices(filters: {
     category?: string;
+    categorySlug?: string;
     country?: string;
     state?: string;
     city?: string;
@@ -1006,6 +1007,7 @@ export class DatabaseStorage implements IStorage {
 
   async searchServices(filters: {
     category?: string;
+    categorySlug?: string;
     country?: string;
     state?: string;
     city?: string;
@@ -1118,9 +1120,11 @@ export class DatabaseStorage implements IStorage {
       }
     }
     // ✅ STRICT CATEGORY MATCHING - When category is selected, it's authoritative
-    // Smart Search determines the category; we enforce EXACT match (case-insensitive)
-    // Ranking applies ONLY within the selected category
-    if (filters.category) {
+    // categorySlug: match by slugifying the stored category name (handles & and other special chars)
+    // category: fall back to case-insensitive name match (used by search UI)
+    if (filters.categorySlug) {
+      conditions.push(sql`regexp_replace(lower(trim(coalesce(${services.category},''))),'[^a-z0-9]+','-','g') = ${filters.categorySlug}`);
+    } else if (filters.category) {
       conditions.push(sql`lower(${services.category}) = lower(${filters.category.trim()})`);
     }
     

@@ -388,9 +388,10 @@ export async function serveStatic(app: Express, _server: Server) {
       console.log("[Service SEO] Location resolved:", location);
 
       // Fetch services for this category and location
+      // Use categorySlug for matching so special chars like & in "Digital Forensics & Bug Sweeping" are handled
       const serviceResults = await storage.searchServices(
         {
-          category: params.category,
+          categorySlug: params.categorySlug,
           country: location.countryCode,
           state: location.stateName,
           city: location.cityName,
