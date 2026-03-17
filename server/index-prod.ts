@@ -388,17 +388,22 @@ export async function serveStatic(app: Express, _server: Server) {
       console.log("[Service SEO] Location resolved:", location);
 
       // Fetch services for this category and location
-      // Use categorySlug for matching so special chars like & in "Digital Forensics & Bug Sweeping" are handled
+      // Use categorySlug (regexp_replace) so special chars like & are handled
+      // Use pre-resolved IDs directly — avoids a second country/state/city DB lookup
       const serviceResults = await storage.searchServices(
-        {
-          categorySlug: params.categorySlug,
-          country: location.countryCode,
-          state: location.stateName,
-          city: location.cityName,
-        },
+        { categorySlug: params.categorySlug },
         50,
         0,
-        "popular"
+        "popular",
+        false,
+        {
+          countryId: location.countryId,
+          stateId: location.stateId ?? null,
+          cityId: location.cityId ?? null,
+          countryName: location.countryName,
+          stateName: location.stateName ?? "",
+          cityName: location.cityName ?? "",
+        }
       );
 
       // Return 404 if no services found

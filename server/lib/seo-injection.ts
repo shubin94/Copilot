@@ -2244,7 +2244,7 @@ export async function resolveServiceLocation(
   countrySlug: string,
   stateSlug?: string,
   citySlug?: string
-): Promise<{ countryCode: string; countryName: string; stateName?: string; cityName?: string } | null> {
+): Promise<{ countryId: number; countryCode: string; countryName: string; stateId?: number; stateName?: string; cityId?: number; cityName?: string } | null> {
   try {
     const countryRows = await db
       .select({ id: countries.id, code: countries.code, name: countries.name })
@@ -2257,7 +2257,7 @@ export async function resolveServiceLocation(
     const countryRow = countryRows[0];
 
     if (!stateSlug) {
-      return { countryCode: countryRow.code, countryName: countryRow.name };
+      return { countryId: countryRow.id, countryCode: countryRow.code, countryName: countryRow.name };
     }
 
     const stateRows = await db
@@ -2271,7 +2271,7 @@ export async function resolveServiceLocation(
     const stateRow = stateRows[0];
 
     if (!citySlug) {
-      return { countryCode: countryRow.code, countryName: countryRow.name, stateName: stateRow.name };
+      return { countryId: countryRow.id, countryCode: countryRow.code, countryName: countryRow.name, stateId: stateRow.id, stateName: stateRow.name };
     }
 
     const cityRows = await db
@@ -2284,9 +2284,12 @@ export async function resolveServiceLocation(
     }
 
     return {
+      countryId: countryRow.id,
       countryCode: countryRow.code,
       countryName: countryRow.name,
+      stateId: stateRow.id,
       stateName: stateRow.name,
+      cityId: cityRows[0].id,
       cityName: cityRows[0].name,
     };
   } catch (error) {

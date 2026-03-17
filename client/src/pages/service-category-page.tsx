@@ -5,7 +5,7 @@ import { Footer } from "@/components/layout/footer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SEO } from "@/components/seo";
-import { ExternalLink, ChevronDown } from "lucide-react";
+import { ExternalLink, ChevronDown, SlidersHorizontal, X, Star, ShieldCheck, Zap, Award } from "lucide-react";
 import { generateBreadcrumbListSchema } from "@/lib/structured-data";
 import { ServiceCardGrid } from "@/components/common/service-card-grid";
 import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
@@ -40,8 +40,8 @@ interface Service {
   images?: string[];
   avgRating: number;
   reviewCount: number;
-  detective: Detective;
   badgeState?: any;
+  detective: Detective;
 }
 
 interface ServiceLocationMeta {
@@ -49,8 +49,8 @@ interface ServiceLocationMeta {
   countryCode?: string;
   state: string;
   city: string;
-  category: string;      // actual DB category name e.g. "Background Check"
-  categorySlug?: string; // URL slug e.g. "background-checks"
+  category: string;
+  categorySlug?: string;
   total: number;
   found: boolean;
 }
@@ -259,6 +259,167 @@ function buildGenericConfig(displayName: string): CategoryConfig {
   };
 }
 
+// ─── Filter Sidebar ───────────────────────────────────────────────────────────
+
+interface FilterState {
+  minRating: number;
+  badges: string[];
+  priceType: "all" | "fixed" | "enquiry";
+  sortBy: "popular" | "rating" | "reviews";
+}
+
+const DEFAULT_FILTERS: FilterState = {
+  minRating: 0,
+  badges: [],
+  priceType: "all",
+  sortBy: "popular",
+};
+
+function FilterPanel({
+  filters,
+  onChange,
+  totalResults,
+  filteredCount,
+}: {
+  filters: FilterState;
+  onChange: (f: FilterState) => void;
+  totalResults: number;
+  filteredCount: number;
+}) {
+  const hasActive =
+    filters.minRating > 0 ||
+    filters.badges.length > 0 ||
+    filters.priceType !== "all" ||
+    filters.sortBy !== "popular";
+
+  const toggleBadge = (badge: string) => {
+    const next = filters.badges.includes(badge)
+      ? filters.badges.filter(b => b !== badge)
+      : [...filters.badges, badge];
+    onChange({ ...filters, badges: next });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-gray-900 text-sm">
+          Filters
+          {hasActive && (
+            <span className="ml-2 bg-blue-600 text-white text-xs rounded-full px-2 py-0.5">
+              {[filters.minRating > 0, filters.badges.length > 0, filters.priceType !== "all"].filter(Boolean).length}
+            </span>
+          )}
+        </span>
+        {hasActive && (
+          <button
+            onClick={() => onChange(DEFAULT_FILTERS)}
+            className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+          >
+            <X className="h-3 w-3" /> Clear all
+          </button>
+        )}
+      </div>
+
+      {/* Results count */}
+      <p className="text-xs text-gray-500">
+        Showing <span className="font-semibold text-gray-800">{filteredCount}</span> of {totalResults} results
+      </p>
+
+      {/* Sort */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Sort By</p>
+        {(["popular", "rating", "reviews"] as const).map(opt => (
+          <label key={opt} className="flex items-center gap-2 mb-2 cursor-pointer">
+            <input
+              type="radio"
+              name="sort"
+              checked={filters.sortBy === opt}
+              onChange={() => onChange({ ...filters, sortBy: opt })}
+              className="accent-blue-600"
+            />
+            <span className="text-sm text-gray-700">
+              {opt === "popular" ? "Most Popular" : opt === "rating" ? "Highest Rated" : "Most Reviewed"}
+            </span>
+          </label>
+        ))}
+      </div>
+
+      <hr className="border-gray-200" />
+
+      {/* Minimum Rating */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Minimum Rating</p>
+        {[0, 3, 4, 4.5].map(r => (
+          <label key={r} className="flex items-center gap-2 mb-2 cursor-pointer">
+            <input
+              type="radio"
+              name="rating"
+              checked={filters.minRating === r}
+              onChange={() => onChange({ ...filters, minRating: r })}
+              className="accent-blue-600"
+            />
+            <span className="text-sm text-gray-700 flex items-center gap-1">
+              {r === 0 ? (
+                "Any rating"
+              ) : (
+                <>
+                  <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                  {r}+ stars
+                </>
+              )}
+            </span>
+          </label>
+        ))}
+      </div>
+
+      <hr className="border-gray-200" />
+
+      {/* Badges */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Badges</p>
+        {[
+          { key: "blueTick", label: "Blue Tick Verified", Icon: ShieldCheck, color: "text-blue-600" },
+          { key: "pro",      label: "Pro Agency",         Icon: Zap,         color: "text-purple-600" },
+          { key: "recommended", label: "Recommended",     Icon: Award,       color: "text-green-600" },
+        ].map(({ key, label, Icon, color }) => (
+          <label key={key} className="flex items-center gap-2 mb-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filters.badges.includes(key)}
+              onChange={() => toggleBadge(key)}
+              className="accent-blue-600"
+            />
+            <Icon className={`h-4 w-4 ${color}`} />
+            <span className="text-sm text-gray-700">{label}</span>
+          </label>
+        ))}
+      </div>
+
+      <hr className="border-gray-200" />
+
+      {/* Price Type */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Pricing</p>
+        {(["all", "fixed", "enquiry"] as const).map(opt => (
+          <label key={opt} className="flex items-center gap-2 mb-2 cursor-pointer">
+            <input
+              type="radio"
+              name="price"
+              checked={filters.priceType === opt}
+              onChange={() => onChange({ ...filters, priceType: opt })}
+              className="accent-blue-600"
+            />
+            <span className="text-sm text-gray-700">
+              {opt === "all" ? "All" : opt === "fixed" ? "Fixed Price" : "On Enquiry"}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ServiceCategoryPage() {
@@ -274,7 +435,6 @@ export default function ServiceCategoryPage() {
   const stateSlug    = (paramsCity?.state || paramsState?.state) || "";
   const citySlug     = paramsCity?.city || "";
 
-  // config from hardcoded map — may be null for DB-only categories; resolved after API responds
   const staticConfig = CATEGORY_CONFIG[categorySlug] || null;
 
   const [services, setServices] = useState<Service[]>([]);
@@ -282,10 +442,12 @@ export default function ServiceCategoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFAQs, setExpandedFAQs] = useState<Record<number, boolean>>({ 0: false, 1: false, 2: false });
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const apiPath = useMemo(
     () => `/api/services/${encodeURIComponent(categorySlug)}/${[countrySlug, stateSlug, citySlug].filter(Boolean).map(encodeURIComponent).join("/")}`,
-    [categorySlug, countrySlug, stateSlug, citySlug]  // works for all 3 levels — trailing empty strings are filtered
+    [categorySlug, countrySlug, stateSlug, citySlug]
   );
 
   const canonicalPath = citySlug
@@ -296,7 +458,6 @@ export default function ServiceCategoryPage() {
   const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
 
   useEffect(() => {
-    // Allow any valid route match + category slug — unknown categories resolved from API
     if (!match || !categorySlug || !countrySlug) {
       setError("Invalid service category or location");
       setLoading(false);
@@ -335,18 +496,38 @@ export default function ServiceCategoryPage() {
     return () => { cancelled = true; controller.abort(); };
   }, [apiPath, match, categorySlug, countrySlug, stateSlug, citySlug]);
 
+  // ── Client-side filtering & sorting ─────────────────────────────────────────
+  const filteredServices = useMemo(() => {
+    let result = services.filter(s => {
+      if (filters.minRating > 0 && s.avgRating < filters.minRating) return false;
+
+      const badge = s.badgeState ?? s.detective.badgeState;
+      if (filters.badges.includes("blueTick") && !badge?.showBlueTick) return false;
+      if (filters.badges.includes("pro") && !badge?.showPro) return false;
+      if (filters.badges.includes("recommended") && !badge?.showRecommended) return false;
+
+      if (filters.priceType === "fixed" && (s.isOnEnquiry || (!s.basePrice && !s.offerPrice))) return false;
+      if (filters.priceType === "enquiry" && !s.isOnEnquiry) return false;
+
+      return true;
+    });
+
+    if (filters.sortBy === "rating") {
+      result = [...result].sort((a, b) => b.avgRating - a.avgRating);
+    } else if (filters.sortBy === "reviews") {
+      result = [...result].sort((a, b) => b.reviewCount - a.reviewCount);
+    }
+
+    return result;
+  }, [services, filters]);
+
   const cityName    = locationMeta?.city    || citySlug.replace(/-/g, " ");
   const stateName   = locationMeta?.state   || stateSlug.replace(/-/g, " ");
   const countryName = locationMeta?.country || countrySlug.replace(/-/g, " ");
 
-  // Most specific non-empty location label (city > state > country)
-  const locationLabel = cityName || stateName || countryName;
-  // Secondary label for "city, state" style display
-  const locationSubLabel = cityName
-    ? [cityName, stateName].filter(Boolean).join(", ")
-    : stateName || countryName;
+  const locationLabel    = cityName || stateName || countryName;
+  const locationSubLabel = cityName ? [cityName, stateName].filter(Boolean).join(", ") : stateName || countryName;
 
-  // Resolve config: use hardcoded map if available, else build generic from real DB category name
   const config = staticConfig || (locationMeta?.category ? buildGenericConfig(locationMeta.category) : null);
 
   const seoTitle = config
@@ -385,7 +566,6 @@ export default function ServiceCategoryPage() {
     },
   ] : [];
 
-  // Loading
   if (loading) {
     return (
       <div className="min-h-screen bg-white">
@@ -401,7 +581,6 @@ export default function ServiceCategoryPage() {
     );
   }
 
-  // Unknown category or error
   if (!config || error) {
     return (
       <div className="min-h-screen bg-white">
@@ -448,7 +627,7 @@ export default function ServiceCategoryPage() {
         </nav>
 
         {/* Header */}
-        <div className="mb-12">
+        <div className="mb-8">
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">{h1Text}</h1>
           <p className="text-lg text-gray-600 mb-6 max-w-3xl">
             {getDescription(config, locationLabel, stateName || countryName, services.length)}
@@ -459,8 +638,8 @@ export default function ServiceCategoryPage() {
           </div>
         </div>
 
-        {/* Authority link to all detectives */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-12">
+        {/* Authority link */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-3">Explore All Detectives in {locationLabel}</h2>
           <p className="text-gray-700 mb-4">
             Browse all verified private investigators available in {locationSubLabel}.
@@ -474,46 +653,100 @@ export default function ServiceCategoryPage() {
           </a>
         </div>
 
-        {/* Services Grid */}
-        <div className="mb-12">
-          <ServiceCardGrid
-            isLoading={false}
-            emptyMessage={`No ${config.pluralName.toLowerCase()} found in this location yet.`}
-            services={services.map(service => {
-              const toSlug = (s?: string) => (s || "").toLowerCase().trim().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
-              const priceDisplay = service.isOnEnquiry || (!service.offerPrice && !service.basePrice)
-                ? "On Enquiry"
-                : service.offerPrice
-                ? `₹${service.offerPrice.toFixed(0)}`
-                : `₹${service.basePrice!.toFixed(0)}`;
-              return {
-                id: service.id,
-                slug: service.slug,
-                detectiveId: service.detective.id,
-                detectiveSlug: service.detective.slug,
-                detectiveBusinessName: service.detective.businessName,
-                detectiveName: service.detective.businessName,
-                detectiveCountry: service.detective.country,
-                detectiveState: service.detective.state,
-                detectiveCity: service.detective.city,
-                detectiveCountrySlug: toSlug(service.detective.country),
-                detectiveStateSlug: toSlug(service.detective.state),
-                detectiveCitySlug: toSlug(service.detective.city),
-                detectiveAvatar: service.detective.logo,
-                detectiveLevel: service.detective.level,
-                images: service.images?.length ? service.images : (service.detective.logo ? [service.detective.logo] : []),
-                title: service.title,
-                avgRating: service.avgRating,
-                reviewCount: service.reviewCount,
-                priceDisplay,
-                isOnEnquiry: service.isOnEnquiry,
-                phone: service.detective.phone,
-                whatsapp: service.detective.whatsapp,
-                contactEmail: service.detective.contactEmail,
-                badgeState: service.badgeState ?? service.detective.badgeState,
-              };
-            })}
-          />
+        {/* Mobile filter toggle */}
+        <div className="lg:hidden mb-4">
+          <button
+            onClick={() => setMobileFiltersOpen(v => !v)}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Filters &amp; Sort
+            {(filters.minRating > 0 || filters.badges.length > 0 || filters.priceType !== "all") && (
+              <span className="bg-blue-600 text-white text-xs rounded-full px-1.5 py-0.5">
+                {[filters.minRating > 0, filters.badges.length > 0, filters.priceType !== "all"].filter(Boolean).length}
+              </span>
+            )}
+          </button>
+
+          {mobileFiltersOpen && (
+            <div className="mt-3 p-4 border border-gray-200 rounded-xl bg-white shadow-md">
+              <FilterPanel
+                filters={filters}
+                onChange={setFilters}
+                totalResults={services.length}
+                filteredCount={filteredServices.length}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Main: sidebar + grid */}
+        <div className="flex gap-8 mb-12">
+          {/* Desktop sidebar */}
+          <aside className="hidden lg:block w-56 flex-shrink-0">
+            <div className="sticky top-24 border border-gray-200 rounded-xl p-5 bg-white shadow-sm">
+              <FilterPanel
+                filters={filters}
+                onChange={setFilters}
+                totalResults={services.length}
+                filteredCount={filteredServices.length}
+              />
+            </div>
+          </aside>
+
+          {/* Service grid */}
+          <div className="flex-1 min-w-0">
+            {filteredServices.length === 0 && services.length > 0 ? (
+              <div className="text-center py-16">
+                <p className="text-gray-500 mb-4">No services match your current filters.</p>
+                <button
+                  onClick={() => setFilters(DEFAULT_FILTERS)}
+                  className="text-blue-600 hover:underline text-sm"
+                >
+                  Clear all filters
+                </button>
+              </div>
+            ) : (
+              <ServiceCardGrid
+                isLoading={false}
+                emptyMessage={`No ${config.pluralName.toLowerCase()} found in this location yet.`}
+                services={filteredServices.map(service => {
+                  const toSlug = (s?: string) => (s || "").toLowerCase().trim().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
+                  const priceDisplay = service.isOnEnquiry || (!service.offerPrice && !service.basePrice)
+                    ? "On Enquiry"
+                    : service.offerPrice
+                    ? `₹${service.offerPrice.toFixed(0)}`
+                    : `₹${service.basePrice!.toFixed(0)}`;
+                  return {
+                    id: service.id,
+                    slug: service.slug,
+                    detectiveId: service.detective.id,
+                    detectiveSlug: service.detective.slug,
+                    detectiveBusinessName: service.detective.businessName,
+                    detectiveName: service.detective.businessName,
+                    detectiveCountry: service.detective.country,
+                    detectiveState: service.detective.state,
+                    detectiveCity: service.detective.city,
+                    detectiveCountrySlug: toSlug(service.detective.country),
+                    detectiveStateSlug: toSlug(service.detective.state),
+                    detectiveCitySlug: toSlug(service.detective.city),
+                    detectiveAvatar: service.detective.logo,
+                    detectiveLevel: service.detective.level,
+                    images: service.images?.length ? service.images : (service.detective.logo ? [service.detective.logo] : []),
+                    title: service.title,
+                    avgRating: service.avgRating,
+                    reviewCount: service.reviewCount,
+                    priceDisplay,
+                    isOnEnquiry: service.isOnEnquiry,
+                    phone: service.detective.phone,
+                    whatsapp: service.detective.whatsapp,
+                    contactEmail: service.detective.contactEmail,
+                    badgeState: service.badgeState ?? service.detective.badgeState,
+                  };
+                })}
+              />
+            )}
+          </div>
         </div>
 
         {/* FAQ Section */}
