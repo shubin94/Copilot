@@ -1118,10 +1118,10 @@ export class DatabaseStorage implements IStorage {
       }
     }
     // ✅ STRICT CATEGORY MATCHING - When category is selected, it's authoritative
-    // Smart Search determines the category; we enforce EXACT match (not fuzzy)
+    // Smart Search determines the category; we enforce EXACT match (case-insensitive)
     // Ranking applies ONLY within the selected category
     if (filters.category) {
-      conditions.push(eq(services.category, filters.category.trim()));
+      conditions.push(sql`lower(${services.category}) = lower(${filters.category.trim()})`);
     }
     
     // Full-text search using precomputed search_vector column (optimized)
