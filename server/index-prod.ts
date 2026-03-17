@@ -14,7 +14,6 @@ import { loadSecretsFromDatabase } from "./lib/secretsLoader.js";
 import { validateDatabase } from "./startup.js";
 import { initializeEnv } from "./lib/loadEnv.js";
 import { getEnvironmentBadge } from "../db/validateDatabase.js";
-import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
 import {
   // extractDetectiveRouteParams,
   // getDetectiveBySlugForSEO,
@@ -94,9 +93,14 @@ export async function serveStatic(app: Express, _server: Server) {
     );
   }
 
-  const fallback404File = path.resolve(distPath, "404.html");
   const indexHtmlPath = path.resolve(distPath, "index.html");
-  let cachedIndexHtml: string | null = null;
+  // Never cache index.html in memory — always read from disk so a new build
+  // is picked up immediately without needing a server restart.
+  async function readIndexHtml(): Promise<string> {
+    return fs.promises.readFile(indexHtmlPath, "utf-8");
+  }
+
+  console.log("SERVING FRONTEND FROM:", indexHtmlPath);
 
   // In-memory SSR cache: caches fully-rendered HTML for location/service pages.
   // Keyed by request path, TTL 5 minutes. Dramatically reduces DB load on
@@ -192,18 +196,7 @@ export async function serveStatic(app: Express, _server: Server) {
 
       if (!params) {
         // Fallback to normal SPA if params don't match
-        // Load cache first if not already loaded, then pass to handler
-        if (!cachedIndexHtml) {
-          cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
-        }
-        return serveIndexHtmlWithSeo(res, indexHtmlPath, null, cachedIndexHtml);
-      }
-
-      // ✅ OPTIMIZATION: Load index HTML template once and cache in memory
-      // Subsequent requests reuse from module-level cachedIndexHtml variable
-      // This eliminates disk I/O on every request (typical 10-30ms saved per request)
-      if (!cachedIndexHtml) {
-        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
+        return serveIndexHtmlWithSeo(res, indexHtmlPath, null, null);
       }
 
       // const isCity = segments.length === 4; // /detectives/:country/:state/:city
@@ -251,7 +244,7 @@ export async function serveStatic(app: Express, _server: Server) {
       linksHtml += '</ul>';
       linksHtml += '</section>';
 
-      let seoHtml = injectSeoTags(cachedIndexHtml, {
+      let seoHtml = injectSeoTags(await readIndexHtml(), {
         title: seoValues.meta_title,
         h1: seoValues.h1,
         meta_description: seoValues.meta_description
@@ -307,10 +300,6 @@ export async function serveStatic(app: Express, _server: Server) {
 
       const [, country, state, city/*, detectiveSlug*/] = segments;
 
-      if (!cachedIndexHtml) {
-        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
-      }
-
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
 
       // Fetch detective data for SEO
@@ -320,7 +309,7 @@ export async function serveStatic(app: Express, _server: Server) {
       } catch (e) {
         detectiveSeo = generateDetectiveSeo(country, state, city);
       }
-      const seoHtml = injectSeoTags(cachedIndexHtml, detectiveSeo, canonicalUrl);
+      const seoHtml = injectSeoTags(await readIndexHtml(), detectiveSeo, canonicalUrl);
       res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.send(seoHtml);
@@ -350,13 +339,9 @@ export async function serveStatic(app: Express, _server: Server) {
 
       console.log(`[Detectives Catch-All] Serving SPA for unmatched path: ${requestPath} (${segments.length} segments)`);
       
-      if (!cachedIndexHtml) {
-        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
-      }
-
       res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(cachedIndexHtml);
+      return res.send(await readIndexHtml());
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[Detectives Catch-All] Error:', errorMsg);
@@ -426,11 +411,6 @@ export async function serveStatic(app: Express, _server: Server) {
       // Generate canonical URL
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
 
-      // Load and inject SEO tags
-      if (!cachedIndexHtml) {
-        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
-      }
-
       // Fetch SEO values and service listings in parallel
       let [otherAreas, otherServices, nearbyCities] = await Promise.all([
         getOtherAreasInCity(params.citySlug || '', '', 20),
@@ -443,7 +423,7 @@ export async function serveStatic(app: Express, _server: Server) {
       } catch (e) {
         seoValues = generateServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug || '', '');
       }
-      let seoHtml = injectSeoTags(cachedIndexHtml, {
+      let seoHtml = injectSeoTags(await readIndexHtml(), {
         title: seoValues.meta_title,
         h1: seoValues.h1,
         meta_description: seoValues.meta_description
@@ -503,17 +483,13 @@ export async function serveStatic(app: Express, _server: Server) {
         return res.status(404).type("text/plain").send("Not Found");
       }
 
-      if (!cachedIndexHtml) {
-        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
-      }
-
       const seo = await getPublishedCmsPageSeo(slug);
-      let html = cachedIndexHtml;
+      let html = await readIndexHtml();
 
       if (seo) {
         const canonicalPath = req.path.replace(/\/$/, "") || `/${slug}`;
         const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
-        html = injectCmsPageSeoTags(cachedIndexHtml, seo, canonicalUrl);
+        html = injectCmsPageSeoTags(html, seo, canonicalUrl);
       }
 
       res.setHeader("Cache-Control", "no-store");
@@ -532,15 +508,10 @@ export async function serveStatic(app: Express, _server: Server) {
   // Homepage route - serves client index.html
   app.get("/", async (_req: Request, res: Response) => {
     try {
-      // Read index.html once and cache it
-      if (!cachedIndexHtml) {
-        cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
-      }
-
-      let html = cachedIndexHtml;
+      let html = await readIndexHtml();
       const seo = await getPublishedCmsPageSeo("/");
       if (seo) {
-        html = injectCmsPageSeoTags(cachedIndexHtml, seo, "https://www.askdetectives.com/");
+        html = injectCmsPageSeoTags(html, seo, "https://www.askdetectives.com/");
       }
 
       // Homepage: allow 1-hour browser/CDN cache, refresh in background (stale-while-revalidate)
@@ -570,9 +541,16 @@ export async function serveStatic(app: Express, _server: Server) {
   }));
 
   // SPA fallback: only after all API routes and middleware
-  app.get("*", (req, res) => {
+  app.get("*", async (req, res) => {
     if (req.path.startsWith("/api")) return res.status(404).end();
-    res.sendFile(path.resolve("dist/public/index.html"));
+    try {
+      const html = await readIndexHtml();
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch {
+      res.status(500).type("text/plain").send("Error loading page");
+    }
   });
 }
 

@@ -81,43 +81,6 @@ import type { DetectiveListDTO } from "../interfaces/DetectiveListDTO.js";
 import { getGoogleIndexing } from "./services/google-indexing-service.js";
 import { normalizeRouteSlugParam } from "./lib/location-normalizer.js";
 
-// Utility function to generate URL-safe slugs from text
-
-// Country code to name mapping for URL handling
-const COUNTRY_CODE_MAP: Record<string, string> = {
-  'IN': 'India',
-  'US': 'United States',
-  'UK': 'United Kingdom',
-  'GB': 'United Kingdom',
-  'CA': 'Canada',
-  'AU': 'Australia',
-  'DE': 'Germany',
-  'FR': 'France',
-  'IT': 'Italy',
-  'ES': 'Spain',
-  'NZ': 'New Zealand',
-  'IE': 'Ireland',
-  'SG': 'Singapore',
-  'MY': 'Malaysia',
-  'PH': 'Philippines',
-  'TH': 'Thailand',
-  'VN': 'Vietnam',
-  'PK': 'Pakistan',
-  'BD': 'Bangladesh',
-  'ZA': 'South Africa',
-  'AE': 'United Arab Emirates',
-  'KW': 'Kuwait',
-  'SA': 'Saudi Arabia',
-  'QA': 'Qatar',
-  'OM': 'Oman',
-  'JP': 'Japan',
-  'CN': 'China',
-  'HK': 'Hong Kong',
-  'MX': 'Mexico',
-  'BR': 'Brazil',
-  'AR': 'Argentina',
-  'CL': 'Chile',
-};
 
 
 // Razorpay client initialization has been moved to server/routes/paymentRoutes.ts
