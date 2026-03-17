@@ -2210,14 +2210,9 @@ export function generateSlug(text: string): string {
  */
 // Service category slug → display name mapping
 // Add new entries here to automatically enable SEO injection for additional service pages
-const SERVICE_CATEGORY_MAP: Record<string, string> = {
-  'background-checks': 'Background Check',
-  'surveillance': 'Surveillance',
-  'matrimonial-investigation': 'Matrimonial Investigation',
-  'corporate-investigation': 'Corporate Investigation',
-  'asset-tracing': 'Asset Tracing',
-  'missing-persons': 'Missing Persons Investigation',
-};
+function categorySlugToName(slug: string): string {
+  return slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
 
 export function extractServiceLocationRouteParams(
   requestPath: string
@@ -2229,8 +2224,8 @@ export function extractServiceLocationRouteParams(
   if (segments[0] !== 'locations' || segments.length < 3 || segments.length > 5) return null;
 
   const categorySlug = segments[1];
-  const category = SERVICE_CATEGORY_MAP[categorySlug];
-  if (!category) return null;
+  // Derive category display name from slug (matches how sitemapService generates these URLs)
+  const category = categorySlugToName(categorySlug);
 
   if (segments.length === 3) {
     return { category, categorySlug, countrySlug: segments[2], level: 'country' };
