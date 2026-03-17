@@ -1,4 +1,4 @@
-import { db } from "../db";
+import { db } from "../db.js";
 
 export async function getTopNearbyCities(country_slug: string, city_slug: string, limit = 20) {
   // Example: fetch cities in same country, excluding current city, ordered by population or activity
