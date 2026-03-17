@@ -612,7 +612,7 @@ export default function ServiceCategoryPage() {
         keywords={keywords}
       />
       <Navbar />
-      <main className="container mx-auto px-6 md:px-12 lg:px-24 py-8">
+      <main className="container mx-auto px-4 py-6">
         {/* Breadcrumb */}
         <nav className="mb-8 text-sm text-gray-600">
           <a href="/" className="hover:text-blue-600">Home</a>
@@ -628,8 +628,8 @@ export default function ServiceCategoryPage() {
 
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">{h1Text}</h1>
-          <p className="text-lg text-gray-600 mb-6 max-w-3xl">
+          <h1 className="text-2xl font-bold mb-2">{h1Text}</h1>
+          <p className="text-base text-gray-600 mb-2 max-w-3xl">
             {getDescription(config, locationLabel, stateName || countryName, services.length)}
           </p>
           <div className="flex flex-wrap gap-4 items-center">
@@ -640,8 +640,8 @@ export default function ServiceCategoryPage() {
 
         {/* Authority link */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-3">Explore All Detectives in {locationLabel}</h2>
-          <p className="text-gray-700 mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Explore All Detectives in {locationLabel}</h2>
+          <p className="text-gray-700 mb-2">
             Browse all verified private investigators available in {locationSubLabel}.
           </p>
           <a

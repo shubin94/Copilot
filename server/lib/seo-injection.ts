@@ -1331,7 +1331,13 @@ export async function getLocationDetectivesForSEO(
     // Build query conditions using only country_id, state_id, city_id
     const limitValue = typeof limit === "number" && limit > 0 ? Math.floor(limit) : 15;
     const offsetValue = typeof offset === "number" && offset > 0 ? Math.floor(offset) : 0;
-    const allowParentFallback = options?.allowParentFallback ?? true;
+    // Disable fallback for country-level queries (no state/city)
+    let allowParentFallback: boolean;
+    if (!state && !city) {
+      allowParentFallback = options?.allowParentFallback ?? false;
+    } else {
+      allowParentFallback = options?.allowParentFallback ?? true;
+    }
     const includeTotalCount = options?.includeTotalCount ?? false;
     const countrySlugParam = normalizeRouteSlugParam(country);
     const stateSlugParam = state ? normalizeRouteSlugParam(state) : undefined;
