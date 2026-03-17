@@ -4272,6 +4272,94 @@ Content-Signal: index=public; train=deny
   // Location routes are now registered via registerLocationRoutes() function
   // See server/routes/locationRoutes.ts for location wizard, top locations, and SEO routes
 
+  app.get("/api/detectives/:id/similar", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const limit = Math.min(Number(req.query.limit) || 8, 12);
+
+      // Get the detective's city_id and a service category to match on
+      const detectiveRow = await pool.query(
+        `SELECT d.city_id, d.country_id, sc.name as category
+         FROM detectives d
+         LEFT JOIN services s ON s.detective_id = d.id AND s.status = 'active'
+         LEFT JOIN service_categories sc ON sc.id = s.category_id
+         WHERE d.id = $1
+         LIMIT 1`,
+        [id]
+      );
+
+      if (detectiveRow.rows.length === 0) {
+        return res.json([]);
+      }
+
+      const { city_id, country_id } = detectiveRow.rows[0];
+
+      // Find similar detectives in same city, same country, exclude current
+      const result = await pool.query(
+        `SELECT DISTINCT ON (d.id)
+           d.id, d.slug,
+           d.business_name as "businessName",
+           d.logo, d.bio, d.level,
+           d.is_verified as "isVerified",
+           d.has_blue_tick as "hasBlueTick",
+           d.blue_tick_addon as "blueTickAddon",
+           d.phone, d.whatsapp, d.contact_email as "contactEmail",
+           d.last_active as "lastActive",
+           d.avg_response_time as "avgResponseTime",
+           ct.name as city, s.name as state, c.name as country,
+           ct.slug as "citySlug", s.slug as "stateSlug", c.slug as "countrySlug",
+           COALESCE(AVG(r.rating) OVER (PARTITION BY d.id), 0) as "avgRating",
+           COALESCE(COUNT(r.id) OVER (PARTITION BY d.id), 0) as "reviewCount"
+         FROM detectives d
+         INNER JOIN cities ct ON ct.id = d.city_id
+         INNER JOIN states s ON s.id = d.state_id
+         INNER JOIN countries c ON c.id = d.country_id
+         LEFT JOIN reviews r ON r.detective_id = d.id
+         WHERE d.city_id = $1
+           AND d.country_id = $2
+           AND d.id != $3
+           AND d.status = 'active'
+         ORDER BY d.id, "avgRating" DESC
+         LIMIT $4`,
+        [city_id, country_id, id, limit]
+      );
+
+      const detectives = result.rows.map((d: any) => ({
+        id: d.id,
+        slug: d.slug,
+        businessName: d.businessName,
+        logo: d.logo,
+        bio: d.bio,
+        level: d.level,
+        isVerified: d.isVerified,
+        city: d.city,
+        state: d.state,
+        country: d.country,
+        citySlug: d.citySlug,
+        stateSlug: d.stateSlug,
+        countrySlug: d.countrySlug,
+        phone: d.phone,
+        whatsapp: d.whatsapp,
+        contactEmail: d.contactEmail,
+        lastActive: d.lastActive,
+        avgResponseTime: d.avgResponseTime,
+        avgRating: Number(d.avgRating),
+        reviewCount: Number(d.reviewCount),
+        effectiveBadges: {
+          blueTick: d.hasBlueTick || d.blueTickAddon,
+          pro: d.level === "pro",
+          recommended: false,
+        },
+      }));
+
+      res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
+      res.json(detectives);
+    } catch (error) {
+      console.error("[GET /api/detectives/:id/similar] Error:", error);
+      res.status(500).json({ error: "Failed to get similar detectives" });
+    }
+  });
+
   app.get("/api/detectives/:id/public-service-count", async (req: Request, res: Response) => {
     try {
       const count = await storage.getPublicServiceCountByDetective(req.params.id);

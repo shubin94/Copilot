@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/user-context";
-import { useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices } from "@/lib/hooks";
+import { useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices, useSimilarDetectives } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { useState, useEffect } from "react";
 import { useLocation, useRoute, Link } from "wouter";
@@ -26,6 +26,7 @@ import { buildServiceUrl, getCountryName } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
+import { DetectiveCard } from "@/components/DetectiveCard";
 
 const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
   month: "long",
@@ -87,6 +88,7 @@ export default function DetectiveProfile() {
 
   const detectiveIdForServices = serviceData?.detective?.id;
   useServicesByDetective(detectiveIdForServices);
+  const { data: similarDetectives, isLoading: isLoadingSimilar } = useSimilarDetectives(detectiveIdForServices);
   const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceData?.service?.id);
   const { data: relatedServicesData, isLoading: isLoadingRelatedServices } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 2);
   
@@ -366,9 +368,30 @@ export default function DetectiveProfile() {
   };
 
   // Schema.org Structured Data
+  const schemaReviews = reviews
+    .filter((r: any) => r.comment && r.comment.trim().length > 20)
+    .slice(0, 5)
+    .map((r: any) => ({
+      "@type": "Review",
+      "reviewRating": {
+        "@type": "Rating",
+        "ratingValue": Number(r.rating),
+        "bestRating": 5,
+        "worstRating": 1,
+      },
+      "author": {
+        "@type": "Person",
+        "name": reviewUsers[r.userId]?.name || "Verified Client",
+      },
+      "datePublished": r.createdAt
+        ? new Date(r.createdAt).toISOString().split("T")[0]
+        : undefined,
+      "reviewBody": r.comment,
+    }));
+
   const detectiveSchema = {
     "@context": "https://schema.org",
-    "@type": "ProfessionalService",
+    "@type": ["LocalBusiness", "ProfessionalService"],
     "name": detectiveName,
     "image": serviceImage || detectiveLogo || "",
     "description": service.description,
@@ -388,9 +411,12 @@ export default function DetectiveProfile() {
     },
     "aggregateRating": reviewCount > 0 ? {
       "@type": "AggregateRating",
-      "ratingValue": avgRating,
-      "reviewCount": reviewCount
+      "ratingValue": Math.round(avgRating * 10) / 10,
+      "bestRating": 5,
+      "worstRating": 1,
+      "reviewCount": Math.round(reviewCount),
     } : undefined,
+    ...(schemaReviews.length > 0 ? { "review": schemaReviews } : {}),
     "priceRange": "$$"
   };
 
@@ -972,6 +998,26 @@ export default function DetectiveProfile() {
             </div>
           </div>
         </div>
+
+        {/* Similar Detectives Section */}
+        {((similarDetectives && similarDetectives.length > 0) || isLoadingSimilar) && (
+          <section className="mt-12 pt-8 border-t border-gray-200">
+            <h2 className="text-xl font-bold font-heading mb-6">Similar Detectives in This Area</h2>
+            {isLoadingSimilar ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-64 bg-gray-100 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {(similarDetectives || []).map((d: any) => (
+                  <DetectiveCard key={d.id} detective={d} variant="city" />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
       </main>
       <Footer />
     </div>

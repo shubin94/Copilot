@@ -7,8 +7,6 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 // @ts-ignore
 import heroBgPng from "@assets/generated_images/professional_modern_city_skyline_at_dusk_with_subtle_mystery_vibes.png";
-// @ts-ignore
-import heroBgWebp from "@assets/generated_images/professional_modern_city_skyline_at_dusk_with_subtle_mystery_vibes.webp";
 
 type SmartSearchResult =
   | { kind: "prohibited"; message: string; alternativeCategory?: string }
@@ -101,27 +99,27 @@ export function Hero() {
           <img
             src={heroImage}
             alt="Hero section image"
-            width={800}
-            height={400}
+            width={1920}
+            height={600}
             className="object-cover w-full h-full"
             {...({
-              fetchpriority: "low",
-              loading: "lazy",
+              fetchpriority: "high",
+              loading: "eager",
               decoding: "async",
             } as React.ImgHTMLAttributes<HTMLImageElement>)}
           />
         ) : (
           <picture>
-            <source srcSet={heroBgWebp} type="image/webp" />
+            <source srcSet="/hero-bg.webp" type="image/webp" />
             <img
               src={heroBgPng}
               alt="Hero background"
-              width={800}
-              height={400}
+              width={1920}
+              height={600}
               className="object-cover w-full h-full"
               {...({
-                fetchpriority: "low",
-                loading: "lazy",
+                fetchpriority: "high",
+                loading: "eager",
                 decoding: "async",
               } as React.ImgHTMLAttributes<HTMLImageElement>)}
             />
