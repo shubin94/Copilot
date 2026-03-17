@@ -14,66 +14,36 @@ router.get("/summary", async (req: Request, res: Response) => {
       params.push(startDate, endDate);
     }
 
-    // Total revenue (lifetime)
-    const totalRevenueQuery = `
-      SELECT COALESCE(SUM(CAST(amount AS DECIMAL)), 0) as total
+    // Single pass over payment_orders for all summary metrics
+    const summaryResult = await pool.query(`
+      SELECT
+        COALESCE(SUM(CAST(amount AS DECIMAL)) FILTER (WHERE status = 'paid'), 0)                                                              AS total_revenue,
+        COALESCE(SUM(CAST(amount AS DECIMAL)) FILTER (WHERE status = 'paid' AND created_at >= DATE_TRUNC('month', CURRENT_DATE)), 0)          AS revenue_this_month,
+        COALESCE(SUM(CAST(amount AS DECIMAL)) FILTER (WHERE status = 'paid' AND created_at >= DATE_TRUNC('week', CURRENT_DATE)), 0)           AS revenue_this_week,
+        COUNT(*)                                                                                                                               AS total_transactions,
+        COUNT(DISTINCT detective_id) FILTER (WHERE status = 'paid')                                                                           AS total_paying_detectives
       FROM payment_orders
-      WHERE status = 'paid'
-    `;
-    const totalRevenueResult = await pool.query(totalRevenueQuery);
+    `);
+    const s = summaryResult.rows[0];
 
-    // Revenue this month
-    const monthRevenueQuery = `
-      SELECT COALESCE(SUM(CAST(amount AS DECIMAL)), 0) as total
-      FROM payment_orders
-      WHERE status = 'paid'
-        AND created_at >= DATE_TRUNC('month', CURRENT_DATE)
-    `;
-    const monthRevenueResult = await pool.query(monthRevenueQuery);
-
-    // Revenue this week
-    const weekRevenueQuery = `
-      SELECT COALESCE(SUM(CAST(amount AS DECIMAL)), 0) as total
-      FROM payment_orders
-      WHERE status = 'paid'
-        AND created_at >= DATE_TRUNC('week', CURRENT_DATE)
-    `;
-    const weekRevenueResult = await pool.query(weekRevenueQuery);
-
-    // Total transactions
-    const totalTransactionsQuery = `
-      SELECT COUNT(*) as total
-      FROM payment_orders
-    `;
-    const totalTransactionsResult = await pool.query(totalTransactionsQuery);
-
-    // Total paying detectives (unique)
-    const totalDetectivesQuery = `
-      SELECT COUNT(DISTINCT detective_id) as total
-      FROM payment_orders
-      WHERE status = 'paid'
-    `;
-    const totalDetectivesResult = await pool.query(totalDetectivesQuery);
-
-    // Filtered revenue (if date range provided)
+    // Filtered revenue (if date range provided) — separate only when needed
     let filteredRevenue = null;
     if (startDate && endDate) {
-      const filteredQuery = `
-        SELECT COALESCE(SUM(CAST(amount AS DECIMAL)), 0) as total
-        FROM payment_orders
-        WHERE status = 'paid'
-          AND created_at BETWEEN $1 AND $2
-      `;
-      const filteredResult = await pool.query(filteredQuery, [startDate, endDate]);
+      const filteredResult = await pool.query(
+        `SELECT COALESCE(SUM(CAST(amount AS DECIMAL)), 0) AS total
+         FROM payment_orders
+         WHERE status = 'paid' AND created_at BETWEEN $1 AND $2`,
+        [startDate, endDate]
+      );
       filteredRevenue = filteredResult.rows[0].total;
     }
 
     res.json({
-      totalRevenue: totalRevenueResult.rows[0].total,
-      revenueThisMonth: monthRevenueResult.rows[0].total,
-      revenueThisWeek: weekRevenueResult.rows[0].total,
-      totalTransactions: parseInt(totalTransactionsResult.rows[0].total),
-      totalPayingDetectives: parseInt(totalDetectivesResult.rows[0].total),
+      totalRevenue: s.total_revenue,
+      revenueThisMonth: s.revenue_this_month,
+      revenueThisWeek: s.revenue_this_week,
+      totalTransactions: parseInt(s.total_transactions),
+      totalPayingDetectives: parseInt(s.total_paying_detectives),
       filteredRevenue,
     });
   } catch (error) {
@@ -171,36 +141,34 @@ router.get("/transactions", async (req: Request, res: Response) => {
 
     const transactionsResult = await pool.query(transactionsQuery, params);
 
-    // Get total count
-    const countQuery = `
-      SELECT COUNT(*) as total
+    // JOINs for count/revenue are only needed when the search filter references d/u columns
+    const needsJoin = Boolean(search);
+    const metaJoinClause = needsJoin
+      ? `LEFT JOIN detectives d ON po.detective_id = d.id\n      LEFT JOIN users u ON d.user_id = u.id`
+      : '';
+
+    // Single query for count + filtered revenue — avoids a second DB round-trip
+    const metaBaseParams = params.slice(0, -2);
+    const countRevenueQuery = `
+      SELECT
+        COUNT(*) AS total,
+        COALESCE(SUM(CAST(po.amount AS DECIMAL)) FILTER (WHERE po.status = 'paid'), 0) AS revenue
       FROM payment_orders po
-      LEFT JOIN detectives d ON po.detective_id = d.id
-      LEFT JOIN users u ON d.user_id = u.id
+      ${metaJoinClause}
       ${whereClause}
     `;
-    const countResult = await pool.query(countQuery, params.slice(0, -2));
+    const metaResult = await pool.query(countRevenueQuery, metaBaseParams);
 
-    // Get filtered revenue
-    const revenueQuery = `
-      SELECT COALESCE(SUM(CAST(po.amount AS DECIMAL)), 0) as total
-      FROM payment_orders po
-      LEFT JOIN detectives d ON po.detective_id = d.id
-      LEFT JOIN users u ON d.user_id = u.id
-      ${whereClause}
-      AND po.status = 'paid'
-    `;
-    const revenueResult = await pool.query(revenueQuery, params.slice(0, -2));
-
+    const totalCount = parseInt(metaResult.rows[0].total);
     res.json({
       transactions: transactionsResult.rows,
       pagination: {
         page: parseInt(page as string),
         limit: parseInt(limit as string),
-        total: parseInt(countResult.rows[0].total),
-        totalPages: Math.ceil(parseInt(countResult.rows[0].total) / parseInt(limit as string)),
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / parseInt(limit as string)),
       },
-      filteredRevenue: revenueResult.rows[0].total,
+      filteredRevenue: metaResult.rows[0].revenue,
     });
   } catch (error) {
     console.error("[admin-finance] Error fetching transactions:", error);
@@ -248,37 +216,25 @@ router.get("/detective/:id", async (req: Request, res: Response) => {
     `;
     const transactionsResult = await pool.query(transactionsQuery, [id]);
 
-    // Calculate stats
-    const totalSpentQuery = `
-      SELECT COALESCE(SUM(CAST(amount AS DECIMAL)), 0) as total
-      FROM payment_orders
-      WHERE detective_id = $1 AND status = 'paid'
-    `;
-    const totalSpentResult = await pool.query(totalSpentQuery, [id]);
-
-    const purchaseCountQuery = `
-      SELECT COUNT(*) as count
-      FROM payment_orders
-      WHERE detective_id = $1 AND status = 'paid'
-    `;
-    const purchaseCountResult = await pool.query(purchaseCountQuery, [id]);
-
-    const lastPurchaseQuery = `
-      SELECT created_at
-      FROM payment_orders
-      WHERE detective_id = $1 AND status = 'paid'
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-    const lastPurchaseResult = await pool.query(lastPurchaseQuery, [id]);
+    // All three stats in one pass
+    const statsResult = await pool.query(
+      `SELECT
+        COALESCE(SUM(CAST(amount AS DECIMAL)) FILTER (WHERE status = 'paid'), 0) AS total_spent,
+        COUNT(*) FILTER (WHERE status = 'paid')                                  AS purchase_count,
+        MAX(created_at) FILTER (WHERE status = 'paid')                           AS last_purchase_date
+       FROM payment_orders
+       WHERE detective_id = $1`,
+      [id]
+    );
+    const stats = statsResult.rows[0];
 
     res.json({
       detective,
       transactions: transactionsResult.rows,
       stats: {
-        totalSpent: totalSpentResult.rows[0].total,
-        purchaseCount: parseInt(purchaseCountResult.rows[0].count),
-        lastPurchaseDate: lastPurchaseResult.rows[0]?.created_at || null,
+        totalSpent: stats.total_spent,
+        purchaseCount: parseInt(stats.purchase_count),
+        lastPurchaseDate: stats.last_purchase_date || null,
       },
     });
   } catch (error) {

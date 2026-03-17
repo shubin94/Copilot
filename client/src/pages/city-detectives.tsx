@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRoute } from "wouter";
 import { Link } from "wouter";
 import { Navbar } from "@/components/layout/navbar";
@@ -87,17 +87,41 @@ interface RelatedLocation {
 
 // Dynamic content generator for unique location descriptions
 const generateLocationDescription = (locationDisplayName: string, detectiveCount: number): string => {
-  const descriptions = [
-    `Searching for professional private investigation services in ${locationDisplayName}? Our directory features vetted agencies specializing in corporate, legal, and personal cases. With ${detectiveCount} licensed detectives available, you'll find the expertise you need for your investigation.`,
-    `Need a trusted private investigator in ${locationDisplayName}? Connect with experienced detectives who handle everything from background checks to surveillance. Our network of ${detectiveCount} registered professionals provides confidential, reliable investigation services tailored to your needs.`,
-    `Browse ${detectiveCount} certified detectives in ${locationDisplayName} offering specialized investigation services. Whether you require legal discovery assistance, corporate investigations, or personal security services, find qualified professionals ready to help.`,
-    `Looking for private detective services in ${locationDisplayName}? Our comprehensive directory showcases ${detectiveCount} licensed investigators with expertise in fraud investigation, skip tracing, and witness interviews. All detectives are verified and insured.`,
-    `Hire a private investigator in ${locationDisplayName} with proven experience and verified credentials. Our network includes ${detectiveCount} professional detectives offering 24/7 investigation services for legal, corporate, and personal matters.`,
-  ];
-  
-  // Use deterministic random selection based on location hash
+  // 15 unique variants grouped by detective count to reduce thin/duplicate content
+  // Each varies: sentence structure, terminology (PI/investigator/detective/agency), CTA phrasing
   const hash = locationDisplayName.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return descriptions[hash % descriptions.length];
+
+  if (detectiveCount <= 9) {
+    // Small directory — emphasise quality, curation, and specialisation
+    const variants = [
+      `Looking for a reliable private investigator in ${locationDisplayName}? Ask Detectives lists ${detectiveCount} carefully curated detectives, each verified for credentials and professionalism. Find the right specialist for your case — background checks, surveillance, matrimonial, or corporate investigations.`,
+      `${locationDisplayName} has a select group of ${detectiveCount} licensed private investigators listed on Ask Detectives. While the directory is focused, every listed detective has been vetted for credentials and client satisfaction. Quality over quantity — find the right PI for your needs.`,
+      `Need a discreet private detective in ${locationDisplayName}? Ask Detectives features ${detectiveCount} verified investigators serving this area. Each professional has been reviewed for licencing and case expertise, ensuring you connect with a trusted specialist for your investigation.`,
+      `Ask Detectives connects you with ${detectiveCount} verified private investigation professionals in ${locationDisplayName}. Whether your case involves fraud, missing persons, background verification, or matrimonial checks — browse profiles, read reviews, and hire with confidence.`,
+      `Finding the right detective agency in ${locationDisplayName} starts here. Ask Detectives lists ${detectiveCount} licensed private investigators with verified credentials. Compare their specialisations and client ratings to choose the best fit for your case.`,
+    ];
+    return variants[hash % variants.length];
+  } else if (detectiveCount <= 49) {
+    // Growing directory — emphasise variety, range of specialisations
+    const variants = [
+      `Browse ${detectiveCount} experienced private detectives in ${locationDisplayName} on Ask Detectives. From background checks and surveillance to corporate fraud and matrimonial investigations, our growing directory covers a wide range of specialisations. Compare profiles, ratings, and fees to hire the right professional.`,
+      `Ask Detectives lists ${detectiveCount} verified private investigators across ${locationDisplayName}, covering personal, legal, and corporate investigation services. Filter by specialisation, check client reviews, and contact detectives directly — all in one place.`,
+      `With ${detectiveCount} licensed investigation agencies and solo PIs listed in ${locationDisplayName}, Ask Detectives makes it easy to find the right match for your case. Browse specialisations from asset tracing to employee screening, and compare reviews before reaching out.`,
+      `${locationDisplayName}'s private investigation community is well-represented on Ask Detectives, with ${detectiveCount} verified professionals ready to assist. Whether you need urgent surveillance, a corporate due diligence report, or a background check — find an expert who fits your timeline and budget.`,
+      `Searching for a trustworthy investigator in ${locationDisplayName}? Ask Detectives features ${detectiveCount} licensed PIs with verified credentials and real client reviews. Our directory covers a diverse range of case types, helping you match your specific investigation needs to the right professional.`,
+    ];
+    return variants[hash % variants.length];
+  } else {
+    // Large directory — emphasise comprehensive coverage, comparison, and platform authority
+    const variants = [
+      `Ask Detectives is ${locationDisplayName}'s most comprehensive directory of private investigators, listing ${detectiveCount} verified professionals. Compare ratings, specialisations, and pricing across top detective agencies and independent PIs — then connect directly with the right investigator for your case.`,
+      `With ${detectiveCount} licensed private investigators listed in ${locationDisplayName}, Ask Detectives gives you the widest choice of verified investigation professionals in the area. Filter by service type, read verified reviews, and hire with confidence knowing every listed detective has been checked.`,
+      `${locationDisplayName} has a thriving community of private investigation professionals. Ask Detectives lists ${detectiveCount} verified detectives — from large agencies to specialist solo investigators — covering every case type from surveillance and background checks to corporate forensics and missing persons.`,
+      `Hire a top-rated private detective in ${locationDisplayName} from a pool of ${detectiveCount} verified professionals on Ask Detectives. Our platform makes it easy to compare experience, case specialisations, client ratings, and fees before committing — giving you full confidence in your hiring decision.`,
+      `Ask Detectives offers the most complete listing of private investigation services in ${locationDisplayName}, with ${detectiveCount} verified investigators available. Whether you're an individual, a legal firm, or a business, find a specialist detective matching your exact requirements and budget.`,
+    ];
+    return variants[hash % variants.length];
+  }
 };
 
 // Extract unique specialties/business types from detectives
@@ -182,10 +206,14 @@ export default function CityDetectivesPage() {
     ? `/detectives/${countrySlug}/${stateSlug}/`
     : `/detectives/${countrySlug}/`;
   const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
-  const locationApiPath = `/api/detectives/location/${[countrySlug, stateSlug, citySlug]
-    .filter((segment) => !!segment)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/")}`;
+  const locationApiPath = useMemo(
+    () =>
+      `/api/detectives/location/${[countrySlug, stateSlug, citySlug]
+        .filter((segment) => !!segment)
+        .map((segment) => encodeURIComponent(segment))
+        .join("/")}`,
+    [countrySlug, stateSlug, citySlug]
+  );
 
   useEffect(() => {
     if (ssrData) {
@@ -195,7 +223,7 @@ export default function CityDetectivesPage() {
     const fetchLocationDetectives = async () => {
       // Create AbortController for request timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout (backend has 20s internal timeout)
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 25s timeout (backend has 20s internal timeout)
       
       try {
         setLoading(true);
@@ -244,7 +272,7 @@ export default function CityDetectivesPage() {
     if (countrySlug) {
       fetchLocationDetectives();
     }
-  }, [countrySlug, stateSlug, citySlug, locationApiPath, ssrData]);
+  }, [countrySlug, stateSlug, citySlug, ssrData]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -301,7 +329,7 @@ export default function CityDetectivesPage() {
 
     // Create AbortController for request timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 25s timeout
 
     try {
       setLoadingMore(true);

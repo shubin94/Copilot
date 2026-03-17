@@ -40,6 +40,40 @@ const STATIC_CMS_SEO_SLUGS = new Set([
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 
+/**
+ * Serves a properly structured 404 page with navigation links, noindex meta, and breadcrumb schema.
+ * Replaces bare HTML 404 strings to improve crawl budget and site quality signals.
+ */
+function serve404Page(res: Response, title: string, message: string): void {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} | Ask Detectives</title>
+  <meta name="robots" content="noindex, follow">
+  <link rel="canonical" href="https://www.askdetectives.com/">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://www.askdetectives.com"}]}</script>
+</head>
+<body style="font-family:Inter,sans-serif;max-width:800px;margin:60px auto;padding:0 24px;color:#1a1a1a;">
+  <h1 style="font-size:2rem;font-weight:700;margin-bottom:16px;">${message}</h1>
+  <p style="color:#6b7280;margin-bottom:32px;">The page you requested could not be found, or no investigators are listed in this location yet. Try browsing our top directories below.</p>
+  <nav style="display:flex;flex-wrap:wrap;gap:16px;">
+    <a href="/" style="color:#2563eb;text-decoration:none;font-weight:600;border:1px solid #2563eb;padding:8px 16px;border-radius:6px;">Back to Homepage</a>
+    <a href="/detectives/india/" style="color:#374151;text-decoration:none;border:1px solid #d1d5db;padding:8px 16px;border-radius:6px;">Detectives in India</a>
+    <a href="/detectives/united-states/" style="color:#374151;text-decoration:none;border:1px solid #d1d5db;padding:8px 16px;border-radius:6px;">Detectives in USA</a>
+    <a href="/detectives/united-kingdom/" style="color:#374151;text-decoration:none;border:1px solid #d1d5db;padding:8px 16px;border-radius:6px;">Detectives in UK</a>
+    <a href="/search" style="color:#374151;text-decoration:none;border:1px solid #d1d5db;padding:8px 16px;border-radius:6px;">Search All Detectives</a>
+  </nav>
+</body>
+</html>`;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.status(404).send(html);
+}
+
 export async function serveStatic(app: Express, _server: Server) {
   const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
 
@@ -52,6 +86,28 @@ export async function serveStatic(app: Express, _server: Server) {
   const fallback404File = path.resolve(distPath, "404.html");
   const indexHtmlPath = path.resolve(distPath, "index.html");
   let cachedIndexHtml: string | null = null;
+
+  // In-memory SSR cache: caches fully-rendered HTML for location/service pages.
+  // Keyed by request path, TTL 5 minutes. Dramatically reduces DB load on
+  // repeated hits to the same city/state/country pages within a warm server instance.
+  const SSR_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+  const ssrCache = new Map<string, { html: string; expiresAt: number }>();
+
+  function getSsrCache(key: string): string | null {
+    const entry = ssrCache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) { ssrCache.delete(key); return null; }
+    return entry.html;
+  }
+
+  function setSsrCache(key: string, html: string): void {
+    // Evict oldest entries if cache grows beyond 500 items to prevent memory leak
+    if (ssrCache.size >= 500) {
+      const firstKey = ssrCache.keys().next().value;
+      if (firstKey) ssrCache.delete(firstKey);
+    }
+    ssrCache.set(key, { html, expiresAt: Date.now() + SSR_CACHE_TTL_MS });
+  }
 
   // ✅ GLOBAL REQUEST LOGGER - Runs before all routes and middleware
   // Logs every incoming request to track execution flow
@@ -79,12 +135,11 @@ export async function serveStatic(app: Express, _server: Server) {
       return next();
     }
 
-    let normalizedPath = originalPath.toLowerCase();
-
-    // Remove trailing slash except root
-    if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
-      normalizedPath = normalizedPath.slice(0, -1);
-    }
+    // Normalize to lowercase only — do NOT strip trailing slashes.
+    // Stripping trailing slashes causes "Canonical points to redirect" in Ahrefs/Google because
+    // all canonical URLs and sitemap entries use trailing slashes. Stripping creates a redirect
+    // loop: canonical → trailing-slash URL → 301 to no-slash URL → canonical says trailing slash.
+    const normalizedPath = originalPath.toLowerCase();
 
     if (normalizedPath !== originalPath) {
       const query = req.url.includes('?')
@@ -103,6 +158,17 @@ export async function serveStatic(app: Express, _server: Server) {
     try {
       const requestPath = req.path;
       console.log("[SSR] Route start", { path: requestPath, timestamp: new Date().toISOString() });
+
+      // ✅ SSR CACHE: serve pre-rendered HTML within 5-min TTL to avoid repeated DB queries
+      const cacheKey = requestPath.replace(/\/+$/, '').toLowerCase();
+      const cachedHtml = getSsrCache(cacheKey);
+      if (cachedHtml) {
+        res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("X-SSR-Cache", "HIT");
+        return res.send(cachedHtml);
+      }
+
       const params = extractLocationRouteParams(requestPath);
 
       // Check if this is actually a location listing page (2-4 segments)
@@ -144,87 +210,60 @@ export async function serveStatic(app: Express, _server: Server) {
 
 
       console.log("[SSR] Fetching detectives...", { countrySlug: params.country, stateSlug: params.state, citySlug: params.city });
-      const locationSeoData = await getLocationDetectivesForSEO(
-        params.country,
-        params.state,
-        params.city
-      );
+      // Fetch SEO values and detective listings in parallel
+      const [seoValues, locationSeoData, nearbyCities, popularServices] = await Promise.all([
+        getDetectiveLocationSeo(params.country, params.state, params.city),
+        getLocationDetectivesForSEO(params.country, params.state, params.city),
+        getTopNearbyCities(params.country, params.city, 20),
+        getPopularServicesInCity(params.city, 20)
+      ]);
       const detectives = locationSeoData.detectives;
       const hasMore = locationSeoData.hasMore;
-      console.log("[SSR] Detectives fetched", { count: detectives.length, hasMore });
-      if (!detectives || detectives.length === 0) {
-        // No detectives found - return 404
-        console.log('[SEO] No detectives found for location:', params);
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        return res.status(404).send(
-          '<html><head><title>Location Not Found</title></head><body><h1>404 - No detectives in this location</h1></body></html>'
-        );
-      }
-      const seoDetectives = detectives
-        .filter((d) => Boolean(d.slug) && Boolean(d.businessName))
-        .map((d) => ({
-          slug: d.slug,
-          businessName: d.businessName,
-          city: d.city,
-          state: d.state,
-          country: d.country,
-        }));
-      console.log(`[SEO] Found ${detectives.length} detectives for location (hasMore: ${hasMore})`);
-
-      const servicesCheckResult = isCity
-        ? await storage.searchServices({
-            category: "Background Check",
-            country: params.country,
-            state: params.state,
-            city: params.city,
-          })
-        : [];
+      const detectiveCount = detectives ? detectives.length : 0;
 
       // Generate canonical URL
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
 
-      console.log(`[PROD-SEO] Before injectLocationSeoTags - template length: ${cachedIndexHtml.length}, has SSR_H1_INJECTION_POINT: ${cachedIndexHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
+      // Internal linking HTML
+      let linksHtml = '<section style="margin-top:32px">';
+      linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Top Nearby Cities</h2>';
+      linksHtml += '<ul style="margin-bottom:24px">';
+      for (const city of nearbyCities.rows.slice(0, 20)) {
+        linksHtml += `<li><a href="/detectives/${params.country}/${city.slug}" style="color:#2563eb;text-decoration:none">Private Detectives in ${city.name}</a></li>`;
+      }
+      linksHtml += '</ul>';
+      linksHtml += `<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Popular Services in Nearby Cities</h2>`;
+      linksHtml += '<ul>';
+      for (const svc of popularServices.rows.slice(0, 20)) {
+        linksHtml += `<li><a href="/locations/${svc.slug}/${params.country}/${params.city}" style="color:#2563eb;text-decoration:none">${svc.name} in ${params.city}</a></li>`;
+      }
+      linksHtml += '</ul>';
+      linksHtml += '</section>';
 
-      // Inject SEO tags with explicit totalCount + resolved location
-      console.log("[SSR] Generating SEO...", { detectiveCount: seoDetectives.length, hasMore });
-      const seoHtml = await injectLocationSeoTags(
-        cachedIndexHtml,
-        params,
-        seoDetectives,
-        canonicalUrl,
-        detectives.length,
-        resolvedLocation
-      );
+      let seoHtml = injectSeoTags(cachedIndexHtml, {
+        title: seoValues.meta_title,
+        h1: seoValues.h1,
+        meta_description: seoValues.meta_description
+      });
 
-      console.log(`[PROD-SEO] After injectLocationSeoTags - template length: ${seoHtml.length}, has SSR_H1_INJECTION_POINT: ${seoHtml.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
-
-      // ✅ Inject detective → service authority link for city-level pages only (if services exist)
-      let finalHtml = seoHtml;
-      if (isCity && servicesCheckResult && servicesCheckResult.length > 0) {
-        try {
-          const countrySlug = segments[1];
-          const stateSlug = segments[2];
-          const citySlug = segments[3];
-
-          finalHtml = injectDetectiveLocationAuthorityLink(seoHtml, {
-            countrySlug,
-            stateSlug,
-            citySlug,
-            cityName: params.city ?? "",
-            stateName: params.state ?? "",
-          }, true);
-          console.log(`[SEO] Injected background check services link for ${params.city}, ${params.state}`);
-        } catch (err) {
-          console.error("[SEO] Error injecting authority link:", err);
-          // Continue without authority link if error occurs
-        }
+      // Handle zero-detective pages
+      if (detectiveCount === 0) {
+        // Add noindex meta tag
+        seoHtml = seoHtml.replace('<head>', '<head>\n<meta name="robots" content="noindex, follow">');
+        // Show special message
+        const cityName = params.city ? params.city.replace(/-/g, ' ') : 'this location';
+        const noDetectiveHtml = `<section style="margin-top:32px"><h2 style="font-size:1.5rem;font-weight:700;margin-bottom:16px">No detectives available in ${cityName} yet.</h2><p style="color:#6b7280;margin-bottom:24px;">We are expanding our network. Please check nearby cities or popular services below.</p></section>`;
+        seoHtml = seoHtml.replace('</body>', `${noDetectiveHtml}${linksHtml}</body>`);
+      } else {
+        // Indexable page, show detective listings and internal links
+        seoHtml = seoHtml.replace('</body>', `${linksHtml}</body>`);
       }
 
-      // In serverless deployments, avoid importing client SSR modules at runtime.
-      // Serve SEO-injected HTML directly and let the client hydrate.
+      setSsrCache(cacheKey, seoHtml);
       res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(finalHtml);
+      res.setHeader("X-SSR-Cache", "MISS");
+      return res.send(seoHtml);
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -263,110 +302,14 @@ export async function serveStatic(app: Express, _server: Server) {
 
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
 
-      // Fetch detective and service data for SEO
-      const detective = await getDetectiveBySlugForSEO(
-        country, state, city, detectiveSlug
-      );
-
-      // Fetch service title and description by slug + detective
-      let serviceTitle = '';
-      let serviceDescription = '';
-      let serviceCategory = '';
-
-      if (detective) {
-        const serviceResult = await pool.query(
-          `SELECT s.title, s.description, s.category
-           FROM services s
-           INNER JOIN detectives d ON s.detective_id = d.id
-           WHERE s.slug = $1 AND d.slug = $2
-           LIMIT 1`,
-          [serviceSlug, detectiveSlug]
-        );
-        if (serviceResult.rows.length > 0) {
-          serviceTitle = serviceResult.rows[0].title || '';
-          serviceDescription = serviceResult.rows[0].description || '';
-          serviceCategory = serviceResult.rows[0].category || '';
-        }
+      // Fetch detective data for SEO
+      let detectiveSeo;
+      try {
+        detectiveSeo = await getDetectiveLocationSeo(country, state, city);
+      } catch (e) {
+        detectiveSeo = generateDetectiveSeo(country, state, city);
       }
-
-      const detectiveName = detective?.businessName || detectiveSlug.replace(/-/g, ' ');
-      const cityName = detective?.city || city.replace(/-/g, ' ');
-      const stateName = detective?.state || state.replace(/-/g, ' ');
-
-      const finalTitle = serviceTitle
-        ? `${serviceTitle} by ${detectiveName} in ${cityName}, ${stateName} | Ask Detectives`
-        : `${detectiveName} - Private Detective Services in ${cityName} | Ask Detectives`;
-
-      const finalDescription = serviceDescription
-        ? `${serviceDescription.slice(0, 140)}... Hire ${detectiveName} in ${cityName}, ${stateName}.`
-        : `Hire ${detectiveName} in ${cityName} for professional ${serviceCategory || 'detective'} services. Verified private investigator serving ${stateName}.`;
-
-      const h1Text = serviceTitle
-        ? `${serviceTitle} in ${cityName} by ${detectiveName}`
-        : `Detective Services in ${cityName} by ${detectiveName}`;
-
-      let seoHtml = cachedIndexHtml;
-
-      // Inject title
-      seoHtml = seoHtml.replace(
-        /<!-- SEO_TITLE_INJECTION_POINT -->\s*<title>[^<]*<\/title>/,
-        `<!-- SEO_TITLE_INJECTION_POINT --><title>${finalTitle}</title>`
-      );
-
-      // Inject meta tags
-      const metaTags = `
-        <meta name="description" content="${finalDescription}" />
-        <meta property="og:title" content="${finalTitle}" />
-        <meta property="og:description" content="${finalDescription}" />
-        <meta property="og:url" content="${canonicalUrl}" />
-        <meta property="og:type" content="service" />
-        <meta name="twitter:title" content="${finalTitle}" />
-        <meta name="twitter:description" content="${finalDescription}" />
-        <link rel="canonical" href="${canonicalUrl}" />
-      `;
-      seoHtml = seoHtml.replace(
-        /<!-- SEO_META_INJECTION_POINT -->/,
-        `<!-- SEO_META_INJECTION_POINT -->${metaTags}`
-      );
-
-      // Inject H1
-      seoHtml = seoHtml.replace(
-        /<!-- SEO_H1_INJECTION_POINT -->/,
-        `<!-- SEO_H1_INJECTION_POINT --><noscript><h1>${h1Text}</h1></noscript>`
-      );
-
-      // Inject JSON-LD
-      const jsonLd = `
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "Service",
-      "name": "${serviceTitle || detectiveName + ' Services'}",
-      "description": "${finalDescription}",
-      "provider": {
-        "@type": "LocalBusiness",
-        "name": "${detectiveName}",
-        "areaServed": "${cityName}, ${stateName}"
-      },
-      "areaServed": "${cityName}, ${stateName}",
-      "url": "${canonicalUrl}"
-    }
-    </script>
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "BreadcrumbList",
-      "itemListElement": [
-        {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://www.askdetectives.com"},
-        {"@type": "ListItem", "position": 2, "name": "${detectiveName}", "item": "https://www.askdetectives.com/detectives/${country}/${state}/${city}/${detectiveSlug}/"},
-        {"@type": "ListItem", "position": 3, "name": "${serviceTitle || 'Services'}", "item": "${canonicalUrl}"}
-      ]
-    }
-    </script>`;
-
-      seoHtml = seoHtml.replace('<!-- SEO_JSON_LD_INJECTION_POINT -->', 
-        `<!-- SEO_JSON_LD_INJECTION_POINT -->${jsonLd}`);
-
+      const seoHtml = injectSeoTags(cachedIndexHtml, detectiveSeo, canonicalUrl);
       res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.send(seoHtml);
@@ -411,11 +354,21 @@ export async function serveStatic(app: Express, _server: Server) {
   });
 
   // SERVICE + LOCATION SEO INJECTION (Production)
-  // Intercepts /services/background-checks/:country/:state/:city
-  app.get(/^\/services\/background-checks\/[^\/]+\/[^\/]+\/[^\/]+\/?$/, async (req: Request, res: Response) => {
+  // Intercepts /locations/:category/:country[/:state][/:city] — handles country, state, and city levels
+  app.get(/^\/locations\/[a-z-]+\/[^\/]+(?:\/[^\/]+)?(?:\/[^\/]+)?\/?$/, async (req: Request, res: Response) => {
     try {
       const requestPath = req.path;
-      
+
+      // ✅ SSR CACHE: serve pre-rendered HTML within 5-min TTL
+      const serviceCacheKey = `svc:${requestPath.replace(/\/+$/, '').toLowerCase()}`;
+      const cachedServiceHtml = getSsrCache(serviceCacheKey);
+      if (cachedServiceHtml) {
+        res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("X-SSR-Cache", "HIT");
+        return res.send(cachedServiceHtml);
+      }
+
       const {
         extractServiceLocationRouteParams,
         resolveServiceLocation,
@@ -425,7 +378,7 @@ export async function serveStatic(app: Express, _server: Server) {
       const params = extractServiceLocationRouteParams(requestPath);
       if (!params) {
         console.warn("[Service SEO] Route params extraction failed for:", requestPath);
-        return; // Fall through to static file serving
+        return serve404Page(res, 'Service Not Found', 'Invalid service route');
       }
 
       console.log("[Service SEO] Extracted params:", params);
@@ -434,18 +387,15 @@ export async function serveStatic(app: Express, _server: Server) {
       const location = await resolveServiceLocation(params.countrySlug, params.stateSlug, params.citySlug);
       if (!location) {
         console.log("[Service SEO] Location resolution failed");
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        return res.status(404).send(
-          '<html><head><title>Location Not Found</title></head><body><h1>404 - Location not found</h1></body></html>'
-        );
+        return serve404Page(res, 'Location Not Found', 'No services found in this location');
       }
 
       console.log("[Service SEO] Location resolved:", location);
 
-      // Fetch background check services for this location
+      // Fetch services for this category and location
       const serviceResults = await storage.searchServices(
         {
-          category: "Background Check",
+          category: params.category,
           country: location.countryCode,
           state: location.stateName,
           city: location.cityName,
@@ -458,10 +408,7 @@ export async function serveStatic(app: Express, _server: Server) {
       // Return 404 if no services found
       if (!serviceResults || serviceResults.length === 0) {
         console.log("[Service SEO] No services found for location");
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        return res.status(404).send(
-          '<html><head><title>No Services Found</title></head><body><h1>404 - No background check services in this location</h1></body></html>'
-        );
+        return serve404Page(res, 'No Services Found', `No ${params.category} services found in this location`);
       }
 
       console.log(`[Service SEO] Found ${serviceResults.length} services`);
@@ -474,19 +421,53 @@ export async function serveStatic(app: Express, _server: Server) {
         cachedIndexHtml = await fs.promises.readFile(indexHtmlPath, 'utf-8');
       }
 
-      const seoHtml = await injectServiceLocationSeoTags(cachedIndexHtml, {
-        countrySlug: params.countrySlug,
-        stateSlug: params.stateSlug,
-        citySlug: params.citySlug,
-        countryName: location.countryName,
-        stateName: location.stateName,
-        cityName: location.cityName,
-      }, serviceResults, canonicalUrl);
+      // Fetch SEO values and service listings in parallel
+      let [otherAreas, otherServices, nearbyCities] = await Promise.all([
+        getOtherAreasInCity(params.citySlug, params.areaSlug, 20),
+        getOtherServicesInCity(params.citySlug, params.categorySlug, 20),
+        getNearbyCities(params.countrySlug, params.citySlug, 20)
+      ]);
+      let seoValues;
+      try {
+        seoValues = await getServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug, params.areaSlug);
+      } catch (e) {
+        seoValues = generateServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug, params.areaSlug);
+      }
+      let seoHtml = injectSeoTags(cachedIndexHtml, {
+        title: seoValues.meta_title,
+        h1: seoValues.h1,
+        meta_description: seoValues.meta_description
+      });
 
-      console.log(`[Service SEO SSR] Injected background-checks for ${location.cityName}`);
+      // Internal linking HTML
+      let linksHtml = '<section style="margin-top:32px">';
+      linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Other Areas in ' + params.citySlug + '</h2>';
+      linksHtml += '<ul style="margin-bottom:24px">';
+      for (const area of otherAreas.rows.slice(0, 20)) {
+        linksHtml += `<li><a href="/locations/${params.categorySlug}/${params.countrySlug}/${params.citySlug}/${area.slug}" style="color:#2563eb;text-decoration:none">${params.categorySlug} in ${area.name}, ${params.citySlug}</a></li>`;
+      }
+      linksHtml += '</ul>';
+      linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Other Services in ' + params.citySlug + '</h2>';
+      linksHtml += '<ul style="margin-bottom:24px">';
+      for (const svc of otherServices.rows.slice(0, 20)) {
+        linksHtml += `<li><a href="/locations/${svc.slug}/${params.countrySlug}/${params.citySlug}/${params.areaSlug}" style="color:#2563eb;text-decoration:none">${svc.name} in ${params.citySlug}</a></li>`;
+      }
+      linksHtml += '</ul>';
+      linksHtml += '<h2 style="font-size:1.2rem;font-weight:600;margin-bottom:12px">Nearby Cities</h2>';
+      linksHtml += '<ul>';
+      for (const city of nearbyCities.rows.slice(0, 20)) {
+        linksHtml += `<li><a href="/locations/${params.categorySlug}/${params.countrySlug}/${city.slug}/${params.areaSlug}" style="color:#2563eb;text-decoration:none">${params.categorySlug} in ${city.name}, ${city.slug}</a></li>`;
+      }
+      linksHtml += '</ul>';
+      linksHtml += '</section>';
 
+      // Insert links before </body>
+      seoHtml = seoHtml.replace('</body>', `${linksHtml}</body>`);
+
+      setSsrCache(serviceCacheKey, seoHtml);
       res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("X-SSR-Cache", "MISS");
       return res.send(seoHtml);
 
     } catch (error) {
@@ -552,7 +533,8 @@ export async function serveStatic(app: Express, _server: Server) {
         html = injectCmsPageSeoTags(cachedIndexHtml, seo, "https://www.askdetectives.com/");
       }
 
-      res.setHeader("Cache-Control", "no-store");
+      // Homepage: allow 1-hour browser/CDN cache, refresh in background (stale-while-revalidate)
+      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (error) {
@@ -569,7 +551,7 @@ export async function serveStatic(app: Express, _server: Server) {
   // ✅ OPTIMIZATION: Register static file middleware AFTER SSR routes
   // This prevents filesystem lookups from blocking SSR route handlers
   // SSR routes match immediately, static assets still serve correctly
-  console.log('[DEBUG] Setting up express.static middleware for:', distPath);
+  // Register static file middleware AFTER SSR routes
   app.use(express.static(distPath, {
     maxAge: "1y",
     immutable: true,
@@ -747,9 +729,7 @@ async function main() {
     await validateDatabase();
 
     console.log('⚙️  Starting Express app...');
-    console.log('[DEBUG] About to call runApp(serveStatic)...');
     await runApp(serveStatic);
-    console.log('[DEBUG] runApp completed successfully');
     
     console.log('✅ Server started successfully');
     console.log("✅ Production ready: DB-backed secrets loaded, validations passed");

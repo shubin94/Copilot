@@ -3213,6 +3213,36 @@ Content-Signal: index=public; train=deny
     }
   });
 
+  // Service locations sitemaps (paginated) - /sitemap-service-locations-1.xml, etc.
+  app.get(/\/sitemap-service-locations-(\d+)\.xml$/, async (req: Request, res: Response) => {
+    const match = req.path.match(/\/sitemap-service-locations-(\d+)\.xml$/);
+    const page = match ? parseInt(match[1]) : 1;
+
+    console.log(`[Sitemap] Serving service-locations sitemap page ${page}`);
+
+    if (page < 1 || page > 1000) {
+      return res.status(400).json({ error: "Invalid page number" });
+    }
+
+    try {
+      const {
+        getServiceLocationsSitemapCount,
+        generateServiceLocationsSitemap,
+        CACHE_MAX_AGE,
+      } = await import("./services/sitemapService.js");
+
+      const totalPages = await getServiceLocationsSitemapCount();
+      if (page > totalPages) {
+        return res.status(404).json({ error: `Page ${page} does not exist` });
+      }
+
+      await sendSitemap(res, () => generateServiceLocationsSitemap(page), CACHE_MAX_AGE);
+    } catch (error) {
+      console.error("[Sitemap] Error with service-locations page:", error);
+      res.status(500).json({ error: "Failed to generate service-locations sitemap" });
+    }
+  });
+
   // Status endpoint - /sitemap-status.json
   app.get(/\/sitemap-status\.json$/, async (_req: Request, res: Response) => {
     try {
@@ -7626,109 +7656,108 @@ Content-Signal: index=public; train=deny
       return handleLocationDetectivesRouteError(res, error);
     }
   });
-  // API: Services filtered by location slugs (country/state/city) - Phase 1: Background Checks
-  // Route: GET /api/services/background-checks/:country/:state/:city/
-  // Returns: Array of services with detective info, filtered by location and category
-  app.get('/api/services/background-checks/:country/:state/:city', async (req: Request, res: Response) => {
-    try {
-      const rawParams = req.params as { country: string; state: string; city: string };
-      const countrySlug = normalizeRouteSlugParam(rawParams.country);
-      const stateSlug = normalizeRouteSlugParam(rawParams.state);
-      const citySlug = normalizeRouteSlugParam(rawParams.city);
+  // API: Services filtered by location slugs (country/state/city)
+  // Route: GET /api/services/:category/:country/:state/:city/
+  // Category slug is resolved dynamically from service_categories table — NOT hardcoded.
 
-      // Validation: All three segments required for Phase 1
-      if (!countrySlug || !stateSlug || !citySlug) {
-        return res.status(400).json({
-          error: "Country, state, and city are required",
-          code: "INVALID_LOCATION_PATH",
-          meta: { country: countrySlug, state: stateSlug, city: citySlug }
-        });
+  // In-memory cache: slug → { name, expires }
+  const _categorySlugCache = new Map<string, { name: string; expires: number }>();
+
+  async function resolveCategoryBySlug(slug: string): Promise<string | null> {
+    const now = Date.now();
+    const cached = _categorySlugCache.get(slug);
+    if (cached && now < cached.expires) return cached.name;
+
+    // Refresh cache from DB
+    _categorySlugCache.clear();
+    const allCats = await storage.getAllServiceCategories(false); // include inactive so slugs resolve
+    for (const cat of allCats) {
+      // Build multiple slug variants for each category name so URLs remain flexible
+      const variants = new Set([
+        generateSlug(cat.name),                                   // 'background-check'
+        cat.name.toLowerCase().replace(/\s+/g, '-'),              // same via simple replace
+        cat.name.toLowerCase().replace(/\s+/g, '-') + 's',       // plural: 'background-checks'
+        generateSlug(cat.name) + 's',                             // generateSlug + plural
+        cat.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-'), // extra normalize
+      ]);
+      for (const v of variants) {
+        if (v && !_categorySlugCache.has(v)) {
+          _categorySlugCache.set(v, { name: cat.name, expires: now + 10 * 60 * 1000 }); // 10 min cache
+        }
+      }
+    }
+    return _categorySlugCache.get(slug)?.name || null;
+  }
+
+  // Register all 3 levels pointing to the same handler
+  const serviceLocationHandler = async (req: Request, res: Response) => {
+    try {
+      const rawParams = req.params as { category: string; country: string; state?: string; city?: string };
+      const categorySlug = rawParams.category?.toLowerCase();
+      const dbCategory = await resolveCategoryBySlug(categorySlug);
+
+      if (!dbCategory) {
+        return res.status(404).json({ error: 'Unknown service category', code: 'INVALID_CATEGORY' });
       }
 
-      // Resolve country by slug
+      const countrySlug = normalizeRouteSlugParam(rawParams.country);
+      const stateSlug = rawParams.state ? normalizeRouteSlugParam(rawParams.state) : undefined;
+      const citySlug = rawParams.city ? normalizeRouteSlugParam(rawParams.city) : undefined;
+
+      // Resolve country
       const countryRows = await db
         .select({ id: countries.id, code: countries.code, name: countries.name })
-        .from(countries)
-        .where(eq(countries.slug, countrySlug));
-
-      if (!countryRows || countryRows.length === 0) {
-        return res.status(404).json({ 
-          error: 'Country not found',
-          code: 'COUNTRY_NOT_FOUND',
-          meta: { country: countrySlug, state: stateSlug, city: citySlug }
-        });
-      }
-      
+        .from(countries).where(eq(countries.slug, countrySlug));
+      if (!countryRows?.length) return res.status(404).json({ error: 'Country not found', code: 'COUNTRY_NOT_FOUND' });
       const countryRow: any = countryRows[0];
 
-      // Resolve state
-      const stateRows = await db
-        .select({ id: states.id, name: states.name })
-        .from(states)
-        .where(and(eq(states.countryId, countryRow.id), eq(states.slug, stateSlug)));
-      
-      if (!stateRows || stateRows.length === 0) {
-        return res.status(404).json({
-          error: 'State not found',
-          code: 'STATE_NOT_FOUND',
-          meta: { country: countrySlug, state: stateSlug, city: citySlug }
-        });
+      // Resolve state (optional)
+      let stateRow: any = null;
+      if (stateSlug) {
+        const stateRows = await db
+          .select({ id: states.id, name: states.name })
+          .from(states).where(and(eq(states.countryId, countryRow.id), eq(states.slug, stateSlug)));
+        if (!stateRows?.length) return res.status(404).json({ error: 'State not found', code: 'STATE_NOT_FOUND' });
+        stateRow = stateRows[0];
       }
 
-      const stateRow: any = stateRows[0];
-
-      // Resolve city
-      const cityRows = await db
-        .select({ id: cities.id, name: cities.name })
-        .from(cities)
-        .where(and(eq(cities.stateId, stateRow.id), eq(cities.slug, citySlug)));
-      
-      if (!cityRows || cityRows.length === 0) {
-        return res.status(404).json({
-          error: 'City not found',
-          code: 'CITY_NOT_FOUND',
-          meta: { country: countrySlug, state: stateSlug, city: citySlug }
-        });
+      // Resolve city (optional, only if state was resolved)
+      let cityRow: any = null;
+      if (citySlug && stateRow) {
+        const cityRows = await db
+          .select({ id: cities.id, name: cities.name })
+          .from(cities).where(and(eq(cities.stateId, stateRow.id), eq(cities.slug, citySlug)));
+        if (!cityRows?.length) return res.status(404).json({ error: 'City not found', code: 'CITY_NOT_FOUND' });
+        cityRow = cityRows[0];
       }
 
-      const cityRow: any = cityRows[0];
-
-      // Use storage.searchServices() to fetch background check services in this location
-      // Convert country code to country name for the filter (storage expects 2-letter country code)
       const serviceResults = await storage.searchServices({
-        category: "Background Check",        // Phase 1: Only background checks
-        country: countryRow.code,             // 2-letter country code (IN, US, GB)
-        state: stateRow.name,                 // Full state name (Maharashtra)
-        city: cityRow.name,                   // Full city name (Pune)
+        category: dbCategory,
+        country: countryRow.code,
+        state: stateRow?.name,
+        city: cityRow?.name,
       }, 50, 0, 'popular');
 
-      // Return 404 if no services found in this location
-      if (!serviceResults || serviceResults.length === 0) {
+      if (!serviceResults?.length) {
         return res.status(404).json({
-          error: 'No background check services found in this location',
+          error: `No ${dbCategory} services found in this location`,
           code: 'NO_SERVICES_FOUND',
-          meta: { 
-            country: countryRow.name,
-            state: stateRow.name,
-            city: cityRow.name,
-            category: 'Background Check'
-          }
         });
       }
 
-      // Log successful injection for monitoring
-      console.log(`[Service SEO] Injected background-checks for ${cityRow.name}`);
+      const locationLabel = cityRow?.name || stateRow?.name || countryRow.name;
+      console.log(`[Service API] ${dbCategory} → ${locationLabel}: ${serviceResults.length} results`);
 
-      // Return services with location metadata
       res.json({
         meta: {
           country: countryRow.name,
           countryCode: countryRow.code,
-          state: stateRow.name,
-          city: cityRow.name,
-          category: 'Background Check',
+          state: stateRow?.name || null,
+          city: cityRow?.name || null,
+          category: dbCategory,
+          categorySlug,
           total: serviceResults.length,
-          found: true
+          found: true,
         },
         services: serviceResults.map(service => ({
           id: service.id,
@@ -7754,19 +7783,23 @@ Content-Signal: index=public; train=deny
             level: service.detective.level,
             phone: service.detective.phone,
             whatsapp: service.detective.whatsapp,
-            contactEmail: service.detective.contactEmail
-          }
-        }))
+            contactEmail: service.detective.contactEmail,
+          },
+        })),
       });
     } catch (error) {
-      console.error('[api/services/background-checks/location] error:', error);
+      console.error('[api/services/:category/location] error:', error);
       res.status(500).json({
-        error: 'Failed to fetch background check services by location',
+        error: 'Failed to fetch services by location',
         code: 'SERVICE_LOCATION_FETCH_ERROR',
-        message: error instanceof Error ? error.message : 'Internal server error'
+        message: error instanceof Error ? error.message : 'Internal server error',
       });
     }
-  });
+  };
+
+  app.get('/api/services/:category/:country', serviceLocationHandler);
+  app.get('/api/services/:category/:country/:state', serviceLocationHandler);
+  app.get('/api/services/:category/:country/:state/:city', serviceLocationHandler);
 
   // Get all service categories (public, with optional active filter)
   app.get("/api/service-categories", async (req: Request, res: Response) => {

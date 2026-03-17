@@ -571,99 +571,198 @@ export function registerLocationRoutes(app: Express): void {
   });
 
   /**
+   * Get service-location pages with SEO metadata for admin management
+   * Query params: level (country|state|city), category (slug), country_slug, state_slug
+   */
+  app.get("/api/admin/location-seo/service-locations", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+    try {
+      const level = (req.query.level as string) || 'country';
+      const category = (req.query.category as string) || 'background-checks';
+      const countryFilter = req.query.country_slug as string || '';
+      const stateFilter = req.query.state_slug as string || '';
+
+      const year = new Date().getFullYear();
+
+      if (level === 'city') {
+        const result = await pool.query(`
+          SELECT
+            c.slug AS country_slug, c.name AS country_name,
+            s.slug AS state_slug, s.name AS state_name,
+            ci.slug AS city_slug, ci.name AS city_name,
+            COUNT(d.id) FILTER (WHERE d.status = 'active')::int AS total_detectives,
+            lso.meta_title, lso.meta_description, lso.h1,
+            (lso.id IS NOT NULL) AS has_override, lso.updated_at
+          FROM cities ci
+          INNER JOIN states s ON ci.state_id = s.id
+          INNER JOIN countries c ON s.country_id = c.id
+          LEFT JOIN detectives d ON d.city_id = ci.id AND d.status = 'active'
+          LEFT JOIN location_seo_overrides lso
+            ON lso.entity_type = 'service-location'
+            AND lso.entity_id = $1 || ':' || c.slug || ':' || s.slug || ':' || ci.slug
+          WHERE ci.is_active = true AND s.is_active = true AND c.is_active = true
+            AND ($2 = '' OR c.slug = $2)
+            AND ($3 = '' OR s.slug = $3)
+          GROUP BY c.id, c.slug, c.name, s.id, s.slug, s.name, ci.id, ci.slug, ci.name,
+            lso.meta_title, lso.meta_description, lso.h1, lso.id, lso.updated_at
+          HAVING COUNT(d.id) FILTER (WHERE d.status = 'active') > 0
+          ORDER BY c.slug, s.slug, ci.slug
+          LIMIT 500
+        `, [category, countryFilter, stateFilter]);
+
+        const data = result.rows.map((row: any) => ({
+          category_slug: category,
+          country_slug: row.country_slug,
+          state_slug: row.state_slug,
+          city_slug: row.city_slug,
+          location_label: `${row.city_name}, ${row.state_name}, ${row.country_name}`,
+          total_detectives: row.total_detectives,
+          custom_title: row.meta_title || `${category.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} in ${row.city_name}, ${row.state_name} | Verified Detectives (${year})`,
+          custom_meta_description: row.meta_description || `Find verified ${category.replace(/-/g, ' ')} services in ${row.city_name}, ${row.state_name}. Compare ${row.total_detectives} providers with reviews, pricing & contact.`,
+          custom_h1: row.h1 || `${category.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} in ${row.city_name}, ${row.state_name}`,
+          has_override: row.has_override,
+          updated_at: row.updated_at,
+        }));
+
+        return res.json({ success: true, data });
+
+      } else if (level === 'state') {
+        const result = await pool.query(`
+          SELECT
+            c.slug AS country_slug, c.name AS country_name,
+            s.slug AS state_slug, s.name AS state_name,
+            COUNT(d.id) FILTER (WHERE d.status = 'active')::int AS total_detectives,
+            lso.meta_title, lso.meta_description, lso.h1,
+            (lso.id IS NOT NULL) AS has_override, lso.updated_at
+          FROM states s
+          INNER JOIN countries c ON s.country_id = c.id
+          LEFT JOIN detectives d ON d.state_id = s.id AND d.status = 'active'
+          LEFT JOIN location_seo_overrides lso
+            ON lso.entity_type = 'service-location'
+            AND lso.entity_id = $1 || ':' || c.slug || ':' || s.slug
+          WHERE s.is_active = true AND c.is_active = true
+            AND ($2 = '' OR c.slug = $2)
+          GROUP BY c.id, c.slug, c.name, s.id, s.slug, s.name,
+            lso.meta_title, lso.meta_description, lso.h1, lso.id, lso.updated_at
+          HAVING COUNT(d.id) FILTER (WHERE d.status = 'active') > 0
+          ORDER BY c.slug, s.slug
+          LIMIT 500
+        `, [category, countryFilter]);
+
+        const data = result.rows.map((row: any) => ({
+          category_slug: category,
+          country_slug: row.country_slug,
+          state_slug: row.state_slug,
+          city_slug: null,
+          location_label: `${row.state_name}, ${row.country_name}`,
+          total_detectives: row.total_detectives,
+          custom_title: row.meta_title || `${category.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} in ${row.state_name}, ${row.country_name} | Verified Detectives (${year})`,
+          custom_meta_description: row.meta_description || `Find verified ${category.replace(/-/g, ' ')} services in ${row.state_name}, ${row.country_name}. Compare ${row.total_detectives} providers with reviews, pricing & contact.`,
+          custom_h1: row.h1 || `${category.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} in ${row.state_name}, ${row.country_name}`,
+          has_override: row.has_override,
+          updated_at: row.updated_at,
+        }));
+
+        return res.json({ success: true, data });
+
+      } else {
+        // country level
+        const result = await pool.query(`
+          SELECT
+            c.slug AS country_slug, c.name AS country_name,
+            COUNT(d.id) FILTER (WHERE d.status = 'active')::int AS total_detectives,
+            lso.meta_title, lso.meta_description, lso.h1,
+            (lso.id IS NOT NULL) AS has_override, lso.updated_at
+          FROM countries c
+          LEFT JOIN detectives d ON d.country_id = c.id AND d.status = 'active'
+          LEFT JOIN location_seo_overrides lso
+            ON lso.entity_type = 'service-location'
+            AND lso.entity_id = $1 || ':' || c.slug
+          WHERE c.is_active = true
+          GROUP BY c.id, c.slug, c.name,
+            lso.meta_title, lso.meta_description, lso.h1, lso.id, lso.updated_at
+          HAVING COUNT(d.id) FILTER (WHERE d.status = 'active') > 0
+          ORDER BY c.slug
+        `, [category]);
+
+        const data = result.rows.map((row: any) => ({
+          category_slug: category,
+          country_slug: row.country_slug,
+          state_slug: null,
+          city_slug: null,
+          location_label: row.country_name,
+          total_detectives: row.total_detectives,
+          custom_title: row.meta_title || `${category.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} in ${row.country_name} | Verified Detectives (${year})`,
+          custom_meta_description: row.meta_description || `Find verified ${category.replace(/-/g, ' ')} services in ${row.country_name}. Compare ${row.total_detectives} providers with reviews, pricing & contact.`,
+          custom_h1: row.h1 || `${category.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} in ${row.country_name}`,
+          has_override: row.has_override,
+          updated_at: row.updated_at,
+        }));
+
+        return res.json({ success: true, data });
+      }
+
+    } catch (error: any) {
+      console.error("[Admin Service Location SEO] Error:", error);
+      res.status(500).json({ success: false, error: error?.message || "Failed to fetch service location SEO data" });
+    }
+  });
+
+  /**
    * Save or update location SEO overrides
-   * Supports country, state, and city level overrides
+   * Supports country, state, city, and service-location level overrides
    * Uses UPSERT pattern to avoid duplicates
    */
-  app.post("/api/admin/location-seo/override", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+  // POST /api/admin/detective-seo
+  app.post("/api/admin/detective-seo", requireRole("admin", "employee"), async (req: Request, res: Response) => {
     try {
       const { country_slug, state_slug, city_slug, custom_title, custom_meta_description, custom_h1 } = req.body;
-
-      console.log("[Admin Location SEO Override] Processing request:", { country_slug, state_slug, city_slug });
-
-      // Validate required fields
       if (!country_slug) {
         return res.status(400).json({ success: false, error: "country_slug is required" });
       }
-
-      // Determine entity type and resolve entity ID
-      let entityType: 'country' | 'state' | 'city';
-      let entityId: string;
-
-      if (city_slug && state_slug) {
-        // City-level override
-        entityType = 'city';
-        const cityResult = await pool.query(
-          `SELECT ci.id FROM cities ci
-           INNER JOIN states s ON ci.state_id = s.id
-           INNER JOIN countries c ON s.country_id = c.id
-           WHERE ci.slug = $1 AND s.slug = $2 AND c.slug = $3
-           LIMIT 1`,
-          [city_slug, state_slug, country_slug]
-        );
-        if (cityResult.rows.length === 0) {
-          return res.status(404).json({ success: false, error: "City not found" });
-        }
-        entityId = cityResult.rows[0].id.toString();
-      } else if (state_slug) {
-        // State-level override
-        entityType = 'state';
-        const stateResult = await pool.query(
-          `SELECT s.id FROM states s
-           INNER JOIN countries c ON s.country_id = c.id
-           WHERE s.slug = $1 AND c.slug = $2
-           LIMIT 1`,
-          [state_slug, country_slug]
-        );
-        if (stateResult.rows.length === 0) {
-          return res.status(404).json({ success: false, error: "State not found" });
-        }
-        entityId = stateResult.rows[0].id.toString();
-      } else {
-        // Country-level override
-        entityType = 'country';
-        const countryResult = await pool.query(
-          `SELECT id FROM countries WHERE slug = $1 LIMIT 1`,
-          [country_slug]
-        );
-        if (countryResult.rows.length === 0) {
-          return res.status(404).json({ success: false, error: "Country not found" });
-        }
-        entityId = countryResult.rows[0].id.toString();
-      }
-
-      // Upsert the override
+      // Upsert into detective_location_seo
       const result = await pool.query(
-        `INSERT INTO location_seo_overrides (entity_type, entity_id, meta_title, meta_description, h1)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (entity_type, entity_id)
+        `INSERT INTO detective_location_seo (country_slug, state_slug, city_slug, meta_title, meta_description, h1)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (country_slug, state_slug, city_slug)
          DO UPDATE SET
            meta_title = EXCLUDED.meta_title,
            meta_description = EXCLUDED.meta_description,
            h1 = EXCLUDED.h1,
            updated_at = NOW()
-         RETURNING id, updated_at`,
-        [entityType, entityId, custom_title || null, custom_meta_description || null, custom_h1 || null]
+         RETURNING country_slug, state_slug, city_slug, updated_at`,
+        [country_slug, state_slug || null, city_slug || null, custom_title || null, custom_meta_description || null, custom_h1 || null]
       );
-
-      console.log(`[Admin Location SEO Override] Successfully saved override for ${entityType} ${entityId}`);
-      
-      res.json({ 
-        success: true, 
-        message: "SEO override saved successfully",
-        data: {
-          id: result.rows[0].id,
-          updated_at: result.rows[0].updated_at
-        }
-      });
-
+      res.json({ success: true, message: "Detective SEO saved", data: result.rows[0] });
     } catch (error: any) {
-      console.error("[Admin Location SEO Override] Error:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: error?.message || "Failed to save SEO override",
-        detail: error?.detail || null
-      });
+      console.error("[Admin Detective SEO] Error:", error);
+      res.status(500).json({ success: false, error: error?.message || "Failed to save detective SEO" });
+    }
+  });
+
+  // POST /api/admin/service-location-seo
+  app.post("/api/admin/service-location-seo", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+    try {
+      const { category_slug, country_slug, state_slug, city_slug, custom_title, custom_meta_description, custom_h1 } = req.body;
+      if (!category_slug || !country_slug) {
+        return res.status(400).json({ success: false, error: "category_slug and country_slug are required" });
+      }
+      // Upsert into service_location_seo
+      const result = await pool.query(
+        `INSERT INTO service_location_seo (service_slug, country_slug, state_slug, city_slug, meta_title, meta_description, h1)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (service_slug, country_slug, state_slug, city_slug)
+         DO UPDATE SET
+           meta_title = EXCLUDED.meta_title,
+           meta_description = EXCLUDED.meta_description,
+           h1 = EXCLUDED.h1,
+           updated_at = NOW()
+         RETURNING service_slug, country_slug, state_slug, city_slug, updated_at`,
+        [category_slug, country_slug, state_slug || null, city_slug || null, custom_title || null, custom_meta_description || null, custom_h1 || null]
+      );
+      res.json({ success: true, message: "Service Location SEO saved", data: result.rows[0] });
+    } catch (error: any) {
+      console.error("[Admin Service Location SEO] Error:", error);
+      res.status(500).json({ success: false, error: error?.message || "Failed to save service location SEO" });
     }
   });
 }

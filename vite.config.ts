@@ -37,7 +37,10 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    chunkSizeWarningLimit: 1024,
+    target: ["es2020", "chrome80", "firefox80", "safari14"],
+    chunkSizeWarningLimit: 500,
+    cssMinify: true,
+    reportCompressedSize: false, // Skip compressed size calc to speed up build
     rollupOptions: {
       output: {
         manualChunks(id: string) {

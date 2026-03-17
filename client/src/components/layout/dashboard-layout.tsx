@@ -49,7 +49,8 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [location, setLocation] = useLocation();
   const [] = useState(false);
-  const [expandedMenu, setExpandedMenu] = useState<string | null>("Location SEO");
+  // Always keep all dropdowns open
+  const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
   const { user, isLoading, isAuthenticated, logout } = useUser();
   const { data: detectiveData } = useCurrentDetective(user?.role === "detective");
   const detective = role === "detective" ? detectiveData?.detective : null;
@@ -187,13 +188,23 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     { href: "/admin/ranking-visibility", label: "Ranking & Visibility", icon: TrendingUp },
     { href: "/admin/snippets", label: "Snippets", icon: Zap },
     {
-      href: "#location-seo",
-      label: "Location SEO",
+      href: "#detective-locations",
+      label: "Detective Locations",
       icon: Map,
       submenu: [
         { href: "/admin/location-seo/countries", label: "Countries", icon: Globe },
         { href: "/admin/location-seo/states", label: "States", icon: Map },
         { href: "/admin/location-seo/cities", label: "Cities", icon: MapPin },
+      ]
+    },
+    {
+      href: "#service-locations",
+      label: "Service Locations",
+      icon: Layers,
+      submenu: [
+        { href: "/admin/location-seo/service-countries", label: "Countries", icon: Globe },
+        { href: "/admin/location-seo/service-states",    label: "States",    icon: Map },
+        { href: "/admin/location-seo/service-cities",    label: "Cities",    icon: MapPin },
       ]
     },
     { href: "/admin/detective-pages", label: "Detective Pages", icon: Users },
@@ -260,27 +271,22 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         {links.map((link: any) => {
           const Icon = link.icon;
           const isActive = location === link.href;
-          const isExpanded = expandedMenu === link.label;
+          const isExpanded = true;
           const hasSubmenu = link.submenu && link.submenu.length > 0;
 
           return (
             <div key={link.label || link.href}>
               {hasSubmenu ? (
                 <>
-                  <button
-                    onClick={() => setExpandedMenu(isExpanded ? null : link.label)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-colors font-medium ${
-                      isExpanded
-                        ? "bg-green-50 text-green-700"
-                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                    }`}
+                  <div
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-colors font-medium bg-green-50 text-green-700`}
                   >
                     <Icon className="h-5 w-5" />
                     {link.label}
-                    <span className={`ml-auto text-sm transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                    <span className="ml-auto text-sm transition-transform rotate-180">
                       ▼
                     </span>
-                  </button>
+                  </div>
                   {isExpanded && (
                     <div className="ml-4 space-y-1">
                       {link.submenu.map((sublink: any) => {

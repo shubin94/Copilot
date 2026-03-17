@@ -133,27 +133,26 @@ export async function setupVite(app: Express, server: Server) {
       );
 
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-      
-      console.log(`[DEV-SEO] Before injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
-      
+
+      // Transform through Vite FIRST so its HTML pipeline can't strip injected elements
+      let transformedHtml = await vite.transformIndexHtml(req.originalUrl, template);
+
       const resolvedLocation = await resolveLocationIds({
         country: params.country,
         state: params.state,
         city: params.city,
       });
 
-      // Inject SEO tags with explicit totalCount + resolved location
-      template = await injectLocationSeoTags(
-        template,
+      // Inject SEO tags (H1, meta, JSON-LD) AFTER Vite transform
+      transformedHtml = await injectLocationSeoTags(
+        transformedHtml,
         params,
         seoDetectives,
         canonicalUrl,
         detectives.length,
         resolvedLocation
       );
-      
-      console.log(`[DEV-SEO] After injectLocationSeoTags - template length: ${template.length}, has SSR_H1_INJECTION_POINT: ${template.includes('<!-- SSR_H1_INJECTION_POINT -->')}`);
-      console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${detectives.length} detectives rendered, hasMore: ${hasMore})`);
+      console.log(`[DEV-SEO] Successfully injected meta tags for location: ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''} (${detectives.length} detectives, hasMore: ${hasMore})`);
 
       // Inject detective data as JSON for client-side rendering
       const cityPageData = {
@@ -170,8 +169,7 @@ export async function setupVite(app: Express, server: Server) {
   window.__CITY_PAGE_DATA__ = ${JSON.stringify(cityPageData)};
 </script>`;
 
-      // Inject data script before closing head tag
-      template = template.replace('</head>', `${dataScript}</head>`);
+      transformedHtml = transformedHtml.replace('</head>', `${dataScript}</head>`);
       console.log(`[DEV-SEO] Injected city page data for ${detectives.length} detectives into window.__CITY_PAGE_DATA__`);
 
       // CHECK IF CITY LEVEL: Inject detective → service authority link for city-level pages only
@@ -182,7 +180,6 @@ export async function setupVite(app: Express, server: Server) {
           const stateSlug = pathSegments[2];
           const citySlug = pathSegments[3];
 
-          // Lightweight check for background check services (just existence check)
           const servicesCheckResult = await storage.searchServices({
             category: "Background Check",
             country: params.country,
@@ -191,9 +188,9 @@ export async function setupVite(app: Express, server: Server) {
           });
 
           const servicesExist = servicesCheckResult && servicesCheckResult.length > 0;
-          
+
           if (servicesExist) {
-            template = injectDetectiveLocationAuthorityLink(template, {
+            transformedHtml = injectDetectiveLocationAuthorityLink(transformedHtml, {
               countrySlug,
               stateSlug,
               citySlug,
@@ -204,15 +201,8 @@ export async function setupVite(app: Express, server: Server) {
           }
         } catch (err) {
           console.error("[DEV-SEO] Error injecting authority link:", err);
-          // Continue without authority link if error occurs
         }
       }
-
-      // SSR injections applied. Now transform through Vite for React hydration.
-      // Vite will process the modified template (with H1, meta tags, JSON-LD already injected)
-      // and return HTML ready for React to hydrate
-      console.log(`[DEV-SEO] Transforming SSR-injected template through Vite for ${params.country}${params.state ? '/' + params.state : ''}${params.city ? '/' + params.city : ''}`);
-      const transformedHtml = await vite.transformIndexHtml(req.originalUrl, template);
       
       res.setHeader("Cache-Control", "no-store");
       return res
@@ -288,10 +278,12 @@ export async function setupVite(app: Express, server: Server) {
       );
 
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-      template = injectSeoTags(template, detective, canonicalUrl);
+      // Transform through Vite FIRST (HMR, module scripts), THEN inject SEO tags
+      // This prevents Vite's HTML pipeline from stripping injected elements (H1, meta, JSON-LD)
+      let page = await vite.transformIndexHtml(req.originalUrl, template);
+      page = injectSeoTags(page, detective, canonicalUrl);
       console.log(`[DEV-SEO] Successfully injected meta tags for detective: ${detective.businessName || 'Unknown'}`);
 
-      const page = await vite.transformIndexHtml(req.originalUrl, template);
       res.setHeader("Cache-Control", "no-store");
       res.set({ "Content-Type": "text/html" }).end(page);
     } catch (error) {
@@ -463,7 +455,10 @@ export async function setupVite(app: Express, server: Server) {
       );
 
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-      template = await injectServiceLocationSeoTags(template, {
+
+      // Transform through Vite FIRST, then inject SEO tags so Vite can't strip them
+      let page = await vite.transformIndexHtml(req.originalUrl, template);
+      page = await injectServiceLocationSeoTags(page, {
         countrySlug: params.countrySlug,
         stateSlug: params.stateSlug,
         citySlug: params.citySlug,
@@ -471,10 +466,9 @@ export async function setupVite(app: Express, server: Server) {
         stateName: location.stateName,
         cityName: location.cityName,
       }, serviceResults, canonicalUrl);
-      
-      console.log(`[Service SEO SSR] Injected background-checks for ${location.cityName}`);
 
-      const page = await vite.transformIndexHtml(req.originalUrl, template);
+      console.log(`[Service SEO SSR] Injected ${params.categorySlug} for ${location.cityName}`);
+
       res.setHeader("Cache-Control", "no-store");
       res.set({ "Content-Type": "text/html" }).end(page);
     } catch (error) {
