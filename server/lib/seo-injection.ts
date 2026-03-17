@@ -31,12 +31,13 @@ export function generateDetectiveSeo(country: string, state?: string, city?: str
  */
 export function generateServiceLocationSeo(service: string, country: string, city: string, area: string): { h1: string; meta_title: string; meta_description: string } {
   const serviceName = toTitleFromSlug(service);
+  const countryName = toTitleFromSlug(country);
   const areaName = toTitleFromSlug(area);
   const cityName = toTitleFromSlug(city);
   return {
     h1: `${serviceName} in ${areaName}, ${cityName}`,
     meta_title: `${serviceName} in ${areaName}, ${cityName} | AskDetectives`,
-    meta_description: `Find trusted ${serviceName} in ${areaName}, ${cityName}. Compare investigators and hire professionals.`
+    meta_description: `Find trusted ${serviceName} in ${areaName}, ${cityName}, ${countryName}. Compare investigators and hire professionals.`
   };
 }
 /**
@@ -63,7 +64,7 @@ export async function getDetectiveLocationSeo(country_slug: string, state_slug?:
     result = await db
       .select({ h1: sql<string>`h1`, meta_title: sql<string>`meta_title`, meta_description: sql<string>`meta_description` })
       .from(detective_location_seo)
-      .where(and(eq(detective_location_seo.country_slug, country_slug), eq(detective_location_seo.city_slug, state_slug)))
+      .where(and(eq(detective_location_seo.country_slug, country_slug), eq(detective_location_seo.state_slug, state_slug)))
       .limit(1);
     if (result.length > 0) {
       return {
@@ -311,7 +312,7 @@ export function buildHomepageAuthorityHtml(
  */
 
 import { db, pool } from "../../db/index.js";
-import { detectives, countries, states, cities } from "../../shared/schema.js";
+import { detectives, countries, states, cities, detective_location_seo, service_location_seo } from "../../shared/schema.js";
 import { eq, and, or, ilike, desc, sql } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.js";
 import { resolveLocationHierarchyForSeo } from "../services/locationSeoResolutionService.js";
