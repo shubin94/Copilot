@@ -8,7 +8,10 @@ import {
   generateCitiesSitemap,
   generateDetectivesSitemap,
   generateServicesSitemap,
+  generateServiceLocationsSitemap,
+  generateNewsSitemap,
   getServiceSitemapCount,
+  getServiceLocationsSitemapCount,
   CACHE_MAX_AGE,
 } from "../services/sitemapService";
 
@@ -77,6 +80,33 @@ router.get(/-detectives\.xml$/, async (_req: Request, res: Response) => {
   await sendSitemap(res, generateDetectivesSitemap);
 });
 
+// News sitemap - /sitemap-news.xml
+router.get(/-news\.xml$/, async (_req: Request, res: Response) => {
+  console.log(`[Sitemap] Serving news sitemap`);
+  await sendSitemap(res, generateNewsSitemap);
+});
+
+// Service locations sitemaps (paginated) - /sitemap-service-locations-1.xml, etc.
+router.get(/-service-locations-(\d+)\.xml$/, async (req: Request, res: Response) => {
+  const match = req.path.match(/-service-locations-(\d+)\.xml$/);
+  const page = match ? parseInt(match[1]) : 1;
+
+  if (page < 1 || page > 1000) {
+    return res.status(400).json({ error: "Invalid page number" });
+  }
+
+  try {
+    const totalPages = await getServiceLocationsSitemapCount();
+    if (page > totalPages) {
+      return res.status(404).json({ error: `Page ${page} does not exist` });
+    }
+    await sendSitemap(res, () => generateServiceLocationsSitemap(page));
+  } catch (error) {
+    console.error("[Sitemap] Error with service-locations page:", error);
+    res.status(500).json({ error: "Failed to generate service locations sitemap" });
+  }
+});
+
 // Services sitemaps (paginated) - /sitemap-services-1.xml, /sitemap-services-2.xml, etc.
 router.get(/-services-(\d+)\.xml$/, async (req: Request, res: Response) => {
   const match = req.path.match(/-services-(\d+)\.xml$/);
@@ -128,12 +158,14 @@ router.get(/-status\.json$/, async (_req: Request, res: Response) => {
         states: "/sitemap-states.xml",
         cities: "/sitemap-cities.xml",
         detectives: "/sitemap-detectives.xml",
+        news: "/sitemap-news.xml",
         services: `${servicePages} pages at /sitemap-services-:page.xml`,
+        serviceLocations: `at /sitemap-service-locations-:page.xml`,
       },
       stats: {
         totalServices,
         servicePages,
-        totalSitemaps: 6 + servicePages, // static, countries, states, cities, detectives, index + service pages
+        totalSitemaps: 7 + servicePages, // static, countries, states, cities, detectives, news, index + service pages
       },
     });
   } catch (error) {

@@ -27,6 +27,7 @@ import { RelatedServices } from "@/components/related-services";
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
 import { DetectiveCard } from "@/components/DetectiveCard";
+import { resolveDetectiveBadgeState } from "@/pages/detective-page-helpers";
 
 const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
   month: "long",
@@ -90,7 +91,7 @@ export default function DetectiveProfile() {
   useServicesByDetective(detectiveIdForServices);
   const { data: similarDetectives, isLoading: isLoadingSimilar } = useSimilarDetectives(detectiveIdForServices);
   const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceData?.service?.id);
-  const { data: relatedServicesData, isLoading: isLoadingRelatedServices } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 2);
+  const { data: relatedServicesData, isLoading: isLoadingRelatedServices } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 3);
   
   let selectedCountry = null;
   const serviceId = serviceData?.service?.id;
@@ -261,12 +262,7 @@ export default function DetectiveProfile() {
     ? (detective as any).subscriptionPackage.features.includes("contact_whatsapp")
     : false;
   const detectiveName = detective.businessName || "Unknown Detective";
-  const badgeState = {
-    showBlueTick: detective.hasBlueTick || false,
-    showPro: detective.level === 'level2' || detective.level === 'pro' || false,
-    showRecommended: false,
-    blueTickLabel: detective.hasBlueTick ? 'Verified' : 'Unverified'
-  };
+  const badgeState = resolveDetectiveBadgeState(detective);
   
   const memberSince = monthYearFormatter.format(new Date(detective.memberSince));
   
@@ -505,7 +501,7 @@ export default function DetectiveProfile() {
                 )}
               </Avatar>
               <div>
-                <div className="font-bold text-lg flex items-center gap-2 flex-wrap" data-testid="text-detective-name">
+                <div className="font-bold text-lg leading-snug" data-testid="text-detective-name">
                   <Link href={getDetectiveProfileUrl(detective)}>
                     <span className="hover:underline cursor-pointer">{detectiveName}</span>
                   </Link>
@@ -681,13 +677,6 @@ export default function DetectiveProfile() {
                 </Avatar>
                 <div className="space-y-4">
                   {(() => {
-                    const badgeState = {
-                      showBlueTick: detective.hasBlueTick || false,
-                      showPro: detective.level === 'pro' || detective.level === 'level2' || false,
-                      showRecommended: false,
-                      blueTickLabel: detective.hasBlueTick ? 'Verified' : 'Unverified'
-                    };
-
                     return (
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-2xl font-bold font-heading text-gray-900" data-testid="text-detective-name-heading">

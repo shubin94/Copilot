@@ -12,7 +12,7 @@ export default function AboutPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title={seo.title} description={seo.description} />
+      <SEO title={seo.title} description={seo.description} canonical="https://www.askdetectives.com/about" />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
         <h1 className="text-4xl font-bold font-heading mb-6">{seo.h1}</h1>

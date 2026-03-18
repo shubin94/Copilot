@@ -433,8 +433,8 @@ export function useRelatedServices(category: string | null | undefined, excludeI
     queryKey: ["services", "related", category, excludeId, limit],
     queryFn: async () => {
       if (!category) return [];
-      const result = await api.services.search({ category, limit, sortBy: "popular" });
-      // Filter out the current service
+      const result = await api.services.search({ category, limit: limit + 1, sortBy: "popular" });
+      // Filter out the current service, then trim to requested limit
       return result.services.filter((s: any) => s.id !== excludeId).slice(0, limit);
     },
     enabled: !!category,

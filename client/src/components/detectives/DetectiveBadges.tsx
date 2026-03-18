@@ -33,7 +33,7 @@ export function DetectiveBadges({ badgeState }: DetectiveBadgesProps) {
   if (!badgeState) return null;
 
   return (
-    <span className="flex items-center gap-1 ml-1">
+    <span className="inline-flex items-center gap-1 ml-1 align-middle">
       {badgeState.showBlueTick && (
         <img
           src="/blue-tick.png"

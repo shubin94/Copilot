@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { getDetectiveProfileUrl } from "@/lib/utils";
+import { resolveDetectiveBadgeState } from "@/pages/detective-page-helpers";
 
 interface DetectiveSnippetGridProps {
   snippetId?: string;
@@ -303,14 +304,8 @@ export function DetectiveSnippetGrid({
   };
 
   const serviceCards = items.map((item) => {
-    // Compute badge state from detective properties - use 'as any' for snippet data type compatibility
     const itemData = item as any;
-    const badgeState = {
-      showBlueTick: !!itemData.hasBlueTick,
-      showPro: itemData.level === 'level2' || itemData.level === 'pro',
-      showRecommended: false,
-      blueTickLabel: itemData.hasBlueTick ? 'Verified' : 'Unverified'
-    };
+    const badgeState = resolveDetectiveBadgeState(itemData);
     return {
       id: item.serviceId,
       slug: item.slug,

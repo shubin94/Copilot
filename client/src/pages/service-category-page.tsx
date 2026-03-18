@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo } from "react";
 import { useRoute } from "wouter";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SEO } from "@/components/seo";
 import { ExternalLink, ChevronDown, SlidersHorizontal, X, Star, ShieldCheck, Zap, Award } from "lucide-react";
 import { generateBreadcrumbListSchema } from "@/lib/structured-data";
+import { getCountryName } from "@/lib/slug-utils";
 import { ServiceCardGrid } from "@/components/common/service-card-grid";
 import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
 
@@ -196,16 +196,16 @@ function generateItemListSchema(services: Service[], categoryName: string) {
       "item": {
         "@type": "Service",
         "name": service.title,
-        "url": `https://www.askdetectives.com/service/${service.detective.country?.toLowerCase()}/${service.detective.state?.toLowerCase().replace(/\s+/g, "-")}/${service.detective.city?.toLowerCase().replace(/\s+/g, "-")}/${service.detective.slug}/${service.slug}`,
-        "description": service.description,
-        "image": service.images?.[0] || service.detective.logo || "",
-        "price": service.offerPrice || service.basePrice || "Contact",
+        "url": `https://www.askdetectives.com/service/${(service as any).detectiveCountrySlug || (service as any).detectiveCountry?.toLowerCase()}/${(service as any).detectiveStateSlug || (service as any).detectiveState?.toLowerCase().replace(/\s+/g, "-")}/${(service as any).detectiveCitySlug || (service as any).detectiveCity?.toLowerCase().replace(/\s+/g, "-")}/${(service as any).detectiveSlug}/${service.slug}`,
+        "description": (service as any).description,
+        "image": service.images?.[0] || (service as any).detectiveAvatar || "",
+        "price": (service as any).offerPrice || (service as any).basePrice || "Contact",
         "priceCurrency": "INR",
         "provider": {
           "@type": "LocalBusiness",
-          "name": service.detective.businessName,
-          "logo": service.detective.logo,
-          "areaServed": { "@type": "Place", "name": `${service.detective.city}, ${service.detective.state}` },
+          "name": (service as any).detectiveBusinessName,
+          "logo": (service as any).detectiveAvatar,
+          "areaServed": { "@type": "Place", "name": `${(service as any).detectiveCity}, ${(service as any).detectiveState}` },
         },
         "aggregateRating": service.avgRating > 0
           ? { "@type": "AggregateRating", "ratingValue": service.avgRating.toFixed(1), "reviewCount": service.reviewCount }
@@ -501,7 +501,7 @@ export default function ServiceCategoryPage() {
     let result = services.filter(s => {
       if (filters.minRating > 0 && s.avgRating < filters.minRating) return false;
 
-      const badge = s.badgeState ?? s.detective.badgeState;
+      const badge = s.badgeState ?? (s.detective as any)?.badgeState;
       if (filters.badges.includes("blueTick") && !badge?.showBlueTick) return false;
       if (filters.badges.includes("pro") && !badge?.showPro) return false;
       if (filters.badges.includes("recommended") && !badge?.showRecommended) return false;
@@ -571,7 +571,7 @@ export default function ServiceCategoryPage() {
       <div className="min-h-screen bg-white">
         <SEO title={seoTitle} description={seoDescription} canonical={canonicalUrl} robots="index, follow" />
         <Navbar />
-        <main className="container mx-auto px-6 md:px-12 lg:px-24 py-8 mt-16">
+        <main className="container mx-auto px-6 py-8">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3, 4, 5, 6].map(i => <ServiceCardSkeleton key={i} />)}
           </div>
@@ -586,7 +586,7 @@ export default function ServiceCategoryPage() {
       <div className="min-h-screen bg-white">
         <SEO title="Services | Ask Detectives" description="Browse detective services." canonical={canonicalUrl} robots="noindex, follow" />
         <Navbar />
-        <main className="container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
+        <main className="container mx-auto px-6 py-8">
           <div className="text-center py-12">
             <h1 className="text-3xl font-bold text-gray-900 mb-4">Services Not Found</h1>
             <p className="text-gray-600 mb-8">{error || "This service category is not available."}</p>
@@ -612,30 +612,30 @@ export default function ServiceCategoryPage() {
         keywords={keywords}
       />
       <Navbar />
-      <main className="container mx-auto px-4 py-6">
+      <main className="container mx-auto px-6 py-8">
         {/* Breadcrumb */}
-        <nav className="mb-8 text-sm text-gray-600">
-          <a href="/" className="hover:text-blue-600">Home</a>
-          {breadcrumbs.slice(1, -1).map((crumb, idx) => (
-            <span key={idx}>
-              <span className="mx-2">/</span>
-              <a href={crumb.url} className="hover:text-blue-600">{crumb.name}</a>
-            </span>
-          ))}
-          <span className="mx-2">/</span>
-          <span className="text-gray-900">{locationLabel}</span>
+        <nav className="mb-8">
+          <ol className="flex flex-wrap gap-2 text-sm text-gray-600">
+            {breadcrumbs.map((crumb, idx) => (
+              <li key={idx} className="flex items-center gap-2">
+                {idx > 0 && <span>/</span>}
+                {idx === breadcrumbs.length - 1 ? (
+                  <span className="text-gray-900 font-medium">{crumb.name}</span>
+                ) : (
+                  <a href={crumb.url} className="text-blue-600 hover:underline">{crumb.name}</a>
+                )}
+              </li>
+            ))}
+          </ol>
         </nav>
 
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold mb-2">{h1Text}</h1>
-          <p className="text-base text-gray-600 mb-2 max-w-3xl">
+          <h1 className="text-4xl font-bold mb-2">{h1Text}</h1>
+          <p className="text-lg text-gray-600 mb-2">
             {getDescription(config, locationLabel, stateName || countryName, services.length)}
           </p>
-          <div className="flex flex-wrap gap-4 items-center">
-            <Badge variant="secondary" className="text-base">{services.length} Services Available</Badge>
-            <Badge variant="secondary" className="text-base">{config.specialist}</Badge>
-          </div>
+          <p className="text-sm text-gray-500">{services.length} services available</p>
         </div>
 
         {/* Authority link */}
@@ -710,40 +710,7 @@ export default function ServiceCategoryPage() {
               <ServiceCardGrid
                 isLoading={false}
                 emptyMessage={`No ${config.pluralName.toLowerCase()} found in this location yet.`}
-                services={filteredServices.map(service => {
-                  const toSlug = (s?: string) => (s || "").toLowerCase().trim().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
-                  const priceDisplay = service.isOnEnquiry || (!service.offerPrice && !service.basePrice)
-                    ? "On Enquiry"
-                    : service.offerPrice
-                    ? `₹${service.offerPrice.toFixed(0)}`
-                    : `₹${service.basePrice!.toFixed(0)}`;
-                  return {
-                    id: service.id,
-                    slug: service.slug,
-                    detectiveId: service.detective.id,
-                    detectiveSlug: service.detective.slug,
-                    detectiveBusinessName: service.detective.businessName,
-                    detectiveName: service.detective.businessName,
-                    detectiveCountry: service.detective.country,
-                    detectiveState: service.detective.state,
-                    detectiveCity: service.detective.city,
-                    detectiveCountrySlug: toSlug(service.detective.country),
-                    detectiveStateSlug: toSlug(service.detective.state),
-                    detectiveCitySlug: toSlug(service.detective.city),
-                    detectiveAvatar: service.detective.logo,
-                    detectiveLevel: service.detective.level,
-                    images: service.images?.length ? service.images : (service.detective.logo ? [service.detective.logo] : []),
-                    title: service.title,
-                    avgRating: service.avgRating,
-                    reviewCount: service.reviewCount,
-                    priceDisplay,
-                    isOnEnquiry: service.isOnEnquiry,
-                    phone: service.detective.phone,
-                    whatsapp: service.detective.whatsapp,
-                    contactEmail: service.detective.contactEmail,
-                    badgeState: service.badgeState ?? service.detective.badgeState,
-                  };
-                })}
+                services={filteredServices as any[]}
               />
             )}
           </div>

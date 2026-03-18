@@ -8,6 +8,7 @@ export interface DetectiveListDTO {
   country: string | null;
   level: string | null;
   hasBlueTick: boolean;
+  effectiveBadges: { blueTick: boolean; pro: boolean; recommended: boolean };
   avgRating: number;
   reviewCount: number;
   shortBio: string;

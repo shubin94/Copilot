@@ -180,9 +180,33 @@ export default function ClaimProfile() {
             <h1 className="text-3xl font-bold font-heading mb-2" data-testid="text-page-title">
               Claim Your Detective Profile
             </h1>
-            <p className="text-gray-600">
-              Submit your claim for <span className="font-semibold">{detective.businessName}</span>
+            <p className="text-gray-600 mb-4">
+              You are claiming ownership of the following profile:
             </p>
+            {/* Profile summary card */}
+            <div className="flex items-center gap-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              {detective.logo && (
+                <img
+                  src={detective.logo}
+                  alt="Detective logo"
+                  className="h-12 w-12 rounded-full object-cover border border-blue-200 shrink-0"
+                  width={48}
+                  height={48}
+                />
+              )}
+              <div>
+                <p className="font-semibold text-gray-900 text-base" data-testid="text-claimed-profile-name">
+                  {(detective as any).businessName || (detective as any).name || "Detective Profile"}
+                </p>
+                {((detective as any).city || (detective as any).state || (detective as any).country) && (
+                  <p className="text-sm text-gray-600 mt-0.5">
+                    {[(detective as any).city, (detective as any).state, (detective as any).country]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
 
           {submitClaim.isSuccess ? (

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { useLocation } from "wouter";
+import { SEO } from "@/components/seo";
 
 export default function ResetPassword() {
   const [, setLocation] = useLocation();
@@ -44,6 +45,7 @@ export default function ResetPassword() {
 
   return (
     <div className="max-w-md mx-auto mt-10">
+      <SEO title="Reset Password" description="Reset your AskDetectives account password." robots="noindex, nofollow" />
       <h2 className="text-2xl font-bold mb-4">Reset Password</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

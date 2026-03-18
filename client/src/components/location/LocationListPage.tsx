@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { SEO } from "@/components/seo";
-import { ServiceCardComponent } from "@/components/home/service-card";
+import { ServiceCard } from "@/components/home/service-card";
 
 interface LocationListPageProps<T> {
   title: string;
@@ -60,7 +60,7 @@ export function LocationListPage<T>({
         </div>
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Explore All Detectives in this Location</h2>
-          <p className="text-gray-700 mb-2">Browse all verified private investigators available in this area.</p>
+          <p className="text-gray-600 mb-2">Browse all verified private investigators available in this area.</p>
           <a href="/detectives" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium transition-colors">
             View All Available Detectives
           </a>
@@ -70,7 +70,7 @@ export function LocationListPage<T>({
         ) : items.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
             {items.map((item) => (
-              <ServiceCardComponent key={itemKey(item)} {...itemProps(item)} />
+              <ServiceCard key={itemKey(item)} {...itemProps(item)} />
             ))}
           </div>
         ) : (

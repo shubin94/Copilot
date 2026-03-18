@@ -126,6 +126,7 @@ export const detectives = pgTable("detectives", {
   statusIdx: index("detectives_status_idx").on(table.status),
   claimCompletedAtIdx: index("detectives_claim_completed_at_idx").on(table.claimCompletedAt),
   phoneUniqueIdx: uniqueIndex("detectives_phone_unique").on(table.phone),
+  locationCompositeIdx: index("detectives_location_composite_idx").on(table.countryId, table.stateId, table.cityId),
 }));
 
 export const caseStudies = pgTable("case_studies", {
@@ -184,6 +185,7 @@ export const services = pgTable("services", {
   activeIdx: index("services_active_idx").on(table.isActive),
   orderCountIdx: index("services_order_count_idx").on(table.orderCount),
   slugIdx: uniqueIndex("services_slug_unique").on(table.slug),
+  detectiveActiveCompositeIdx: index("services_detective_active_idx").on(table.detectiveId, table.isActive),
 }));
 
 export const servicePackages = pgTable("service_packages", {
@@ -214,6 +216,7 @@ export const reviews = pgTable("reviews", {
   serviceIdIdx: index("reviews_service_id_idx").on(table.serviceId),
   userIdIdx: index("reviews_user_id_idx").on(table.userId),
   ratingIdx: index("reviews_rating_idx").on(table.rating),
+  servicePublishedCompositeIdx: index("reviews_service_published_idx").on(table.serviceId, table.isPublished),
 }));
 
 export const orders = pgTable("orders", {
@@ -495,7 +498,7 @@ export const insertFavoriteSchema = createInsertSchema(favorites).omit({ id: tru
 export const insertDetectiveApplicationSchema = createInsertSchema(detectiveApplications, {
   email: z.string().email(),
   password: z.string().min(8, "Password must be at least 8 characters"),
-  fullName: z.string().min(2),
+  fullName: z.string().min(2).max(200),
   businessType: z.enum(["individual", "agency"]),
   banner: z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
     message: "Banner must be a valid data URL or HTTP URL"
@@ -515,8 +518,8 @@ export const insertDetectiveApplicationSchema = createInsertSchema(detectiveAppl
     currency: z.string(),
     isOnEnquiry: z.boolean().optional(),
   })).optional(),
-  about: z.string().optional(),
-  companyName: z.string().optional(),
+  about: z.string().max(5000).optional(),
+  companyName: z.string().max(200).optional(),
   businessWebsite: z.string().url().optional(),
   businessDocuments: z.array(z.string()).optional(),
   documents: z.array(z.string()).optional(),

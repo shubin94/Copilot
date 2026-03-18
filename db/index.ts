@@ -35,7 +35,7 @@ const pool = new Pool({
   // Pool sizing balances connection availability with resource constraints
   // Each connection uses ~5-10MB RAM + database resources
   // Supabase default pooler: 25 connections, so we use 10 to avoid connection pool limits
-  max: 10,                     // Max connections (optimized for Supabase pooler limits)
+  max: 20,                     // Max connections
   min: 2,                      // Keep 2 warm connections for faster cold requests
   idleTimeoutMillis: 30000,    // Close idle connections after 30s to free resources
   connectionTimeoutMillis: 5000, // Fail fast if pool is saturated (5s timeout)

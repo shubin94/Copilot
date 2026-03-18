@@ -312,7 +312,7 @@ export function buildHomepageAuthorityHtml(
  */
 
 import { db, pool } from "../../db/index.js";
-import { detectives, countries, states, cities, detective_location_seo, service_location_seo } from "../../shared/schema.js";
+import { detectives, countries, states, cities, detective_location_seo, service_location_seo, subscriptionPlans } from "../../shared/schema.js";
 import { eq, and, or, ilike, desc, sql } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.js";
 import { resolveLocationHierarchyForSeo } from "../services/locationSeoResolutionService.js";
@@ -1417,8 +1417,11 @@ export async function getLocationDetectivesForSEO(
         subscriptionPackageId: detectives.subscriptionPackageId,
         subscriptionExpiresAt: detectives.subscriptionExpiresAt,
         blueTickAddon: detectives.blueTickAddon,
+        planName: subscriptionPlans.name,
+        planBadges: subscriptionPlans.badges,
       })
       .from(detectives)
+      .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
       .where(and(...conditions))
       .orderBy(desc(detectives.lastActive))
       .limit(limitValue + 1)
@@ -1471,11 +1474,15 @@ export async function getLocationDetectivesForSEO(
 
     // Compute effectiveBadges for each detective
     const detectivesWithBadges = limitedRows.map((row) => {
-      const effectiveBadges = computeEffectiveBadges({
-        subscriptionPackageId: row.subscriptionPackageId,
-        subscriptionExpiresAt: row.subscriptionExpiresAt,
-        blueTickAddon: row.blueTickAddon,
-      });
+      const effectiveBadges = computeEffectiveBadges(
+        {
+          subscriptionPackageId: row.subscriptionPackageId,
+          subscriptionExpiresAt: row.subscriptionExpiresAt,
+          blueTickAddon: row.blueTickAddon,
+        },
+        // Pass the joined plan so badges (pro, recommended, blueTick) resolve correctly
+        row.planName != null ? { name: row.planName, badges: row.planBadges } : null,
+      );
 
       return {
         id: row.id,

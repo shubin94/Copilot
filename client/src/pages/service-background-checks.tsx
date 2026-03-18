@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Star, MapPin, ExternalLink, ChevronDown, ShoppingCart } from "lucide-react";
 import { generateBreadcrumbListSchema } from "@/lib/structured-data";
 import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
+import { resolveDetectiveBadgeState } from "@/pages/detective-page-helpers";
 
 interface Detective {
   id: string;
@@ -24,6 +25,9 @@ interface Detective {
   phone?: string;
   whatsapp?: string;
   contactEmail?: string;
+  effectiveBadges?: { blueTick?: boolean; pro?: boolean; recommended?: boolean };
+  hasBlueTick?: boolean;
+  blueTickAddon?: boolean;
 }
 
 interface Service {
@@ -413,9 +417,11 @@ export default function ServiceBackgroundChecksPage() {
                       </div>
                       
                       {/* Detective Name and Location */}
-                      <div className="flex items-center gap-1 mb-2">
-                        <span className="font-medium">{service.detective.businessName}</span>
-                        <DetectiveBadges badgeState={service.badgeState} />
+                      <div className="mb-2">
+                        <span className="font-medium leading-snug">
+                          {service.detective.businessName}
+                          <DetectiveBadges badgeState={resolveDetectiveBadgeState(service.detective)} />
+                        </span>
                       </div>
                       <div className="flex items-center text-sm text-gray-600 mb-3">
                         <MapPin className="h-4 w-4 mr-1" />

@@ -631,37 +631,39 @@ export class DatabaseStorage implements IStorage {
 
     // Keep text location fields canonical and aligned with FK IDs.
     // This prevents routing/query mismatches (e.g., "AZ" vs "Arizona").
-    if (sanitizedInsert.countryId) {
-      const countryRow = await db
-        .select({ code: countries.code, name: countries.name })
-        .from(countries)
-        .where(eq(countries.id, Number(sanitizedInsert.countryId)))
-        .limit(1);
-      if (countryRow.length > 0) {
-        sanitizedInsert.country = countryRow[0].code || countryRow[0].name;
-      }
-    }
+    // Parallelise the three independent read-only lookups.
+    const [countryRow, stateRow, cityRow] = await Promise.all([
+      sanitizedInsert.countryId
+        ? db
+            .select({ code: countries.code, name: countries.name })
+            .from(countries)
+            .where(eq(countries.id, Number(sanitizedInsert.countryId)))
+            .limit(1)
+        : Promise.resolve([] as { code: string; name: string }[]),
+      sanitizedInsert.stateId
+        ? db
+            .select({ name: states.name })
+            .from(states)
+            .where(eq(states.id, Number(sanitizedInsert.stateId)))
+            .limit(1)
+        : Promise.resolve([] as { name: string }[]),
+      sanitizedInsert.cityId
+        ? db
+            .select({ name: cities.name })
+            .from(cities)
+            .where(eq(cities.id, Number(sanitizedInsert.cityId)))
+            .limit(1)
+        : Promise.resolve([] as { name: string }[]),
+    ]);
 
-    if (sanitizedInsert.stateId) {
-      const stateRow = await db
-        .select({ name: states.name })
-        .from(states)
-        .where(eq(states.id, Number(sanitizedInsert.stateId)))
-        .limit(1);
-      if (stateRow.length > 0) {
-        sanitizedInsert.state = stateRow[0].name;
-      }
+    if (countryRow.length > 0) {
+      sanitizedInsert.country = countryRow[0].code || countryRow[0].name;
     }
-
-    if (sanitizedInsert.cityId) {
-      const cityRow = await db
-        .select({ name: cities.name })
-        .from(cities)
-        .where(eq(cities.id, Number(sanitizedInsert.cityId)))
-        .limit(1);
-      if (cityRow.length > 0) {
-        sanitizedInsert.city = cityRow[0].name;
-      }
+    if (stateRow.length > 0) {
+      sanitizedInsert.state = stateRow[0].name;
+    }
+    if (cityRow.length > 0) {
+      sanitizedInsert.city = cityRow[0].name;
     }
 
     if (!sanitizedInsert.location || sanitizedInsert.location === "Not specified") {
@@ -821,6 +823,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllDetectives(limit: number = 50, offset: number = 0): Promise<(Detective & { subscriptionPackage?: any })[]> {
+    limit = Math.min(limit || 100, 5000);
     const results = await db.select({
       detective: detectives,
       package: subscriptionPlans,

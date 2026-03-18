@@ -1,5 +1,4 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { BadgeIcon } from "@/components/detective-badges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MapPin, Clock, Zap } from "lucide-react";
@@ -106,21 +105,19 @@ export function DetectiveCard({ detective, variant = "city", isPriority = false 
     normalizedAvgRating > 0 &&
     normalizedReviewCount > 0;
 
-  const badgeState = computeServiceBadges({
+  // Single source of truth for badge state across all variants.
+  // Priority: pre-computed badgeState → effectiveBadges (from API) → subscriptionPackage.badges → hasBlueTick/level fields
+  const preComputed = detective.badgeState
+    ? { ...detective.badgeState, blueTickLabel: detective.badgeState.blueTickLabel ?? undefined }
+    : undefined;
+  // SINGLE SOURCE OF TRUTH: only use effectiveBadges from the backend API.
+  // Never compute from raw fields — those don't respect subscription expiry.
+  const badgeState = preComputed ?? computeServiceBadges({
     isVerified: detective.isVerified || false,
-    effectiveBadges: detective.effectiveBadges,
+    effectiveBadges: detective.effectiveBadges ?? { blueTick: false, pro: false, recommended: false },
   });
 
   if (variant === "homeFeatured") {
-    const planBadges = detective.subscriptionPackage?.badges || null;
-    const badgeState = detective.badgeState ?? (planBadges
-      ? {
-          showBlueTick: !!planBadges.blueTick,
-          showPro: !!planBadges.pro,
-          showRecommended: !!planBadges.recommended,
-          blueTickLabel: planBadges.blueTick ? "Verified" : null,
-        }
-      : null);
 
     return (
       <Card
@@ -137,12 +134,10 @@ export function DetectiveCard({ detective, variant = "city", isPriority = false 
               )}
             </div>
             <div className="flex-1">
-              <div className="flex items-center gap-1 mt-1">
-                <span className="font-medium">
-                  {detective.businessName || "Unknown Detective"}
-                </span>
+              <span className="font-medium leading-snug">
+                {detective.businessName || "Unknown Detective"}
                 <DetectiveBadges badgeState={badgeState} />
-              </div>
+              </span>
             </div>
           </div>
         </CardContent>
@@ -151,11 +146,6 @@ export function DetectiveCard({ detective, variant = "city", isPriority = false 
   }
 
   if (variant === "newsFeatured") {
-    const badgeState = computeServiceBadges({
-      isVerified: detective.isVerified || false,
-      effectiveBadges: detective.effectiveBadges,
-    });
-
     return (
       <>
         <div className="flex gap-4 mb-4">
@@ -169,12 +159,10 @@ export function DetectiveCard({ detective, variant = "city", isPriority = false 
             className="h-16 w-16 rounded-full object-cover border border-gray-200"
           />
           <div className="flex-1">
-            <div className="flex items-center gap-1 mb-1">
-              <span className="font-bold text-sm">
-                {detective.businessName || "Detective"}
-              </span>
+            <span className="font-bold text-sm leading-snug">
+              {detective.businessName || "Detective"}
               <DetectiveBadges badgeState={badgeState} />
-            </div>
+            </span>
           </div>
         </div>
 
@@ -227,22 +215,10 @@ export function DetectiveCard({ detective, variant = "city", isPriority = false 
           )}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-lg font-semibold text-gray-900 line-clamp-1">
+        <div>
+          <span className="text-lg font-semibold text-gray-900 leading-snug">
             {detective.businessName || "Private Detective Service"}
-          </span>
-          <span className="inline-flex items-center gap-1 ml-1 align-middle">
-            {(detective.isVerified || detective.effectiveBadges?.blueTick) && (
-              <BadgeIcon type="blueTick" className="h-4 w-4 inline-block align-middle" />
-            )}
-            {detective.effectiveBadges?.pro && (
-              <BadgeIcon type="pro" className="h-4 w-4 inline-block align-middle" />
-            )}
-            {detective.effectiveBadges?.recommended && (
-              <span className="text-[10px] bg-green-100 px-1 rounded inline-block">
-                Recommended
-              </span>
-            )}
+            <DetectiveBadges badgeState={badgeState} />
           </span>
         </div>
 

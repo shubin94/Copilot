@@ -217,7 +217,7 @@ async function calculateReviewStats(detectiveId: string): Promise<{ totalReviews
       .from(reviews)
       .where(
         and(
-          sql`${reviews.serviceId} = ANY(${sql.raw(`ARRAY[${serviceIds.map((id) => `'${id}'`).join(",")}]`)}::text[])`,
+          inArray(reviews.serviceId, serviceIds),
           eq(reviews.isPublished, true)
         )
       );

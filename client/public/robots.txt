@@ -6,6 +6,10 @@ Allow: /
 Disallow: /admin/
 Disallow: /user/
 Disallow: /detective/dashboard
+Disallow: /detective/login
+Disallow: /employee/
+Disallow: /auth/
+Disallow: /reset-password
 Disallow: /login
 Disallow: /signup
 Disallow: /claim-account

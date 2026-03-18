@@ -1,8 +1,27 @@
 import { LocationListPage } from "@/components/location/LocationListPage";
 
+interface CityItem {
+  serviceId?: string;
+  slug?: string;
+  serviceSlug?: string;
+  detectiveBusinessName?: string;
+  detectiveCity?: string;
+  name?: string;
+  detectiveState?: string;
+  stateSlug?: string;
+  detectiveCountry?: string;
+  countrySlug?: string;
+  detectiveAvatar?: string;
+  title?: string;
+  avgRating?: number;
+  reviewCount?: number;
+  priceDisplay?: string;
+  badgeState?: unknown;
+}
+
 export default function LocationsCitiesPage() {
   return (
-    <LocationListPage
+    <LocationListPage<CityItem>
       title="All Cities with Detectives"
       description="Browse all cities where active detectives are available on AskDetectives."
       canonical="https://www.askdetectives.com/locations/cities"

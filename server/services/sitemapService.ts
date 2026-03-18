@@ -32,25 +32,14 @@ function toSlug(value: string | null | undefined): string {
 }
 
 /**
- * Get a valid lastmod date - uses current date if DB timestamp is older than 30 days
- * This ensures search engines see fresh dates even if DB records haven't been updated
+ * Get a valid lastmod date string from a DB timestamp.
+ * Returns the actual DB date, or today if no timestamp is available.
  */
 function getValidLastmod(dbTimestamp: any): string {
   const today = new Date().toISOString().split("T")[0];
-  
-  if (!dbTimestamp) {
-    return today;
-  }
-  
+  if (!dbTimestamp) return today;
   const dbDate = new Date(dbTimestamp);
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  
-  // If DB timestamp is older than 30 days, use current date
-  if (dbDate < thirtyDaysAgo) {
-    return today;
-  }
-  
+  if (isNaN(dbDate.getTime())) return today;
   return dbDate.toISOString().split("T")[0];
 }
 
@@ -113,6 +102,30 @@ async function generateStaticSitemap(): Promise<string> {
     <lastmod>${today}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.askdetectives.com/news</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.askdetectives.com/locations/countries</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.askdetectives.com/locations/states</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.askdetectives.com/locations/cities</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://www.askdetectives.com/packages</loc>
@@ -424,17 +437,18 @@ async function generateServicesSitemap(page: number = 1): Promise<string> {
       continue;
     }
 
+    // Skip services missing location data — these would generate 404 URLs
+    if (!service.state_name || !service.city_name) {
+      continue;
+    }
+
     const detectiveSlug =
       service.detective_slug ||
       toSlug(service.detective_business_name) ||
       "detective";
     const countrySlug = toSlug(service.country_name || service.country_slug);
-    const stateSlug = service.state_name
-      ? toSlug(service.state_name)
-      : "region";
-    const citySlug = service.city_name
-      ? toSlug(service.city_name)
-      : "area";
+    const stateSlug = toSlug(service.state_name);
+    const citySlug = toSlug(service.city_name);
     const url = `https://www.askdetectives.com/service/${countrySlug}/${stateSlug}/${citySlug}/${detectiveSlug}/${service.slug}`;
 
     xml += `  <url>

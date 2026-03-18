@@ -18,26 +18,82 @@ const articleDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
-// Simple HTML sanitization: removes dangerous content while preserving safe HTML
+// Allowlist-based HTML sanitization: strips everything except known-safe tags and attributes.
+// Regex sanitization can be bypassed (entity encoding, malformed tags, etc.) so we use
+// a strict allowlist via the browser's own DOM parser.
 function sanitizeHtml(html: string): string {
-  const stripped = html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/\bon\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\bon\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/\bon\w+\s*=\s*[^\s>]*/gi, '');
-
   if (typeof document === "undefined") {
-    return stripped;
+    // SSR fallback: strip all tags
+    return html.replace(/<[^>]*>/g, "");
   }
 
-  const textarea = document.createElement('textarea');
-  textarea.innerHTML = html;
-  let sanitized = textarea.value;
-  
-  // Remove script tags and event handlers
-  sanitized = stripped;
-  
-  return sanitized;
+  const ALLOWED_TAGS = new Set([
+    "p", "br", "b", "strong", "i", "em", "u", "s", "strike",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "ul", "ol", "li", "blockquote", "pre", "code",
+    "a", "img", "hr", "table", "thead", "tbody", "tr", "th", "td",
+    "span", "div", "figure", "figcaption",
+  ]);
+  const ALLOWED_ATTRS: Record<string, Set<string>> = {
+    a: new Set(["href", "title", "target", "rel"]),
+    img: new Set(["src", "alt", "width", "height", "loading"]),
+    td: new Set(["colspan", "rowspan"]),
+    th: new Set(["colspan", "rowspan"]),
+  };
+  const SAFE_URL = /^(https?:|\/\/)/i;
+
+  const doc = new DOMParser().parseFromString(html, "text/html");
+
+  function sanitizeNode(node: Node): Node | null {
+    if (node.nodeType === Node.TEXT_NODE) return node.cloneNode();
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    if (!ALLOWED_TAGS.has(tag)) {
+      // Replace disallowed element with its children (unwrap)
+      const frag = document.createDocumentFragment();
+      el.childNodes.forEach(child => {
+        const sanitized = sanitizeNode(child);
+        if (sanitized) frag.appendChild(sanitized);
+      });
+      return frag;
+    }
+    const clean = document.createElement(tag);
+    const allowed = ALLOWED_ATTRS[tag];
+    if (allowed) {
+      allowed.forEach(attr => {
+        if (attr === "rel") return; // handled below after all attrs are set
+        const val = el.getAttribute(attr);
+        if (val !== null) {
+          if ((attr === "href" || attr === "src") && !SAFE_URL.test(val.trim())) return;
+          if (attr === "target") { clean.setAttribute(attr, "_blank"); return; }
+          clean.setAttribute(attr, val);
+        }
+      });
+      // Always force rel="noopener noreferrer" when target="_blank" is present
+      if (tag === "a") {
+        const rel = el.getAttribute("rel");
+        clean.setAttribute("rel", clean.getAttribute("target") === "_blank"
+          ? "noopener noreferrer"
+          : (rel ?? ""));
+      }
+    }
+    el.childNodes.forEach(child => {
+      const sanitized = sanitizeNode(child);
+      if (sanitized) clean.appendChild(sanitized);
+    });
+    return clean;
+  }
+
+  const result = document.createDocumentFragment();
+  doc.body.childNodes.forEach(child => {
+    const sanitized = sanitizeNode(child);
+    if (sanitized) result.appendChild(sanitized);
+  });
+
+  const wrapper = document.createElement("div");
+  wrapper.appendChild(result);
+  return wrapper.innerHTML;
 }
 
 interface CaseStudy {
@@ -262,7 +318,7 @@ export default function ArticlePage() {
           <div className="mb-8">
             <img
               src={article.thumbnail}
-              alt="News thumbnail"
+              alt={article.title}
               width={320}
               height={240}
               className="w-full h-96 object-cover rounded-lg border border-gray-200"

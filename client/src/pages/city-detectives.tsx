@@ -752,28 +752,28 @@ export default function CityDetectivesPage() {
         {!loading && detectives.length > 0 && (
           <>
             <div className="mt-12 pt-8 border-t border-gray-200">
-              <h2 className="text-2xl font-bold mb-2">
-                Frequently Asked Questions
-              </h2>
-              <p className="text-gray-600 mb-6">
-                Learn more about private detective services in {locationDisplayName}
-              </p>
-
               <div className="max-w-2xl mx-auto">
+                <h2 className="text-2xl font-bold mb-2">
+                  Frequently Asked Questions
+                </h2>
+                <p className="text-gray-600 mb-6">
+                  Learn more about private detective services in {locationDisplayName}
+                </p>
+
                 <FAQItem
                   question={`How many detectives are in ${locationDisplayName}?`}
                   answer={`There are currently ${detectives.length} licensed detectives available in ${locationDisplayName} on Ask Detectives. Our network continues to grow with verified professionals offering specialized investigation services. All detectives are screened for credentials and professional standing.`}
                   isOpen={expandedFAQs[0]}
                   setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, 0: open })}
                 />
-                
+
                 <FAQItem
                   question={`What services do detectives in ${locationDisplayName} provide?`}
                   answer={`Detectives in ${locationDisplayName} specialize in various services including: ${topSpecialties.length > 0 ? topSpecialties.join(", ") + "," : ""} background checks, surveillance, skip tracing, legal discovery, fraud investigation, worker's compensation investigation, and corporate intelligence gathering. All services are confidential and conducted by licensed professionals with years of experience.`}
                   isOpen={expandedFAQs[1]}
                   setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, 1: open })}
                 />
-                
+
                 <FAQItem
                   question={`Are detectives in ${locationDisplayName} verified?`}
                   answer={`Yes, ${verificationRate}% of detectives in our ${locationDisplayName} network are verified professionals with proper licensing and credentials. We verify all detectives to ensure you're working with trusted, insured, and qualified investigators. Check the blue checkmark icon on each profile to confirm verification status. All verified detectives have passed background checks and maintain professional liability insurance.`}

@@ -700,9 +700,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============== AUTHENTICATION ROUTES ==============
-  
+
+  // Rate limiter for auth endpoints: 10 attempts per 15 minutes per IP
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req: Request, res: Response) => {
+      res.status(429).json({ error: "Too many attempts, please try again later" });
+    },
+  });
+
   // Forgot password - generate reset token and send email (public)
-  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+  app.post("/api/auth/forgot-password", authLimiter, async (req: Request, res: Response) => {
     try {
       const { email } = req.body as { email: string };
       if (!email) return res.status(400).json({ error: "Email is required" });
@@ -772,7 +783,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Register new user
-  app.post("/api/auth/register", async (req: Request, res: Response) => {
+  app.post("/api/auth/register", authLimiter, async (req: Request, res: Response) => {
     try {
       setNoStore(res);
       const validatedData = insertUserSchema.parse(req.body);
@@ -873,7 +884,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Login
   // SECURITY: Admin credentials must NEVER be hardcoded. Admin access is DB-driven only.
   // Admin status is determined solely by user.role === "admin" from the database.
-  app.post("/api/auth/login", async (req: Request, res: Response) => {
+  app.post("/api/auth/login", authLimiter, async (req: Request, res: Response) => {
     try {
       setNoStore(res);
       let { email, password } = req.body as { email: string; password: string };
@@ -1642,6 +1653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           country: d.country ?? null,
           level: d.level ?? null,
           hasBlueTick: Boolean(d.hasBlueTick),
+          effectiveBadges: computeEffectiveBadges(d, d.subscriptionPackage),
           avgRating: Number(d.avgRating ?? 0),
           reviewCount: Number(d.reviewCount ?? 0),
           shortBio,
@@ -1716,15 +1728,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/detectives/raw", requireRole("admin"), async (req: Request, res: Response) => {
     try {
       // Support pagination + admin filters with safe limits
-      const limit = Math.min(Math.max(1, parseInt(String(req.query.limit) || "50")), 500); // Default 50, max 500
+      const limit = Math.min(Math.max(1, parseInt(String(req.query.limit) || "50")), 100); // Default 50, max 100
       const offset = Math.max(0, parseInt(String(req.query.offset) || "0"));
 
       const status = String(req.query.status || "").toLowerCase().trim();
       const plan = String(req.query.plan || "").toLowerCase().trim();
       const search = String(req.query.search || "").trim().toLowerCase();
 
-      // Fetch a larger window, then apply admin-side filters consistently
-      const allDetectives = await storage.getAllDetectives(5000, 0);
+      // Fetch a capped window, then apply admin-side filters consistently
+      const allDetectives = await storage.getAllDetectives(200, 0);
 
       const filtered = allDetectives.filter((d: any) => {
         const statusOk = !status || status === "all" || String(d.status || "").toLowerCase() === status;
@@ -2067,10 +2079,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ✅ Lazy-ensure subscription plans exist in DB (sets up defaults on first call)
       const { ensurePlansSeeded } = await import("../server/storage.js");
       await ensurePlansSeeded();
-      
+
       const includeInactive = (req.query.all === '1' || req.query.includeInactive === '1' || req.query.activeOnly === '0');
+      // Cache the public (active-only) plans list — admin requests bypass cache
+      const cacheKey = "subscription-plans:active";
+      if (!includeInactive) {
+        const cached = cache.get<any[]>(cacheKey);
+        if (cached) {
+          res.set("Cache-Control", "public, max-age=3600");
+          return res.json({ plans: cached, total: cached.length });
+        }
+      }
       const plans = await storage.getAllSubscriptionPlans(!includeInactive);
-      res.set("Cache-Control", "no-store"); // Admin/list must always reflect current DB (subscription_plans table)
+      if (!includeInactive) {
+        cache.set(cacheKey, plans, 3600);
+        res.set("Cache-Control", "public, max-age=3600");
+      } else {
+        res.set("Cache-Control", "no-store");
+      }
       res.json({ plans, total: plans.length });
     } catch {
       res.set("Cache-Control", "no-store");
@@ -3322,7 +3348,7 @@ Content-Signal: index=public; train=deny
   app.use("/api/admin/finance", requireRole("admin", "employee"), adminFinanceRouter);
 
   // DEBUG Image Routes - Check image URLs and storage issues
-  app.get("/api/debug/images/services", async (_req: Request, res: Response) => {
+  app.get("/api/debug/images/services", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       const result = await db.select({
         id: services.id,
@@ -3360,7 +3386,7 @@ Content-Signal: index=public; train=deny
     }
   });
 
-  app.get("/api/debug/images/detectives", async (_req: Request, res: Response) => {
+  app.get("/api/debug/images/detectives", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       const result = await db.select({
         id: detectives.id,
@@ -3402,8 +3428,18 @@ Content-Signal: index=public; train=deny
         return res.status(400).json({ error: "URL parameter required" });
       }
 
-      // Security: Only allow Supabase URLs
-      if (!url.includes('.supabase.co')) {
+      // Security: Only allow Supabase URLs — validate via URL parsing, not string contains
+      // (prevents bypasses like: evil.supabase.co.attacker.com)
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        return res.status(400).json({ error: "Invalid URL" });
+      }
+      const hostname = parsedUrl.hostname.toLowerCase();
+      const isSupabaseUrl = hostname.endsWith('.supabase.co') &&
+        (parsedUrl.protocol === 'https:' || parsedUrl.protocol === 'http:');
+      if (!isSupabaseUrl) {
         return res.status(403).json({ error: "Only Supabase URLs allowed" });
       }
 
@@ -3464,7 +3500,7 @@ Content-Signal: index=public; train=deny
   });
 
   // DIAGNOSTIC - Test Supabase connectivity and image availability
-  app.get("/api/diagnostic/supabase", async (_req: Request, res: Response) => {
+  app.get("/api/diagnostic/supabase", requireRole("admin"), async (_req: Request, res: Response) => {
     try {
       console.log("[DIAGNOSTICS] Starting Supabase connectivity test...");
 
@@ -4240,19 +4276,22 @@ Content-Signal: index=public; train=deny
            d.business_name as "businessName",
            d.logo, d.bio, d.level,
            d.is_verified as "isVerified",
-           d.has_blue_tick as "hasBlueTick",
            d.blue_tick_addon as "blueTickAddon",
+           d.subscription_package_id as "subscriptionPackageId",
+           d.subscription_expires_at as "subscriptionExpiresAt",
            d.phone, d.whatsapp, d.contact_email as "contactEmail",
            d.last_active as "lastActive",
            d.avg_response_time as "avgResponseTime",
            ct.name as city, s.name as state, c.name as country,
            ct.slug as "citySlug", s.slug as "stateSlug", c.slug as "countrySlug",
+           sp.name as "planName", sp.badges as "planBadges",
            COALESCE(AVG(r.rating) OVER (PARTITION BY d.id), 0) as "avgRating",
            COALESCE(COUNT(r.id) OVER (PARTITION BY d.id), 0) as "reviewCount"
          FROM detectives d
          INNER JOIN cities ct ON ct.id = d.city_id
          INNER JOIN states s ON s.id = d.state_id
          INNER JOIN countries c ON c.id = d.country_id
+         LEFT JOIN subscription_plans sp ON sp.id = d.subscription_package_id
          LEFT JOIN reviews r ON r.detective_id = d.id
          WHERE d.city_id = $1
            AND d.country_id = $2
@@ -4284,11 +4323,10 @@ Content-Signal: index=public; train=deny
         avgResponseTime: d.avgResponseTime,
         avgRating: Number(d.avgRating),
         reviewCount: Number(d.reviewCount),
-        effectiveBadges: {
-          blueTick: d.hasBlueTick || d.blueTickAddon,
-          pro: d.level === "pro",
-          recommended: false,
-        },
+        effectiveBadges: computeEffectiveBadges(
+          { subscriptionPackageId: d.subscriptionPackageId, subscriptionExpiresAt: d.subscriptionExpiresAt, blueTickAddon: d.blueTickAddon },
+          d.planName != null ? { name: d.planName, badges: d.planBadges } : null
+        ),
       }));
 
       res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
@@ -4450,11 +4488,13 @@ Content-Signal: index=public; train=deny
       // Join detectives with countries, states, cities and match by slug
 
       const query = `
-        SELECT d.*, c.name as country_name, s.name as state_name, ct.name as city_name
+        SELECT d.*, c.name as country_name, s.name as state_name, ct.name as city_name,
+               sp.badges as plan_badges, sp.name as plan_name
         FROM detectives d
         INNER JOIN countries c ON d.country_id = c.id
         INNER JOIN states s ON d.state_id = s.id
         INNER JOIN cities ct ON d.city_id = ct.id
+        LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
         WHERE c.slug = $1 AND s.slug = $2 AND ct.slug = $3 AND d.slug = $4
         LIMIT 1
       `;
@@ -4488,16 +4528,23 @@ Content-Signal: index=public; train=deny
           recognitions: maskedDetective.recognitions,
           memberSince: maskedDetective.memberSince ?? maskedDetective.member_since ?? maskedDetective.createdAt ?? maskedDetective.created_at ?? null,
           isVerified: maskedDetective.isVerified ?? maskedDetective.is_verified,
+          isClaimable: maskedDetective.isClaimable ?? maskedDetective.is_claimable ?? false,
+          isClaimed: maskedDetective.isClaimed ?? maskedDetective.is_claimed ?? false,
           level: maskedDetective.level,
           hasBlueTick: maskedDetective.hasBlueTick ?? maskedDetective.has_blue_tick,
           blueTickAddon: maskedDetective.blueTickAddon ?? maskedDetective.blue_tick_addon,
           status: maskedDetective.status,
           createdAt: maskedDetective.createdAt ?? maskedDetective.created_at ?? null,
-          effectiveBadges: {
-            blueTick: (maskedDetective.hasBlueTick ?? maskedDetective.has_blue_tick) || (maskedDetective.blueTickAddon ?? maskedDetective.blue_tick_addon),
-            pro: maskedDetective.level === 'pro',
-            recommended: false
-          }
+          effectiveBadges: computeEffectiveBadges(
+            {
+              subscriptionPackageId: maskedDetective.subscriptionPackageId ?? maskedDetective.subscription_package_id,
+              subscriptionExpiresAt: maskedDetective.subscriptionExpiresAt ?? maskedDetective.subscription_expires_at,
+              blueTickAddon: maskedDetective.blueTickAddon ?? maskedDetective.blue_tick_addon,
+            },
+            detective.plan_name != null
+              ? { name: detective.plan_name, badges: detective.plan_badges }
+              : null
+          )
         }
       };
 
@@ -4851,27 +4898,29 @@ Content-Signal: index=public; train=deny
         return res.status(404).json({ error: "Detective not found" });
       }
 
+      const deletePromises: Promise<any>[] = [];
       if (detective.logo) {
-        await deletePublicUrl(detective.logo as any);
+        deletePromises.push(deletePublicUrl(detective.logo as any));
       }
       if (Array.isArray(detective.businessDocuments)) {
         for (const u of detective.businessDocuments as any[]) {
-          await deletePublicUrl(u as any);
+          deletePromises.push(deletePublicUrl(u as any));
         }
       }
       if (Array.isArray(detective.identityDocuments)) {
         for (const u of detective.identityDocuments as any[]) {
-          await deletePublicUrl(u as any);
+          deletePromises.push(deletePublicUrl(u as any));
         }
       }
       const services = await storage.getServicesByDetective(detective.id);
       for (const s of services) {
         if (Array.isArray(s.images)) {
           for (const u of s.images as any[]) {
-            await deletePublicUrl(u as any);
+            deletePromises.push(deletePublicUrl(u as any));
           }
         }
       }
+      await Promise.all(deletePromises);
       const ok = await storage.deleteDetectiveAccount(req.params.id);
       if (!ok) {
         return res.status(500).json({ error: "Failed to delete detective" });
@@ -5214,7 +5263,7 @@ Content-Signal: index=public; train=deny
 
       const masked = await Promise.all(allServices.map(async (s: any) => {
         const maskedDetective = await maskDetectiveContactsPublic(s.detective);
-        const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
+        const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage ?? null);
         return { ...s, detective: { ...maskedDetective, effectiveBadges } };
       }));
 
@@ -5292,7 +5341,7 @@ Content-Signal: index=public; train=deny
 
       const masked = await Promise.all(allServices.map(async (s: any) => {
         const maskedDetective = await maskDetectiveContactsPublic(s.detective);
-        const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage);
+        const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage ?? null);
         return { ...s, detective: { ...maskedDetective, effectiveBadges } };
       }));
 
@@ -5381,7 +5430,11 @@ Content-Signal: index=public; train=deny
       await storage.incrementServiceViews(service.id);
 
       const maskedDetective = await maskDetectiveContactsPublic(detective);
-      const effectiveBadges = computeEffectiveBadges(maskedDetective, (maskedDetective as any).subscriptionPackage);
+      const planRow1 = detective.subscriptionPackageId
+        ? await db.select({ name: subscriptionPlans.name, badges: subscriptionPlans.badges })
+            .from(subscriptionPlans).where(eq(subscriptionPlans.id, detective.subscriptionPackageId)).limit(1)
+        : [];
+      const effectiveBadges = computeEffectiveBadges(maskedDetective, planRow1[0] ?? null);
 
       res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
       res.json({
@@ -5400,6 +5453,12 @@ Content-Signal: index=public; train=deny
   app.get("/api/services/by-slug/:slug", async (req: Request, res: Response) => {
     try {
       const slug = req.params.slug;
+
+      // Validate slug format to prevent ReDoS attacks
+      if (!/^[a-z0-9\-]+$/.test(slug)) {
+        return res.status(400).json({ error: "Invalid slug format" });
+      }
+
       const detectiveSlug = req.query.detectiveSlug as string | undefined;
       const preview = (req.query.preview === '1' || req.query.preview === 'true');
 
@@ -5500,7 +5559,11 @@ Content-Signal: index=public; train=deny
 
       // Get detective and stats
       const maskedDetective = await maskDetectiveContactsPublic(rawDetective);
-      const effectiveBadges = computeEffectiveBadges(maskedDetective, (maskedDetective as any).subscriptionPackage);
+      const planRow2 = rawDetective.subscriptionPackageId
+        ? await db.select({ name: subscriptionPlans.name, badges: subscriptionPlans.badges })
+            .from(subscriptionPlans).where(eq(subscriptionPlans.id, rawDetective.subscriptionPackageId)).limit(1)
+        : [];
+      const effectiveBadges = computeEffectiveBadges(maskedDetective, planRow2[0] ?? null);
 
       // Get rating stats
       const ratingRows = await db
@@ -5578,8 +5641,12 @@ Content-Signal: index=public; train=deny
       if (!preview && detective) {
         detective = await maskDetectiveContactsPublic(detective as any);
       }
-      const effectiveBadges = detective ? computeEffectiveBadges(detective, (detective as any).subscriptionPackage) : undefined;
-      res.json({ 
+      const planRow3 = detective?.subscriptionPackageId
+        ? await db.select({ name: subscriptionPlans.name, badges: subscriptionPlans.badges })
+            .from(subscriptionPlans).where(eq(subscriptionPlans.id, detective.subscriptionPackageId)).limit(1)
+        : [];
+      const effectiveBadges = detective ? computeEffectiveBadges(detective, planRow3[0] ?? null) : undefined;
+      res.json({
         service,
         detective: detective ? { ...detective, effectiveBadges } : undefined,
         avgRating: stats.avgRating,
@@ -5759,7 +5826,10 @@ Content-Signal: index=public; train=deny
 
       // Apply masking and compute effective badges (same as /api/services)
       const maskedDetective = detectiveForTransform ? await maskDetectiveContactsPublic(detectiveForTransform as any) : null;
-      const effectiveBadges = maskedDetective ? computeEffectiveBadges(maskedDetective, (maskedDetective as any).subscriptionPackage) : undefined;
+      const effectiveBadges = maskedDetective ? computeEffectiveBadges(
+        maskedDetective,
+        subscriptionInfo ? { name: subscriptionInfo.name, badges: subscriptionInfo.badges } : null
+      ) : undefined;
 
       // Transform services to ServiceCard DTOs
       const servicesDtos = services.map((service: any) => {
@@ -5889,9 +5959,7 @@ Content-Signal: index=public; train=deny
       }
 
       if (Array.isArray(service.images)) {
-        for (const u of (service.images as any[])) {
-          await deletePublicUrl(u as any);
-        }
+        await Promise.all((service.images as any[]).map((u: any) => deletePublicUrl(u)));
       }
       const detectiveIdForCache = service.detectiveId;
       await storage.deleteService(req.params.id);
@@ -6420,7 +6488,7 @@ Content-Signal: index=public; train=deny
       const { status, limit = "50", offset = "0", search } = req.query;
       const applications = await storage.getAllDetectiveApplications(
         status as string,
-        parseInt(limit as string),
+        Math.min(parseInt(limit as string) || 50, 100),
         parseInt(offset as string),
         (search as string) || undefined
       );
@@ -7775,6 +7843,15 @@ Content-Signal: index=public; train=deny
       const locationLabel = cityRow?.name || stateRow?.name || countryRow.name;
       console.log(`[Service API] ${dbCategory} → ${locationLabel}: ${serviceResults.length} results`);
 
+      const maskedServices = await Promise.all(serviceResults.map(async (service: any) => {
+        const maskedDetective = await maskDetectiveContactsPublic(service.detective);
+        const effectiveBadges = computeEffectiveBadges(
+          service.detective,
+          (service.detective as any).subscriptionPackage ?? null
+        );
+        return { ...service, detective: { ...maskedDetective, effectiveBadges } };
+      }));
+
       res.json({
         meta: {
           country: countryRow.name,
@@ -7783,37 +7860,22 @@ Content-Signal: index=public; train=deny
           city: cityRow?.name || null,
           category: dbCategory,
           categorySlug,
-          total: serviceResults.length,
+          total: maskedServices.length,
           found: true,
         },
-        services: serviceResults.map(service => ({
-          id: service.id,
-          title: service.title,
-          slug: service.slug,
-          category: service.category,
-          description: service.description,
+        services: maskedServices.map((service: any) => ({
+          ...buildServiceCardDTO({
+            service,
+            detective: service.detective,
+            avgRating: service.avgRating,
+            reviewCount: service.reviewCount,
+          }),
+          // Extra fields for client-side filtering in service-category-page
+          isOnEnquiry: service.isOnEnquiry,
           basePrice: service.basePrice,
           offerPrice: service.offerPrice,
-          isOnEnquiry: service.isOnEnquiry,
-          images: service.images,
-          avgRating: service.avgRating,
-          reviewCount: service.reviewCount,
-          badgeState: (service as any).badgeState ?? null,
-          detective: {
-            id: service.detective.id,
-            businessName: service.detective.businessName,
-            slug: service.detective.slug,
-            logo: service.detective.logo,
-            country: service.detective.country,
-            state: service.detective.state,
-            city: service.detective.city,
-            isVerified: service.detective.isVerified,
-            level: service.detective.level,
-            phone: service.detective.phone,
-            whatsapp: service.detective.whatsapp,
-            contactEmail: service.detective.contactEmail,
-            badgeState: (service.detective as any).badgeState ?? null,
-          },
+          category: service.category,
+          description: service.description,
         })),
       });
     } catch (error) {
@@ -7834,8 +7896,16 @@ Content-Signal: index=public; train=deny
   app.get("/api/service-categories", async (req: Request, res: Response) => {
     try {
       const { activeOnly } = req.query;
-      const categories = await storage.getAllServiceCategories(activeOnly === "true");
-      res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
+      const isActiveOnly = activeOnly === "true";
+      const cacheKey = `service-categories:${isActiveOnly}`;
+      const cached = cache.get<any[]>(cacheKey);
+      if (cached) {
+        res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+        return sendCachedJson(req, res, { categories: cached });
+      }
+      const categories = await storage.getAllServiceCategories(isActiveOnly);
+      cache.set(cacheKey, categories, 3600);
+      res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
       sendCachedJson(req, res, { categories });
     } catch (error) {
       console.error("Get service categories error:", error);

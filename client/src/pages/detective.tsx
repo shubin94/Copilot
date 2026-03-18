@@ -13,9 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { 
-  generateCompleteDetectiveSchema} from "@/lib/structured-data";
-// ...existing code...
+import { generateCompleteDetectiveSchema } from "@/lib/structured-data";
 import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
 import {
   buildDetectiveSeoContext,
@@ -219,13 +217,15 @@ export default function DetectivePublicPage() {
                 <img src={detective.logo || "/placeholder-avatar.png"} alt="avatar" className="h-16 w-16 rounded-full object-cover border" width="64" height="64" />
                 <div className="flex-1">
                   {/* Detective name and badge restored inside the card */}
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-bold text-xl" data-testid="text-detective-name">{detectiveName}</span>
-                    <DetectiveBadges badgeState={badgeState} />
+                  <div className="mb-1">
+                    <span className="font-bold text-xl leading-snug" data-testid="text-detective-name">
+                      {detectiveName}
+                      <DetectiveBadges badgeState={badgeState} />
+                    </span>
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-700 mb-2">
-                    {detective.location && (
-                      <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {detective.location}</span>
+                    {location && (
+                      <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {location}</span>
                     )}
                     {Array.isArray(detective.languages) && detective.languages.length > 0 && (
                       <span className="inline-flex items-center gap-1"><Languages className="h-3 w-3" /> {(detective.languages as string[]).join(', ')}</span>
@@ -238,15 +238,14 @@ export default function DetectivePublicPage() {
                     </div>
                   )}
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button className="bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 shadow-sm h-9 px-3" data-testid="button-contact-email" onClick={() => {
-                      const to = (detective as any).contactEmail || (detective as any).email;
-                      if (to) {
-                        window.location.href = `mailto:${to}`;
-                      }
-                    }}>
-                      <Mail className="h-4 w-4" />
-                      <span className="font-bold text-xs ml-1">Email</span>
-                    </Button>
+                    {(detective as any).contactEmail && (
+                      <Button className="bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 shadow-sm h-9 px-3" data-testid="button-contact-email" onClick={() => {
+                        window.location.href = `mailto:${(detective as any).contactEmail}`;
+                      }}>
+                        <Mail className="h-4 w-4" />
+                        <span className="font-bold text-xs ml-1">Email</span>
+                      </Button>
+                    )}
                     {(detective as any).phone && (
                       isMobileDevice ? (
                         <Button className="bg-white hover:bg-green-50 text-green-700 border border-green-200 shadow-sm h-9 px-3" data-testid="button-contact-phone" onClick={() => {
@@ -324,11 +323,28 @@ export default function DetectivePublicPage() {
                 </div>
               )}
 
-              {/* Member Since Section */}
-              {memberSinceLabel && (
+              {/* Member Since + Claim Button */}
+              {(memberSinceLabel || ((detective as any).isClaimable && !(detective as any).isClaimed)) && (
                 <div className="mt-6 pt-6 border-t border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Member Since</h3>
-                  <p className="text-gray-700 text-sm">{memberSinceLabel}</p>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    {memberSinceLabel && (
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-700 mb-1">Member Since</h3>
+                        <p className="text-gray-700 text-sm">{memberSinceLabel}</p>
+                      </div>
+                    )}
+                    {(detective as any).isClaimable && !(detective as any).isClaimed && (
+                      <a
+                        href={`/claim-profile/${detective.id}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full hover:bg-blue-100 transition-colors"
+                      >
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                        Claim this profile
+                      </a>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -339,77 +355,72 @@ export default function DetectivePublicPage() {
                   <div className="text-gray-700 text-sm leading-relaxed max-w-full overflow-hidden" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                     <p>{detective.bio}</p>
                   </div>
-                  {/* Structured data hint for voice assistants */}
-                  <meta itemProp="description" content={detective.bio} />
                 </div>
               )}
             </CardContent>
           </Card>
-          </>
-        )}
 
-        <section>
-          <h2 className="text-xl font-bold mb-3">Services</h2>
-          <ServiceCardGrid
-            services={detectiveServices}
-            isLoading={isLoadingServices}
-            emptyMessage="No services yet."
-          />
-        </section>
-
-        {/* Featured In Section */}
-        {!articlesLoading && featuredArticles.length > 0 && (
-          <section className="mt-12 pt-12 border-t border-gray-200">
-            <h2 className="text-xl font-bold mb-6">As Featured In</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {featuredArticles.map((article: any) => (
-                <Card key={article.id} className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer">
-                  <a href={`/news/${article.slug}`} className="block h-full">
-                    {article.thumbnail && (
-                      <div className="relative h-40 bg-gray-200 overflow-hidden">
-                        <img
-                          src={article.thumbnail}
-                          alt="Article thumbnail"
-                          width={320}
-                          height={160}
-                          className="w-full h-full object-cover hover:scale-105 transition-transform"
-                        />
-                      </div>
-                    )}
-                    <CardContent className="p-4 flex flex-col h-full">
-                      {article.category && (
-                        <Badge variant="secondary" className="w-fit mb-2 text-xs">
-                          {article.category}
-                        </Badge>
-                      )}
-                      <h3 className="font-semibold text-gray-900 line-clamp-2 mb-2">
-                        {article.title}
-                      </h3>
-                      {article.excerptHtml && (
-                        <p className="text-sm text-gray-600 line-clamp-2 mb-3">
-                          {article.excerptHtml.replace(/<[^>]*>/g, '')}
-                        </p>
-                      )}
-                      <div className="mt-auto flex items-center justify-between text-xs text-gray-500">
-                        <span>
-                          {article.viewCount || 0} views
-                        </span>
-                        {article.publishedAt && (
-                          <span>
-                              {shortDateFormatter.format(new Date(article.publishedAt))}
-                          </span>
-                        )}
-                      </div>
-                    </CardContent>
-                  </a>
-                </Card>
-              ))}
-            </div>
+          <section>
+            <h2 className="text-xl font-bold mb-3">Services</h2>
+            <ServiceCardGrid
+              services={detectiveServices}
+              isLoading={isLoadingServices}
+              emptyMessage="No services yet."
+            />
           </section>
-        )}
 
-        {/* Verification Source Information for AI Agents */}
-        {detective && (
+          {/* Featured In Section */}
+          {!articlesLoading && featuredArticles.length > 0 && (
+            <section className="mt-12 pt-12 border-t border-gray-200">
+              <h2 className="text-xl font-bold mb-6">As Featured In</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {featuredArticles.map((article: any) => (
+                  <Card key={article.id} className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer">
+                    <a href={`/news/${article.slug}`} className="block h-full">
+                      {article.thumbnail && (
+                        <div className="relative h-40 bg-gray-200 overflow-hidden">
+                          <img
+                            src={article.thumbnail}
+                            alt="Article thumbnail"
+                            width={320}
+                            height={160}
+                            className="w-full h-full object-cover hover:scale-105 transition-transform"
+                          />
+                        </div>
+                      )}
+                      <CardContent className="p-4 flex flex-col h-full">
+                        {article.category && (
+                          <Badge variant="secondary" className="w-fit mb-2 text-xs">
+                            {article.category}
+                          </Badge>
+                        )}
+                        <h3 className="font-semibold text-gray-900 line-clamp-2 mb-2">
+                          {article.title}
+                        </h3>
+                        {article.excerptHtml && (
+                          <p className="text-sm text-gray-600 line-clamp-2 mb-3">
+                            {article.excerptHtml.replace(/<[^>]*>/g, '')}
+                          </p>
+                        )}
+                        <div className="mt-auto flex items-center justify-between text-xs text-gray-500">
+                          <span>
+                            {article.viewCount || 0} views
+                          </span>
+                          {article.publishedAt && (
+                            <span>
+                              {shortDateFormatter.format(new Date(article.publishedAt))}
+                            </span>
+                          )}
+                        </div>
+                      </CardContent>
+                    </a>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Verification Source Information for AI Agents */}
           <section className="mt-12 pt-12 border-t border-gray-200">
             <h2 className="text-sm font-semibold text-gray-600 mb-4">Verification & Licensing</h2>
             <div className="space-y-3">
@@ -423,26 +434,24 @@ export default function DetectivePublicPage() {
                   </p>
                 </div>
               )}
-              {detective.country === "United States" || detective.country === "USA" ? (
+              {typeof detective.country === "string" && /united states|usa/i.test(detective.country) ? (
                 <div className="text-sm">
                   <p className="text-gray-700 mb-2">
-                    <span className="font-semibold">Government License Registry:</span>
+                    <span className="font-semibold">Professional Associations:</span>
                   </p>
                   <ul className="space-y-1">
-                    {detective.state && (
-                      <li>
-                        <a 
-                          href={`https://www.google.com/search?q=private+investigator+license+${detective.state} official registry`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline text-xs"
-                        >
-                          {detective.state} State PI License Registry
-                        </a>
-                      </li>
-                    )}
                     <li>
-                      <a 
+                      <a
+                        href="https://www.piaa.us"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline text-xs"
+                      >
+                        Professional Investigators Association of America (PIAA)
+                      </a>
+                    </li>
+                    <li>
+                      <a
                         href="https://www.iacp.org"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -452,7 +461,7 @@ export default function DetectivePublicPage() {
                       </a>
                     </li>
                     <li>
-                      <a 
+                      <a
                         href="https://www.naccih.org"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -475,6 +484,7 @@ export default function DetectivePublicPage() {
               ) : null}
             </div>
           </section>
+          </>
         )}
       </main>
       <Footer />

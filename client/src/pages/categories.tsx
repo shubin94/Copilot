@@ -28,7 +28,7 @@ export default function CategoriesPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO title={seo.title} description={seo.description} />
+      <SEO title={seo.title} description={seo.description} canonical="https://www.askdetectives.com/categories" />
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12">
         <div className="flex items-center justify-between mb-6">
