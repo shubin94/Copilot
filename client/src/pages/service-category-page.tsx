@@ -530,15 +530,17 @@ export default function ServiceCategoryPage() {
 
   const config = staticConfig || (locationMeta?.category ? buildGenericConfig(locationMeta.category) : null);
 
-  const seoTitle = config
+  const dbSeo = (locationMeta as any)?.seo ?? null;
+
+  const seoTitle = dbSeo?.meta_title || (config
     ? `${config.pluralName} in ${locationSubLabel} | Verified Detectives`
-    : `Services in ${locationSubLabel} | Verified Detectives`;
+    : `Services in ${locationSubLabel} | Verified Detectives`);
 
-  const seoDescription = config
+  const seoDescription = dbSeo?.meta_description || (config
     ? `Find trusted ${config.displayName.toLowerCase()} services in ${locationSubLabel}. Compare verified detectives, reviews & contact details. ${services.length} providers available.`
-    : `Find verified detective services in ${locationSubLabel}.`;
+    : `Find verified detective services in ${locationSubLabel}.`);
 
-  const h1Text = config ? `${config.pluralName} in ${locationLabel}` : `Services in ${locationLabel}`;
+  const h1Text = dbSeo?.h1 || (config ? `${config.pluralName} in ${locationLabel}` : `Services in ${locationLabel}`);
 
   const breadcrumbs = config ? [
     { name: "Home",            url: "https://www.askdetectives.com/" },

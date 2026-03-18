@@ -394,8 +394,7 @@ export function registerLocationRoutes(app: Express): void {
         FROM countries c
         LEFT JOIN detectives d ON d.country_id = c.id
         LEFT JOIN location_seo_overrides lso
-          ON lso.entity_type = 'country'
-          AND lso.entity_id = c.id::text
+          ON lso.entity_type = 'country' AND lso.entity_id = c.id::text
         WHERE c.is_active = true
         GROUP BY
           c.id,
@@ -455,8 +454,7 @@ export function registerLocationRoutes(app: Express): void {
         INNER JOIN countries c ON s.country_id = c.id
         LEFT JOIN detectives d ON d.state_id = s.id
         LEFT JOIN location_seo_overrides lso
-          ON lso.entity_type = 'state'
-          AND lso.entity_id = s.id::text
+          ON lso.entity_type = 'state' AND lso.entity_id = s.id::text
         WHERE s.is_active = true
           AND c.is_active = true
         GROUP BY
@@ -522,8 +520,7 @@ export function registerLocationRoutes(app: Express): void {
         INNER JOIN countries c ON s.country_id = c.id
         LEFT JOIN detectives d ON d.city_id = ci.id
         LEFT JOIN location_seo_overrides lso
-          ON lso.entity_type = 'city'
-          AND lso.entity_id = ci.id::text
+          ON lso.entity_type = 'city' AND lso.entity_id = ci.id::text
         WHERE ci.is_active = true
           AND s.is_active = true
           AND c.is_active = true
@@ -596,9 +593,11 @@ export function registerLocationRoutes(app: Express): void {
           INNER JOIN states s ON ci.state_id = s.id
           INNER JOIN countries c ON s.country_id = c.id
           LEFT JOIN detectives d ON d.city_id = ci.id AND d.status = 'active'
-          LEFT JOIN location_seo_overrides lso
-            ON lso.entity_type = 'service-location'
-            AND lso.entity_id = $1 || ':' || c.slug || ':' || s.slug || ':' || ci.slug
+          LEFT JOIN service_location_seo lso
+            ON lso.service_slug = $1
+            AND lso.country_slug = c.slug
+            AND lso.state_slug = s.slug
+            AND lso.city_slug = ci.slug
           WHERE ci.is_active = true AND s.is_active = true AND c.is_active = true
             AND ($2 = '' OR c.slug = $2)
             AND ($3 = '' OR s.slug = $3)
@@ -636,9 +635,11 @@ export function registerLocationRoutes(app: Express): void {
           FROM states s
           INNER JOIN countries c ON s.country_id = c.id
           LEFT JOIN detectives d ON d.state_id = s.id AND d.status = 'active'
-          LEFT JOIN location_seo_overrides lso
-            ON lso.entity_type = 'service-location'
-            AND lso.entity_id = $1 || ':' || c.slug || ':' || s.slug
+          LEFT JOIN service_location_seo lso
+            ON lso.service_slug = $1
+            AND lso.country_slug = c.slug
+            AND lso.state_slug = s.slug
+            AND lso.city_slug IS NULL
           WHERE s.is_active = true AND c.is_active = true
             AND ($2 = '' OR c.slug = $2)
           GROUP BY c.id, c.slug, c.name, s.id, s.slug, s.name,
@@ -674,9 +675,11 @@ export function registerLocationRoutes(app: Express): void {
             (lso.id IS NOT NULL) AS has_override, lso.updated_at
           FROM countries c
           LEFT JOIN detectives d ON d.country_id = c.id AND d.status = 'active'
-          LEFT JOIN location_seo_overrides lso
-            ON lso.entity_type = 'service-location'
-            AND lso.entity_id = $1 || ':' || c.slug
+          LEFT JOIN service_location_seo lso
+            ON lso.service_slug = $1
+            AND lso.country_slug = c.slug
+            AND lso.state_slug IS NULL
+            AND lso.city_slug IS NULL
           WHERE c.is_active = true
           GROUP BY c.id, c.slug, c.name,
             lso.meta_title, lso.meta_description, lso.h1, lso.id, lso.updated_at
@@ -719,19 +722,45 @@ export function registerLocationRoutes(app: Express): void {
       if (!country_slug) {
         return res.status(400).json({ success: false, error: "country_slug is required" });
       }
-      // Upsert into detective_location_seo
+      // Resolve slugs → integer IDs for location_seo_overrides
+      const countryRow = await pool.query(`SELECT id FROM countries WHERE slug = $1 LIMIT 1`, [country_slug]);
+      if (!countryRow.rows.length) {
+        return res.status(400).json({ success: false, error: "Country not found" });
+      }
+      const countryId = countryRow.rows[0].id;
+      let entityType = 'country';
+      let entityId = String(countryId);
+
+      if (state_slug) {
+        const stateRow = await pool.query(`SELECT id FROM states WHERE slug = $1 AND country_id = $2 LIMIT 1`, [state_slug, countryId]);
+        if (stateRow.rows.length > 0) {
+          const stateId = stateRow.rows[0].id;
+          entityType = 'state';
+          entityId = String(stateId);
+
+          if (city_slug) {
+            const cityRow = await pool.query(`SELECT id FROM cities WHERE slug = $1 AND state_id = $2 LIMIT 1`, [city_slug, stateId]);
+            if (cityRow.rows.length > 0) {
+              entityType = 'city';
+              entityId = String(cityRow.rows[0].id);
+            }
+          }
+        }
+      }
+
+      // Upsert into location_seo_overrides (single source of truth for detective location SEO)
       const result = await pool.query(
-        `INSERT INTO detective_location_seo (country_slug, state_slug, city_slug, meta_title, meta_description, h1)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (country_slug, state_slug, city_slug)
-         DO UPDATE SET
-           meta_title = EXCLUDED.meta_title,
+        `INSERT INTO location_seo_overrides (id, entity_type, entity_id, h1, meta_title, meta_description)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
+         ON CONFLICT (entity_type, entity_id) DO UPDATE SET
+           h1               = EXCLUDED.h1,
+           meta_title       = EXCLUDED.meta_title,
            meta_description = EXCLUDED.meta_description,
-           h1 = EXCLUDED.h1,
-           updated_at = NOW()
-         RETURNING country_slug, state_slug, city_slug, updated_at`,
-        [country_slug, state_slug || null, city_slug || null, custom_title || null, custom_meta_description || null, custom_h1 || null]
+           updated_at       = NOW()
+         RETURNING entity_type, entity_id, updated_at`,
+        [entityType, entityId, custom_h1 || null, custom_title || null, custom_meta_description || null]
       );
+
       res.json({ success: true, message: "Detective SEO saved", data: result.rows[0] });
     } catch (error: any) {
       console.error("[Admin Detective SEO] Error:", error);
@@ -750,7 +779,7 @@ export function registerLocationRoutes(app: Express): void {
       const result = await pool.query(
         `INSERT INTO service_location_seo (service_slug, country_slug, state_slug, city_slug, meta_title, meta_description, h1)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (service_slug, country_slug, state_slug, city_slug)
+         ON CONFLICT (service_slug, country_slug, COALESCE(state_slug, ''), COALESCE(city_slug, ''))
          DO UPDATE SET
            meta_title = EXCLUDED.meta_title,
            meta_description = EXCLUDED.meta_description,

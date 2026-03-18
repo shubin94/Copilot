@@ -29,15 +29,17 @@ export function generateDetectiveSeo(country: string, state?: string, city?: str
 /**
  * Programmatic SEO generator for service location pages
  */
-export function generateServiceLocationSeo(service: string, country: string, city: string, area: string): { h1: string; meta_title: string; meta_description: string } {
+export function generateServiceLocationSeo(service: string, country: string, city: string, area?: string, state?: string): { h1: string; meta_title: string; meta_description: string } {
   const serviceName = toTitleFromSlug(service);
   const countryName = toTitleFromSlug(country);
-  const areaName = toTitleFromSlug(area);
   const cityName = toTitleFromSlug(city);
+  const stateName = state ? toTitleFromSlug(state) : '';
+  const locationLabel = area ? toTitleFromSlug(area) : (cityName || stateName || countryName);
+  const locationSuffix = cityName && stateName ? `${cityName}, ${stateName}` : (cityName || stateName || countryName);
   return {
-    h1: `${serviceName} in ${areaName}, ${cityName}`,
-    meta_title: `${serviceName} in ${areaName}, ${cityName} | AskDetectives`,
-    meta_description: `Find trusted ${serviceName} in ${areaName}, ${cityName}, ${countryName}. Compare investigators and hire professionals.`
+    h1: `${serviceName} Services in ${locationLabel}`,
+    meta_title: `${serviceName} Services in ${locationLabel} | AskDetectives`,
+    meta_description: `Find trusted ${serviceName} services in ${locationSuffix}, ${countryName}. Compare investigators and hire professionals.`
   };
 }
 /**
@@ -94,16 +96,29 @@ export async function getDetectiveLocationSeo(country_slug: string, state_slug?:
 /**
  * Fetches SEO for service location with fallback
  */
-export async function getServiceLocationSeo(service_slug: string, country_slug: string, city_slug: string, area_slug: string): Promise<{ h1: string; meta_title: string; meta_description: string }> {
+export async function getServiceLocationSeo(service_slug: string, country_slug: string, state_slug: string, city_slug: string): Promise<{ h1: string; meta_title: string; meta_description: string }> {
+  // Build WHERE conditions — state_slug and city_slug may be NULL in DB
+  const conditions: any[] = [
+    eq(service_location_seo.service_slug, service_slug),
+    eq(service_location_seo.country_slug, country_slug),
+  ];
+  if (state_slug) {
+    conditions.push(eq(service_location_seo.state_slug, state_slug));
+  } else {
+    conditions.push(isNull(service_location_seo.state_slug));
+  }
+  if (city_slug) {
+    conditions.push(eq(service_location_seo.city_slug, city_slug));
+  } else {
+    conditions.push(isNull(service_location_seo.city_slug));
+  }
+  // area_slug is always NULL for admin-entered service-location SEO
+  conditions.push(isNull(service_location_seo.area_slug));
+
   const result = await db
     .select({ h1: sql<string>`h1`, meta_title: sql<string>`meta_title`, meta_description: sql<string>`meta_description` })
     .from(service_location_seo)
-    .where(and(
-      eq(service_location_seo.service_slug, service_slug),
-      eq(service_location_seo.country_slug, country_slug),
-      eq(service_location_seo.city_slug, city_slug),
-      eq(service_location_seo.area_slug, area_slug)
-    ))
+    .where(and(...conditions))
     .limit(1);
   if (result.length > 0) {
     return {
@@ -113,7 +128,7 @@ export async function getServiceLocationSeo(service_slug: string, country_slug: 
     };
   }
   // Fallback: programmatic SEO
-  return generateServiceLocationSeo(service_slug, country_slug, city_slug, area_slug);
+  return generateServiceLocationSeo(service_slug, country_slug, city_slug, undefined, state_slug);
 }
 // ...existing code...
 /**
@@ -312,8 +327,8 @@ export function buildHomepageAuthorityHtml(
  */
 
 import { db, pool } from "../../db/index.js";
-import { detectives, countries, states, cities, detective_location_seo, service_location_seo, subscriptionPlans } from "../../shared/schema.js";
-import { eq, and, or, ilike, desc, sql } from "drizzle-orm";
+import { detectives, services, countries, states, cities, detective_location_seo, service_location_seo, subscriptionPlans } from "../../shared/schema.js";
+import { eq, and, or, ilike, desc, sql, isNull } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.js";
 import { resolveLocationHierarchyForSeo } from "../services/locationSeoResolutionService.js";
 
@@ -534,6 +549,58 @@ async function fetchDetectiveSeoOverride(detectiveId: string): Promise<{ metaTit
       detectiveId,
       message: seoError instanceof Error ? seoError.message : String(seoError),
     });
+    return null;
+  }
+}
+
+/**
+ * Fetches service + detective by slug for SSR SEO injection on /service/... pages.
+ * Returns { title, h1, meta_title, meta_description } or null if not found.
+ */
+export async function getServiceBySlugForSEO(
+  countrySlug: string,
+  stateSlug: string,
+  citySlug: string,
+  detectiveSlug: string,
+  serviceSlug: string
+): Promise<{ title: string; h1: string; meta_title: string; meta_description: string } | null> {
+  try {
+    const countryRow = await db.select({ id: countries.id, name: countries.name })
+      .from(countries).where(eq(countries.slug, countrySlug.toLowerCase())).limit(1);
+    if (!countryRow[0]) return null;
+
+    const stateRow = await db.select({ id: states.id, name: states.name })
+      .from(states).where(and(eq(states.slug, stateSlug.toLowerCase()), eq(states.countryId, countryRow[0].id))).limit(1);
+    if (!stateRow[0]) return null;
+
+    const cityRow = await db.select({ id: cities.id, name: cities.name })
+      .from(cities).where(and(eq(cities.slug, citySlug.toLowerCase()), eq(cities.stateId, stateRow[0].id))).limit(1);
+    if (!cityRow[0]) return null;
+
+    const rows = await db.select({ service: services, detective: detectives })
+      .from(services)
+      .innerJoin(detectives, eq(services.detectiveId, detectives.id))
+      .where(and(
+        eq(services.slug, serviceSlug),
+        eq(detectives.slug, detectiveSlug),
+        eq(detectives.countryId, countryRow[0].id),
+        eq(detectives.stateId, stateRow[0].id),
+        eq(detectives.cityId, cityRow[0].id),
+      ))
+      .limit(1);
+
+    if (!rows[0]) return null;
+
+    const { service, detective } = rows[0];
+    const detectiveName = detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`.trim() || 'Detective';
+    const cityName = cityRow[0].name;
+    const stateName = stateRow[0].name;
+    const h1 = `${service.title} by ${detectiveName} in ${cityName}`;
+    const meta_title = `${service.title} by ${detectiveName} in ${cityName}, ${stateName} | AskDetectives`;
+    const meta_description = `Professional ${service.category} services by ${detectiveName} from ${cityName}, ${stateName}, ${countryRow[0].name}. Contact for a detailed consultation.`;
+
+    return { title: meta_title, h1, meta_title, meta_description };
+  } catch {
     return null;
   }
 }
@@ -1157,6 +1224,39 @@ export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl:
   modified = modified.replace(
     /<!-- SEO_JSON_LD_INJECTION_POINT -->/,
     `<!-- SEO_JSON_LD_INJECTION_POINT -->\n    ${jsonLdScripts}`
+  );
+
+  return modified;
+}
+
+/**
+ * Injects plain title/h1/meta_description into the HTML injection points.
+ * Use this for service location pages where SEO values come directly from the DB.
+ */
+export function injectServiceSeoTags(
+  htmlContent: string,
+  seo: { title: string; h1: string; meta_description: string },
+  canonicalUrl: string
+): string {
+  let modified = removeDefaultMetaTags(htmlContent);
+
+  const escapedTitle = escapeHtml(seo.title);
+  const escapedDesc = escapeHtml(seo.meta_description);
+  const escapedH1 = escapeHtml(seo.h1);
+
+  modified = modified.replace(
+    /<!-- SEO_TITLE_INJECTION_POINT -->/,
+    `<!-- SEO_TITLE_INJECTION_POINT -->\n    <title>${escapedTitle}</title>`
+  );
+
+  modified = modified.replace(
+    /<!-- SEO_META_INJECTION_POINT -->/,
+    `<!-- SEO_META_INJECTION_POINT -->\n    <meta name="description" content="${escapedDesc}" />\n    <meta property="og:title" content="${escapedTitle}" />\n    <meta property="og:description" content="${escapedDesc}" />\n    <meta property="og:url" content="${canonicalUrl}" />\n    <link rel="canonical" href="${canonicalUrl}" />`
+  );
+
+  modified = modified.replace(
+    /<!-- SEO_H1_INJECTION_POINT -->/,
+    `<!-- SEO_H1_INJECTION_POINT -->\n    <h1 style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">${escapedH1}</h1>`
   );
 
   return modified;

@@ -19,12 +19,16 @@ import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
 import {
   extractDetectiveRouteParams,
   getDetectiveBySlugForSEO,
+  getServiceBySlugForSEO,
   injectSeoTags,
+  injectServiceSeoTags,
   extractLocationRouteParams,
   getLocationDetectivesForSEO,
   injectLocationSeoTags,
   injectDetectiveLocationAuthorityLink,
   resolveLocationIds,
+  getServiceLocationSeo,
+  generateServiceLocationSeo,
 } from "./lib/seo-injection.js";
 import { getPublishedCmsPageSeo, injectCmsPageSeoTags } from "./lib/cms-page-seo.js";
 import { storage } from "./storage.js";
@@ -314,59 +318,24 @@ export async function setupVite(app: Express, server: Server) {
 
       const [, country, state, city, detectiveSlug, serviceSlug] = segments;
 
-      console.log("[Service Detail Dev] Request matched:", {
-        country,
-        state,
-        city,
-        detectiveSlug,
-        serviceSlug,
-      });
-
-      // Serve with Vite transform for development
-      const clientTemplate = path.resolve(
-        import.meta.dirname,
-        "..",
-        "client",
-        "index.html",
-      );
-
-      let template = await fs.promises.readFile(clientTemplate, "utf-8");
-      template = template.replace(
-        `src="/src/main.tsx"`,
-        `src="/src/main.tsx?v=${nanoid()}"`,
-      );
-
       const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-      
-      // Inject breadcrumb structured data
-      template = template.replace(
-        '</head>',
-        `<link rel="canonical" href="${canonicalUrl}" />
-       <script type="application/ld+json">
-       {
-         "@context": "https://schema.org",
-         "@type": "BreadcrumbList",
-         "itemListElement": [
-           {
-             "@type": "ListItem",
-             "position": 1,
-             "name": "Home",
-             "item": "https://www.askdetectives.com"
-           },
-           {
-             "@type": "ListItem",
-             "position": 2,
-             "name": "Service",
-             "item": "${canonicalUrl}"
-           }
-         ]
-       }
-       </script></head>`
-      );
 
-      console.log(`[Service Detail Dev] Serving service page: ${detectiveSlug}/${serviceSlug}`);
+      const clientTemplate = path.resolve(import.meta.dirname, "..", "client", "index.html");
+      let template = await fs.promises.readFile(clientTemplate, "utf-8");
+      template = template.replace(`src="/src/main.tsx"`, `src="/src/main.tsx?v=${nanoid()}"`);
 
-      const page = await vite.transformIndexHtml(req.originalUrl, template);
+      // Fetch service + detective data for SEO
+      const seoData = await getServiceBySlugForSEO(country, state, city, detectiveSlug, serviceSlug);
+
+      let page = await vite.transformIndexHtml(req.originalUrl, template);
+      if (seoData) {
+        page = injectServiceSeoTags(page, {
+          title: seoData.meta_title,
+          h1: seoData.h1,
+          meta_description: seoData.meta_description,
+        }, canonicalUrl);
+      }
+
       res.setHeader("Cache-Control", "no-store");
       res.set({ "Content-Type": "text/html; charset=utf-8" }).end(page);
 
@@ -481,6 +450,73 @@ export async function setupVite(app: Express, server: Server) {
       return res.status(500).set({ "Content-Type": "text/html" }).send(
         "<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1><p>Failed to load services</p></body></html>"
       );
+    }
+  });
+
+  // SERVICE + LOCATION SEO INJECTION (Development)
+  // Intercepts /locations/:category/:country/:state/:city/
+  app.get(/^\/locations\/[^\/]+\/[^\/]+(?:\/[^\/]+)?(?:\/[^\/]+)?\/?$/, async (req: Request, res: Response) => {
+    try {
+      const requestPath = req.path;
+      const { extractServiceLocationRouteParams, resolveServiceLocation } = await import("./lib/seo-injection.js");
+
+      const params = extractServiceLocationRouteParams(requestPath);
+      if (!params) {
+        return attachViteTransform(vite, res, req, '');
+      }
+
+      const location = await resolveServiceLocation(params.countrySlug, params.stateSlug, params.citySlug);
+      if (!location) {
+        return res.status(404).set({ "Content-Type": "text/html" }).send(
+          "<html><head><title>Location Not Found</title></head><body><h1>404 - Location not found</h1></body></html>"
+        );
+      }
+
+      const serviceResults = await storage.searchServices(
+        { categorySlug: params.categorySlug },
+        50, 0, "popular", false,
+        {
+          countryId: location.countryId,
+          stateId: location.stateId ?? null,
+          cityId: location.cityId ?? null,
+          countryName: location.countryName,
+          stateName: location.stateName ?? "",
+          cityName: location.cityName ?? "",
+        }
+      );
+
+      if (!serviceResults || serviceResults.length === 0) {
+        return res.status(404).set({ "Content-Type": "text/html" }).send(
+          "<html><head><title>No Services Found</title></head><body><h1>404 - No services in this location</h1></body></html>"
+        );
+      }
+
+      const clientTemplate = path.resolve(import.meta.dirname, "..", "client", "index.html");
+      let template = await fs.promises.readFile(clientTemplate, "utf-8");
+      template = template.replace(`src="/src/main.tsx"`, `src="/src/main.tsx?v=${nanoid()}"`);
+
+      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
+
+      let seoValues;
+      try {
+        seoValues = await getServiceLocationSeo(params.categorySlug, params.countrySlug, params.stateSlug || '', params.citySlug || '');
+      } catch (e) {
+        seoValues = generateServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug || '', undefined, params.stateSlug || '');
+      }
+
+      let page = await vite.transformIndexHtml(req.originalUrl, template);
+      page = injectServiceSeoTags(page, {
+        title: seoValues.meta_title,
+        h1: seoValues.h1,
+        meta_description: seoValues.meta_description,
+      }, canonicalUrl);
+
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).set({ "Content-Type": "text/html; charset=utf-8" }).end(page);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[Service Location Dev SEO] Error:', { url: req.originalUrl, message: errorMsg });
+      return attachViteTransform(vite, res, req, '');
     }
   });
 
