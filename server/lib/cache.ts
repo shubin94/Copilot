@@ -8,6 +8,7 @@ interface Entry<T = unknown> {
   expiresAt: number;
 }
 
+const MAX_CACHE_SIZE = 500;
 const store = new Map<string, Entry>();
 
 export function get<T = unknown>(key: string): T | undefined {
@@ -28,6 +29,13 @@ export function get<T = unknown>(key: string): T | undefined {
 export function set<T = unknown>(key: string, value: T, ttlSeconds: number): void {
   if (typeof key !== "string" || ttlSeconds <= 0) return;
   try {
+    if (store.size >= MAX_CACHE_SIZE && !store.has(key)) {
+      // Evict the oldest entry to prevent unbounded memory growth
+      const oldestKey = store.keys().next().value;
+      if (oldestKey !== undefined) {
+        store.delete(oldestKey);
+      }
+    }
     const expiresAt = Date.now() + ttlSeconds * 1000;
     store.set(key, { value, expiresAt });
   } catch {

@@ -321,11 +321,15 @@ export function SEO({
     updateMeta('og:site_name', 'Ask Detectives', true);
     updateMeta('og:locale', 'en_US', true);
     
-    // Default OG image fallback
-    const ogImage = image || 'https://www.askdetectives.com/favicon.png';
+    // Default OG image — only set dimensions when a real image is supplied.
+    // Avoid advertising 1200×630 on the favicon (32×32) which breaks social previews.
+    const ogImage = image || 'https://www.askdetectives.com/hero-bg.webp';
+    const hasRealImage = !!image;
     updateMeta('og:image', ogImage, true);
-    updateMeta('og:image:width', '1200', true);
-    updateMeta('og:image:height', '630', true);
+    if (hasRealImage) {
+      updateMeta('og:image:width', '1200', true);
+      updateMeta('og:image:height', '630', true);
+    }
     updateMeta('og:image:alt', title, true);
     
     if (publishedTime) {

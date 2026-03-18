@@ -76,9 +76,10 @@ export default function PackagesPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO 
+      <SEO
         title={seo.title}
         description={seo.description}
+        canonical="https://www.askdetectives.com/packages"
         structuredData={{
           offers: offers
         }}

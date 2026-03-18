@@ -287,15 +287,35 @@ const claimLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many claim attempts. Please try again later." },
 });
-app.use("/api/claim-account/", claimLimiter);
+app.use("/api/claim-account", claimLimiter); // covers both /api/claim-account and /api/claim-account/*
 
-// SECURITY: Profile claim submissions are public and can be spammed
+// SECURITY: Detective application submissions are public and can be spammed.
+// Skip for authenticated admins/employees so their GET list view is never rate-limited.
+const applicationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // 5 applications per hour per IP (public only)
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many applications submitted. Please try again later." },
+  skip: (req) => {
+    const role = (req as any).session?.userRole;
+    return role === "admin" || role === "employee";
+  },
+});
+app.use("/api/applications", applicationLimiter);
+
+// SECURITY: Profile claim submissions are public and can be spammed.
+// Skip for authenticated admins who manage claims via GET/PATCH.
 const claimSubmissionLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // 5 claim submissions per hour per IP
+  max: 5, // 5 claim submissions per hour per IP (public only)
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many claim submissions. Please try again later." },
+  skip: (req) => {
+    const role = (req as any).session?.userRole;
+    return role === "admin" || role === "employee";
+  },
 });
 app.use("/api/claims", claimSubmissionLimiter);
 console.log("[MIDDLEWARE] after rate limiters");

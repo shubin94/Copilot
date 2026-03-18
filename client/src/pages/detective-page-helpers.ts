@@ -115,26 +115,17 @@ export function resolveDetectiveBadgeState(detective: DetectiveLike) {
   const apiBadges = detective.effectiveBadges;
   const fromApi = apiBadges && typeof apiBadges === "object" ? apiBadges : {};
 
+  // SINGLE SOURCE OF TRUTH: only use effectiveBadges computed by the backend.
+  // Never fall back to raw DB fields (hasBlueTick, level, blueTickAddon) —
+  // those don't respect subscription expiry and cause stale badge display.
   const effectiveBadges = {
-    blueTick: Boolean(
-      fromApi.blueTick ??
-      fromApi.blue_tick ??
-      detective.hasBlueTick ??
-      detective.has_blue_tick ??
-      detective.blueTickAddon ??
-      detective.blue_tick_addon
-    ),
-    pro: Boolean(fromApi.pro ?? (detective.level === "pro")),
+    blueTick: Boolean(fromApi.blueTick ?? fromApi.blue_tick ?? false),
+    pro: Boolean(fromApi.pro ?? false),
     recommended: Boolean(fromApi.recommended ?? fromApi.isRecommended ?? false),
   };
 
   return computeServiceBadges({
-    isVerified: Boolean(
-      detective.isVerified ??
-      detective.is_verified ??
-      detective.hasBlueTick ??
-      detective.has_blue_tick
-    ),
+    isVerified: Boolean(detective.isVerified ?? detective.is_verified ?? false),
     effectiveBadges,
   });
 }

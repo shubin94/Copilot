@@ -37,32 +37,18 @@ export default function SupportPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <SEO 
+      <SEO
         title={seo.title}
         description={seo.description}
         canonical="https://www.askdetectives.com/support"
         structuredData={{
           faqs: FAQS
         }}
+        breadcrumbs={[
+          { name: "Home", url: "https://www.askdetectives.com/" },
+          { name: "Support", url: "https://www.askdetectives.com/support" },
+        ]}
       />
-      {/* Breadcrumb Schema for Rich Snippets */}
-      <script type="application/ld+json">
-        {JSON.stringify({
-          "@context": "https://schema.org",
-          "@type": "BreadcrumbList",
-          "itemListElement": [{
-            "@type": "ListItem",
-            "position": 1,
-            "name": "Home",
-            "item": "https://www.askdetectives.com/"
-          },{
-            "@type": "ListItem",
-            "position": 2,
-            "name": "Support",
-            "item": "https://www.askdetectives.com/support"
-          }]
-        })}
-      </script>
       <Navbar />
       <main className="flex-1 container mx-auto px-6 md:px-12 lg:px-24 py-12 mt-16">
         <h1 className="text-4xl font-bold font-heading mb-6">{seo.h1}</h1>

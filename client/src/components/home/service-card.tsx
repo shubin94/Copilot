@@ -36,6 +36,7 @@ interface ServiceCardProps {
   phone?: string;
   whatsapp?: string;
   contactEmail?: string;
+  isPriority?: boolean;
   [key: string]: any;
 }
 
@@ -70,7 +71,8 @@ const ServiceCardComponent = ({
   phone,
   whatsapp,
   contactEmail,
-  detectiveLevel
+  detectiveLevel,
+  isPriority = false
 }: ServiceCardProps) => {
   const displayImages = images || (image ? [image] : []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -205,11 +207,12 @@ const ServiceCardComponent = ({
             )}
             {displayImages.length > 0 && displayImages[currentImageIndex] && !imageError ? (
               <>
-                <img 
+                <img
                   alt="Detective Service Image"
                   src={displayImages[currentImageIndex]}
                   width={320} height={240}
-                  loading="lazy"
+                  loading={isPriority ? "eager" : "lazy"}
+                  {...(isPriority ? ({ fetchpriority: "high" } as React.ImgHTMLAttributes<HTMLImageElement>) : {})}
                   onLoad={() => setImageLoaded(true)}
                   onError={() => {
                     console.error(`[ServiceCard ${id}] Image failed to load: ${displayImages[currentImageIndex]}`);
@@ -282,16 +285,12 @@ const ServiceCardComponent = ({
               </Avatar>
               <div className="flex flex-col overflow-hidden">
                 <div className="flex flex-col">
-                  <div className="flex items-center gap-1">
-                    <h3 className="font-semibold text-base text-gray-900">
+                  <div>
+                    <h3 className="font-semibold text-base text-gray-900 leading-snug">
                       {detectiveBusinessName ?? detectiveName}
+                      <DetectiveBadges badgeState={badgeState} />
                     </h3>
-                    <DetectiveBadges badgeState={badgeState} />
                   </div>
-                  <p className="text-sm text-gray-600">
-                    {detectiveCity}
-                    {detectiveState && `, ${detectiveState}`}
-                  </p>
                   {detectiveLevel && (
                     <span className="text-green-600 text-sm font-medium">
                       {detectiveLevel.replace("level", "Level ")}

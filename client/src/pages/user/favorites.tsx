@@ -6,22 +6,13 @@ import { ServiceCardSkeleton } from "@/components/home/service-card-skeleton";
 import { Heart, ArrowLeft, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { useState, useEffect } from "react";
 import { useService } from "@/lib/hooks";
 import type { Service, Detective } from "@shared/schema";
 import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
+import { resolveDetectiveBadgeState } from "@/pages/detective-page-helpers";
 
 export default function FavoritesPage() {
-  const { favorites, user } = useUser();
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Simulate loading for skeleton demo
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, []);
+  const { favorites, user, isLoading } = useUser();
 
   if (!user) {
     return (
@@ -110,20 +101,12 @@ function FavoritesItem({ serviceId }: { serviceId: string }) {
   const avatar = svc.detective.logo || "";
   const level = svc.detective.level ? (svc.detective.level === "pro" ? "Pro Level" : (svc.detective.level as string).replace("level", "Level ")) : "Level 1";
   
-  // Compute badge state from detective properties
-  const badgeState = {
-    showBlueTick: svc.detective.hasBlueTick || false,
-    showPro: svc.detective.level === 'pro' || svc.detective.level === 'level2' || false,
-    showRecommended: false,
-    blueTickLabel: svc.detective.hasBlueTick ? 'Verified' : 'Unverified'
-  };
+  const badgeState = resolveDetectiveBadgeState(svc.detective);
   
   return (
-    <div className="flex items-center gap-1">
-      <span className="font-medium">
-        {detectiveName}
-      </span>
+    <span className="font-medium leading-snug">
+      {detectiveName}
       <DetectiveBadges badgeState={badgeState} />
-    </div>
+    </span>
   );
 }

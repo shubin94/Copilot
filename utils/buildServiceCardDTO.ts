@@ -38,12 +38,13 @@ export function buildServiceCardDTO({
   // Use effectiveBadges if present, else fallback to subscriptionPackage.badges
   const badges = detective?.effectiveBadges ?? detective?.subscriptionPackage?.badges ?? null;
 
+  // Badge state: only subscription-granted badges (not raw isVerified)
   const badgeState = badges
     ? {
         showBlueTick: !!badges.blueTick,
         showPro: !!badges.pro,
         showRecommended: !!badges.recommended,
-        blueTickLabel: badges.blueTick ? "Verified" : null,
+        blueTickLabel: "Verified",
       }
     : null;
   const isUnclaimed = !!detective?.isUnclaimed;
