@@ -1,8 +1,7 @@
-CREATE INDEX IF NOT EXISTS detectives_location_composite_idx
-  ON detectives (country_id, state_id, city_id);
+-- Unique constraint for detective_location_seo
+CREATE UNIQUE INDEX IF NOT EXISTS detective_location_seo_slugs_idx
+  ON detective_location_seo (country_slug, COALESCE(state_slug, ''), COALESCE(city_slug, ''));
 
-CREATE INDEX IF NOT EXISTS services_detective_active_idx
-  ON services (detective_id, is_active);
-
-CREATE INDEX IF NOT EXISTS reviews_service_published_idx
-  ON reviews (service_id, is_published);
+-- Unique constraint for service_location_seo
+CREATE UNIQUE INDEX IF NOT EXISTS service_location_seo_slugs_idx
+  ON service_location_seo (service_slug, country_slug, COALESCE(state_slug, ''), COALESCE(city_slug, ''));
