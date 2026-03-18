@@ -26,7 +26,8 @@ import {
   reviews,
   caseStudies,
   subscriptionPlans,
-  insertUserSchema, 
+  service_location_seo,
+  insertUserSchema,
   insertDetectiveSchema, 
   insertServiceSchema, 
   insertReviewSchema,
@@ -7843,6 +7844,20 @@ Content-Signal: index=public; train=deny
       const locationLabel = cityRow?.name || stateRow?.name || countryRow.name;
       console.log(`[Service API] ${dbCategory} → ${locationLabel}: ${serviceResults.length} results`);
 
+      // Fetch custom SEO from service_location_seo table
+      const seoConditions: any[] = [
+        eq(service_location_seo.service_slug, categorySlug),
+        eq(service_location_seo.country_slug, countrySlug),
+        stateSlug ? eq(service_location_seo.state_slug, stateSlug) : sql`${service_location_seo.state_slug} IS NULL`,
+        citySlug ? eq(service_location_seo.city_slug, citySlug) : sql`${service_location_seo.city_slug} IS NULL`,
+      ];
+      const seoRows = await db.select({
+        h1: service_location_seo.h1,
+        meta_title: service_location_seo.meta_title,
+        meta_description: service_location_seo.meta_description,
+      }).from(service_location_seo).where(and(...seoConditions)).limit(1);
+      const seoData = seoRows[0] ?? null;
+
       const maskedServices = await Promise.all(serviceResults.map(async (service: any) => {
         const maskedDetective = await maskDetectiveContactsPublic(service.detective);
         const effectiveBadges = computeEffectiveBadges(
@@ -7862,6 +7877,7 @@ Content-Signal: index=public; train=deny
           categorySlug,
           total: maskedServices.length,
           found: true,
+          seo: seoData,
         },
         services: maskedServices.map((service: any) => ({
           ...buildServiceCardDTO({
