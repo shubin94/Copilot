@@ -549,12 +549,16 @@ export function registerLocationRoutes(app: Express): void {
       const year = new Date().getFullYear();
       const enrichedData = result.rows.map(row => ({
         country_slug: row.country_slug,
+        country_name: row.country_name,
         state_slug: row.state_slug,
+        state_name: row.state_name,
         city_slug: row.city_slug,
+        city_name: row.city_name,
         total_detectives: row.total_detectives,
         custom_title: row.meta_title || `Top 10 Best Private Detectives in ${row.city_name}, ${row.state_name} (${year})`,
         custom_meta_description: row.meta_description || `Find trusted private detectives in ${row.city_name}, ${row.state_name}. Browse ${row.total_detectives} verified investigators offering background checks, surveillance, and investigation services.`,
         custom_h1: row.h1 || `Private Detectives in ${row.city_name}, ${row.state_name}`,
+        is_custom: row.has_override,
         has_override: row.has_override,
         updated_at: row.updated_at
       }));
