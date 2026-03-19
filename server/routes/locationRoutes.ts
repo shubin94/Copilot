@@ -549,12 +549,16 @@ export function registerLocationRoutes(app: Express): void {
       const year = new Date().getFullYear();
       const enrichedData = result.rows.map(row => ({
         country_slug: row.country_slug,
+        country_name: row.country_name,
         state_slug: row.state_slug,
+        state_name: row.state_name,
         city_slug: row.city_slug,
+        city_name: row.city_name,
         total_detectives: row.total_detectives,
         custom_title: row.meta_title || `Top 10 Best Private Detectives in ${row.city_name}, ${row.state_name} (${year})`,
         custom_meta_description: row.meta_description || `Find trusted private detectives in ${row.city_name}, ${row.state_name}. Browse ${row.total_detectives} verified investigators offering background checks, surveillance, and investigation services.`,
         custom_h1: row.h1 || `Private Detectives in ${row.city_name}, ${row.state_name}`,
+        is_custom: row.has_override,
         has_override: row.has_override,
         updated_at: row.updated_at
       }));
@@ -580,19 +584,60 @@ export function registerLocationRoutes(app: Express): void {
 
       const year = new Date().getFullYear();
 
+      // Resolve category slug → category name by matching against actual service categories in the DB
+      const slugToName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+      let categoryName: string | null = null;
+
+      // First: try matching against service_categories table
+      const allCats = await storage.getAllServiceCategories(false);
+      for (const cat of allCats) {
+        const variants = [
+          slugToName(cat.name),
+          slugToName(cat.name) + 's',
+        ];
+        if (variants.includes(category)) {
+          categoryName = cat.name;
+          break;
+        }
+      }
+
+      // Fallback: match directly against distinct category names used in actual services
+      if (!categoryName) {
+        const distinctRow = await pool.query(
+          `SELECT MIN(TRIM(category)) AS name FROM services
+           WHERE is_active = true AND TRIM(category) != ''
+           GROUP BY LOWER(TRIM(category))
+           HAVING $1 = ANY(ARRAY[
+             regexp_replace(lower(trim(category)),'[^a-z0-9]+','-','g'),
+             regexp_replace(lower(trim(category)),'[^a-z0-9]+','-','g') || 's'
+           ])
+           LIMIT 1`,
+          [category]
+        );
+        if (distinctRow.rows.length > 0) {
+          categoryName = distinctRow.rows[0].name;
+        }
+      }
+
       if (level === 'city') {
         const result = await pool.query(`
           SELECT
             c.slug AS country_slug, c.name AS country_name,
             s.slug AS state_slug, s.name AS state_name,
             ci.slug AS city_slug, ci.name AS city_name,
-            COUNT(d.id) FILTER (WHERE d.status = 'active')::int AS total_detectives,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'active' AND ($4::text IS NULL OR svc.detective_id IS NOT NULL))::int AS total_detectives,
             lso.meta_title, lso.meta_description, lso.h1,
             (lso.id IS NOT NULL) AS has_override, lso.updated_at
           FROM cities ci
           INNER JOIN states s ON ci.state_id = s.id
           INNER JOIN countries c ON s.country_id = c.id
           LEFT JOIN detectives d ON d.city_id = ci.id AND d.status = 'active'
+          LEFT JOIN (
+            SELECT DISTINCT detective_id FROM services
+            WHERE is_active = true
+              AND images IS NOT NULL AND array_length(images, 1) > 0
+              AND ($4::text IS NULL OR LOWER(category) = LOWER($4::text))
+          ) svc ON svc.detective_id = d.id
           LEFT JOIN service_location_seo lso
             ON lso.service_slug = $1
             AND lso.country_slug = c.slug
@@ -603,10 +648,10 @@ export function registerLocationRoutes(app: Express): void {
             AND ($3 = '' OR s.slug = $3)
           GROUP BY c.id, c.slug, c.name, s.id, s.slug, s.name, ci.id, ci.slug, ci.name,
             lso.meta_title, lso.meta_description, lso.h1, lso.id, lso.updated_at
-          HAVING COUNT(d.id) FILTER (WHERE d.status = 'active') > 0
+          HAVING COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'active' AND ($4::text IS NULL OR svc.detective_id IS NOT NULL)) > 0
           ORDER BY c.slug, s.slug, ci.slug
-          LIMIT 500
-        `, [category, countryFilter, stateFilter]);
+          LIMIT 5000
+        `, [category, countryFilter, stateFilter, categoryName]);
 
         const data = result.rows.map((row: any) => ({
           category_slug: category,
@@ -629,12 +674,18 @@ export function registerLocationRoutes(app: Express): void {
           SELECT
             c.slug AS country_slug, c.name AS country_name,
             s.slug AS state_slug, s.name AS state_name,
-            COUNT(d.id) FILTER (WHERE d.status = 'active')::int AS total_detectives,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'active' AND ($3::text IS NULL OR svc.detective_id IS NOT NULL))::int AS total_detectives,
             lso.meta_title, lso.meta_description, lso.h1,
             (lso.id IS NOT NULL) AS has_override, lso.updated_at
           FROM states s
           INNER JOIN countries c ON s.country_id = c.id
           LEFT JOIN detectives d ON d.state_id = s.id AND d.status = 'active'
+          LEFT JOIN (
+            SELECT DISTINCT detective_id FROM services
+            WHERE is_active = true
+              AND images IS NOT NULL AND array_length(images, 1) > 0
+              AND ($3::text IS NULL OR LOWER(category) = LOWER($3::text))
+          ) svc ON svc.detective_id = d.id
           LEFT JOIN service_location_seo lso
             ON lso.service_slug = $1
             AND lso.country_slug = c.slug
@@ -644,10 +695,10 @@ export function registerLocationRoutes(app: Express): void {
             AND ($2 = '' OR c.slug = $2)
           GROUP BY c.id, c.slug, c.name, s.id, s.slug, s.name,
             lso.meta_title, lso.meta_description, lso.h1, lso.id, lso.updated_at
-          HAVING COUNT(d.id) FILTER (WHERE d.status = 'active') > 0
+          HAVING COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'active' AND ($3::text IS NULL OR svc.detective_id IS NOT NULL)) > 0
           ORDER BY c.slug, s.slug
-          LIMIT 500
-        `, [category, countryFilter]);
+          LIMIT 5000
+        `, [category, countryFilter, categoryName]);
 
         const data = result.rows.map((row: any) => ({
           category_slug: category,
@@ -670,11 +721,17 @@ export function registerLocationRoutes(app: Express): void {
         const result = await pool.query(`
           SELECT
             c.slug AS country_slug, c.name AS country_name,
-            COUNT(d.id) FILTER (WHERE d.status = 'active')::int AS total_detectives,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'active' AND ($2::text IS NULL OR svc.detective_id IS NOT NULL))::int AS total_detectives,
             lso.meta_title, lso.meta_description, lso.h1,
             (lso.id IS NOT NULL) AS has_override, lso.updated_at
           FROM countries c
           LEFT JOIN detectives d ON d.country_id = c.id AND d.status = 'active'
+          LEFT JOIN (
+            SELECT DISTINCT detective_id FROM services
+            WHERE is_active = true
+              AND images IS NOT NULL AND array_length(images, 1) > 0
+              AND ($2::text IS NULL OR LOWER(category) = LOWER($2::text))
+          ) svc ON svc.detective_id = d.id
           LEFT JOIN service_location_seo lso
             ON lso.service_slug = $1
             AND lso.country_slug = c.slug
@@ -683,9 +740,9 @@ export function registerLocationRoutes(app: Express): void {
           WHERE c.is_active = true
           GROUP BY c.id, c.slug, c.name,
             lso.meta_title, lso.meta_description, lso.h1, lso.id, lso.updated_at
-          HAVING COUNT(d.id) FILTER (WHERE d.status = 'active') > 0
+          HAVING COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'active' AND ($2::text IS NULL OR svc.detective_id IS NOT NULL)) > 0
           ORDER BY c.slug
-        `, [category]);
+        `, [category, categoryName]);
 
         const data = result.rows.map((row: any) => ({
           category_slug: category,
@@ -707,6 +764,41 @@ export function registerLocationRoutes(app: Express): void {
     } catch (error: any) {
       console.error("[Admin Service Location SEO] Error:", error);
       res.status(500).json({ success: false, error: error?.message || "Failed to fetch service location SEO data" });
+    }
+  });
+
+  /**
+   * Data audit: detectives whose state/city text doesn't match their FK
+   * GET /api/admin/location-audit
+   */
+  app.get("/api/admin/location-audit", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+    try {
+      const result = await pool.query(`
+        SELECT
+          d.id,
+          d.business_name,
+          d.slug,
+          d.status,
+          d.state  AS detective_state_text,
+          s.name   AS fk_state_name,
+          d.city   AS detective_city_text,
+          ci.name  AS fk_city_name
+        FROM detectives d
+        LEFT JOIN states s  ON d.state_id  = s.id
+        LEFT JOIN cities ci ON d.city_id   = ci.id
+        WHERE d.status = 'active'
+          AND (
+            (d.state_id IS NULL AND d.state IS NOT NULL AND TRIM(d.state) != '')
+            OR (s.id IS NOT NULL AND LOWER(TRIM(d.state)) != LOWER(TRIM(s.name)))
+            OR (d.city_id IS NULL AND d.city IS NOT NULL AND TRIM(d.city) != '')
+            OR (ci.id IS NOT NULL AND LOWER(TRIM(d.city)) != LOWER(TRIM(ci.name)))
+          )
+        ORDER BY d.business_name
+        LIMIT 200
+      `);
+      res.json({ success: true, count: result.rows.length, data: result.rows });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error?.message });
     }
   });
 

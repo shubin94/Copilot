@@ -8,13 +8,17 @@ import { useToast } from "@/hooks/use-toast";
 
 interface LocationSeoCity {
   country_slug: string;
+  country_name: string;
   state_slug: string;
+  state_name: string;
   city_slug: string;
+  city_name: string;
   total_detectives: number;
   custom_title: string | null;
   custom_meta_description: string | null;
   custom_h1: string | null;
   is_custom: boolean;
+  has_override: boolean;
   updated_at: string | null;
 }
 
@@ -218,7 +222,7 @@ export default function AdminLocationSeoCities() {
               <option value="">All Countries</option>
               {uniqueCountries.map((country) => (
                 <option key={country} value={country}>
-                  {country}
+                  {allCities.find(c => c.country_slug === country)?.country_name || country}
                 </option>
               ))}
             </select>
@@ -238,7 +242,7 @@ export default function AdminLocationSeoCities() {
               <option value="">All States</option>
               {statesForSelectedCountry.map((state) => (
                 <option key={state} value={state}>
-                  {state}
+                  {allCities.find(c => c.state_slug === state)?.state_name || state}
                 </option>
               ))}
             </select>
@@ -255,7 +259,7 @@ export default function AdminLocationSeoCities() {
               <option value="">All Cities</option>
               {citiesForSelectedCountryState.map((city) => (
                 <option key={city} value={city}>
-                  {city}
+                  {allCities.find(c => c.city_slug === city)?.city_name || city}
                 </option>
               ))}
             </select>
@@ -293,9 +297,9 @@ export default function AdminLocationSeoCities() {
               <tbody className="divide-y">
                 {filteredCities.map((city) => (
                   <tr key={`${city.country_slug}-${city.state_slug}-${city.city_slug}`} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-medium">{city.country_slug}</td>
-                    <td className="px-6 py-4 font-medium">{city.state_slug}</td>
-                    <td className="px-6 py-4 font-medium">{city.city_slug}</td>
+                    <td className="px-6 py-4 font-medium">{city.country_name || city.country_slug}</td>
+                    <td className="px-6 py-4 font-medium">{city.state_name || city.state_slug}</td>
+                    <td className="px-6 py-4 font-medium">{city.city_name || city.city_slug}</td>
                     <td className="px-6 py-4">{city.total_detectives}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 truncate max-w-xs">
                       {city.custom_title || "-"}

@@ -424,6 +424,7 @@ async function generateServicesSitemap(page: number = 1): Promise<string> {
     INNER JOIN detectives d ON s.detective_id = d.id
     INNER JOIN countries c ON d.country_id = c.id
     WHERE s.is_active = true AND d.status = 'active'
+      AND s.images IS NOT NULL AND array_length(s.images, 1) > 0
     ORDER BY s.updated_at DESC
     LIMIT $1 OFFSET $2
   `,
@@ -471,6 +472,7 @@ async function getServiceSitemapCount(): Promise<number> {
     SELECT COUNT(*) as count FROM services s
     INNER JOIN detectives d ON s.detective_id = d.id
     WHERE s.is_active = true AND d.status = 'active'
+      AND s.images IS NOT NULL AND array_length(s.images, 1) > 0
   `);
   const totalServices = result.rows[0].count;
   return Math.ceil(totalServices / 5000);
@@ -507,6 +509,7 @@ async function generateServiceLocationsSitemap(page: number = 1): Promise<string
     INNER JOIN states s ON d.state_id = s.id
     INNER JOIN cities ci ON d.city_id = ci.id
     WHERE sv.is_active = true AND sv.category IS NOT NULL AND sv.category != ''
+      AND sv.images IS NOT NULL AND array_length(sv.images, 1) > 0
     GROUP BY sv.category, c.slug, s.slug, ci.slug
     ORDER BY sv.category, c.slug, s.slug, ci.slug
     LIMIT $1 OFFSET $2
@@ -585,6 +588,7 @@ async function getServiceLocationsSitemapCount(): Promise<number> {
     INNER JOIN states s ON d.state_id = s.id
     INNER JOIN cities ci ON d.city_id = ci.id
     WHERE sv.is_active = true AND sv.category IS NOT NULL AND sv.category != ''
+      AND sv.images IS NOT NULL AND array_length(sv.images, 1) > 0
   `);
   const total = parseInt(result.rows[0].count) || 0;
   return Math.max(1, Math.ceil(total / 2000));
