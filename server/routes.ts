@@ -7827,14 +7827,24 @@ Content-Signal: index=public; train=deny
         cityRow = cityRows[0];
       }
 
+      const limitNum = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 100);
+      const offsetNum = Math.max(parseInt(req.query.offset as string) || 0, 0);
+
       const serviceResults = await storage.searchServices({
         category: dbCategory,
         country: countryRow.code,
         state: stateRow?.name,
         city: cityRow?.name,
-      }, 50, 0, 'popular');
+      }, limitNum, offsetNum, 'popular', false, {
+        countryId: Number(countryRow.id) || null,
+        stateId: stateRow ? Number(stateRow.id) || null : null,
+        cityId: cityRow ? Number(cityRow.id) || null : null,
+        countryName: countryRow.name,
+        stateName: stateRow?.name ?? '',
+        cityName: cityRow?.name ?? '',
+      });
 
-      if (!serviceResults?.length) {
+      if (!serviceResults?.length && offsetNum === 0) {
         return res.status(404).json({
           error: `No ${dbCategory} services found in this location`,
           code: 'NO_SERVICES_FOUND',
@@ -7842,7 +7852,7 @@ Content-Signal: index=public; train=deny
       }
 
       const locationLabel = cityRow?.name || stateRow?.name || countryRow.name;
-      console.log(`[Service API] ${dbCategory} → ${locationLabel}: ${serviceResults.length} results`);
+      console.log(`[Service API] ${dbCategory} → ${locationLabel}: ${serviceResults.length} results (offset=${offsetNum})`);
 
       // Fetch custom SEO from service_location_seo table
       const seoConditions: any[] = [
@@ -7876,6 +7886,8 @@ Content-Signal: index=public; train=deny
           category: dbCategory,
           categorySlug,
           total: maskedServices.length,
+          hasMore: maskedServices.length === limitNum,
+          offset: offsetNum,
           found: true,
           seo: seoData,
         },
@@ -7926,6 +7938,27 @@ Content-Signal: index=public; train=deny
     } catch (error) {
       console.error("Get service categories error:", error);
       res.status(500).json({ error: "Failed to get service categories" });
+    }
+  });
+
+  // Returns distinct categories that have at least one active service with images
+  // Used by admin service-location SEO pages to populate the category dropdown
+  app.get("/api/service-categories/active-with-services", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+    try {
+      const rows = await pool.query(`
+        SELECT MIN(TRIM(category)) AS category_name
+        FROM services
+        WHERE is_active = true
+          AND images IS NOT NULL AND array_length(images, 1) > 0
+          AND category IS NOT NULL AND TRIM(category) != ''
+        GROUP BY LOWER(TRIM(category))
+        ORDER BY MIN(TRIM(category)) ASC
+      `);
+      const categories = rows.rows.map((r: any) => r.category_name as string);
+      res.json({ categories });
+    } catch (error) {
+      console.error("Get active service categories error:", error);
+      res.status(500).json({ error: "Failed to get active service categories" });
     }
   });
 

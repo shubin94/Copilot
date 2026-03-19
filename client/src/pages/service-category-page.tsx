@@ -440,6 +440,9 @@ export default function ServiceCategoryPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [locationMeta, setLocationMeta] = useState<ServiceLocationMeta | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [expandedFAQs, setExpandedFAQs] = useState<Record<number, boolean>>({ 0: false, 1: false, 2: false });
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -471,7 +474,8 @@ export default function ServiceCategoryPage() {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(apiPath, { signal: controller.signal });
+        setOffset(0);
+        const response = await fetch(`${apiPath}?limit=50&offset=0`, { signal: controller.signal });
         if (cancelled) return;
         if (!response.ok) {
           const categoryLabel = staticConfig?.pluralName || categorySlug.replace(/-/g, " ");
@@ -484,6 +488,8 @@ export default function ServiceCategoryPage() {
         const data = await response.json();
         setServices(data.services || []);
         setLocationMeta(data.meta);
+        setHasMore(data.meta?.hasMore ?? false);
+        setOffset(50);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setError("An error occurred while loading services");
@@ -495,6 +501,22 @@ export default function ServiceCategoryPage() {
     fetch_();
     return () => { cancelled = true; controller.abort(); };
   }, [apiPath, match, categorySlug, countrySlug, stateSlug, citySlug]);
+
+  const loadMore = async () => {
+    try {
+      setLoadingMore(true);
+      const response = await fetch(`${apiPath}?limit=50&offset=${offset}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setServices(prev => [...prev, ...(data.services || [])]);
+      setHasMore(data.meta?.hasMore ?? false);
+      setOffset(prev => prev + 50);
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // ── Client-side filtering & sorting ─────────────────────────────────────────
   const filteredServices = useMemo(() => {
@@ -714,6 +736,19 @@ export default function ServiceCategoryPage() {
                 emptyMessage={`No ${config.pluralName.toLowerCase()} found in this location yet.`}
                 services={filteredServices as any[]}
               />
+            )}
+
+            {hasMore && (
+              <div className="flex justify-center mt-8">
+                <Button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  variant="outline"
+                  className="px-8"
+                >
+                  {loadingMore ? "Loading..." : "Load More"}
+                </Button>
+              </div>
             )}
           </div>
         </div>

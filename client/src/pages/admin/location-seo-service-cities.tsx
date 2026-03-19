@@ -55,9 +55,9 @@ export default function AdminLocationSeoServiceCities() {
   }, [isAuthenticated, isAdminOrEmployee, isLoadingUser, navigate]);
 
   useEffect(() => {
-    api.get<{ categories: { id: string; name: string; isActive: boolean }[] }>("/api/service-categories?activeOnly=true")
+    api.get<{ categories: string[] }>("/api/service-categories/active-with-services")
       .then(res => {
-        const cats = (res.categories || []).map(c => ({ slug: nameToSlug(c.name), label: c.name }));
+        const cats = (res.categories || []).map(c => ({ slug: nameToSlug(c), label: c }));
         setServiceCategories(cats);
         if (cats.length > 0) setCategory(cats[0].slug);
       })
@@ -248,7 +248,11 @@ export default function AdminLocationSeoServiceCities() {
                     <td className="px-4 py-3 font-medium">{row.country_slug}</td>
                     <td className="px-4 py-3 font-medium">{row.state_slug}</td>
                     <td className="px-4 py-3 font-medium">{row.city_slug}</td>
-                    <td className="px-4 py-3">{row.total_detectives}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${row.total_detectives >= 3 ? 'bg-green-100 text-green-700' : row.total_detectives === 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        {row.total_detectives}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">{row.custom_title || "—"}</td>
                     <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">{row.custom_h1 || "—"}</td>
                     <td className="px-4 py-3 text-sm">
