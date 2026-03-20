@@ -120,6 +120,20 @@ export default function ViewDetective() {
   });
   const adminUpdateService = useAdminUpdateService();
   const adminCreateService = useAdminCreateServiceForDetective();
+
+  const fixServiceImagesMutation = useMutation({
+    mutationFn: (detectiveId: string) =>
+      api.post<{ fixed: number; message: string }>(`/api/admin/detectives/${detectiveId}/fix-service-images`, {}),
+    onSuccess: async (result) => {
+      toast({ title: "Service Images Fixed", description: result.message });
+      if (detective?.id) {
+        await queryClient.refetchQueries({ queryKey: ["services", "detective", detective.id, "admin"] });
+      }
+    },
+    onError: (e: any) => {
+      toast({ title: "Failed", description: e?.message || "Could not fix service images", variant: "destructive" });
+    },
+  });
   const [serviceForm, setServiceForm] = useState({
     title: "",
     description: "",
@@ -313,7 +327,9 @@ export default function ViewDetective() {
   useEffect(() => {
     if (!detective || autoSeeded || seedInFlight.current) return;
     const cats = categoriesData?.categories || [];
-    const img = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+z6aQAAAAASUVORK5CYII=";
+    // Use the detective's own logo as the fallback image so services look real on location pages.
+    // Fall back to a transparent 1×1 PNG only if the detective has no logo at all.
+    const fallbackImg = (detective as any).logo || "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+z6aQAAAAASUVORK5CYII=";
     (async () => {
       seedInFlight.current = true;
       try {
@@ -329,26 +345,32 @@ export default function ViewDetective() {
               description: `Professional ${categoryLabel.toLowerCase()} services by ${businessLabel}. Contact for detailed consultation.`,
               category,
               basePrice: "100.00",
-              images: [img],
+              images: [fallbackImg],
               offerPrice: undefined,
             },
           });
           queryClient.setQueryData(["services", "detective", detective.id, "admin"], (prev: any) => {
             const prevList = Array.isArray(prev?.services) ? prev.services : [];
-            const nextList = [created.service, ...prevList];
-            return { services: nextList };
+            return { services: [created.service, ...prevList] };
           });
           await queryClient.refetchQueries({ queryKey: ["services", "detective", detective.id, "admin"] });
           setAutoSeeded(true);
           toast({ title: "Service Added", description: "A visible service was added for this detective." });
         } else if (services.length > 0) {
-          const s = services[0];
-          const hasImage = Array.isArray(s.images) && s.images.length > 0;
-          if (!hasImage || !s.isActive) {
-            await adminUpdateService.mutateAsync({ id: s.id, detectiveId: detective.id, data: { images: hasImage ? s.images : [img], isActive: true } });
+          // Fix ALL services that are missing images or inactive, not just the first one.
+          const needsFix = services.filter((s: any) => !(Array.isArray(s.images) && s.images.length > 0) || !s.isActive);
+          if (needsFix.length > 0) {
+            await Promise.all(needsFix.map((s: any) => {
+              const hasImage = Array.isArray(s.images) && s.images.length > 0;
+              return adminUpdateService.mutateAsync({
+                id: s.id,
+                detectiveId: detective.id,
+                data: { images: hasImage ? s.images : [fallbackImg], isActive: true },
+              });
+            }));
             await queryClient.refetchQueries({ queryKey: ["services", "detective", detective.id, "admin"] });
             setAutoSeeded(true);
-            toast({ title: "Service Updated", description: "Made the existing service visible." });
+            toast({ title: "Services Updated", description: `Fixed ${needsFix.length} service(s) — now visible on location pages.` });
           }
         }
       } catch (e: any) {
@@ -1080,11 +1102,24 @@ export default function ViewDetective() {
                   <div className="text-sm text-gray-600">
                     Free plan limit: {freeLimit} • Current: {services.length}
                   </div>
-                  {canAddService && (
-                    <Button onClick={() => setShowAddServiceDialog(true)} className="bg-green-600 hover:bg-green-700" data-testid="button-add-service-admin">
-                      Add Service
-                    </Button>
-                  )}
+                  <div className="flex gap-2">
+                    {services.some((s: any) => !(Array.isArray(s.images) && s.images.length > 0)) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={fixServiceImagesMutation.isPending}
+                        onClick={() => detective && fixServiceImagesMutation.mutate(detective.id)}
+                        title="Backfill missing service images using detective's logo so they appear on location pages"
+                      >
+                        {fixServiceImagesMutation.isPending ? "Fixing…" : "Fix Service Images"}
+                      </Button>
+                    )}
+                    {canAddService && (
+                      <Button onClick={() => setShowAddServiceDialog(true)} className="bg-green-600 hover:bg-green-700" data-testid="button-add-service-admin">
+                        Add Service
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>

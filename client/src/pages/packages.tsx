@@ -12,7 +12,7 @@ const SITE_ORIGIN = "https://www.askdetectives.com";
 export default function PackagesPage() {
   const seo = useCmsStaticPageSeo("packages", {
     title: "Pricing & Packages",
-    description: "Choose the right plan for your detective agency.",
+    description: "Compare AskDetectives subscription plans for private investigators. Choose a plan to list your services, get verified, and connect with clients worldwide.",
     h1: "Simple, Transparent Pricing",
   });
 

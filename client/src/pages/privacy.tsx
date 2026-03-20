@@ -6,7 +6,7 @@ import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 export default function PrivacyPage() {
   const seo = useCmsStaticPageSeo("privacy", {
     title: "Privacy Policy",
-    description: "Our commitment to protecting your privacy and data.",
+    description: "AskDetectives collects minimal data and does not store personal conversations, case details, or payment information. Read our full privacy policy to understand how your data is protected.",
     h1: "Privacy Policy",
   });
 

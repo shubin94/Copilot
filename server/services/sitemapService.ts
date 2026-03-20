@@ -4,11 +4,11 @@
  */
 
 import { pool } from "../../db/index.js";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 
 
-const SITEMAP_CACHE_DIR = "/tmp/.sitemap-cache";
+const SITEMAP_CACHE_DIR = process.env.SITEMAP_CACHE_DIR || "/tmp/.sitemap-cache";
 const CACHE_MAX_AGE = 86400; // 24 hours in seconds
 
 // Ensure cache directory exists (Vercel serverless: use /tmp for writable storage)
@@ -225,20 +225,16 @@ async function generateStatesSitemap(page: number = 1): Promise<string> {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
 
+  // Include all states, not just those with active detectives
   const result = await pool.query(
     `
     SELECT c.name as country_name,
            c.slug as country_slug,
            s.name as state_name,
            s.slug as state_slug,
-           MAX(d.updated_at) as last_mod,
-           COUNT(d.id)::int AS detective_count
-    FROM detectives d
-    INNER JOIN countries c ON d.country_id = c.id
-    INNER JOIN states s ON d.state_id = s.id
-    WHERE d.status = 'active'
-    GROUP BY c.name, c.slug, s.name, s.slug
-    HAVING COUNT(d.id) > 0
+           s.updated_at as last_mod
+    FROM states s
+    INNER JOIN countries c ON s.country_id = c.id
     ORDER BY c.name, s.name
     LIMIT $1 OFFSET $2
   `,
@@ -277,6 +273,7 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
 
+  // Include all cities, not just those with active detectives
   const result = await pool.query(
     `
     SELECT c.name as country_name,
@@ -285,15 +282,10 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
            s.slug as state_slug,
            ci.name as city_name,
            ci.slug as city_slug,
-           MAX(d.updated_at) as last_mod,
-           COUNT(d.id)::int AS detective_count
-    FROM detectives d
-    INNER JOIN countries c ON d.country_id = c.id
-    INNER JOIN states s ON d.state_id = s.id
-    INNER JOIN cities ci ON d.city_id = ci.id
-    WHERE d.status = 'active'
-    GROUP BY c.name, c.slug, s.name, s.slug, ci.name, ci.slug
-    HAVING COUNT(d.id) > 0
+           ci.updated_at as last_mod
+    FROM cities ci
+    INNER JOIN states s ON ci.state_id = s.id
+    INNER JOIN countries c ON s.country_id = c.id
     ORDER BY c.name, s.name, ci.name
     LIMIT $1 OFFSET $2
   `,
@@ -323,23 +315,19 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
 // ============= GET STATES SITEMAP COUNT =============
 async function getStatesSitemapCount(): Promise<number> {
   const result = await pool.query(`
-    SELECT COUNT(DISTINCT s.id) as count FROM states s
-    INNER JOIN detectives d ON d.state_id = s.id
-    WHERE d.status = 'active'
+    SELECT COUNT(*) as count FROM states s
   `);
-  const totalStates = result.rows[0].count;
+    const totalStates = Number(result.rows[0].count);
   return Math.ceil(totalStates / 5000);
 }
 
 // ============= GET CITIES SITEMAP COUNT =============
 async function getCitiesSitemapCount(): Promise<number> {
   const result = await pool.query(`
-    SELECT COUNT(DISTINCT ci.id) as count FROM cities ci
-    INNER JOIN detectives d ON d.city_id = ci.id
-    WHERE d.status = 'active'
+    SELECT COUNT(*) as count FROM cities ci
   `);
-  const totalCities = result.rows[0].count;
-  return Math.ceil(totalCities / 5000);
+    const totalCities = Number(result.rows[0].count);
+    return Math.ceil(totalCities / 5000);
 }
 
 // ============= DETECTIVES =============
@@ -352,10 +340,10 @@ async function generateDetectivesSitemap(): Promise<string> {
 `;
 
   const result = await pool.query(`
-    SELECT 
+    SELECT
       d.id,
       d.slug,
-      d.created_at,
+      d.updated_at,
       c.name as country_name,
       c.slug as country_slug,
       d.state as state_name,
@@ -363,11 +351,11 @@ async function generateDetectivesSitemap(): Promise<string> {
     FROM detectives d
     INNER JOIN countries c ON d.country_id = c.id
     WHERE d.status = 'active' AND d.slug IS NOT NULL AND d.slug != ''
-    ORDER BY d.created_at DESC
+    ORDER BY d.updated_at DESC
   `);
 
   for (const profile of result.rows) {
-    const lastmod = getValidLastmod(profile.created_at);
+    const lastmod = getValidLastmod(profile.updated_at);
     const countrySlug = toSlug(profile.country_name || profile.country_slug);
     const stateSlug = profile.state_name ? toSlug(profile.state_name) : "";
     const citySlug = profile.city_name ? toSlug(profile.city_name) : "";
@@ -487,31 +475,77 @@ function categoryNameToSlug(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+// Base WHERE clause shared across all three levels of the UNION query
+const SVC_LOC_BASE_WHERE = `
+  sv.is_active = true
+  AND sv.category IS NOT NULL AND sv.category != ''
+  AND sv.images IS NOT NULL AND array_length(sv.images, 1) > 0
+`;
+
 async function generateServiceLocationsSitemap(page: number = 1): Promise<string> {
   const cacheFile = `service-locations-${page}.xml`;
   const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
-  const pageSize = 2000; // 3 URLs per row → up to 6000 URLs per file
+  const pageSize = 5000; // 1 URL per row
   const offset = (page - 1) * pageSize;
 
+  // UNION produces one already-deduplicated row per URL level:
+  //   level 1 → country-only URLs   (deduplicated by SQL GROUP BY)
+  //   level 2 → state-level URLs    (deduplicated by SQL GROUP BY)
+  //   level 3 → city-level URLs     (deduplicated by SQL GROUP BY)
+  // This eliminates the cross-page duplicate country/state problem entirely.
   const result = await pool.query(
     `
-    SELECT
-      sv.category AS category_name,
-      c.slug AS country_slug,
-      s.slug AS state_slug,
-      ci.slug AS city_slug,
-      MAX(sv.updated_at) AS last_mod
-    FROM services sv
-    INNER JOIN detectives d ON sv.detective_id = d.id AND d.status = 'active'
-    INNER JOIN countries c ON d.country_id = c.id
-    INNER JOIN states s ON d.state_id = s.id
-    INNER JOIN cities ci ON d.city_id = ci.id
-    WHERE sv.is_active = true AND sv.category IS NOT NULL AND sv.category != ''
-      AND sv.images IS NOT NULL AND array_length(sv.images, 1) > 0
-    GROUP BY sv.category, c.slug, s.slug, ci.slug
-    ORDER BY sv.category, c.slug, s.slug, ci.slug
+    SELECT level, category_name, country_slug, state_slug, city_slug, last_mod
+    FROM (
+      -- Country level (unique per category + country)
+      SELECT 1 AS level,
+             sv.category AS category_name,
+             c.slug      AS country_slug,
+             NULL::text  AS state_slug,
+             NULL::text  AS city_slug,
+             MAX(sv.updated_at) AS last_mod
+      FROM services sv
+      INNER JOIN detectives d ON sv.detective_id = d.id AND d.status = 'active'
+      INNER JOIN countries  c ON d.country_id = c.id
+      WHERE ${SVC_LOC_BASE_WHERE}
+      GROUP BY sv.category, c.slug
+
+      UNION ALL
+
+      -- State level (unique per category + country + state)
+      SELECT 2,
+             sv.category,
+             c.slug,
+             s.slug,
+             NULL::text,
+             MAX(sv.updated_at)
+      FROM services sv
+      INNER JOIN detectives d ON sv.detective_id = d.id AND d.status = 'active'
+      INNER JOIN countries  c ON d.country_id = c.id
+      INNER JOIN states     s ON d.state_id   = s.id
+      WHERE ${SVC_LOC_BASE_WHERE}
+      GROUP BY sv.category, c.slug, s.slug
+
+      UNION ALL
+
+      -- City level (unique per category + country + state + city)
+      SELECT 3,
+             sv.category,
+             c.slug,
+             s.slug,
+             ci.slug,
+             MAX(sv.updated_at)
+      FROM services sv
+      INNER JOIN detectives d  ON sv.detective_id = d.id AND d.status = 'active'
+      INNER JOIN countries  c  ON d.country_id    = c.id
+      INNER JOIN states     s  ON d.state_id      = s.id
+      INNER JOIN cities     ci ON d.city_id       = ci.id
+      WHERE ${SVC_LOC_BASE_WHERE}
+      GROUP BY sv.category, c.slug, s.slug, ci.slug
+    ) combined
+    ORDER BY level, category_name, country_slug, state_slug NULLS FIRST, city_slug NULLS FIRST
     LIMIT $1 OFFSET $2
     `,
     [pageSize, offset]
@@ -520,9 +554,6 @@ async function generateServiceLocationsSitemap(page: number = 1): Promise<string
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
-
-  const seenCountry = new Set<string>();
-  const seenState = new Set<string>();
 
   for (const row of result.rows) {
     const catSlug = categoryNameToSlug(row.category_name);
@@ -533,44 +564,30 @@ async function generateServiceLocationsSitemap(page: number = 1): Promise<string
 
     if (!catSlug || !country) continue;
 
-    // Country-level (deduplicated within this page)
-    const countryKey = `${catSlug}:${country}`;
-    if (!seenCountry.has(countryKey)) {
-      seenCountry.add(countryKey);
-      xml += `  <url>
-    <loc>https://www.askdetectives.com/locations/${catSlug}/${country}/</loc>
-    <lastmod>${lastmod}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
-`;
+    let loc: string;
+    let priority: string;
+
+    if (!state) {
+      // Country-level URL
+      loc = `https://www.askdetectives.com/locations/${catSlug}/${country}/`;
+      priority = "0.7";
+    } else if (!city) {
+      // State-level URL
+      loc = `https://www.askdetectives.com/locations/${catSlug}/${country}/${state}/`;
+      priority = "0.65";
+    } else {
+      // City-level URL
+      loc = `https://www.askdetectives.com/locations/${catSlug}/${country}/${state}/${city}/`;
+      priority = "0.6";
     }
 
-    // State-level (deduplicated within this page)
-    if (state) {
-      const stateKey = `${catSlug}:${country}:${state}`;
-      if (!seenState.has(stateKey)) {
-        seenState.add(stateKey);
-        xml += `  <url>
-    <loc>https://www.askdetectives.com/locations/${catSlug}/${country}/${state}/</loc>
+    xml += `  <url>
+    <loc>${loc}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.65</priority>
+    <priority>${priority}</priority>
   </url>
 `;
-      }
-    }
-
-    // City-level
-    if (state && city) {
-      xml += `  <url>
-    <loc>https://www.askdetectives.com/locations/${catSlug}/${country}/${state}/${city}/</loc>
-    <lastmod>${lastmod}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.6</priority>
-  </url>
-`;
-    }
   }
 
   xml += `</urlset>`;
@@ -580,18 +597,33 @@ async function generateServiceLocationsSitemap(page: number = 1): Promise<string
 
 // ============= GET SERVICE LOCATIONS SITEMAP COUNT =============
 async function getServiceLocationsSitemapCount(): Promise<number> {
+  // Count all three levels (country + state + city) to get the true total rows
   const result = await pool.query(`
-    SELECT COUNT(DISTINCT (sv.category, c.slug, s.slug, ci.slug)) AS count
-    FROM services sv
-    INNER JOIN detectives d ON sv.detective_id = d.id AND d.status = 'active'
-    INNER JOIN countries c ON d.country_id = c.id
-    INNER JOIN states s ON d.state_id = s.id
-    INNER JOIN cities ci ON d.city_id = ci.id
-    WHERE sv.is_active = true AND sv.category IS NOT NULL AND sv.category != ''
-      AND sv.images IS NOT NULL AND array_length(sv.images, 1) > 0
+    SELECT (
+      (SELECT COUNT(DISTINCT (sv.category, c.slug))
+       FROM services sv
+       INNER JOIN detectives d ON sv.detective_id = d.id AND d.status = 'active'
+       INNER JOIN countries  c ON d.country_id = c.id
+       WHERE ${SVC_LOC_BASE_WHERE})
+      +
+      (SELECT COUNT(DISTINCT (sv.category, c.slug, s.slug))
+       FROM services sv
+       INNER JOIN detectives d ON sv.detective_id = d.id AND d.status = 'active'
+       INNER JOIN countries  c ON d.country_id = c.id
+       INNER JOIN states     s ON d.state_id   = s.id
+       WHERE ${SVC_LOC_BASE_WHERE})
+      +
+      (SELECT COUNT(DISTINCT (sv.category, c.slug, s.slug, ci.slug))
+       FROM services sv
+       INNER JOIN detectives d  ON sv.detective_id = d.id AND d.status = 'active'
+       INNER JOIN countries  c  ON d.country_id    = c.id
+       INNER JOIN states     s  ON d.state_id      = s.id
+       INNER JOIN cities     ci ON d.city_id       = ci.id
+       WHERE ${SVC_LOC_BASE_WHERE})
+    ) AS total
   `);
-  const total = parseInt(result.rows[0].count) || 0;
-  return Math.max(1, Math.ceil(total / 2000));
+  const total = parseInt(result.rows[0].total) || 0;
+  return Math.max(1, Math.ceil(total / 5000));
 }
 
 // ============= NEWS/ARTICLES =============
@@ -604,11 +636,12 @@ async function generateNewsSitemap(): Promise<string> {
 `;
 
   const result = await pool.query(`
-    SELECT 
+    SELECT
       cs.slug,
       cs.updated_at,
       cs.published_at
     FROM case_studies cs
+    WHERE cs.published_at <= NOW()
     ORDER BY cs.published_at DESC
   `);
 
@@ -694,6 +727,92 @@ async function generateSitemapIndex(): Promise<string> {
   xml += `</sitemapindex>`;
   cacheSitemap("index.xml", xml);
   return xml;
+}
+
+/**
+ * Invalidates specific sitemap cache files so the next HTTP request regenerates them.
+ * Safe to call fire-and-forget — errors are logged, never thrown.
+ *
+ * @param types - Which sitemap groups to bust.
+ *   'detectives'        → detectives.xml + index.xml
+ *   'services'          → sitemap-services-*.xml + index.xml
+ *   'service-locations' → sitemap-service-locations-*.xml + index.xml
+ *   'news'              → news.xml + index.xml
+ *   'all'               → every file in the cache directory
+ */
+export function invalidateSitemapCache(
+  types: Array<"detectives" | "services" | "service-locations" | "news" | "all">
+): void {
+  try {
+    let files: string[];
+    try {
+      files = readdirSync(SITEMAP_CACHE_DIR);
+    } catch {
+      return; // Cache dir doesn't exist yet — nothing to invalidate
+    }
+
+    const toDelete = new Set<string>();
+
+    if (types.includes("all")) {
+      files.forEach(f => toDelete.add(f));
+    } else {
+      // The index must be regenerated whenever any sub-sitemap changes
+      if (files.includes("index.xml")) toDelete.add("index.xml");
+
+      if (types.includes("detectives")) {
+        toDelete.add("detectives.xml");
+      }
+      if (types.includes("services")) {
+        files.filter(f => f.startsWith("services-")).forEach(f => toDelete.add(f));
+      }
+      if (types.includes("service-locations")) {
+        files.filter(f => f.startsWith("service-locations-")).forEach(f => toDelete.add(f));
+      }
+      if (types.includes("news")) {
+        toDelete.add("news.xml");
+      }
+    }
+
+    const deleted: string[] = [];
+    for (const file of toDelete) {
+      try {
+        const filepath = join(SITEMAP_CACHE_DIR, file);
+        if (existsSync(filepath)) {
+          unlinkSync(filepath);
+          deleted.push(file);
+        }
+      } catch (err) {
+        console.warn(`[Sitemap] Failed to delete cache file ${file}:`, err);
+      }
+    }
+
+    if (deleted.length > 0) {
+      console.log(`[Sitemap] Cache invalidated: ${deleted.join(", ")}`);
+    }
+  } catch (err) {
+    console.warn("[Sitemap] invalidateSitemapCache error:", err);
+  }
+}
+
+/**
+ * Pings Bing (and compatible engines) with the sitemap URL.
+ * Google is notified per-URL via the existing Indexing API service.
+ * Fire-and-forget — call without await.
+ */
+export async function pingSitemapToSearchEngines(): Promise<void> {
+  const sitemapUrl = "https://www.askdetectives.com/sitemap.xml";
+  try {
+    const res = await fetch(
+      `https://www.bing.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`
+    );
+    if (res.ok) {
+      console.log("[Sitemap] Bing pinged successfully");
+    } else {
+      console.warn(`[Sitemap] Bing ping returned HTTP ${res.status}`);
+    }
+  } catch (err) {
+    console.warn("[Sitemap] Failed to ping Bing:", err);
+  }
 }
 
 export {

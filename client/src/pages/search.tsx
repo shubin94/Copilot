@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Filter, ChevronDown, Star, Check, X } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useEffect, useRef, useReducer } from "react";
 import {
   DropdownMenu,
@@ -182,9 +182,9 @@ export default function SearchPage() {
   const [countrySearch, setCountrySearch] = useState<string>("");
   const [stateSearch, setStateSearch] = useState<string>("");
   const [citySearch, setCitySearch] = useState<string>("");
-  const countrySearchRef = useRef<HTMLInputElement>(null);
-  const stateSearchRef = useRef<HTMLInputElement>(null);
-  const citySearchRef = useRef<HTMLInputElement>(null);
+  const [countryOpen, setCountryOpen] = useState(false);
+  const [stateOpen, setStateOpen] = useState(false);
+  const [cityOpen, setCityOpen] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>(["category", "location"]);
 
   const currencyContext = useCurrency();
@@ -197,13 +197,10 @@ export default function SearchPage() {
   // Determine level filter for backend (level1 or level2)
   const level = filters.level1Only ? "level1" : filters.level2Only ? "level2" : undefined;
 
-  // Apply selected country from context if no manual country filter is set
-  const countryForApi = filters.country || (selectedCountry && selectedCountry.code !== "GLOBAL" ? selectedCountry.code : undefined);
-
   // Fetch services from backend with ALL filters applied server-side
   const { data: servicesData, isLoading } = useSearchServices({
     search: filters.category ? undefined : (query !== "All Services" ? query : undefined),
-    country: countryForApi,
+    country: filters.country,
     state: filters.state || undefined,
     city: filters.city || undefined,
     category: filters.category,
@@ -352,131 +349,89 @@ export default function SearchPage() {
          <AccordionTrigger className="font-bold text-sm">Location</AccordionTrigger>
          <AccordionContent>
            <div className="space-y-3">
-             {/* Country Dropdown with Search */}
+             {/* Country Combobox */}
+             {/* Country Combobox */}
              <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">Country</Label>
-              <Select 
-                value={filters.country || ""} 
-                onValueChange={(value) => {
-                  dispatch({ type: 'SET_COUNTRY', payload: value || undefined });
-                  setStateSearch("");
-                  setCitySearch("");
-                }}
-              >
-                <SelectTrigger className="h-8 text-sm" data-testid="select-country-filter">
-                  <SelectValue placeholder="Select country..." />
-                </SelectTrigger>
-                <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
-                  <div className="sticky top-0 bg-white p-2 border-b z-10">
-                    <Input 
-                      ref={countrySearchRef}
-                      placeholder="Search countries..." 
-                      className="h-7 text-sm"
-                      value={countrySearch}
-                      onChange={(e) => setCountrySearch(e.target.value)}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()}
-                      autoFocus
-                    />
-                  </div>
-                  {availableCountries
-                    .filter(c => 
-                      !countrySearch.trim() || 
-                      c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
-                      c.code.toLowerCase().includes(countrySearch.toLowerCase())
-                    )
-                    .map(c => (
-                      <SelectItem key={c.code} value={c.code}>
-                        {c.name}
-                      </SelectItem>
-                    ))
-                  }
-                </SelectContent>
-              </Select>
+               <Label className="text-xs text-gray-500">Country</Label>
+               <Popover open={countryOpen} onOpenChange={(o) => { setCountryOpen(o); if (!o) setCountrySearch(""); }}>
+                 <PopoverTrigger asChild>
+                   <Button variant="outline" role="combobox" data-testid="select-country-filter" className="w-full h-8 text-sm justify-between font-normal">
+                     <span className="truncate">{filters.country ? (availableCountries.find(c => c.code === filters.country)?.name ?? filters.country) : "Select country..."}</span>
+                     <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                   </Button>
+                 </PopoverTrigger>
+                 <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                   <div className="p-2 border-b">
+                     <Input autoFocus placeholder="Search countries..." className="h-7 text-sm" value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} />
+                   </div>
+                   <div className="max-h-52 overflow-y-auto">
+                     {availableCountries.filter(c => !countrySearch.trim() || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())).length === 0
+                       ? <div className="py-4 text-center text-sm text-gray-500">No country found.</div>
+                       : availableCountries.filter(c => !countrySearch.trim() || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())).map(c => (
+                         <button key={c.code} className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 ${filters.country === c.code ? "bg-gray-50 font-medium" : ""}`}
+                           onMouseDown={(e) => { e.preventDefault(); dispatch({ type: 'SET_COUNTRY', payload: c.code }); setStateSearch(""); setCitySearch(""); setCountryOpen(false); }}>
+                           <Check className={`h-4 w-4 shrink-0 ${filters.country === c.code ? "opacity-100" : "opacity-0"}`} />{c.name}
+                         </button>
+                       ))}
+                   </div>
+                 </PopoverContent>
+               </Popover>
              </div>
 
-             {/* State Dropdown with Search - Enabled only when Country is selected */}
+             {/* State Combobox */}
              <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">State / Province</Label>
-              <Select 
-                value={filters.state || ""}
-                onValueChange={(value) => {
-                  dispatch({ type: 'SET_STATE', payload: value || "" });
-                  setCitySearch("");
-                }}
-                disabled={!filters.country || availableStates.length === 0}
-              >
-                <SelectTrigger className="h-8 text-sm" data-testid="select-state-filter">
-                  <SelectValue placeholder={!filters.country ? "Select country first..." : "Select state..."} />
-                </SelectTrigger>
-                <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
-                  <div className="sticky top-0 bg-white p-2 border-b z-10">
-                    <Input 
-                      ref={stateSearchRef}
-                      placeholder="Search states..." 
-                      className="h-7 text-sm"
-                      value={stateSearch}
-                      onChange={(e) => setStateSearch(e.target.value)}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()}
-                      autoFocus
-                    />
-                  </div>
-                  {availableStates
-                    .filter(s => 
-                      !stateSearch.trim() || 
-                      s.toLowerCase().includes(stateSearch.toLowerCase())
-                    )
-                    .map(s => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))
-                  }
-                </SelectContent>
-              </Select>
+               <Label className="text-xs text-gray-500">State / Province</Label>
+               <Popover open={stateOpen} onOpenChange={(o) => { setStateOpen(o); if (!o) setStateSearch(""); }}>
+                 <PopoverTrigger asChild>
+                   <Button variant="outline" role="combobox" data-testid="select-state-filter" disabled={!filters.country || availableStates.length === 0} className="w-full h-8 text-sm justify-between font-normal">
+                     <span className="truncate">{filters.state || (!filters.country ? "Select country first..." : "Select state...")}</span>
+                     <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                   </Button>
+                 </PopoverTrigger>
+                 <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                   <div className="p-2 border-b">
+                     <Input autoFocus placeholder="Search states..." className="h-7 text-sm" value={stateSearch} onChange={(e) => setStateSearch(e.target.value)} />
+                   </div>
+                   <div className="max-h-52 overflow-y-auto">
+                     {availableStates.filter(s => !stateSearch.trim() || s.toLowerCase().includes(stateSearch.toLowerCase())).length === 0
+                       ? <div className="py-4 text-center text-sm text-gray-500">No state found.</div>
+                       : availableStates.filter(s => !stateSearch.trim() || s.toLowerCase().includes(stateSearch.toLowerCase())).map(s => (
+                         <button key={s} className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 ${filters.state === s ? "bg-gray-50 font-medium" : ""}`}
+                           onMouseDown={(e) => { e.preventDefault(); dispatch({ type: 'SET_STATE', payload: s }); setCitySearch(""); setStateOpen(false); }}>
+                           <Check className={`h-4 w-4 shrink-0 ${filters.state === s ? "opacity-100" : "opacity-0"}`} />{s}
+                         </button>
+                       ))}
+                   </div>
+                 </PopoverContent>
+               </Popover>
              </div>
 
-             {/* City Dropdown with Search - Enabled only when State is selected */}
+             {/* City Combobox */}
              <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">City</Label>
-              <Select 
-                value={filters.city || ""}
-                onValueChange={(value) => dispatch({ type: 'SET_CITY', payload: value || "" })}
-                disabled={!filters.state || availableCities.length === 0}
-              >
-                <SelectTrigger className="h-8 text-sm" data-testid="select-city-filter">
-                  <SelectValue placeholder={!filters.state ? "Select state first..." : "Select city..."} />
-                </SelectTrigger>
-                <SelectContent side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
-                  <div className="sticky top-0 bg-white p-2 border-b z-10">
-                    <Input 
-                      ref={citySearchRef}
-                      placeholder="Search cities..." 
-                      className="h-7 text-sm"
-                      value={citySearch}
-                      onChange={(e) => setCitySearch(e.target.value)}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()}
-                      autoFocus
-                    />
-                  </div>
-                  {availableCities
-                    .filter(city => 
-                      !citySearch.trim() || 
-                      city.toLowerCase().includes(citySearch.toLowerCase())
-                    )
-                    .map(city => (
-                      <SelectItem key={city} value={city}>
-                        {city}
-                      </SelectItem>
-                    ))
-                  }
-                </SelectContent>
-              </Select>
+               <Label className="text-xs text-gray-500">City</Label>
+               <Popover open={cityOpen} onOpenChange={(o) => { setCityOpen(o); if (!o) setCitySearch(""); }}>
+                 <PopoverTrigger asChild>
+                   <Button variant="outline" role="combobox" data-testid="select-city-filter" disabled={!filters.state || availableCities.length === 0} className="w-full h-8 text-sm justify-between font-normal">
+                     <span className="truncate">{filters.city || (!filters.state ? "Select state first..." : "Select city...")}</span>
+                     <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                   </Button>
+                 </PopoverTrigger>
+                 <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                   <div className="p-2 border-b">
+                     <Input autoFocus placeholder="Search cities..." className="h-7 text-sm" value={citySearch} onChange={(e) => setCitySearch(e.target.value)} />
+                   </div>
+                   <div className="max-h-52 overflow-y-auto">
+                     {availableCities.filter(city => !citySearch.trim() || city.toLowerCase().includes(citySearch.toLowerCase())).length === 0
+                       ? <div className="py-4 text-center text-sm text-gray-500">No city found.</div>
+                       : availableCities.filter(city => !citySearch.trim() || city.toLowerCase().includes(citySearch.toLowerCase())).map(city => (
+                         <button key={city} className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 ${filters.city === city ? "bg-gray-50 font-medium" : ""}`}
+                           onMouseDown={(e) => { e.preventDefault(); dispatch({ type: 'SET_CITY', payload: city }); setCityOpen(false); }}>
+                           <Check className={`h-4 w-4 shrink-0 ${filters.city === city ? "opacity-100" : "opacity-0"}`} />{city}
+                         </button>
+                       ))}
+                   </div>
+                 </PopoverContent>
+               </Popover>
              </div>
 
              {/* Clear Button - Only shown when any location filter is active */}

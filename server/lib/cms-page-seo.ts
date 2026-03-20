@@ -96,6 +96,35 @@ export function injectCmsPageSeoTags(
   const [titleTag, ...rest] = metaTags;
   let injected = cleaned;
 
+  // Define JSON-LD schemas
+  const schemas: string[] = [];
+  
+  // If this is the homepage, inject WebSite (Sitelinks Search Box) and Organization schemas
+  if (canonicalUrl === "https://www.askdetectives.com/") {
+    const websiteSchema = {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Ask Detectives",
+      "url": "https://www.askdetectives.com/",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://www.askdetectives.com/search?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    };
+    
+    const orgSchema = {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Ask Detectives",
+      "url": "https://www.askdetectives.com/",
+      "logo": "https://www.askdetectives.com/favicon.png"
+    };
+    
+    schemas.push(`<script type="application/ld+json">\n${JSON.stringify(websiteSchema, null, 2)}\n</script>`);
+    schemas.push(`<script type="application/ld+json">\n${JSON.stringify(orgSchema, null, 2)}\n</script>`);
+  }
+
   if (injected.includes("<!-- SEO_TITLE_INJECTION_POINT -->")) {
     injected = injected.replace(
       /<!-- SEO_TITLE_INJECTION_POINT -->/,
@@ -115,6 +144,11 @@ export function injectCmsPageSeoTags(
     !injected.includes("<!-- SEO_META_INJECTION_POINT -->")
   ) {
     injected = injected.replace("</head>", `    ${metaTags.join("\n    ")}\n  </head>`);
+  }
+
+  // Inject Schemas before the closing head tag
+  if (schemas.length > 0) {
+    injected = injected.replace("</head>", `    ${schemas.join("\n    ")}\n  </head>`);
   }
 
   return injected;

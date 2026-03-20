@@ -199,6 +199,9 @@ export default function DetectiveProfile() {
 
   // Error state
   if (serviceError || !serviceData) {
+    const detectiveProfileUrl = (country && state && city && detectiveSlug)
+      ? `/detectives/${country}/${state}/${city}/${detectiveSlug}/`
+      : null;
     return (
       <div className="min-h-screen bg-white font-sans text-gray-900">
         <SEO
@@ -213,6 +216,14 @@ export default function DetectiveProfile() {
             <FileText className="h-12 w-12 text-gray-400 mb-4" />
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Service Not Found</h2>
             <p className="text-gray-600">The service you're looking for doesn't exist or has been removed.</p>
+            {detectiveProfileUrl && (
+              <Link href={detectiveProfileUrl}>
+                <Button variant="outline" className="mt-6">
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  View Detective Profile
+                </Button>
+              </Link>
+            )}
           </div>
         </main>
         <Footer />
