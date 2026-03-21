@@ -5,7 +5,7 @@
 ### ✅ Local Development (RIGHT NOW)
 - **Status**: Running with LIVE production database
 - **URL**: http://localhost:5000
-- **Database**: Production Supabase (gjgrwxxtkyggwfrydpdb.supabase.co)
+-- **Database**: [REDACTED]
 - **Mode**: Development with safety override (`ALLOW_PROD_DB_IN_DEV=true`)
 - **Tables**: All 29 tables exist and ready
 - **Data**: NO DATA DELETED - Only added missing tables
@@ -92,10 +92,10 @@ npm run dev
 
 ### Render Environment Variables (Set in Render Dashboard):
 - `NODE_ENV=production` ✅
-- `DATABASE_URL=postgresql://postgres.gjgrwxxtkyggwfrydpdb:****` ✅
-- `SUPABASE_URL=https://gjgrwxxtkyggwfrydpdb.supabase.co` ✅
-- `SUPABASE_ANON_KEY=sb_publishable_****` ✅
-- `SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9****` ✅
+`DATABASE_URL=[REDACTED]`
+`SUPABASE_URL=[REDACTED]`
+`SUPABASE_ANON_KEY=[REDACTED]`
+`SUPABASE_SERVICE_ROLE_KEY=[REDACTED]`
 
 ### What Render Does NOT Use:
 - ❌ `.env.local` (local development only, gitignored)
