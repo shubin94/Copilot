@@ -6,7 +6,7 @@ import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 export default function TermsPage() {
   const seo = useCmsStaticPageSeo("terms", {
     title: "Terms and Conditions",
-    description: "The terms and conditions for using AskDetectives.",
+    description: "AskDetectives is a directory platform only. Review our terms of service covering platform use, user responsibilities, disclaimer of liability, and how detective listings work.",
     h1: "Terms and Conditions",
   });
 

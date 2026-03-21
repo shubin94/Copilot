@@ -581,7 +581,10 @@ export async function getServiceBySlugForSEO(
       .from(services)
       .innerJoin(detectives, eq(services.detectiveId, detectives.id))
       .where(and(
-        eq(services.slug, serviceSlug),
+        or(
+          eq(services.slug, serviceSlug),
+          sql`REGEXP_REPLACE(${services.slug}, '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-', '') = ${serviceSlug}`
+        ),
         eq(detectives.slug, detectiveSlug),
         eq(detectives.countryId, countryRow[0].id),
         eq(detectives.stateId, stateRow[0].id),
@@ -1251,7 +1254,7 @@ export function injectServiceSeoTags(
 
   modified = modified.replace(
     /<!-- SEO_META_INJECTION_POINT -->/,
-    `<!-- SEO_META_INJECTION_POINT -->\n    <meta name="description" content="${escapedDesc}" />\n    <meta property="og:title" content="${escapedTitle}" />\n    <meta property="og:description" content="${escapedDesc}" />\n    <meta property="og:url" content="${canonicalUrl}" />\n    <link rel="canonical" href="${canonicalUrl}" />`
+    `<!-- SEO_META_INJECTION_POINT -->\n    <meta name="description" content="${escapedDesc}" />\n    <meta property="og:title" content="${escapedTitle}" />\n    <meta property="og:description" content="${escapedDesc}" />\n    <meta property="og:url" content="${canonicalUrl}" />\n    <meta property="og:type" content="website" />\n    <meta property="og:site_name" content="AskDetectives" />\n    <meta property="og:locale" content="en_US" />\n    <meta property="og:image" content="https://www.askdetectives.com/hero-bg.webp" />\n    <meta property="og:image:width" content="1200" />\n    <meta property="og:image:height" content="630" />\n    <meta property="og:image:alt" content="AskDetectives - Find Vetted Private Investigators" />\n    <meta name="twitter:card" content="summary_large_image" />\n    <meta name="twitter:title" content="${escapedTitle}" />\n    <meta name="twitter:description" content="${escapedDesc}" />\n    <meta name="twitter:image" content="https://www.askdetectives.com/hero-bg.webp" />\n    <meta name="twitter:site" content="@FindDetectives" />\n    <link rel="canonical" href="${canonicalUrl}" />`
   );
 
   modified = modified.replace(
@@ -1299,6 +1302,9 @@ export function removeDefaultMetaTags(htmlContent: string): string {
 
   // Remove canonical link
   cleaned = cleaned.replace(/<link\s+rel="canonical"[^>]*>/gi, '');
+
+  // Remove all existing JSON-LD script blocks to prevent duplicates
+  cleaned = cleaned.replace(/<script\s+type="application\/ld\+json"[\s\S]*?<\/script>/gi, '');
 
   // Clean up any double newlines created by removals
   cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n');
@@ -1799,10 +1805,12 @@ export async function generateLocationSeoMetaTags(
       // ✅ NO OVERRIDE - Generate system SEO (improved format)
       const locationName = cityName || stateName || countryName;
       
-      title = `Top Private Detectives in ${locationName} | Verified Investigators (${year})`;
-      description = `Find trusted private detectives in ${locationName}. Browse ${totalCount} verified investigators offering background checks, surveillance, and investigation services.`;
-      h1 = `Private Detectives in ${locationName}`;
-      
+      const longTitle  = `Best Private Detectives Near Me in ${locationName} - ${year}`;
+      const shortTitle = `Private Detectives Near Me in ${locationName} - ${year}`;
+      title = longTitle.length <= 60 ? longTitle : shortTitle;
+      description = `Find ${totalCount}+ verified private detectives near you in ${locationName}. Licensed investigators for all types of cases. Get free quotes today (${year})`;
+      h1 = `Best Private Detectives Near You in ${locationName} (${year})`;
+
       console.log(`[SEO SSR] System-generated SEO for ${cityId ? 'city' : stateId ? 'state' : 'country'}: ${locationName}`);
     }
   } catch (seoError) {
@@ -1810,9 +1818,11 @@ export async function generateLocationSeoMetaTags(
     
     // ✅ FALLBACK - Use default template if database query fails
     const locationDisplayName = [cityName, stateName, countryName].filter(Boolean).join(", ");
-    title = `Top Private Detectives in ${locationDisplayName} (${year})`;
-    description = `Find trusted private detectives in ${locationDisplayName}. Browse verified investigators.`;
-    h1 = `Private Detectives in ${locationDisplayName}`;
+    const longTitleFb  = `Best Private Detectives Near Me in ${locationDisplayName} - ${year}`;
+    const shortTitleFb = `Private Detectives Near Me in ${locationDisplayName} - ${year}`;
+    title = longTitleFb.length <= 60 ? longTitleFb : shortTitleFb;
+    description = `Find 10+ verified private detectives near you in ${locationDisplayName}. Licensed investigators for all types of cases. Get free quotes today (${year})`;
+    h1 = `Best Private Detectives Near You in ${locationDisplayName} (${year})`;
   }
 
   // ✅ STEP 3: Generate meta tags (use h1 value for OG title to match frontend)
@@ -1911,6 +1921,7 @@ async function generateLocationItemListSchema(
     "name": `Private Detectives in ${locationLabel}`,
     "description": `Directory of private detectives and investigators in ${locationLabel}`,
     "url": canonicalUrl,
+    "numberOfItems": detectives.length,
     "itemListElement": itemListElement,
   };
 
@@ -2426,8 +2437,11 @@ export function generateServiceLocationSeoMetaTags(
     : location.stateName
     ? `${location.stateName}, ${location.countryName}`
     : location.countryName;
-  const title = `${categoryName} in ${locationDisplay} | Verified Detectives`;
-  const description = `Compare ${serviceCount} verified ${categoryName.toLowerCase()} providers in ${locationDisplay}. Reviews, pricing & direct contact details available.`;
+  const year = new Date().getFullYear();
+  const longTitle  = `Best ${categoryName} Detectives Near Me in ${locationDisplay} - ${year}`;
+  const shortTitle = `Best ${categoryName} Detectives Near Me in ${locationDisplay}`;
+  const title = longTitle.length <= 60 ? longTitle : shortTitle;
+  const description = `Find ${serviceCount}+ verified ${categoryName.toLowerCase()} detectives near you in ${locationDisplay}. Read reviews, compare rates & get free quotes today.`;
 
   const serviceImageAlt = `${categoryName} in ${locationDisplay}`;
   const ogImage = firstServiceLogo || 'https://www.askdetectives.com/og-detective-directory.jpg';
@@ -2457,14 +2471,49 @@ export function generateServiceLocationSeoMetaTags(
 }
 
 /**
+ * Maps a country code or name to its ISO 4217 currency code.
+ */
+function getCurrencyForCountry(countryCodeOrName?: string | null): string {
+  if (!countryCodeOrName) return "USD";
+  const key = countryCodeOrName.trim().toUpperCase();
+  const map: Record<string, string> = {
+    IN: "INR", INDIA: "INR",
+    GB: "GBP", UK: "GBP", "UNITED KINGDOM": "GBP",
+    AU: "AUD", AUSTRALIA: "AUD",
+    CA: "CAD", CANADA: "CAD",
+    AE: "AED", UAE: "AED", "UNITED ARAB EMIRATES": "AED",
+    SG: "SGD", SINGAPORE: "SGD",
+    PK: "PKR", PAKISTAN: "PKR",
+    BD: "BDT", BANGLADESH: "BDT",
+    NZ: "NZD", "NEW ZEALAND": "NZD",
+    ZA: "ZAR", "SOUTH AFRICA": "ZAR",
+    MY: "MYR", MALAYSIA: "MYR",
+    PH: "PHP", PHILIPPINES: "PHP",
+    HK: "HKD", "HONG KONG": "HKD",
+    JP: "JPY", JAPAN: "JPY",
+    TH: "THB", THAILAND: "THB",
+    BR: "BRL", BRAZIL: "BRL",
+    MX: "MXN", MEXICO: "MXN",
+    SA: "SAR", "SAUDI ARABIA": "SAR",
+    QA: "QAR", QATAR: "QAR",
+    KW: "KWD", KUWAIT: "KWD",
+    OM: "OMR", OMAN: "OMR",
+  };
+  return map[key] || "USD";
+}
+
+/**
  * Generates JSON-LD ItemList schema for services
  */
 async function generateServiceLocationItemListSchema(
   location: { countryName: string; stateName: string; cityName: string },
   services: Array<any>,
-  canonicalUrl: string
+  canonicalUrl: string,
+  categoryName = "Background Check Services"
 ): Promise<string> {
-  const locationLabel = `${location.cityName}, ${location.stateName}`;
+  const locationLabel = location.cityName
+    ? `${location.cityName}, ${location.stateName || location.countryName}`
+    : location.stateName || location.countryName;
 
   // Build a unique set of country codes and resolve all slugs with controlled concurrency
   const uniqueCountryCodes = [...new Set(services.map(s => s.detective.country))];
@@ -2495,40 +2544,71 @@ async function generateServiceLocationItemListSchema(
     const stateSlug = stateSlugMap.get(stateKey) || "";
     const citySlug = citySlugMap.get(cityKey) || "";
     const serviceUrl = `https://www.askdetectives.com/service/${countrySlug}/${stateSlug}/${citySlug}/${service.detective.slug}/${service.slug}/`;
+    const currency = getCurrencyForCountry(service.detective.country);
+
+    const serviceItem: Record<string, any> = {
+      "@type": "Service",
+      "name": service.title,
+      "url": serviceUrl,
+      "description": service.description,
+      "provider": {
+        "@type": "LocalBusiness",
+        "name": service.detective.businessName,
+        "logo": service.detective.logo || undefined,
+        "areaServed": locationLabel,
+      },
+    };
+
+    // Add image only if available
+    const image = service.images?.[0] || service.detective.logo;
+    if (image) serviceItem.image = image;
+
+    // Add offers with correct currency
+    if (service.isOnEnquiry) {
+      serviceItem.offers = {
+        "@type": "Offer",
+        "availability": "https://schema.org/InStock",
+        "priceSpecification": {
+          "@type": "PriceSpecification",
+          "description": "Contact for pricing",
+        },
+      };
+    } else if (service.offerPrice || service.basePrice) {
+      serviceItem.offers = {
+        "@type": "Offer",
+        "price": service.offerPrice || service.basePrice,
+        "priceCurrency": currency,
+        "availability": "https://schema.org/InStock",
+      };
+    }
+
+    // Add aggregateRating only if reviewCount > 0
+    if (service.reviewCount > 0) {
+      const ratingValue = Math.round(Number(service.avgRating) * 10) / 10;
+      serviceItem.aggregateRating = {
+        "@type": "AggregateRating",
+        "ratingValue": ratingValue,
+        "reviewCount": Math.round(Number(service.reviewCount)),
+        "bestRating": 5,
+        "worstRating": 1,
+      };
+    }
 
     return {
       "@type": "ListItem",
       "position": index + 1,
-      "item": {
-        "@type": "Service",
-        "name": service.title,
-        "url": serviceUrl,
-        "description": service.description,
-        "image": service.images?.[0] || service.detective.logo || "",
-        "price": service.offerPrice || service.basePrice || "Contact",
-        "priceCurrency": "INR",
-        "provider": {
-          "@type": "LocalBusiness",
-          "name": service.detective.businessName,
-          "logo": service.detective.logo,
-          "areaServed": locationLabel,
-        },
-        "aggregateRating": service.reviewCount > 0 ? {
-          "@type": "AggregateRating",
-          "ratingValue": service.avgRating.toFixed(1),
-          "reviewCount": service.reviewCount,
-        } : undefined,
-      },
+      "item": serviceItem,
     };
   });
 
   const itemList: any = {
     "@context": "https://schema.org",
     "@type": "ItemList",
-    "name": `Background Check Services in ${locationLabel}`,
-    "description": `Directory of background check service providers in ${locationLabel}`,
+    "name": `${categoryName} in ${locationLabel}`,
+    "description": `Directory of ${categoryName.toLowerCase()} providers in ${locationLabel}`,
     "url": canonicalUrl,
-    "itemListElement": itemListElement.map(item => ({ ...item.item, position: item.position })),
+    "numberOfItems": services.length,
+    "itemListElement": itemListElement,
   };
 
   return JSON.stringify(itemList, null, 2);
@@ -2579,7 +2659,8 @@ export async function generateServiceLocationJsonLd(
     itemList: await generateServiceLocationItemListSchema(
       { countryName: location.countryName, stateName: location.stateName || '', cityName: location.cityName || '' },
       services,
-      canonicalUrl
+      canonicalUrl,
+      categoryName
     ),
     breadcrumbs: generateServiceLocationBreadcrumbSchema(location, categorySlug, categoryName),
   };
@@ -2611,6 +2692,52 @@ async function fetchServiceLocationSeoOverride(
   } catch {
     return null;
   }
+}
+
+/**
+ * Generates FAQ schema for service location pages
+ * Powers "People Also Ask" PAA boxes in Google SERPs
+ */
+function generateServiceLocationFaqSchema(
+  locationName: string,
+  categoryName: string,
+  serviceCount: number
+): string {
+  const faqs = [
+    {
+      q: `How much does ${categoryName.toLowerCase()} cost in ${locationName}?`,
+      a: `The cost of ${categoryName.toLowerCase()} in ${locationName} varies by provider and case complexity. Ask Detectives lists ${serviceCount} verified providers in ${locationName} with transparent pricing — compare quotes directly before hiring.`,
+    },
+    {
+      q: `How do I find a trusted ${categoryName.toLowerCase()} provider in ${locationName}?`,
+      a: `Browse Ask Detectives' verified directory of ${serviceCount} ${categoryName.toLowerCase()} specialists in ${locationName}. All listed providers are identity-verified. Compare reviews, pricing, and credentials before making contact.`,
+    },
+    {
+      q: `How long does ${categoryName.toLowerCase()} take in ${locationName}?`,
+      a: `Turnaround time for ${categoryName.toLowerCase()} in ${locationName} depends on case complexity. Standard checks typically complete in 1–3 business days. More detailed investigations may take up to 7–10 days. Contact a provider directly for an accurate estimate.`,
+    },
+    {
+      q: `Are ${categoryName.toLowerCase()} services legal in ${locationName}?`,
+      a: `Yes. Licensed investigators providing ${categoryName.toLowerCase()} in ${locationName} operate within local privacy and data protection laws. All ${serviceCount} providers listed on Ask Detectives are verified professionals working within legal frameworks.`,
+    },
+    {
+      q: `What information is included in a ${categoryName.toLowerCase()} report in ${locationName}?`,
+      a: `A ${categoryName.toLowerCase()} report in ${locationName} typically includes identity verification, criminal record checks, employment history, address verification, and court records. Specific details vary by provider and package — compare offerings from ${serviceCount} specialists on Ask Detectives.`,
+    },
+  ];
+
+  return JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": faqs.map(faq => ({
+      "@type": "Question",
+      "name": faq.q,
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": faq.a,
+      },
+    })),
+  }, null, 2);
 }
 
 /**
@@ -2669,22 +2796,27 @@ export async function injectServiceLocationSeoTags(
     : location.stateName || location.countryName;
   const serviceH1 = seoOverride?.h1
     ? escapeHtml(seoOverride.h1)
-    : `${categoryName} in ${escapeHtml(locationLabel)}`;
+    : `Best ${categoryName} Detectives Near You in ${escapeHtml(locationLabel)}`;
   modified = modified.replace(
     /<!-- SEO_H1_INJECTION_POINT -->/,
     `<!-- SEO_H1_INJECTION_POINT -->\n    <h1 style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">${serviceH1}</h1>`
   );
 
   // Inject JSON-LD at SEO_JSON_LD_INJECTION_POINT
-  // Three separate script tags: ItemList, BreadcrumbList, CollectionPage (WebPage)
+  // Four separate script tags: ItemList, BreadcrumbList, CollectionPage (WebPage), FAQPage
   const jsonLd = await generateServiceLocationJsonLd(location, services, canonicalUrl, categorySlug, categoryName);
-  const serviceTitle = `Background Check Services in ${location.cityName}, ${location.stateName} | Verified Detectives`;
-  const serviceDesc = `Compare ${services.length} verified background check providers in ${location.cityName}, ${location.stateName}.`;
+  const locationDisplay = location.cityName
+    ? `${location.cityName}, ${location.stateName || location.countryName}`
+    : location.stateName || location.countryName;
+  const serviceTitle = `${categoryName} in ${locationDisplay} | Verified Detectives`;
+  const serviceDesc = `Compare ${services.length} verified ${categoryName.toLowerCase()} providers in ${locationDisplay}.`;
   const serviceWebPageSchema = generateWebPageSchema('CollectionPage', serviceTitle, serviceDesc, canonicalUrl);
+  const serviceFaqSchema = generateServiceLocationFaqSchema(locationDisplay, categoryName, services.length);
   const jsonLdScripts = [
     `<script type="application/ld+json">\n      ${jsonLd.itemList}\n    </script>`,
     `<script type="application/ld+json">\n      ${jsonLd.breadcrumbs}\n    </script>`,
     `<script type="application/ld+json">\n      ${serviceWebPageSchema}\n    </script>`,
+    `<script type="application/ld+json">\n      ${serviceFaqSchema}\n    </script>`,
   ].join('\n    ');
   modified = modified.replace(
     /<!-- SEO_JSON_LD_INJECTION_POINT -->/,

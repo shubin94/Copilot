@@ -164,20 +164,38 @@ export function SEO({
           };
           
           // Add offers with proper price structure
+          const getCurrency = (country?: string | null): string => {
+            if (!country) return "USD";
+            const key = country.trim().toUpperCase();
+            const map: Record<string, string> = {
+              IN: "INR", INDIA: "INR",
+              GB: "GBP", UK: "GBP",
+              AU: "AUD", AUSTRALIA: "AUD",
+              CA: "CAD", CANADA: "CAD",
+              AE: "AED", UAE: "AED",
+              SG: "SGD", SINGAPORE: "SGD",
+              PK: "PKR", PAKISTAN: "PKR",
+              NZ: "NZD", ZA: "ZAR", MY: "MYR",
+              HK: "HKD", JP: "JPY", TH: "THB",
+              BR: "BRL", MX: "MXN",
+              SA: "SAR", QA: "QAR", KW: "KWD", OM: "OMR",
+            };
+            return map[key] || "USD";
+          };
           if (structuredData.service.isOnEnquiry) {
             enhanced.offers = {
               "@type": "Offer",
               "availability": "https://schema.org/InStock",
               "priceSpecification": {
                 "@type": "PriceSpecification",
-                "price": "Contact for pricing"
+                "description": "Contact for pricing"
               }
             };
           } else if (structuredData.service.price) {
             enhanced.offers = {
               "@type": "Offer",
               "price": structuredData.service.offerPrice || structuredData.service.price,
-              "priceCurrency": "INR",
+              "priceCurrency": getCurrency(structuredData.service.country),
               "availability": "https://schema.org/InStock"
             };
           }

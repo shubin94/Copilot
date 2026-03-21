@@ -1563,12 +1563,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const countrySlug = countryCodeMap[detective.country?.toUpperCase() || ""] || createSlug(detective.country || "");
       const stateSlug = detective.state ? createSlug(detective.state) : "";
       const citySlug = detective.city ? createSlug(detective.city) : "";
-      const businessSlug = detective.slug || createSlug(`${detective.businessName || "detective"} ${detective.city || ""}`);
+      // Always lowercase the slug from DB — if it has uppercase the lowercase normalizer
+      // middleware would fire again, creating a 2nd redirect hop (chain: /p/ → uppercase → lowercase).
+      const businessSlug = (detective.slug || createSlug(`${detective.businessName || "detective"} ${detective.city || ""}`)).toLowerCase();
 
-      // Build new canonical URL with slug: /detectives/{country}/{state}/{city}/{business-slug}/
-      const newUrl = `/detectives/${countrySlug}/${stateSlug}/${citySlug}/${businessSlug}/`;
+      // Build canonical URL — filter empty segments to avoid double-slashes when state/city missing
+      const segments = [countrySlug, stateSlug, citySlug, businessSlug].filter(Boolean);
+      const newUrl = `/detectives/${segments.join("/")}/`;
 
-      console.log(`[✅ SEO 301-redirect] /p/${detectiveId} → ${newUrl}`);
       return res.redirect(301, newUrl);
     } catch (error) {
       console.error("[❌ SEO 301-redirect Error] Failed to redirect:", error);
@@ -1771,6 +1773,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/detective-seo/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
+      const cacheKey = `detective:seo:${id}`;
+      const cached = cache.get<any>(cacheKey);
+      if (cached) {
+        return res.set("Cache-Control", "public, max-age=300").json(cached);
+      }
 
       const query = `
         SELECT
@@ -1790,11 +1797,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const row = result.rows[0];
-      res.json({
+      const payload = {
         h1: row.h1 || null,
         title_tag: row.title_tag || null,
         meta_description: row.meta_description || null,
-      });
+      };
+      cache.set(cacheKey, payload, 300);
+      res.set("Cache-Control", "public, max-age=300").json(payload);
     } catch (error) {
       console.error("Detective SEO fetch error:", error);
       res.status(500).json({ error: "Failed to load detective SEO data" });
@@ -4641,7 +4650,13 @@ Content-Signal: index=public; train=deny
         stateId: locationIds.stateId!,
         cityId: locationIds.cityId!,
       });
-      
+
+      // Bust sitemap cache so the new detective profile appears on next crawl
+      import("./services/sitemapService.js").then(({ invalidateSitemapCache, pingSitemapToSearchEngines }) => {
+        invalidateSitemapCache(["detectives"]);
+        pingSitemapToSearchEngines();
+      }).catch(() => {});
+
       // Update user role to detective using privileged method
       await storage.updateUserRole(req.session.userId!, "detective");
       req.session.userRole = "detective";
@@ -5169,11 +5184,11 @@ Content-Signal: index=public; train=deny
     try {
       const routeStartTime = Date.now();
       console.time("[PERF:SERVICES] Total route execution");
-      const { category, country, search, minPrice, maxPrice, minRating, planName, level, limit = "20", offset = "0", sortBy = "popular" } = req.query;
+      const { category, country, state, city, search, minPrice, maxPrice, minRating, planName, level, limit = "20", offset = "0", sortBy = "popular" } = req.query;
       const limitNum = Math.min(parseInt(limit as string) || 20, 100);
       const offsetNum = parseInt(offset as string) || 0;
       const stableParams = [
-        "category", "country", "search", "minPrice", "maxPrice", "minRating", "planName", "level", "limit", "offset", "sortBy"
+        "category", "country", "state", "city", "search", "minPrice", "maxPrice", "minRating", "planName", "level", "limit", "offset", "sortBy"
       ].sort().map(k => `${k}=${String((req.query as Record<string, string>)[k] ?? "").trim()}`).join("&");
       const cacheKey = `services:search:${stableParams}`;
       const skipCache = !!(req.session?.userId);
@@ -5181,6 +5196,8 @@ Content-Signal: index=public; train=deny
         String(sortBy || "").trim() === "popular" &&
         !String(category || "").trim() &&
         !String(country || "").trim() &&
+        !String(state || "").trim() &&
+        !String(city || "").trim() &&
         !String(search || "").trim() &&
         !String(minPrice || "").trim() &&
         !String(maxPrice || "").trim() &&
@@ -5222,10 +5239,12 @@ Content-Signal: index=public; train=deny
       console.time("[PERF:SERVICES] Database query execution");
       const queryStartTime = Date.now();
 
-      // Get paginated services - only fetch what's needed (not 10,000)
-      let allServices = await storage.searchServices({
+      // Get paginated services with all active filters applied
+      const allServices = await storage.searchServices({
         category: category as string,
         country: country as string,
+        state: state as string,
+        city: city as string,
         searchQuery: search as string,
         minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
         maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
@@ -5234,26 +5253,7 @@ Content-Signal: index=public; train=deny
         level: level as string,
       }, limitNum, offsetNum, sortBy as string);
 
-      let usedFallback = false;
-
-      // ✅ FALLBACK: If country filter provided but no results, try global results
-      if (allServices.length === 0 && country && String(country).trim()) {
-        console.log(`[FALLBACK] No services for country=${country}, retrying with global results`);
-        usedFallback = true;
-        const fallbackStartTime = Date.now();
-        allServices = await storage.searchServices({
-          category: category as string,
-          country: undefined,  // Remove country filter for fallback
-          searchQuery: search as string,
-          minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
-          maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
-          ratingMin: minRating ? parseFloat(minRating as string) : undefined,
-          planName: planName as string,
-          level: level as string,
-        }, limitNum, offsetNum, sortBy as string);
-        const fallbackTime = Date.now() - fallbackStartTime;
-        console.log(`[FALLBACK] Global query returned ${allServices.length} rows in ${fallbackTime}ms`);
-      }
+      const usedFallback = false;
 
       const queryTime = Date.now() - queryStartTime;
       console.timeEnd("[PERF:SERVICES] Database query execution");
@@ -5402,7 +5402,9 @@ Content-Signal: index=public; train=deny
         return res.status(404).json({ error: "City not found" });
       }
 
-      // Find service with detective in this location and slug
+      // Find service with detective in this location and slug.
+      // Also handles legacy UUID-prefixed slugs (e.g. "{uuid}-background-check-services")
+      // by stripping the 36-char UUID prefix before comparing.
       const rows = await db
         .select({
           service: services,
@@ -5412,7 +5414,10 @@ Content-Signal: index=public; train=deny
         .innerJoin(detectives, eq(services.detectiveId, detectives.id))
         .where(
           and(
-            eq(services.slug, serviceSlug),
+            or(
+              eq(services.slug, serviceSlug),
+              sql`REGEXP_REPLACE(${services.slug}, '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-', '') = ${serviceSlug}`
+            ),
             eq(detectives.slug, detectiveSlug),
             eq(detectives.countryId, countryId),
             eq(detectives.stateId, stateId),
@@ -5593,12 +5598,24 @@ Content-Signal: index=public; train=deny
   // Get service by ID (public)
   app.get("/api/services/:id", async (req: Request, res: Response) => {
     try {
+      const preview = (req.query.preview === '1' || req.query.preview === 'true');
+
+      // Serve from cache for public (non-preview) requests
+      if (!preview) {
+        const cacheKey = `service:${req.params.id}`;
+        const cached = cache.get<any>(cacheKey);
+        if (cached) {
+          // Still count the view even on cache hit (fire-and-forget)
+          storage.incrementServiceViews(req.params.id).catch(() => {});
+          return res.set("Cache-Control", "public, max-age=60").json(cached);
+        }
+      }
+
       const service = await storage.getService(req.params.id);
       if (!service) {
         return res.status(404).json({ error: "Service not found" });
       }
 
-      const preview = (req.query.preview === '1' || req.query.preview === 'true');
       if (preview) {
         const detective = await storage.getDetective(service.detectiveId);
         if (!detective) {
@@ -5612,13 +5629,13 @@ Content-Signal: index=public; train=deny
       } else {
         // Only allow public access if service is complete and active
         const hasImages = Array.isArray(service.images) && service.images.length > 0;
-        
+
         // For Price on Enquiry services, images are optional
         // For regular services, images are required
-        const hasRequiredContent = service.isOnEnquiry 
+        const hasRequiredContent = service.isOnEnquiry
           ? (!!service.title && !!service.description && !!service.category)
           : (hasImages && !!service.title && !!service.description && !!service.category);
-        
+
         const isComplete = service.isActive === true && hasRequiredContent && (service.isOnEnquiry || !!service.basePrice);
         if (!isComplete) {
           return res.status(404).json({ error: "Service not available" });
@@ -5630,7 +5647,7 @@ Content-Signal: index=public; train=deny
 
       // Get detective info
       let detective = await storage.getDetective(service.detectiveId);
-      
+
       // Detective must exist for the service to be accessible
       if (!detective) {
         return res.status(404).json({ error: "Service not found" });
@@ -5647,12 +5664,20 @@ Content-Signal: index=public; train=deny
             .from(subscriptionPlans).where(eq(subscriptionPlans.id, detective.subscriptionPackageId)).limit(1)
         : [];
       const effectiveBadges = detective ? computeEffectiveBadges(detective, planRow3[0] ?? null) : undefined;
-      res.json({
+      const payload = {
         service,
         detective: detective ? { ...detective, effectiveBadges } : undefined,
         avgRating: stats.avgRating,
         reviewCount: stats.reviewCount
-      });
+      };
+
+      // Cache public (non-preview) response
+      if (!preview) {
+        cache.set(`service:${req.params.id}`, payload, 60);
+        res.set("Cache-Control", "public, max-age=60").json(payload);
+      } else {
+        res.json(payload);
+      }
     } catch (error) {
       console.error("Get service error:", error);
       res.status(500).json({ error: "Failed to get service" });
@@ -5721,6 +5746,11 @@ Content-Signal: index=public; train=deny
       } catch (_) {
         // Cache invalidation must not fail the request
       }
+      // Bust sitemap cache so new service appears in sitemaps on next crawl
+      import("./services/sitemapService.js").then(({ invalidateSitemapCache, pingSitemapToSearchEngines }) => {
+        invalidateSitemapCache(["services", "service-locations"]);
+        pingSitemapToSearchEngines();
+      }).catch(() => {});
       res.status(201).json({ service });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -5927,9 +5957,9 @@ Content-Signal: index=public; train=deny
       const updatedService = await storage.updateService(req.params.id, validatedData);
       try {
         cache.keys().filter(k => k.startsWith("services:")).forEach(k => cache.del(k));
+        cache.del(`service:${req.params.id}`);
         cache.del(`detective:public:${service.detectiveId}`);
-        console.debug("[cache INVALIDATE]", "services:");
-        console.debug("[cache INVALIDATE]", `detective:public:${service.detectiveId}`);
+        console.debug("[cache INVALIDATE]", "services:", req.params.id);
       } catch (_) {
         // Cache invalidation must not fail the request
       }
@@ -5966,9 +5996,9 @@ Content-Signal: index=public; train=deny
       await storage.deleteService(req.params.id);
       try {
         cache.keys().filter(k => k.startsWith("services:")).forEach(k => cache.del(k));
+        cache.del(`service:${req.params.id}`);
         cache.del(`detective:public:${detectiveIdForCache}`);
-        console.debug("[cache INVALIDATE]", "services:");
-        console.debug("[cache INVALIDATE]", `detective:public:${detectiveIdForCache}`);
+        console.debug("[cache INVALIDATE]", "services:", req.params.id);
       } catch (_) {
         // Cache invalidation must not fail the request
       }
@@ -6047,6 +6077,10 @@ Content-Signal: index=public; train=deny
       }
 
       const service = await storage.createService(validatedData);
+      import("./services/sitemapService.js").then(({ invalidateSitemapCache, pingSitemapToSearchEngines }) => {
+        invalidateSitemapCache(["services", "service-locations"]);
+        pingSitemapToSearchEngines();
+      }).catch(() => {});
       res.status(201).json({ service });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -6054,6 +6088,41 @@ Content-Signal: index=public; train=deny
       }
       console.error("Admin create service error:", error);
       res.status(500).json({ error: "Failed to create service" });
+    }
+  });
+
+  // Admin: backfill missing service images using the detective's logo/defaultServiceBanner.
+  // Fixes detectives approved before the fallback-image fix was deployed.
+  app.post("/api/admin/detectives/:id/fix-service-images", requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const detective = await storage.getDetective(req.params.id);
+      if (!detective) return res.status(404).json({ error: "Detective not found" });
+
+      const fallbackImage: string | undefined =
+        (typeof detective.defaultServiceBanner === "string" && detective.defaultServiceBanner)
+          ? detective.defaultServiceBanner
+          : (typeof detective.logo === "string" && detective.logo)
+            ? detective.logo
+            : undefined;
+
+      if (!fallbackImage) {
+        return res.status(400).json({ error: "Detective has no logo or banner to use as fallback image. Please upload a logo first." });
+      }
+
+      const allServices = await storage.getAllServicesByDetective(detective.id);
+      const toFix = allServices.filter(s => !s.images || (s.images as string[]).length === 0);
+
+      if (toFix.length === 0) {
+        return res.json({ fixed: 0, message: "All services already have images." });
+      }
+
+      await Promise.all(toFix.map(s => storage.updateService(s.id, { images: [fallbackImage] })));
+
+      console.log(`[FIX-SERVICE-IMAGES] Fixed ${toFix.length} service(s) for detective ${detective.id} using ${fallbackImage.substring(0, 60)}...`);
+      res.json({ fixed: toFix.length, message: `${toFix.length} service(s) updated with detective logo/banner.` });
+    } catch (error) {
+      console.error("[FIX-SERVICE-IMAGES] Error:", error);
+      res.status(500).json({ error: "Failed to fix service images" });
     }
   });
 
@@ -6125,6 +6194,10 @@ Content-Signal: index=public; train=deny
       }
 
       await storage.updateDetective(detective.id, { mustCompleteOnboarding: false });
+      import("./services/sitemapService.js").then(({ invalidateSitemapCache, pingSitemapToSearchEngines }) => {
+        invalidateSitemapCache(["services", "service-locations"]);
+        pingSitemapToSearchEngines();
+      }).catch(() => {});
       res.json({ ok: true });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -6141,8 +6214,15 @@ Content-Signal: index=public; train=deny
   app.get("/api/services/:id/reviews", async (req: Request, res: Response) => {
     try {
       const { limit = "50" } = req.query;
+      const cacheKey = `service:reviews:${req.params.id}:${limit}`;
+      const cached = cache.get<any>(cacheKey);
+      if (cached) {
+        return res.set("Cache-Control", "public, max-age=60").json(cached);
+      }
       const reviews = await storage.getReviewsByService(req.params.id, parseInt(limit as string));
-      res.json({ reviews });
+      const payload = { reviews };
+      cache.set(cacheKey, payload, 60);
+      res.set("Cache-Control", "public, max-age=60").json(payload);
     } catch (error) {
       console.error("Get reviews error:", error);
       res.status(500).json({ error: "Failed to get reviews" });
@@ -6175,10 +6255,12 @@ Content-Signal: index=public; train=deny
       const own = existing.find(r => (r as any).userId === req.session.userId);
       if (own) {
         const updated = await storage.updateReview(own.id, validatedData);
+        cache.keys().filter(k => k.startsWith(`service:reviews:${validatedData.serviceId}:`)).forEach(k => cache.del(k));
         return res.json({ review: updated });
       }
 
       const review = await storage.createReview({ ...validatedData, isPublished: true } as any);
+      cache.keys().filter(k => k.startsWith(`service:reviews:${validatedData.serviceId}:`)).forEach(k => cache.del(k));
       res.status(201).json({ review });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -6696,15 +6778,12 @@ Content-Signal: index=public; train=deny
                 
                 const pricing = pricingData.find(p => p?.category === category);
                 if (!pricing) {
-                  console.warn(`[AUTO-SERVICE-CREATE] ⚠️  No pricing data found for category: ${category}`);
-                  continue;
+                  console.warn(`[AUTO-SERVICE-CREATE] ⚠️  No pricing data found for category: ${category} — creating as On Enquiry`);
                 }
-                
-                const isOnEnquiry = pricing.isOnEnquiry === true;
-                if (!isOnEnquiry && !pricing.price) {
-                  console.warn(`[AUTO-SERVICE-CREATE] ⚠️  No price found for category (not on-enquiry): ${category}`);
-                  continue;
-                }
+
+                // If pricing is missing or price is absent for a non-enquiry entry, default to On Enquiry
+                // so the service is always created rather than silently skipped.
+                const isOnEnquiry = !pricing || pricing.isOnEnquiry === true || !pricing.price;
                 
                 // Check if service already exists
                 const existing = await storage.getServiceByDetectiveAndCategory(detective.id, category);
@@ -6715,17 +6794,26 @@ Content-Signal: index=public; train=deny
                 
                 // Create the service
                 try {
-                  const bannerImage = typeof (application as { banner?: unknown }).banner === "string"
-                    ? (application as { banner: string }).banner
-                    : undefined;
+                  // Prefer application banner → defaultServiceBanner → detective logo as fallback.
+                  // A service MUST have at least one image to appear on service location pages
+                  // (searchServices filters require array_length(images,1) > 0).
+                  const serviceImage: string | undefined =
+                    (typeof (application as any).banner === "string" && (application as any).banner)
+                      ? (application as any).banner
+                      : (typeof detective.defaultServiceBanner === "string" && detective.defaultServiceBanner)
+                        ? detective.defaultServiceBanner
+                        : (typeof detective.logo === "string" && detective.logo)
+                          ? detective.logo
+                          : undefined;
+
                   await storage.createService({
                     detectiveId: detective.id,
                     category,
-                    slug: generateSlug(`${detective.id}-${category}-services`),
+                    slug: generateSlug(`${detective.slug}-${category}-services`),
                     title: `${category} Services`,
                     description: `Professional ${category.toLowerCase()} services by ${application.fullName}. Contact for detailed consultation.`,
                     basePrice: isOnEnquiry ? null : (pricing.price || null),
-                    images: bannerImage ? [bannerImage] : undefined,
+                    images: serviceImage ? [serviceImage] : undefined,
                     isActive: true,
                     isOnEnquiry: isOnEnquiry,
                   });
@@ -7641,7 +7729,9 @@ Content-Signal: index=public; train=deny
         }
       }
 
-      // Ensure trailing slash
+      // Ensure lowercase and trailing slash — DB slugs may have uppercase chars which would
+      // trigger the lowercase normalizer middleware and add an extra redirect hop.
+      target = target.toLowerCase();
       if (!target.endsWith('/')) target = target + '/';
 
       return res.redirect(301, target);
@@ -8003,11 +8093,17 @@ Content-Signal: index=public; train=deny
 
   app.get("/api/site-settings", async (_req: Request, res: Response) => {
     try {
+      const cached = cache.get<any>("site:settings");
+      if (cached) {
+        return res.set("Cache-Control", "public, max-age=300").json(cached);
+      }
       const s = await storage.getSiteSettings();
       if (!s) {
         return res.status(404).json({ error: "Site settings not configured" });
       }
-      res.json({ settings: s });
+      const payload = { settings: s };
+      cache.set("site:settings", payload, 300);
+      res.set("Cache-Control", "public, max-age=300").json(payload);
     } catch (error) {
       res.status(500).json({ error: "Failed to get site settings" });
     }
@@ -8088,6 +8184,7 @@ Content-Signal: index=public; train=deny
       }
       
       const s = await storage.upsertSiteSettings(validated as any);
+      cache.del("site:settings");
       res.json({ settings: s });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -9325,6 +9422,11 @@ Content-Signal: index=public; train=deny
   app.get("/api/case-studies", async (req: Request, res: Response) => {
     try {
       const { detectiveId, featured, limit = "10", offset = "0" } = req.query;
+      const cacheKey = `case-studies:list:${detectiveId || ""}:${featured || ""}:${limit}:${offset}`;
+      const cached = cache.get<any>(cacheKey);
+      if (cached) {
+        return res.set("Cache-Control", "public, max-age=120").json(cached);
+      }
 
       let query = db
         .select()
@@ -9371,7 +9473,9 @@ Content-Signal: index=public; train=deny
         })
       );
 
-      res.json({ caseStudies: withDetectives, total: results.length });
+      const payload = { caseStudies: withDetectives, total: results.length };
+      cache.set(cacheKey, payload, 120);
+      res.set("Cache-Control", "public, max-age=120").json(payload);
     } catch (error) {
       console.error("[api/case-studies] error:", error);
       res.status(500).json({ error: "Failed to fetch case studies" });
@@ -9427,6 +9531,13 @@ Content-Signal: index=public; train=deny
           });
         }
       }
+      // Bust news sitemap cache so article appears on next crawl
+      import("./services/sitemapService.js").then(({ invalidateSitemapCache, pingSitemapToSearchEngines }) => {
+        invalidateSitemapCache(["news"]);
+        pingSitemapToSearchEngines();
+      }).catch(() => {});
+      // Invalidate case-studies list cache
+      cache.keys().filter(k => k.startsWith("case-studies:list:")).forEach(k => cache.del(k));
 
       res.status(201).json({ caseStudy: newCaseStudy });
     } catch (error) {
@@ -9525,6 +9636,13 @@ Content-Signal: index=public; train=deny
           console.error("Failed to notify Google of case study update:", err);
         });
       }
+      // Bust news sitemap cache
+      import("./services/sitemapService.js").then(({ invalidateSitemapCache, pingSitemapToSearchEngines }) => {
+        invalidateSitemapCache(["news"]);
+        pingSitemapToSearchEngines();
+      }).catch(() => {});
+      // Invalidate case-studies list cache
+      cache.keys().filter(k => k.startsWith("case-studies:list:")).forEach(k => cache.del(k));
 
       res.json({ caseStudy: updatedStudy });
     } catch (error) {
@@ -9564,6 +9682,11 @@ Content-Signal: index=public; train=deny
           console.error("Failed to notify Google of case study deletion:", err);
         });
       }
+      // Invalidate case-studies list cache + news sitemap
+      cache.keys().filter(k => k.startsWith("case-studies:list:")).forEach(k => cache.del(k));
+      import("./services/sitemapService.js").then(({ invalidateSitemapCache }) => {
+        invalidateSitemapCache(["news"]);
+      }).catch(() => {});
 
       res.json({ message: "Case study deleted successfully" });
     } catch (error) {

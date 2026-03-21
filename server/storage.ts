@@ -1251,7 +1251,7 @@ export class DatabaseStorage implements IStorage {
       // Shows ALL services, not just one per detective
       query = db.select(baseSelect)
         .from(services)
-        .leftJoin(detectives, eq(services.detectiveId, detectives.id))
+        .innerJoin(detectives, eq(services.detectiveId, detectives.id))
         .leftJoin(countries, eq(detectives.countryId, countries.id))
         .leftJoin(states, eq(detectives.stateId, states.id))
         .leftJoin(cities, eq(detectives.cityId, cities.id))
@@ -1266,7 +1266,7 @@ export class DatabaseStorage implements IStorage {
     } else {
       query = db.select(baseSelect)
         .from(services)
-        .leftJoin(detectives, eq(services.detectiveId, detectives.id))  // LEFT JOIN - include all services
+        .innerJoin(detectives, eq(services.detectiveId, detectives.id))  // INNER JOIN - only services with active detectives
         .leftJoin(countries, eq(detectives.countryId, countries.id))
         .leftJoin(states, eq(detectives.stateId, states.id))
         .leftJoin(cities, eq(detectives.cityId, cities.id))

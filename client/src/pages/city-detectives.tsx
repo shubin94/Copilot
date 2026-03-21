@@ -42,6 +42,7 @@ interface CityPageData {
   location: LocationMeta;
   detectives: Detective[];
   count: number;
+  hasMore?: boolean;
   relatedType?: "states" | "cities";
   relatedLocations?: Array<{ slug: string; name: string }>;
   seoMetadata?: {
@@ -600,21 +601,6 @@ export default function CityDetectivesPage() {
 
         {/* Hero Section */}
         <div className="mb-8">
-          {(isCityLevel || isStateLevel) && (
-            <div className="text-sm text-gray-600 mb-2">
-              <a href={`/detectives/${countrySlug}/`} className="text-blue-600 hover:underline">
-                {countryName}
-              </a>
-              {isCityLevel && (
-                <>
-                  <span className="mx-2">›</span>
-                  <a href={`/detectives/${countrySlug}/${stateSlug}/`} className="text-blue-600 hover:underline">
-                    {stateName}
-                  </a>
-                </>
-              )}
-            </div>
-          )}
           <h1 className="text-4xl font-bold mb-2">{h1Text}</h1>
           <p className="text-lg text-gray-600 mb-2">
             Find experienced, licensed private investigators and detective services in {locationDisplayName}.

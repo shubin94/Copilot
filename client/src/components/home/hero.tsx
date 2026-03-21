@@ -98,7 +98,7 @@ export function Hero() {
         {heroImage ? (
           <img
             src={heroImage}
-            alt="Hero section image"
+            alt="Professional private investigators ready to help with your investigation"
             width={1920}
             height={600}
             className="object-cover w-full h-full"
@@ -113,7 +113,7 @@ export function Hero() {
             <source srcSet="/hero-bg.webp" type="image/webp" />
             <img
               src={heroBgPng}
-              alt="Hero background"
+              alt="Private investigator city skyline - AskDetectives platform"
               width={1920}
               height={600}
               className="object-cover w-full h-full"
@@ -150,9 +150,9 @@ export function Hero() {
           className="w-full text-center mb-12 mt-8 md:mt-12"
         >
           <h1 className="text-3xl md:text-5xl font-bold font-heading text-white leading-tight">
-            Find the perfect <i className="font-serif font-light text-green-400">private detective</i>
+            Find the Perfect <i className="font-serif font-light text-green-400">Private Detectives</i>
             <br />
-            for your investigation.
+            Near You - AskDetectives
           </h1>
         </motion.div>
 

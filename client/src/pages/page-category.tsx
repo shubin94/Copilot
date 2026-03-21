@@ -94,7 +94,7 @@ export default function PageCategory() {
     <div className="min-h-screen flex flex-col bg-white">
       <SEO 
         title={`${categoryName} | Pages`} 
-        description={`Pages in ${categoryName}`}
+        description={`Browse all articles and insights in the ${categoryName} category on AskDetectives. Find guides, tips, and industry news from professional investigators.`}
         canonical={canonicalUrl}
         robots={archiveRobots}
         breadcrumbs={breadcrumbs}

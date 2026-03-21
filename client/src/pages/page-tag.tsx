@@ -100,7 +100,7 @@ export default function PageTag() {
     <div className="min-h-screen flex flex-col bg-white">
       <SEO 
         title={`${tagName} | Pages`} 
-        description={`Pages tagged ${tagName}`}
+        description={`Explore all articles tagged "${tagName}" on AskDetectives. Discover investigation insights, guides, and industry news related to ${tagName}.`}
         canonical={canonicalUrl}
         robots={archiveRobots}
         breadcrumbs={breadcrumbs}

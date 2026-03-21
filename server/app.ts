@@ -355,13 +355,13 @@ function getSessionStorePool(): PgPool {
   // ✅ Create pool ONCE globally
   sessionStorePool = new Pool({
     connectionString: config.db.url,
-    // Session store pool sizing - handles session read/write/cleanup only
-    max: 5,                      // Smaller pool (sessions are lightweight queries)
-    min: 1,                      // Keep 1 warm connection for session checks
-    idleTimeoutMillis: 30000,    // Close idle connections after 30s
-    connectionTimeoutMillis: 5000, // Fail fast if pool exhausted
+    max: 3,                        // Reduced from 5 — sessions are lightweight, 3 is enough
+    min: 1,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000, // Increased from 5s to 10s to survive startup contention
+    allowExitOnIdle: false,
     ssl: isProductionDb
-      ? { rejectUnauthorized: false } // Accept self-signed certs from managed databases (Render, Supabase)
+      ? { rejectUnauthorized: false }
       : undefined,
   });
 

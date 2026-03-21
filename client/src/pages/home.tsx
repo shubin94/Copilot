@@ -127,7 +127,7 @@ export default function Home() {
         title={seo.title}
         description={seo.description}
         keywords={["private investigator", "hire detective", "surveillance", "background checks", "infidelity investigation"]}
-        canonical="https://www.askdetectives.com"
+        canonical="https://www.askdetectives.com/"
         robots="index, follow"
       />
       <Navbar transparentOnHome={true} overlayOnHome={true} />

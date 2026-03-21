@@ -12,7 +12,7 @@ import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 export default function CategoriesPage() {
   const seo = useCmsStaticPageSeo("categories", {
     title: "Browse Categories",
-    description: "Explore all detective service categories available on the site.",
+    description: "Browse all private investigation service categories on AskDetectives — including background checks, surveillance, matrimonial investigations, cyber investigations, and more.",
     h1: "Browse Categories",
   });
 

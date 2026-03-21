@@ -31,11 +31,11 @@ const DEFAULT_SECTIONS: FooterSection[] = [
     id: "categories",
     title: "Categories",
     links: [
-      { label: "Background Checks", url: "/search", openInNewTab: false, enabled: true, order: 0 },
-      { label: "Surveillance", url: "/search", openInNewTab: false, enabled: true, order: 1 },
-      { label: "Cyber Investigations", url: "/search", openInNewTab: false, enabled: true, order: 2 },
-      { label: "Asset Search", url: "/search", openInNewTab: false, enabled: true, order: 3 },
-      { label: "Missing Persons", url: "/search", openInNewTab: false, enabled: true, order: 4 },
+      { label: "Background Checks", url: "/search?category=Background+Checks", openInNewTab: false, enabled: true, order: 0 },
+      { label: "Surveillance", url: "/search?category=Surveillance", openInNewTab: false, enabled: true, order: 1 },
+      { label: "Cyber Investigations", url: "/search?category=Cyber+Investigations", openInNewTab: false, enabled: true, order: 2 },
+      { label: "Asset Search", url: "/search?category=Asset+Search", openInNewTab: false, enabled: true, order: 3 },
+      { label: "Missing Persons", url: "/search?category=Missing+Persons", openInNewTab: false, enabled: true, order: 4 },
     ],
     enabled: true,
     order: 0,
@@ -59,7 +59,7 @@ const DEFAULT_SECTIONS: FooterSection[] = [
       { label: "Help & Support", url: "/support", openInNewTab: false, enabled: true, order: 0 },
       { label: "Become a Detective", url: "/detective-signup", openInNewTab: false, enabled: true, order: 1 },
       { label: "Pricing & Packages", url: "/packages", openInNewTab: false, enabled: true, order: 2 },
-      { label: "Login as Detective", url: "/login", openInNewTab: false, enabled: true, order: 3 },
+      { label: "Login as Detective", url: "/detective/login", openInNewTab: false, enabled: true, order: 3 },
       { label: "Signup as User", url: "/signup", openInNewTab: false, enabled: true, order: 4 },
     ],
     enabled: true,
@@ -70,9 +70,10 @@ const DEFAULT_SECTIONS: FooterSection[] = [
     title: "Community",
     links: [
       { label: "Blog", url: "/blog", openInNewTab: false, enabled: true, order: 0 },
-      { label: "Events", url: "/", openInNewTab: false, enabled: true, order: 1 },
-      { label: "Forum", url: "/", openInNewTab: false, enabled: true, order: 2 },
-      { label: "Podcast", url: "/", openInNewTab: false, enabled: true, order: 3 },
+      { label: "News", url: "/news", openInNewTab: false, enabled: true, order: 1 },
+      { label: "Events", url: "/", openInNewTab: false, enabled: false, order: 2 },
+      { label: "Forum", url: "/", openInNewTab: false, enabled: false, order: 3 },
+      { label: "Podcast", url: "/", openInNewTab: false, enabled: false, order: 4 },
     ],
     enabled: true,
     order: 3,
@@ -81,11 +82,11 @@ const DEFAULT_SECTIONS: FooterSection[] = [
     id: "more",
     title: "More From Us",
     links: [
-      { label: "FindDetectives Pro", url: "/", openInNewTab: false, enabled: true, order: 0 },
-      { label: "FindDetectives Enterprise", url: "/", openInNewTab: false, enabled: true, order: 1 },
-      { label: "FindDetectives Logo Maker", url: "/", openInNewTab: false, enabled: true, order: 2 },
+      { label: "FindDetectives Pro", url: "/", openInNewTab: false, enabled: false, order: 0 },
+      { label: "FindDetectives Enterprise", url: "/", openInNewTab: false, enabled: false, order: 1 },
+      { label: "FindDetectives Logo Maker", url: "/", openInNewTab: false, enabled: false, order: 2 },
     ],
-    enabled: true,
+    enabled: false,
     order: 4,
   },
 ];
@@ -98,16 +99,6 @@ export function Footer() {
   const footerSections = (site?.footerSections as FooterSection[]) || DEFAULT_SECTIONS;
   const socialLinks = (site?.socialLinks as SocialLinks) || {};
   const copyrightText = site?.copyrightText || "© FindDetectives International Ltd. 2025";
-  
-  // Debug logging
-  if (typeof window !== 'undefined') {
-    console.log("🔍 Footer component received site data:", {
-      hasFooterSections: !!site?.footerSections,
-      sectionsCount: (site?.footerSections as any)?.length || 0,
-      socialLinksKeys: Object.keys(socialLinks),
-      copyrightText: copyrightText
-    });
-  }
   
   // Filter and sort enabled sections
   const enabledSections = footerSections
