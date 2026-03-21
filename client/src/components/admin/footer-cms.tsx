@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -198,7 +199,15 @@ export function FooterCMS({ initialSections, initialSocialLinks, initialCopyrigh
       }
 
 
+      // Save to DB via API
+      await api.settings.updateSite({
+        footerSections: sections,
+        socialLinks,
+        copyrightText,
+      });
+
       await queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+      await queryClient.invalidateQueries({ queryKey: ["settings", "site"] });
 
       toast({
         title: "Success",

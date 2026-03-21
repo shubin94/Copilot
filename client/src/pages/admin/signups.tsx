@@ -24,12 +24,16 @@ export default function AdminSignups() {
   const [newOffset, setNewOffset] = useState(0);
   
 
-  const { data: newData, isLoading: loadingNew } = useApplications({ status: "pending", limit: newLimit, offset: newOffset });
-  const { data: underReviewData } = useApplications({ status: "under_review", limit: newLimit, offset: newOffset });
+  const { data: newData, isLoading: loadingNew, isFetching: fetchingNew, error: errorNew } = useApplications({ status: "pending", limit: newLimit, offset: newOffset });
+  const { data: underReviewData, isLoading: loadingUnderReview, isFetching: fetchingUnderReview, error: errorUnderReview } = useApplications({ status: "under_review", limit: newLimit, offset: newOffset });
   
 
   const updateStatus = useUpdateApplicationStatus();
   const { toast } = useToast();
+
+  const isLoadingAny = loadingNew || loadingUnderReview;
+  const isFetchingAny = fetchingNew || fetchingUnderReview;
+  const queryError = errorNew || errorUnderReview;
 
   const newApplications = useMemo(() => {
     const a = newData?.applications || [];
@@ -81,8 +85,13 @@ export default function AdminSignups() {
           <h3 className="text-xl font-bold">New Signups</h3>
           <Card>
             <CardContent className="p-0">
-              {loadingNew ? (
+              {isLoadingAny || (isFetchingAny && newApplications.length === 0) ? (
                 <div className="p-8 space-y-4">{[1,2,3].map(i => (<div key={i} className="flex items-center gap-4"><Skeleton className="h-12 flex-1" /></div>))}</div>
+              ) : queryError ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="text-red-600 font-medium">Failed to load applications</div>
+                  <div className="text-gray-500 text-sm mt-1">{(queryError as any)?.message || "An error occurred. Please refresh the page."}</div>
+                </div>
               ) : newApplications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <Inbox className="h-10 w-10 text-gray-300 mb-3" />

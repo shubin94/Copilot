@@ -776,9 +776,9 @@ export function useUpdateApplicationStatus() {
   return useMutation({
     mutationFn: ({ id, status, reviewNotes }: { id: string; status: "approved" | "rejected"; reviewNotes?: string }) =>
       api.applications.updateStatus(id, { status, reviewNotes }),
-    onSuccess: async (_, variables) => {
+    onSuccess: async () => {
+      // Invalidate all application queries (partial key match covers all status variants)
       await queryClient.invalidateQueries({ queryKey: ["applications"] });
-      await queryClient.invalidateQueries({ queryKey: ["applications", variables.id] });
       await queryClient.invalidateQueries({ queryKey: ["detectives"] });
     },
   });

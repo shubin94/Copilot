@@ -289,20 +289,18 @@ const claimLimiter = rateLimit({
 });
 app.use("/api/claim-account", claimLimiter); // covers both /api/claim-account and /api/claim-account/*
 
-// SECURITY: Detective application submissions are public and can be spammed.
-// Skip for authenticated admins/employees so their GET list view is never rate-limited.
+// SECURITY: Detective application submissions (POST) are public and can be spammed.
+// Only apply to POST /api/applications — GET and PATCH are already behind requireRole("admin").
+// NOTE: Do NOT use app.use() here because the session middleware runs after rate limiters,
+// so req.session is not yet populated and role-based skip checks always return false.
 const applicationLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // 5 applications per hour per IP (public only)
+  max: 5, // 5 submissions per hour per IP
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many applications submitted. Please try again later." },
-  skip: (req) => {
-    const role = (req as any).session?.userRole;
-    return role === "admin" || role === "employee";
-  },
 });
-app.use("/api/applications", applicationLimiter);
+app.post("/api/applications", applicationLimiter);
 
 // SECURITY: Profile claim submissions are public and can be spammed.
 // Skip for authenticated admins who manage claims via GET/PATCH.
