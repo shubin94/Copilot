@@ -739,5 +739,160 @@ router.delete("/pages/:id", requireRole("admin", "employee"), async (req: Reques
   }
 });
 
+// Static site pages that always appear in the admin pages list
+// defaultTitle/Description/H1 = what the page currently shows when no DB override exists
+const STATIC_PAGES = [
+  {
+    slug: "/", name: "Homepage",
+    defaultTitle: "Find Detectives - Hire Top Private Investigators | AskDetectives",
+    defaultDescription: "The world's first dedicated detective service platform. A single place to discover, compare, and hire professional detectives across verified categories.",
+    defaultH1: "Find the Perfect Private Detectives Near You - AskDetectives",
+  },
+  {
+    slug: "about", name: "About",
+    defaultTitle: "About AskDetectives",
+    defaultDescription: "Learn more about AskDetectives, the dedicated platform for discovering and connecting with professional private investigators.",
+    defaultH1: "About AskDetectives",
+  },
+  {
+    slug: "contact", name: "Contact",
+    defaultTitle: "Contact Us",
+    defaultDescription: "Get in touch with the Ask Detectives team.",
+    defaultH1: "Contact Us",
+  },
+  {
+    slug: "terms", name: "Terms & Conditions",
+    defaultTitle: "Terms and Conditions",
+    defaultDescription: "AskDetectives is a directory platform only. Review our terms of service covering platform use, user responsibilities, disclaimer of liability, and how detective listings work.",
+    defaultH1: "Terms and Conditions",
+  },
+  {
+    slug: "privacy", name: "Privacy Policy",
+    defaultTitle: "Privacy Policy",
+    defaultDescription: "AskDetectives collects minimal data and does not store personal conversations, case details, or payment information. Read our full privacy policy to understand how your data is protected.",
+    defaultH1: "Privacy Policy",
+  },
+  {
+    slug: "packages", name: "Pricing & Packages",
+    defaultTitle: "Pricing & Packages",
+    defaultDescription: "Compare AskDetectives subscription plans for private investigators. Choose a plan to list your services, get verified, and connect with clients worldwide.",
+    defaultH1: "Simple, Transparent Pricing",
+  },
+  {
+    slug: "categories", name: "Browse Categories",
+    defaultTitle: "Browse Categories",
+    defaultDescription: "Browse all private investigation service categories on AskDetectives — including background checks, surveillance, matrimonial investigations, cyber investigations, and more.",
+    defaultH1: "Browse Categories",
+  },
+  {
+    slug: "blog", name: "Blog",
+    defaultTitle: "Blog | AskDetectives",
+    defaultDescription: "Latest news, tips, and insights from the world of private investigation.",
+    defaultH1: "Blog",
+  },
+  {
+    slug: "support", name: "Support",
+    defaultTitle: "Support Center & FAQ | AskDetectives",
+    defaultDescription: "Find answers to common questions about hiring a detective, privacy policies, and verification processes at AskDetectives.",
+    defaultH1: "Help Center",
+  },
+];
+
+// GET /api/admin/static-pages
+// Returns SEO data for all static pages (from DB if saved, otherwise empty)
+router.get("/static-pages", requireRole("admin", "employee"), async (_req: Request, res: Response) => {
+  try {
+    const slugs = STATIC_PAGES.map((p) => p.slug);
+    const result = await pool.query(
+      `SELECT slug, meta_title, meta_description, h1 FROM pages WHERE slug = ANY($1::text[])`,
+      [slugs]
+    );
+    const dbBySlug: Record<string, { metaTitle: string | null; metaDescription: string | null; h1: string | null }> = {};
+    for (const row of result.rows) {
+      dbBySlug[row.slug] = {
+        metaTitle: row.meta_title ?? null,
+        metaDescription: row.meta_description ?? null,
+        h1: row.h1 ?? null,
+      };
+    }
+    const pages = STATIC_PAGES.map((p) => {
+      const db = dbBySlug[p.slug];
+      return {
+        slug: p.slug,
+        name: p.name,
+        url: p.slug === "/" ? "/" : `/${p.slug}`,
+        metaTitle: db?.metaTitle ?? p.defaultTitle,
+        metaDescription: db?.metaDescription ?? p.defaultDescription,
+        h1: db?.h1 ?? p.defaultH1,
+        isCustom: !!db,  // true = saved in DB, false = showing component default
+      };
+    });
+    res.json({ pages });
+  } catch (error) {
+    console.error("[cms] static-pages GET error:", error instanceof Error ? error.message : String(error));
+    res.status(500).json({ error: "Failed to load static pages" });
+  }
+});
+
+// POST /api/admin/static-pages/seo
+// Upserts SEO (title, description, h1) for a static page — slug comes in body to avoid URL encoding issues with "/"
+router.post("/static-pages/seo", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const payload = z.object({
+      slug: z.string(),
+      title_tag: z.string().nullable().optional(),
+      meta_description: z.string().nullable().optional(),
+      h1: z.string().nullable().optional(),
+    }).parse(req.body);
+
+    const slug = payload.slug;
+    const validSlugs = STATIC_PAGES.map((p) => p.slug);
+    if (!validSlugs.includes(slug)) {
+      return res.status(400).json({ error: "Invalid static page slug" });
+    }
+
+    const staticPage = STATIC_PAGES.find((p) => p.slug === slug)!;
+
+    // Rows are pre-seeded via SQL — just UPDATE the existing row
+    const result = await pool.query(
+      `UPDATE pages SET
+         meta_title = $1,
+         meta_description = $2,
+         h1 = $3,
+         updated_at = NOW()
+       WHERE slug = $4`,
+      [payload.title_tag ?? null, payload.meta_description ?? null, payload.h1 ?? null, slug]
+    );
+
+    // If row doesn't exist yet, insert it with the static-pages category
+    if (result.rowCount === 0) {
+      await pool.query(
+        `INSERT INTO pages (id, title, slug, category_id, content, status, meta_title, meta_description, h1, created_at, updated_at)
+         SELECT gen_random_uuid(), $1, $2, c.id, '', 'published', $3, $4, $5, NOW(), NOW()
+         FROM categories c WHERE c.slug = 'static-pages' LIMIT 1`,
+        [staticPage.name, slug, payload.title_tag ?? null, payload.meta_description ?? null, payload.h1 ?? null]
+      );
+    }
+
+    // Invalidate cache
+    try {
+      cache.del(`cms:page:${slug}`);
+    } catch (_) {}
+
+    res.json({
+      slug,
+      metaTitle: payload.title_tag ?? null,
+      metaDescription: payload.meta_description ?? null,
+      h1: payload.h1 ?? null,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: fromZodError(error).message });
+    }
+    console.error("[cms] static-pages PUT error:", error instanceof Error ? error.message : String(error));
+    res.status(500).json({ error: "Failed to update static page SEO" });
+  }
+});
+
 export default router;
 

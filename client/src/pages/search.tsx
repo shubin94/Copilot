@@ -214,6 +214,22 @@ export default function SearchPage() {
     offset: filters.offset,
   });
 
+  // Accumulate results across Load More pages
+  const [accumulatedServices, setAccumulatedServices] = useState<any[]>([]);
+  const prevOffsetRef = useRef(filters.offset);
+  useEffect(() => {
+    if (isLoading) return;
+    const newPage = servicesData?.services || [];
+    if (filters.offset === 0) {
+      // New search/filter — replace
+      setAccumulatedServices(newPage);
+    } else if (filters.offset > prevOffsetRef.current) {
+      // Load More — append
+      setAccumulatedServices(prev => [...prev, ...newPage]);
+    }
+    prevOffsetRef.current = filters.offset;
+  }, [servicesData, isLoading, filters.offset]);
+
   console.log("[search-page] Querying with filters:", {
     category: filters.category,
     country: filters.country,
@@ -241,7 +257,7 @@ export default function SearchPage() {
   });
 
   // Backend now handles ALL filtering - no client-side filtering needed
-  const results = servicesData?.services || [];
+  const results = accumulatedServices;
   
   // Client-side price conversion filtering (since prices are stored in different currencies)
   const finalResults = results.filter((s) => {

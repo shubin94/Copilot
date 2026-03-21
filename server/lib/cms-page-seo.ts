@@ -74,7 +74,8 @@ export async function getPublishedCmsPageSeo(slug: string): Promise<CmsPageSeo |
 export function injectCmsPageSeoTags(
   htmlContent: string,
   seo: CmsPageSeo,
-  canonicalUrl: string
+  canonicalUrl: string,
+  options?: { logoUrl?: string | null }
 ): string {
   let cleaned = removeDefaultMetaTags(htmlContent);
 
@@ -86,10 +87,17 @@ export function injectCmsPageSeoTags(
     `<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />`,
     `<meta property="og:title" content="${escapeHtml(seo.title)}" />`,
     `<meta property="og:description" content="${escapeHtml(seo.description)}" />`,
-    `<meta property="og:site_name" content="Ask Detectives" />`,
+    `<meta property="og:image" content="https://www.askdetectives.com/hero-bg.webp" />`,
+    `<meta property="og:image:width" content="1200" />`,
+    `<meta property="og:image:height" content="630" />`,
+    `<meta property="og:image:alt" content="${escapeHtml(seo.title)}" />`,
+    `<meta property="og:site_name" content="AskDetectives" />`,
+    `<meta property="og:locale" content="en_US" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${escapeHtml(seo.title)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(seo.description)}" />`,
+    `<meta name="twitter:image" content="https://www.askdetectives.com/hero-bg.webp" />`,
+    `<meta name="twitter:site" content="@FindDetectives" />`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
   ];
 
@@ -104,7 +112,7 @@ export function injectCmsPageSeoTags(
     const websiteSchema = {
       "@context": "https://schema.org",
       "@type": "WebSite",
-      "name": "Ask Detectives",
+      "name": "AskDetectives",
       "url": "https://www.askdetectives.com/",
       "potentialAction": {
         "@type": "SearchAction",
@@ -112,13 +120,19 @@ export function injectCmsPageSeoTags(
         "query-input": "required name=search_term_string"
       }
     };
-    
+
+    const logoImageUrl = options?.logoUrl || "https://www.askdetectives.com/og-logo.png";
     const orgSchema = {
       "@context": "https://schema.org",
       "@type": "Organization",
-      "name": "Ask Detectives",
+      "name": "AskDetectives",
       "url": "https://www.askdetectives.com/",
-      "logo": "https://www.askdetectives.com/favicon.png"
+      "logo": {
+        "@type": "ImageObject",
+        "url": logoImageUrl,
+        "width": 512,
+        "height": 512
+      }
     };
     
     schemas.push(`<script type="application/ld+json">\n${JSON.stringify(websiteSchema, null, 2)}\n</script>`);
@@ -138,6 +152,8 @@ export function injectCmsPageSeoTags(
       `<!-- SEO_META_INJECTION_POINT -->\n    ${rest.join("\n    ")}`
     );
   }
+
+  // H1 is handled by the visible React hero component — both Google and Bing render JavaScript.
 
   if (
     !injected.includes("<!-- SEO_TITLE_INJECTION_POINT -->") ||

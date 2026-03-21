@@ -475,7 +475,7 @@ export default function ServiceCategoryPage() {
         setLoading(true);
         setError(null);
         setOffset(0);
-        const response = await fetch(`${apiPath}?limit=50&offset=0`, { signal: controller.signal });
+        const response = await fetch(`${apiPath}?limit=15&offset=0`, { signal: controller.signal });
         if (cancelled) return;
         if (!response.ok) {
           const categoryLabel = staticConfig?.pluralName || categorySlug.replace(/-/g, " ");
@@ -489,7 +489,7 @@ export default function ServiceCategoryPage() {
         setServices(data.services || []);
         setLocationMeta(data.meta);
         setHasMore(data.meta?.hasMore ?? false);
-        setOffset(50);
+        setOffset(15);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
         setError("An error occurred while loading services");
@@ -505,12 +505,12 @@ export default function ServiceCategoryPage() {
   const loadMore = async () => {
     try {
       setLoadingMore(true);
-      const response = await fetch(`${apiPath}?limit=50&offset=${offset}`);
+      const response = await fetch(`${apiPath}?limit=15&offset=${offset}`);
       if (!response.ok) return;
       const data = await response.json();
       setServices(prev => [...prev, ...(data.services || [])]);
       setHasMore(data.meta?.hasMore ?? false);
-      setOffset(prev => prev + 50);
+      setOffset(prev => prev + 15);
     } catch {
       // silently fail — user can retry
     } finally {
@@ -554,15 +554,16 @@ export default function ServiceCategoryPage() {
 
   const dbSeo = (locationMeta as any)?.seo ?? null;
 
-  const seoTitle = dbSeo?.meta_title || (config
-    ? `${config.pluralName} in ${locationSubLabel} | Verified Detectives`
-    : `Services in ${locationSubLabel} | Verified Detectives`);
+  const _year = new Date().getFullYear();
+  const _longTitle  = config ? `Best ${config.pluralName} Detectives Near Me in ${locationSubLabel} - ${_year}` : `Best Detectives Near Me in ${locationSubLabel} - ${_year}`;
+  const _shortTitle = config ? `Best ${config.pluralName} Detectives Near Me in ${locationSubLabel}` : `Best Detectives Near Me in ${locationSubLabel}`;
+  const seoTitle = dbSeo?.meta_title || (_longTitle.length <= 60 ? _longTitle : _shortTitle);
 
   const seoDescription = dbSeo?.meta_description || (config
-    ? `Find trusted ${config.displayName.toLowerCase()} services in ${locationSubLabel}. Compare verified detectives, reviews & contact details. ${services.length} providers available.`
-    : `Find verified detective services in ${locationSubLabel}.`);
+    ? `Find ${services.length}+ verified ${config.displayName.toLowerCase()} detectives near you in ${locationSubLabel}. Read reviews, compare rates & get free quotes today.`
+    : `Find ${services.length}+ verified detectives near you in ${locationSubLabel}. Read reviews, compare rates & get free quotes today.`);
 
-  const h1Text = dbSeo?.h1 || (config ? `${config.pluralName} in ${locationLabel}` : `Services in ${locationLabel}`);
+  const h1Text = dbSeo?.h1 || (config ? `Best ${config.pluralName} Detectives Near You in ${locationLabel}` : `Best Detectives Near You in ${locationLabel}`);
 
   const breadcrumbs = config ? [
     { name: "Home",            url: "https://www.askdetectives.com/" },
@@ -662,21 +663,6 @@ export default function ServiceCategoryPage() {
           <p className="text-sm text-gray-500">{services.length} services available</p>
         </div>
 
-        {/* Authority link */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Explore All Detectives in {locationLabel}</h2>
-          <p className="text-gray-700 mb-2">
-            Browse all verified private investigators available in {locationSubLabel}.
-          </p>
-          <a
-            href={`/detectives/${[countrySlug, stateSlug, citySlug].filter(Boolean).join("/")}/`}
-            className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-          >
-            View All Available Detectives
-            <ExternalLink className="h-4 w-4" />
-          </a>
-        </div>
-
         {/* Mobile filter toggle */}
         <div className="lg:hidden mb-4">
           <button
@@ -751,6 +737,21 @@ export default function ServiceCategoryPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Authority link */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Explore All Detectives in {locationLabel}</h2>
+          <p className="text-gray-700 mb-2">
+            Browse all verified private investigators available in {locationSubLabel}.
+          </p>
+          <a
+            href={`/detectives/${[countrySlug, stateSlug, citySlug].filter(Boolean).join("/")}/`}
+            className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+          >
+            View All Available Detectives
+            <ExternalLink className="h-4 w-4" />
+          </a>
         </div>
 
         {/* FAQ Section */}

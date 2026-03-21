@@ -31,14 +31,13 @@ const sslConfig = !isLocalDb
 
 const pool = new Pool({
   connectionString: url,
-  // ✅ OPTIMIZATION: Main application pool - created ONCE globally, reused across all requests
-  // Pool sizing balances connection availability with resource constraints
-  // Each connection uses ~5-10MB RAM + database resources
-  // Supabase default pooler: 25 connections, so we use 10 to avoid connection pool limits
-  max: 20,                     // Max connections
-  min: 2,                      // Keep 2 warm connections for faster cold requests
-  idleTimeoutMillis: 30000,    // Close idle connections after 30s to free resources
-  connectionTimeoutMillis: 5000, // Fail fast if pool is saturated (5s timeout)
+  // Supabase free tier allows 25 total connections.
+  // Session store pool uses max:5, so main pool must stay ≤ 15 to avoid exhaustion.
+  max: 10,                       // Reduced from 20 — leaves room for session pool + overhead
+  min: 1,                        // Keep 1 warm, not 2, to free slots on idle
+  idleTimeoutMillis: 30000,      // Close idle connections after 30s
+  connectionTimeoutMillis: 10000, // Give more time to acquire (was 5s, now 10s)
+  allowExitOnIdle: false,         // Keep pool alive between requests
   ssl: sslConfig
 });
 export const db = drizzle(pool, { schema });

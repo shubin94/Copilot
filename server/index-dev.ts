@@ -99,7 +99,10 @@ export async function setupVite(app: Express, server: Server) {
       const locationSeoData = await getLocationDetectivesForSEO(
         params.country,
         params.state,
-        params.city
+        params.city,
+        15,
+        0,
+        { includeTotalCount: true }
       );
       const detectives = locationSeoData.detectives;
       const seoDetectives = detectives
@@ -166,7 +169,8 @@ export async function setupVite(app: Express, server: Server) {
           city: params.city,
         },
         detectives: detectives,
-        count: detectives.length,
+        count: locationSeoData.totalCount,
+        hasMore: hasMore,
       };
 
       const dataScript = `<script>
@@ -590,10 +594,17 @@ export async function setupVite(app: Express, server: Server) {
 
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
 
-      const seo = await getPublishedCmsPageSeo("/");
-      if (seo) {
-        template = injectCmsPageSeoTags(template, seo, "https://www.askdetectives.com/");
-      }
+      const [cmsSeo, siteSettings] = await Promise.all([
+        getPublishedCmsPageSeo("/"),
+        storage.getSiteSettings(),
+      ]);
+      const seo = cmsSeo ?? {
+        title: "Find Detectives - Hire Top Private Investigators | AskDetectives",
+        description: "The world's first dedicated detective service platform. A single place to discover, compare, and hire professional detectives across verified categories.",
+        h1: "Find the Perfect Private Detectives Near You - AskDetectives",
+      };
+      const logoUrl = (siteSettings as any)?.headerLogoUrl || (siteSettings as any)?.logoUrl || null;
+      template = injectCmsPageSeoTags(template, seo, "https://www.askdetectives.com/", { logoUrl });
       
       template = template.replace(
         `src="/src/main.tsx"`,

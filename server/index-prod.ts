@@ -511,10 +511,17 @@ export async function serveStatic(app: Express, _server: Server) {
   app.get("/", async (_req: Request, res: Response) => {
     try {
       let html = await readIndexHtml();
-      const seo = await getPublishedCmsPageSeo("/");
-      if (seo) {
-        html = injectCmsPageSeoTags(html, seo, "https://www.askdetectives.com/");
-      }
+      const [cmsSeo, siteSettings] = await Promise.all([
+        getPublishedCmsPageSeo("/"),
+        storage.getSiteSettings(),
+      ]);
+      const seo = cmsSeo ?? {
+        title: "Find Detectives - Hire Top Private Investigators | AskDetectives",
+        description: "The world's first dedicated detective service platform. A single place to discover, compare, and hire professional detectives across verified categories.",
+        h1: "Find the Perfect Private Detectives Near You - AskDetectives",
+      };
+      const logoUrl = (siteSettings as any)?.headerLogoUrl || (siteSettings as any)?.logoUrl || null;
+      html = injectCmsPageSeoTags(html, seo, "https://www.askdetectives.com/", { logoUrl });
 
       // Homepage: allow 1-hour browser/CDN cache, refresh in background (stale-while-revalidate)
       res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");

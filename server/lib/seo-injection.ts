@@ -1254,7 +1254,7 @@ export function injectServiceSeoTags(
 
   modified = modified.replace(
     /<!-- SEO_META_INJECTION_POINT -->/,
-    `<!-- SEO_META_INJECTION_POINT -->\n    <meta name="description" content="${escapedDesc}" />\n    <meta property="og:title" content="${escapedTitle}" />\n    <meta property="og:description" content="${escapedDesc}" />\n    <meta property="og:url" content="${canonicalUrl}" />\n    <link rel="canonical" href="${canonicalUrl}" />`
+    `<!-- SEO_META_INJECTION_POINT -->\n    <meta name="description" content="${escapedDesc}" />\n    <meta property="og:title" content="${escapedTitle}" />\n    <meta property="og:description" content="${escapedDesc}" />\n    <meta property="og:url" content="${canonicalUrl}" />\n    <meta property="og:type" content="website" />\n    <meta property="og:site_name" content="AskDetectives" />\n    <meta property="og:locale" content="en_US" />\n    <meta property="og:image" content="https://www.askdetectives.com/hero-bg.webp" />\n    <meta property="og:image:width" content="1200" />\n    <meta property="og:image:height" content="630" />\n    <meta property="og:image:alt" content="AskDetectives - Find Vetted Private Investigators" />\n    <meta name="twitter:card" content="summary_large_image" />\n    <meta name="twitter:title" content="${escapedTitle}" />\n    <meta name="twitter:description" content="${escapedDesc}" />\n    <meta name="twitter:image" content="https://www.askdetectives.com/hero-bg.webp" />\n    <meta name="twitter:site" content="@FindDetectives" />\n    <link rel="canonical" href="${canonicalUrl}" />`
   );
 
   modified = modified.replace(
@@ -1302,6 +1302,9 @@ export function removeDefaultMetaTags(htmlContent: string): string {
 
   // Remove canonical link
   cleaned = cleaned.replace(/<link\s+rel="canonical"[^>]*>/gi, '');
+
+  // Remove all existing JSON-LD script blocks to prevent duplicates
+  cleaned = cleaned.replace(/<script\s+type="application\/ld\+json"[\s\S]*?<\/script>/gi, '');
 
   // Clean up any double newlines created by removals
   cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n');
@@ -1802,10 +1805,12 @@ export async function generateLocationSeoMetaTags(
       // ✅ NO OVERRIDE - Generate system SEO (improved format)
       const locationName = cityName || stateName || countryName;
       
-      title = `Top Private Detectives in ${locationName} | Verified Investigators (${year})`;
-      description = `Find trusted private detectives in ${locationName}. Browse ${totalCount} verified investigators offering background checks, surveillance, and investigation services.`;
-      h1 = `Private Detectives in ${locationName}`;
-      
+      const longTitle  = `Best Private Detectives Near Me in ${locationName} - ${year}`;
+      const shortTitle = `Private Detectives Near Me in ${locationName} - ${year}`;
+      title = longTitle.length <= 60 ? longTitle : shortTitle;
+      description = `Find ${totalCount}+ verified private detectives near you in ${locationName}. Licensed investigators for all types of cases. Get free quotes today (${year})`;
+      h1 = `Best Private Detectives Near You in ${locationName} (${year})`;
+
       console.log(`[SEO SSR] System-generated SEO for ${cityId ? 'city' : stateId ? 'state' : 'country'}: ${locationName}`);
     }
   } catch (seoError) {
@@ -1813,9 +1818,11 @@ export async function generateLocationSeoMetaTags(
     
     // ✅ FALLBACK - Use default template if database query fails
     const locationDisplayName = [cityName, stateName, countryName].filter(Boolean).join(", ");
-    title = `Top Private Detectives in ${locationDisplayName} (${year})`;
-    description = `Find trusted private detectives in ${locationDisplayName}. Browse verified investigators.`;
-    h1 = `Private Detectives in ${locationDisplayName}`;
+    const longTitleFb  = `Best Private Detectives Near Me in ${locationDisplayName} - ${year}`;
+    const shortTitleFb = `Private Detectives Near Me in ${locationDisplayName} - ${year}`;
+    title = longTitleFb.length <= 60 ? longTitleFb : shortTitleFb;
+    description = `Find 10+ verified private detectives near you in ${locationDisplayName}. Licensed investigators for all types of cases. Get free quotes today (${year})`;
+    h1 = `Best Private Detectives Near You in ${locationDisplayName} (${year})`;
   }
 
   // ✅ STEP 3: Generate meta tags (use h1 value for OG title to match frontend)
@@ -2430,8 +2437,11 @@ export function generateServiceLocationSeoMetaTags(
     : location.stateName
     ? `${location.stateName}, ${location.countryName}`
     : location.countryName;
-  const title = `${categoryName} in ${locationDisplay} | Verified Detectives`;
-  const description = `Compare ${serviceCount} verified ${categoryName.toLowerCase()} providers in ${locationDisplay}. Reviews, pricing & direct contact details available.`;
+  const year = new Date().getFullYear();
+  const longTitle  = `Best ${categoryName} Detectives Near Me in ${locationDisplay} - ${year}`;
+  const shortTitle = `Best ${categoryName} Detectives Near Me in ${locationDisplay}`;
+  const title = longTitle.length <= 60 ? longTitle : shortTitle;
+  const description = `Find ${serviceCount}+ verified ${categoryName.toLowerCase()} detectives near you in ${locationDisplay}. Read reviews, compare rates & get free quotes today.`;
 
   const serviceImageAlt = `${categoryName} in ${locationDisplay}`;
   const ogImage = firstServiceLogo || 'https://www.askdetectives.com/og-detective-directory.jpg';
@@ -2786,7 +2796,7 @@ export async function injectServiceLocationSeoTags(
     : location.stateName || location.countryName;
   const serviceH1 = seoOverride?.h1
     ? escapeHtml(seoOverride.h1)
-    : `${categoryName} in ${escapeHtml(locationLabel)}`;
+    : `Best ${categoryName} Detectives Near You in ${escapeHtml(locationLabel)}`;
   modified = modified.replace(
     /<!-- SEO_H1_INJECTION_POINT -->/,
     `<!-- SEO_H1_INJECTION_POINT -->\n    <h1 style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">${serviceH1}</h1>`
