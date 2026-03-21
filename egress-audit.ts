@@ -2,11 +2,11 @@ const { createClient } = require("@supabase/supabase-js");
 const { Pool } = require("pg");
 const fs = require("fs");
 
-const SUPABASE_URL = "https://gjgrwxxtkyggwfrydpdb.supabase.co";
+const SUPABASE_URL = "your_supabase_url_here";
 const SUPABASE_SERVICE_ROLE_KEY =
-  "sb_secret_rhq41xUgtj4qLfNnWg226Q_KpkOkoNW";
+  "your_supabase_service_role_key_here";
 const DATABASE_URL =
-  "postgresql://postgres.gjgrwxxtkyggwfrydpdb:AKshubin123@aws-1-ap-south-1.pooler.supabase.com:6543/postgres";
+  "your_database_url_here";
 
 interface TableAudit {
   tableName: string;

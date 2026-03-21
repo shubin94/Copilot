@@ -3,9 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const supabase_js_1 = require("@supabase/supabase-js");
 const pg_1 = require("pg");
 const fs_1 = require("fs");
-const SUPABASE_URL = "https://gjgrwxxtkyggwfrydpdb.supabase.co";
-const SUPABASE_SERVICE_ROLE_KEY = "sb_secret_rhq41xUgtj4qLfNnWg226Q_KpkOkoNW";
-const DATABASE_URL = "postgresql://postgres.gjgrwxxtkyggwfrydpdb:AKshubin123@aws-1-ap-south-1.pooler.supabase.com:6543/postgres";
+const SUPABASE_URL = "your_supabase_url_here";
+const SUPABASE_SERVICE_ROLE_KEY = "your_supabase_service_role_key_here";
+const DATABASE_URL = "your_database_url_here";
 async function auditDatabase() {
     console.log("🔍 Starting EGRESS AUDIT...\n");
     const pool = new pg_1.Pool({
