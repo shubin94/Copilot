@@ -232,7 +232,7 @@ async function generateStatesSitemap(page: number = 1): Promise<string> {
            c.slug as country_slug,
            s.name as state_name,
            s.slug as state_slug,
-           s.updated_at as last_mod
+           s.created_at as last_mod
     FROM states s
     INNER JOIN countries c ON s.country_id = c.id
     ORDER BY c.name, s.name
@@ -282,7 +282,7 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
            s.slug as state_slug,
            ci.name as city_name,
            ci.slug as city_slug,
-           ci.updated_at as last_mod
+           ci.created_at as last_mod
     FROM cities ci
     INNER JOIN states s ON ci.state_id = s.id
     INNER JOIN countries c ON s.country_id = c.id
