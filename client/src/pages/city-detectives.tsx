@@ -379,16 +379,23 @@ export default function CityDetectivesPage() {
     ? `${stateName}, ${countryName}`
     : countryName || "India";
   
-  // Enhanced SEO Title and Description with current year - Always have fallbacks
+  // Client-side SEO fallbacks — only used when window.__SEO_DATA__ is absent
+  // (e.g. client-side navigation after initial SSR load).
+  // MUST stay in sync with generateDetectiveSeo() and generateLocationSeoMetaTags()
+  // in server/lib/seo-injection.ts so Google and users always see identical content.
   const currentYear = new Date().getUTCFullYear();
   const defaultSeoTitle = isCityLevel && cityName && stateName
     ? `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${currentYear})`
     : isStateLevel && stateName && countryName
     ? `Top Private Detectives in ${stateName}, ${countryName} (${currentYear})`
     : `Top Private Detectives in ${countryName || "India"} (${currentYear})`;
-    
-  const defaultSeoDescription = `Browse trusted detective agencies in ${locationLabel}. Compare ratings, services, and contact vetted professionals today.${detectives.length > 0 ? ` ${detectives.length} licensed detectives available.` : ''}`;
-  
+
+  const defaultSeoDescription = isCityLevel && cityName && stateName && countryName
+    ? `Find verified private detectives in ${cityName}, ${stateName}. Licensed investigators for surveillance, matrimonial & corporate cases. Get free quotes today.`
+    : isStateLevel && stateName && countryName
+    ? `Find verified private detectives in ${stateName}, ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`
+    : `Find verified private detectives in ${countryName || "India"}. Licensed investigators for all types of cases. Get free quotes today.`;
+
   const defaultH1Text = isCityLevel && cityName && stateName && countryName
     ? `Best Private Detectives in ${cityName}, ${stateName}, ${countryName}`
     : isStateLevel && stateName && countryName

@@ -1,27 +1,56 @@
 /**
- * Programmatic SEO generator for detective pages
+ * Programmatic SEO generator for detective location pages.
+ *
+ * This is the single source of truth for auto-generated SEO text.
+ * The output MUST stay in sync with the client-side defaults in
+ * city-detectives.tsx so that Google (SSR) and users (React) always
+ * see identical H1 / title / description — preventing content mismatch
+ * penalties and ensuring consistent ranking signals.
+ *
+ * Format per level:
+ *   City  → "Best Private Detectives in {City}, {State}, {Country}"
+ *   State → "Best Private Detectives in {State}, {Country}"
+ *   Country → "Best Private Detectives in {Country}"
  */
-export function generateDetectiveSeo(country: string, state?: string, city?: string): { h1: string; meta_title: string; meta_description: string } {
-  const cityName = city ? toTitleFromSlug(city) : (state ? toTitleFromSlug(state) : undefined);
-  const countryName = toTitleFromSlug(country);
-  if (cityName) {
+export function generateDetectiveSeo(
+  country: string,
+  state?: string,
+  city?: string,
+): { h1: string; meta_title: string; meta_description: string } {
+  const year         = new Date().getFullYear();
+  const cityName     = city  ? toTitleFromSlug(city)  : undefined;
+  const stateName    = state ? toTitleFromSlug(state) : undefined;
+  const countryName  = toTitleFromSlug(country);
+
+  if (cityName && stateName) {
+    // City-level: /detectives/{country}/{state}/{city}/
+    const longTitle  = `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${year})`;
+    const shortTitle = `Best Private Detectives in ${cityName}, ${stateName} (${year})`;
     return {
-      h1: `Private Detectives in ${cityName}, ${countryName}`,
-      meta_title: `Private Detectives in ${cityName} | AskDetectives`,
-      meta_description: `Hire verified private detectives in ${cityName}, ${countryName}. Compare investigators and get confidential services.`
+      h1:               `Best Private Detectives in ${cityName}, ${stateName}, ${countryName}`,
+      meta_title:       longTitle.length <= 65 ? longTitle : shortTitle,
+      meta_description: `Find verified private detectives in ${cityName}, ${stateName}. Licensed investigators for surveillance, matrimonial & corporate cases. Get free quotes today.`,
     };
-  } else if (state) {
-    const stateName = toTitleFromSlug(state);
+  } else if (cityName) {
+    // City-level without state (country has no state layer)
     return {
-      h1: `Private Detectives in ${stateName}, ${countryName}`,
-      meta_title: `Private Detectives in ${stateName} | AskDetectives`,
-      meta_description: `Hire verified private detectives in ${stateName}, ${countryName}. Compare investigators and get confidential services.`
+      h1:               `Best Private Detectives in ${cityName}, ${countryName}`,
+      meta_title:       `Top 10 Best Private Detectives in ${cityName} (${year})`,
+      meta_description: `Find verified private detectives in ${cityName}, ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`,
+    };
+  } else if (stateName) {
+    // State-level: /detectives/{country}/{state}/
+    return {
+      h1:               `Best Private Detectives in ${stateName}, ${countryName}`,
+      meta_title:       `Top Private Detectives in ${stateName}, ${countryName} (${year})`,
+      meta_description: `Find verified private detectives in ${stateName}, ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`,
     };
   } else {
+    // Country-level: /detectives/{country}/
     return {
-      h1: `Private Detectives in ${countryName}`,
-      meta_title: `Private Detectives in ${countryName} | AskDetectives`,
-      meta_description: `Hire verified private detectives in ${countryName}. Compare investigators and get confidential services.`
+      h1:               `Best Private Detectives in ${countryName}`,
+      meta_title:       `Top Private Detectives in ${countryName} (${year})`,
+      meta_description: `Find verified private detectives in ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`,
     };
   }
 }
@@ -1802,27 +1831,43 @@ export async function generateLocationSeoMetaTags(
       h1 = override.h1 || "";
       console.log(`[SEO SSR] Override applied for ${cityId ? 'city' : stateId ? 'state' : 'country'}`);
     } else {
-      // ✅ NO OVERRIDE - Generate system SEO (improved format)
-      const locationName = cityName || stateName || countryName;
-      
-      const longTitle  = `Best Private Detectives Near Me in ${locationName} - ${year}`;
-      const shortTitle = `Private Detectives Near Me in ${locationName} - ${year}`;
-      title = longTitle.length <= 60 ? longTitle : shortTitle;
-      description = `Find ${totalCount}+ verified private detectives near you in ${locationName}. Licensed investigators for all types of cases. Get free quotes today (${year})`;
-      h1 = `Best Private Detectives Near You in ${locationName} (${year})`;
+      // ✅ NO OVERRIDE — Generate system SEO.
+      // Format must stay in sync with generateDetectiveSeo() and the
+      // client-side defaults in city-detectives.tsx so Google (SSR) and
+      // users (React) always see the same H1 / title / description.
+      if (cityName && stateName && countryName) {
+        // City-level page
+        const longTitle  = `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${year})`;
+        const shortTitle = `Best Private Detectives in ${cityName}, ${stateName} (${year})`;
+        title       = longTitle.length <= 65 ? longTitle : shortTitle;
+        h1          = `Best Private Detectives in ${cityName}, ${stateName}, ${countryName}`;
+        description = `Find ${totalCount > 0 ? `${totalCount}+` : "trusted"} verified private detectives in ${cityName}, ${stateName}. Licensed investigators for surveillance, matrimonial & corporate cases. Get free quotes today.`;
+      } else if (stateName && countryName) {
+        // State-level page
+        title       = `Top Private Detectives in ${stateName}, ${countryName} (${year})`;
+        h1          = `Best Private Detectives in ${stateName}, ${countryName}`;
+        description = `Find ${totalCount > 0 ? `${totalCount}+` : "trusted"} verified private detectives in ${stateName}, ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`;
+      } else {
+        // Country-level page
+        title       = `Top Private Detectives in ${countryName} (${year})`;
+        h1          = `Best Private Detectives in ${countryName}`;
+        description = `Find ${totalCount > 0 ? `${totalCount}+` : "trusted"} verified private detectives in ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`;
+      }
 
-      console.log(`[SEO SSR] System-generated SEO for ${cityId ? 'city' : stateId ? 'state' : 'country'}: ${locationName}`);
+      console.log(`[SEO SSR] System-generated SEO for ${cityId ? 'city' : stateId ? 'state' : 'country'}: ${cityName || stateName || countryName}`);
     }
   } catch (seoError) {
     console.error('[SEO SSR] Override query error:', seoError);
-    
-    // ✅ FALLBACK - Use default template if database query fails
-    const locationDisplayName = [cityName, stateName, countryName].filter(Boolean).join(", ");
-    const longTitleFb  = `Best Private Detectives Near Me in ${locationDisplayName} - ${year}`;
-    const shortTitleFb = `Private Detectives Near Me in ${locationDisplayName} - ${year}`;
-    title = longTitleFb.length <= 60 ? longTitleFb : shortTitleFb;
-    description = `Find 10+ verified private detectives near you in ${locationDisplayName}. Licensed investigators for all types of cases. Get free quotes today (${year})`;
-    h1 = `Best Private Detectives Near You in ${locationDisplayName} (${year})`;
+
+    // ✅ FALLBACK — Used only if the DB query itself throws.
+    // Builds full "City, State, Country" string so the fallback is still
+    // as specific as possible rather than dropping location parts.
+    const locationDisplayFull = [cityName, stateName, countryName].filter(Boolean).join(", ");
+    const longTitleFb  = `Top 10 Best Private Detectives in ${locationDisplayFull} (${year})`;
+    const shortTitleFb = `Best Private Detectives in ${locationDisplayFull} (${year})`;
+    title       = longTitleFb.length <= 65 ? longTitleFb : shortTitleFb;
+    h1          = `Best Private Detectives in ${locationDisplayFull}`;
+    description = `Find trusted private detectives in ${locationDisplayFull}. Licensed investigators for all types of cases. Get free quotes today.`;
   }
 
   // ✅ STEP 3: Generate meta tags (use h1 value for OG title to match frontend)
