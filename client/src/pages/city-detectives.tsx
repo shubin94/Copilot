@@ -53,10 +53,14 @@ interface CityPageData {
 }
 
 let initialHydrationCityPageData: CityPageData | null = typeof window !== "undefined"
-  ? (((window as any).__CITY_PAGE_DATA__ as CityPageData | undefined) ?? null)
+  ? ((((window as any).CITY_PAGE_DATA as CityPageData | undefined)
+      ?? ((window as any).__CITY_PAGE_DATA__ as CityPageData | undefined)
+      ?? null))
   : null;
 let initialHydrationSeoData: { title?: string; description?: string; h1?: string } | null = typeof window !== "undefined"
-  ? (((window as any).__SEO_DATA__ as { title?: string; description?: string; h1?: string } | undefined) ?? null)
+  ? ((((window as any).SEO_DATA as { title?: string; description?: string; h1?: string } | undefined)
+      ?? ((window as any).__SEO_DATA__ as { title?: string; description?: string; h1?: string } | undefined)
+      ?? null))
   : null;
 let initialHydrationOffset = typeof window !== "undefined"
   ? Number(new URLSearchParams(window.location.search).get("offset") || 0)

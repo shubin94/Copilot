@@ -121,15 +121,45 @@ interface CaseStudy {
   };
 }
 
+// ── Hydration seed helpers ────────────────────────────────────────────────────
+const _articleSeed: CaseStudy | null = (() => {
+  try {
+    const d = (window as any).ARTICLE_PAGE_DATA ?? (window as any).__ARTICLE_PAGE_DATA__;
+    return d && typeof d === "object" && d.slug ? (d as CaseStudy) : null;
+  } catch {
+    return null;
+  }
+})();
+
+let _articleSeedConsumed = false;
+function consumeArticleSeed(): CaseStudy | null {
+  if (_articleSeedConsumed || !_articleSeed) return null;
+  _articleSeedConsumed = true;
+  return _articleSeed;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function ArticlePage() {
   const [, params] = useRoute("/news/:slug");
-  const [article, setArticle] = useState<CaseStudy | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [article, setArticle] = useState<CaseStudy | null>(() => {
+    const seed = consumeArticleSeed();
+    // Only use seed when slug matches
+    if (seed && params?.slug && seed.slug === params.slug) return seed;
+    return null;
+  });
+  const [loading, setLoading] = useState(() => {
+    const seed = _articleSeed;
+    if (seed && params?.slug && seed.slug === params.slug) return false;
+    return true;
+  });
   const [error, setError] = useState<string | null>(null);
 
   const slug = params?.slug || "";
 
   useEffect(() => {
+    // Skip initial fetch if we already have a seed that matches
+    if (article && article.slug === slug) return;
+
     const fetchArticle = async () => {
       try {
         setLoading(true);
@@ -162,7 +192,7 @@ export default function ArticlePage() {
     if (slug) {
       fetchArticle();
     }
-  }, [slug]);
+  }, [slug, article]);
 
   if (loading) {
     return (

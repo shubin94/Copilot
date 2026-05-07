@@ -47,13 +47,58 @@ interface Service {
 interface ServiceLocationMeta {
   country: string;
   countryCode?: string;
-  state: string;
-  city: string;
+  state: string | null;
+  city: string | null;
   category: string;
   categorySlug?: string;
+  countrySlug?: string;
+  stateSlug?: string | null;
+  citySlug?: string | null;
   total: number;
+  hasMore?: boolean;
+  offset?: number;
   found: boolean;
+  seo?: {
+    h1?: string | null;
+    meta_title?: string | null;
+    meta_description?: string | null;
+  } | null;
 }
+
+interface ServiceLocationSeedPayload {
+  meta: ServiceLocationMeta;
+  services: Service[];
+  pagination?: {
+    limit: number;
+    offset: number;
+    nextOffset: number | null;
+    prevOffset: number | null;
+  };
+}
+
+let initialHydrationServiceLocationData: ServiceLocationSeedPayload | null = typeof window !== "undefined"
+  ? ((((window as any).SERVICE_LOCATION_DATA as ServiceLocationSeedPayload | undefined)
+      ?? ((window as any).__SERVICE_LOCATION_DATA__ as ServiceLocationSeedPayload | undefined)
+      ?? null))
+  : null;
+
+let initialHydrationServiceLocationSeoData: { title?: string; description?: string; h1?: string } | null = typeof window !== "undefined"
+  ? ((((window as any).SERVICE_LOCATION_SEO_DATA as { title?: string; description?: string; h1?: string } | undefined)
+      ?? ((window as any).__SERVICE_LOCATION_SEO_DATA__ as { title?: string; description?: string; h1?: string } | undefined)
+      ?? null))
+  : null;
+
+const consumeInitialServiceLocationData = () => {
+  const data = initialHydrationServiceLocationData;
+  initialHydrationServiceLocationData = null;
+  return data;
+};
+
+const consumeInitialServiceLocationSeoData = () => {
+  const data = initialHydrationServiceLocationSeoData;
+  initialHydrationServiceLocationSeoData = null;
+  return data;
+};
 
 // ─── Category Config ──────────────────────────────────────────────────────────
 
@@ -436,13 +481,25 @@ export default function ServiceCategoryPage() {
   const citySlug     = paramsCity?.city || "";
 
   const staticConfig = CATEGORY_CONFIG[categorySlug] || null;
+  const [seedData] = useState<ServiceLocationSeedPayload | null>(() => consumeInitialServiceLocationData());
+  const [seedSeoData] = useState<{ title?: string; description?: string; h1?: string } | null>(() => consumeInitialServiceLocationSeoData());
 
-  const [services, setServices] = useState<Service[]>([]);
-  const [locationMeta, setLocationMeta] = useState<ServiceLocationMeta | null>(null);
-  const [loading, setLoading] = useState(true);
+  const seedMatchesRoute = !!seedData
+    && seedData.meta?.categorySlug === categorySlug
+    && seedData.meta?.countrySlug === countrySlug
+    && (seedData.meta?.stateSlug || "") === stateSlug
+    && (seedData.meta?.citySlug || "") === citySlug;
+
+  const [services, setServices] = useState<Service[]>(() => (seedMatchesRoute ? (seedData?.services || []) : []));
+  const [locationMeta, setLocationMeta] = useState<ServiceLocationMeta | null>(() => (seedMatchesRoute ? (seedData?.meta || null) : null));
+  const [loading, setLoading] = useState(() => !seedMatchesRoute);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(() => (seedMatchesRoute ? (seedData?.meta?.hasMore ?? false) : false));
+  const [offset, setOffset] = useState(() => {
+    if (!seedMatchesRoute || !seedData) return 0;
+    const baseOffset = seedData.meta?.offset ?? 0;
+    return baseOffset + (seedData.services?.length || 0);
+  });
   const [error, setError] = useState<string | null>(null);
   const [expandedFAQs, setExpandedFAQs] = useState<Record<number, boolean>>({ 0: false, 1: false, 2: false });
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -461,6 +518,10 @@ export default function ServiceCategoryPage() {
   const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
 
   useEffect(() => {
+    if (seedMatchesRoute) {
+      return;
+    }
+
     if (!match || !categorySlug || !countrySlug) {
       setError("Invalid service category or location");
       setLoading(false);
@@ -500,7 +561,7 @@ export default function ServiceCategoryPage() {
 
     fetch_();
     return () => { cancelled = true; controller.abort(); };
-  }, [apiPath, match, categorySlug, countrySlug, stateSlug, citySlug]);
+  }, [apiPath, match, categorySlug, countrySlug, stateSlug, citySlug, seedMatchesRoute]);
 
   const loadMore = async () => {
     try {
@@ -557,13 +618,13 @@ export default function ServiceCategoryPage() {
   const _year = new Date().getFullYear();
   const _longTitle  = config ? `Best ${config.pluralName} Detectives Near Me in ${locationSubLabel} - ${_year}` : `Best Detectives Near Me in ${locationSubLabel} - ${_year}`;
   const _shortTitle = config ? `Best ${config.pluralName} Detectives Near Me in ${locationSubLabel}` : `Best Detectives Near Me in ${locationSubLabel}`;
-  const seoTitle = dbSeo?.meta_title || (_longTitle.length <= 60 ? _longTitle : _shortTitle);
+  const seoTitle = (seedMatchesRoute ? seedSeoData?.title : undefined) || dbSeo?.meta_title || (_longTitle.length <= 60 ? _longTitle : _shortTitle);
 
-  const seoDescription = dbSeo?.meta_description || (config
+  const seoDescription = (seedMatchesRoute ? seedSeoData?.description : undefined) || dbSeo?.meta_description || (config
     ? `Find ${services.length}+ verified ${config.displayName.toLowerCase()} detectives near you in ${locationSubLabel}. Read reviews, compare rates & get free quotes today.`
     : `Find ${services.length}+ verified detectives near you in ${locationSubLabel}. Read reviews, compare rates & get free quotes today.`);
 
-  const h1Text = dbSeo?.h1 || (config ? `Best ${config.pluralName} Detectives Near You in ${locationLabel}` : `Best Detectives Near You in ${locationLabel}`);
+  const h1Text = (seedMatchesRoute ? seedSeoData?.h1 : undefined) || dbSeo?.h1 || (config ? `Best ${config.pluralName} Detectives Near You in ${locationLabel}` : `Best Detectives Near You in ${locationLabel}`);
 
   const breadcrumbs = config ? [
     { name: "Home",            url: "https://www.askdetectives.com/" },

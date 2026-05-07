@@ -29,9 +29,16 @@ import {
   generateDetectiveSeo,
   getServiceLocationSeo,
   generateServiceLocationSeo,
+  buildDetectiveListingSsrFragment,
+  buildServiceLocationSsrFragment,
+  buildArticleSsrFragment,
+  buildCmsPageSsrFragment,
+  stripHiddenSeoH1,
 } from "./lib/seo-injection.js";
 import { getPublishedCmsPageSeo, injectCmsPageSeoTags } from "./lib/cms-page-seo.js";
+import { pool } from "../db/index.js";
 import { storage } from "./storage.js";
+import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
 
 const STATIC_CMS_SEO_SLUGS = new Set([
@@ -101,6 +108,40 @@ function sendIndexHtmlResponse(
   }
 
   res.send(filteredHtml);
+}
+
+function toInlineJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+function injectScriptPayloads(
+  html: string,
+  payloads: Array<{ globalName: string; data: unknown }>,
+): string {
+  if (!payloads.length) {
+    return html;
+  }
+
+  const scriptContent = payloads
+    .map(({ globalName, data }) => `window.${globalName} = ${toInlineJson(data)};`)
+    .join("\n");
+
+  const scriptTag = `<script>\n${scriptContent}\n</script>`;
+  return html.replace("</head>", `${scriptTag}\n</head>`);
+}
+
+function injectFragmentBeforeRoot(html: string, fragmentHtml: string): string {
+  const rootMarker = '<div id="root"><!--app-html--></div>';
+  if (html.includes(rootMarker)) {
+    return html.replace(rootMarker, `${fragmentHtml}\n${rootMarker}`);
+  }
+
+  return html.replace("<body>", `<body>\n${fragmentHtml}`);
 }
 
 function generateServiceCategorySlug(text: string): string {
@@ -312,7 +353,9 @@ export async function serveStatic(app: Express, _server: Server) {
       // Fetch SEO values and detective listings in parallel
       const [seoValues, locationSeoData] = await Promise.all([
         getDetectiveLocationSeo(params.country, params.state, params.city),
-        getLocationDetectivesForSEO(params.country, params.state, params.city),
+        getLocationDetectivesForSEO(params.country, params.state, params.city, 15, 0, {
+          includeTotalCount: true,
+        }),
       ]);
       const detectives = locationSeoData.detectives;
       // const hasMore = locationSeoData.hasMore;
@@ -327,6 +370,63 @@ export async function serveStatic(app: Express, _server: Server) {
         h1: seoValues.h1,
         meta_description: seoValues.meta_description,
       }, locationCanonicalUrl);
+
+      const cityPagePayload = {
+        location: {
+          country: locationSeoData.location.country,
+          state: locationSeoData.location.state,
+          city: locationSeoData.location.city,
+        },
+        detectives: detectives.map((detective) => ({
+          id: detective.id,
+          businessName: detective.businessName,
+          slug: detective.slug,
+          logo: detective.logo,
+          city: detective.city,
+          state: detective.state,
+          country: detective.country,
+          isVerified: detective.isVerified,
+          level: detective.level,
+          phone: detective.phone,
+          whatsapp: detective.whatsapp,
+          contactEmail: detective.contactEmail,
+          avgRating: detective.avgRating,
+          reviewCount: detective.reviewCount,
+          effectiveBadges: detective.effectiveBadges,
+        })),
+        count: locationSeoData.totalCount,
+        hasMore: locationSeoData.hasMore,
+        pagination: {
+          limit: 15,
+          offset: 0,
+          nextOffset: locationSeoData.hasMore ? detectives.length : null,
+          prevOffset: null,
+        },
+      };
+
+      const seoDataPayload = {
+        title: seoValues.meta_title,
+        description: seoValues.meta_description,
+        h1: seoValues.h1,
+      };
+
+      seoHtml = injectScriptPayloads(seoHtml, [
+        { globalName: "CITY_PAGE_DATA", data: cityPagePayload },
+        { globalName: "SEO_DATA", data: seoDataPayload },
+      ]);
+
+      const fragmentHtml = buildDetectiveListingSsrFragment({
+        countrySlug: params.country,
+        stateSlug: params.state,
+        citySlug: params.city,
+        location: cityPagePayload.location,
+        h1: seoValues.h1,
+        totalCount: locationSeoData.totalCount,
+        detectives,
+      });
+
+      seoHtml = stripHiddenSeoH1(seoHtml);
+      seoHtml = injectFragmentBeforeRoot(seoHtml, fragmentHtml);
 
       // Handle zero-detective pages
       if (detectiveCount === 0) {
@@ -566,6 +666,84 @@ export async function serveStatic(app: Express, _server: Server) {
         meta_description: seoValues.meta_description,
       }, canonicalUrl);
 
+      const serviceCards = serviceResults.map((service: any) => ({
+        ...buildServiceCardDTO({
+          service,
+          detective: service.detective,
+          avgRating: service.avgRating,
+          reviewCount: service.reviewCount,
+        }),
+        isOnEnquiry: service.isOnEnquiry,
+        basePrice: service.basePrice,
+        offerPrice: service.offerPrice,
+        category: service.category,
+        description: service.description,
+      }));
+
+      const resolvedCategoryName = serviceCards[0]?.category || params.category.replace(/-/g, " ");
+      const hasMoreResults = serviceCards.length === 50;
+
+      const serviceLocationDataPayload = {
+        meta: {
+          country: location.countryName,
+          countryCode: location.countryCode,
+          state: location.stateName || null,
+          city: location.cityName || null,
+          category: resolvedCategoryName,
+          categorySlug: canonicalCategorySlug,
+          countrySlug: params.countrySlug,
+          stateSlug: params.stateSlug || null,
+          citySlug: params.citySlug || null,
+          total: serviceCards.length,
+          hasMore: hasMoreResults,
+          offset: 0,
+          found: true,
+          seo: {
+            h1: seoValues.h1,
+            meta_title: seoValues.meta_title,
+            meta_description: seoValues.meta_description,
+          },
+        },
+        services: serviceCards,
+        pagination: {
+          limit: 50,
+          offset: 0,
+          nextOffset: hasMoreResults ? serviceCards.length : null,
+          prevOffset: null,
+        },
+      };
+
+      const serviceLocationSeoPayload = {
+        title: seoValues.meta_title,
+        description: seoValues.meta_description,
+        h1: seoValues.h1,
+        category: resolvedCategoryName,
+        categorySlug: canonicalCategorySlug,
+      };
+
+      seoHtml = injectScriptPayloads(seoHtml, [
+        { globalName: "SERVICE_LOCATION_DATA", data: serviceLocationDataPayload },
+        { globalName: "SERVICE_LOCATION_SEO_DATA", data: serviceLocationSeoPayload },
+      ]);
+
+      const serviceFragmentHtml = buildServiceLocationSsrFragment({
+        categoryName: resolvedCategoryName,
+        categorySlug: canonicalCategorySlug,
+        countrySlug: params.countrySlug,
+        stateSlug: params.stateSlug,
+        citySlug: params.citySlug,
+        location: {
+          country: location.countryName,
+          state: location.stateName,
+          city: location.cityName,
+        },
+        h1: seoValues.h1,
+        totalCount: serviceCards.length,
+        services: serviceCards,
+      });
+
+      seoHtml = stripHiddenSeoH1(seoHtml);
+      seoHtml = injectFragmentBeforeRoot(seoHtml, serviceFragmentHtml);
 
       setSsrCache(serviceCacheKey, seoHtml);
       return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400", {
@@ -583,6 +761,251 @@ export async function serveStatic(app: Express, _server: Server) {
       return res.status(500).send(
         '<html><head><title>Server Error</title></head><body><h1>500 - Server Error</h1><p>Failed to load services</p></body></html>'
       );
+    }
+  });
+
+  // NEWS/ARTICLE PAGE SSR — Phase A+B
+  // Intercepts /news/:slug, injects ARTICLE_PAGE_DATA seed + visible SSR fragment outside #root.
+  app.get(/^\/news\/([^/]+)\/?$/, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const segments = req.path.replace(/\/+$/, "").split("/").filter(Boolean);
+      if (segments.length !== 2 || segments[0] !== "news") return next();
+      const slug = segments[1];
+
+      // Fetch article from DB (same query as /api/case-studies/:slug but read-only, no view increment)
+      const articleResult = await pool.query(
+        `SELECT cs.id, cs.title, cs.slug, cs.content, cs.excerpt_html, cs.category,
+                cs.featured, cs.thumbnail, cs.view_count, cs.published_at, cs.created_at,
+                d.id as detective_id, d.business_name, d.slug as detective_slug,
+                d.logo, d.city, d.state, d.country
+         FROM case_studies cs
+         LEFT JOIN detectives d ON cs.detective_id = d.id
+         WHERE cs.slug = $1
+         LIMIT 1`,
+        [slug],
+      );
+
+      if (articleResult.rows.length === 0) {
+        // Not found — fall through to SPA which will show 404
+        return next();
+      }
+
+      const row = articleResult.rows[0];
+
+      const detective = row.detective_id
+        ? {
+            businessName: row.business_name || null,
+            slug: row.detective_slug || null,
+            city: row.city || null,
+            country: row.country || null,
+          }
+        : null;
+
+      // Plain-text excerpt from excerpt_html or first 300 chars of content
+      const rawExcerpt: string = row.excerpt_html || row.content || "";
+      const plainExcerpt = rawExcerpt.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().substring(0, 300);
+
+      const articlePagePayload = {
+        id: row.id,
+        title: row.title,
+        slug: row.slug,
+        content: row.content,
+        excerptHtml: row.excerpt_html || null,
+        category: row.category || "General",
+        featured: !!row.featured,
+        thumbnail: row.thumbnail || null,
+        viewCount: row.view_count || 0,
+        publishedAt: row.published_at ? new Date(row.published_at).toISOString() : new Date(row.created_at).toISOString(),
+        createdAt: new Date(row.created_at).toISOString(),
+        detective,
+      };
+
+      const seoTitle = `${row.title} | Case Studies | Ask Detectives`;
+      const seoDescription = plainExcerpt.substring(0, 160) || `Case study: ${row.title}. Professional private investigation and detective services.`;
+
+      const articleSeoPayload = {
+        title: seoTitle,
+        description: seoDescription,
+        slug: row.slug,
+        canonical: `https://www.askdetectives.com/news/${row.slug}`,
+      };
+
+      let seoHtml = await readIndexHtml();
+
+      // Inject head SEO tags
+      seoHtml = injectServiceSeoTags(seoHtml, {
+        title: seoTitle,
+        h1: row.title,
+        meta_description: seoDescription,
+      }, `https://www.askdetectives.com/news/${row.slug}`);
+
+      // Phase A: seed payloads
+      seoHtml = injectScriptPayloads(seoHtml, [
+        { globalName: "ARTICLE_PAGE_DATA", data: articlePagePayload },
+        { globalName: "ARTICLE_SEO_DATA", data: articleSeoPayload },
+      ]);
+
+      // Phase B: SSR fragment
+      const fragmentHtml = buildArticleSsrFragment({
+        slug: row.slug,
+        title: row.title,
+        h1: row.title,
+        category: row.category || "General",
+        publishedAt: articlePagePayload.publishedAt,
+        excerpt: plainExcerpt,
+        thumbnail: row.thumbnail || null,
+        detective,
+      });
+
+      seoHtml = stripHiddenSeoH1(seoHtml);
+      seoHtml = injectFragmentBeforeRoot(seoHtml, fragmentHtml);
+
+      return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[News Article SSR] Error:", { url: req.originalUrl, message: errorMsg });
+      return next();
+    }
+  });
+
+  // CMS BLOG/PAGE SSR — Phase A+B
+  // Intercepts /:category/:slug and /blog/:category/:slug patterns (CMS pages).
+  // Injects CMS_PAGE_DATA seed + visible SSR fragment outside #root.
+  // Must run BEFORE SPA fallback. Only handles routes that are known CMS page patterns.
+  app.get(/^\/(?:blog\/)?([^/]+)\/([^/]+)\/?$/, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rawPath = req.path.replace(/\/+$/, "");
+      const segments = rawPath.split("/").filter(Boolean);
+
+      // This regex handles: /category/slug and /blog/category/slug
+      // Segments: [category, slug] or [blog, category, slug]
+      let categorySlug: string;
+      let pageSlug: string;
+
+      if (segments.length === 2) {
+        [categorySlug, pageSlug] = segments;
+      } else if (segments.length === 3 && segments[0] === "blog") {
+        [, categorySlug, pageSlug] = segments;
+      } else {
+        return next();
+      }
+
+      // Skip known non-CMS two-segment routes that have their own handlers
+      const NON_CMS_PREFIXES = new Set([
+        "detectives", "locations", "service", "news", "api",
+        "about", "contact", "support", "privacy", "terms", "packages", "categories",
+        "admin", "dashboard", "auth", "login", "register",
+        "search", "verify", "reset-password",
+      ]);
+      if (NON_CMS_PREFIXES.has(categorySlug)) return next();
+
+      // Fetch CMS page from DB
+      const pageResult = await pool.query(
+        `SELECT p.id, p.title, p.slug, p.content, p.banner_image, p.status,
+                p.meta_title, p.meta_description, p.h1, p.created_at, p.updated_at,
+                p.author_name, p.author_email, p.author_bio,
+                c.id as category_id, c.name as category_name, c.slug as category_slug
+         FROM pages p
+         LEFT JOIN categories c ON p.category_id = c.id
+         WHERE p.slug = $1 AND p.status = 'published'
+         LIMIT 1`,
+        [pageSlug],
+      );
+
+      if (pageResult.rows.length === 0) return next();
+      const row = pageResult.rows[0];
+
+      // Fetch tags
+      const tagsResult = await pool.query(
+        `SELECT t.id, t.name, t.slug FROM tags t
+         INNER JOIN page_tags pt ON t.id = pt.tag_id WHERE pt.page_id = $1`,
+        [row.id],
+      );
+      const tags = tagsResult.rows.map((t: { id: string; name: string; slug: string }) => ({
+        id: t.id, name: t.name, slug: t.slug,
+      }));
+
+      const category = row.category_id
+        ? { id: row.category_id, name: row.category_name, slug: row.category_slug }
+        : null;
+
+      const author = row.author_name ? { name: row.author_name, email: row.author_email || undefined } : null;
+
+      // Plain-text excerpt
+      const rawContent: string = row.content || "";
+      const plainExcerpt = rawContent.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().substring(0, 300);
+
+      const cmsPagePayload = {
+        id: row.id,
+        title: row.title,
+        slug: row.slug,
+        content: row.content,
+        bannerImage: row.banner_image || null,
+        status: row.status,
+        metaTitle: row.meta_title || null,
+        metaDescription: row.meta_description || null,
+        h1: row.h1 || null,
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString(),
+        author,
+        category,
+        tags,
+      };
+
+      const seoTitle = row.meta_title || row.title;
+      const seoDescription = row.meta_description || plainExcerpt.substring(0, 160) || `Learn more about ${row.title} on Ask Detectives.`;
+
+      const cmsSeoPayload = {
+        title: seoTitle,
+        description: seoDescription,
+        h1: row.h1 || row.title,
+        slug: row.slug,
+        categorySlug: category?.slug || categorySlug,
+      };
+
+      const canonicalPath = `/${categorySlug}/${pageSlug}`;
+      const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+
+      let seoHtml = await readIndexHtml();
+
+      // Inject head SEO tags
+      seoHtml = injectServiceSeoTags(seoHtml, {
+        title: seoTitle,
+        h1: row.h1 || row.title,
+        meta_description: seoDescription,
+      }, canonicalUrl);
+
+      // Phase A: seed payloads
+      seoHtml = injectScriptPayloads(seoHtml, [
+        { globalName: "CMS_PAGE_DATA", data: cmsPagePayload },
+        { globalName: "CMS_SEO_DATA", data: cmsSeoPayload },
+      ]);
+
+      // Phase B: SSR fragment
+      const fragmentHtml = buildCmsPageSsrFragment({
+        slug: row.slug,
+        title: row.title,
+        h1: row.h1 || undefined,
+        metaTitle: row.meta_title || undefined,
+        metaDescription: row.meta_description || undefined,
+        createdAt: cmsPagePayload.createdAt,
+        updatedAt: cmsPagePayload.updatedAt,
+        excerpt: plainExcerpt,
+        bannerImage: row.banner_image || null,
+        author,
+        category,
+        tags,
+        canonicalPath,
+      });
+
+      seoHtml = stripHiddenSeoH1(seoHtml);
+      seoHtml = injectFragmentBeforeRoot(seoHtml, fragmentHtml);
+
+      return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[CMS Page SSR] Error:", { url: req.originalUrl, message: errorMsg });
+      return next();
     }
   });
 

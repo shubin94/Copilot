@@ -54,6 +54,24 @@ interface PageData {
   }>;
 }
 
+// ── Hydration seed helpers ────────────────────────────────────────────────────
+const _cmsPageSeed: PageData | null = (() => {
+  try {
+    const d = (window as any).CMS_PAGE_DATA ?? (window as any).__CMS_PAGE_DATA__;
+    return d && typeof d === "object" && d.slug ? (d as PageData) : null;
+  } catch {
+    return null;
+  }
+})();
+
+let _cmsPageSeedConsumed = false;
+function consumeCmsPageSeed(): PageData | null {
+  if (_cmsPageSeedConsumed || !_cmsPageSeed) return null;
+  _cmsPageSeedConsumed = true;
+  return _cmsPageSeed;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function PageView() {
   const [locationPath, setLocation] = useLocation();
   const [matchNested, paramsNested] = useRoute("/:parent/:category/:slug");
@@ -85,6 +103,9 @@ export default function PageView() {
       : undefined
   ) as string | undefined;
 
+  // Validate seed against current route slug before using
+  const seedMatchesRoute = !!(_cmsPageSeed && slug && _cmsPageSeed.slug === slug);
+
   const { data, isLoading, isError } = useQuery<{ page: PageData }>({
     queryKey: ["public-page", categorySlug || "", slug],
     queryFn: async () => {
@@ -97,6 +118,12 @@ export default function PageView() {
       }
       return res.json();
     },
+    // Skip fetch on first render when seed matches — React Query will still revalidate later
+    initialData: seedMatchesRoute ? () => {
+      const seed = consumeCmsPageSeed();
+      return seed ? { page: seed } : undefined;
+    } : undefined,
+    staleTime: seedMatchesRoute ? 60_000 : 0,
     enabled: !!slug && (matchNested || matchNew || matchLegacyNested || matchLegacyCategory || matchLegacy),
   });
 

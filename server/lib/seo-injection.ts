@@ -1355,6 +1355,227 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => map[char] || char);
 }
 
+interface DetectiveListingSsrItem {
+  businessName: string | null;
+  slug: string | null;
+  city: string;
+  state: string;
+  country?: string;
+  avgRating?: number;
+  reviewCount?: number;
+  isVerified?: boolean;
+}
+
+interface ServiceListingSsrItem {
+  id: string;
+  title?: string;
+  slug?: string;
+  detectiveBusinessName?: string;
+  detectiveSlug?: string;
+  detectiveCountrySlug?: string;
+  detectiveStateSlug?: string;
+  detectiveCitySlug?: string;
+  detectiveCountry?: string;
+  detectiveState?: string;
+  detectiveCity?: string;
+  avgRating?: number;
+  reviewCount?: number;
+  badgeState?: {
+    showBlueTick?: boolean;
+    showPro?: boolean;
+    showRecommended?: boolean;
+  };
+}
+
+export function stripHiddenSeoH1(htmlContent: string): string {
+  return htmlContent.replace(
+    /<!-- SEO_H1_INJECTION_POINT -->\s*<h1 style="position:absolute[^>]*>[\s\S]*?<\/h1>/i,
+    "<!-- SEO_H1_INJECTION_POINT -->",
+  );
+}
+
+export function buildDetectiveListingSsrFragment(input: {
+  countrySlug: string;
+  stateSlug?: string;
+  citySlug?: string;
+  location: { country: string; state?: string; city?: string };
+  h1: string;
+  totalCount: number;
+  detectives: DetectiveListingSsrItem[];
+}): string {
+  const countrySlug = normalizeRouteSlugParam(input.countrySlug);
+  const stateSlug = input.stateSlug ? normalizeRouteSlugParam(input.stateSlug) : "";
+  const citySlug = input.citySlug ? normalizeRouteSlugParam(input.citySlug) : "";
+  const countryName = input.location.country || toTitleFromSlug(countrySlug) || "Country";
+  const stateName = input.location.state || (stateSlug ? toTitleFromSlug(stateSlug) : "");
+  const cityName = input.location.city || (citySlug ? toTitleFromSlug(citySlug) : "");
+
+  const locationLabel = cityName
+    ? `${cityName}, ${stateName}, ${countryName}`
+    : stateName
+    ? `${stateName}, ${countryName}`
+    : countryName;
+
+  const verifiedCount = input.detectives.filter((d) => d.isVerified).length;
+  const topDetectives = input.detectives.slice(0, 6);
+
+  const breadcrumbItems: string[] = [
+    `<li><a href="/" style="color:#1d4ed8;text-decoration:none;">Home</a></li>`,
+    `<li><span style="color:#6b7280;">/</span></li>`,
+    `<li><a href="/detectives/${escapeHtml(countrySlug)}/" style="color:#1d4ed8;text-decoration:none;">${escapeHtml(countryName)}</a></li>`,
+  ];
+
+  if (stateSlug) {
+    breadcrumbItems.push(`<li><span style="color:#6b7280;">/</span></li>`);
+    breadcrumbItems.push(`<li><a href="/detectives/${escapeHtml(countrySlug)}/${escapeHtml(stateSlug)}/" style="color:#1d4ed8;text-decoration:none;">${escapeHtml(stateName)}</a></li>`);
+  }
+
+  if (citySlug) {
+    breadcrumbItems.push(`<li><span style="color:#6b7280;">/</span></li>`);
+    breadcrumbItems.push(`<li><span style="color:#111827;font-weight:600;">${escapeHtml(cityName)}</span></li>`);
+  }
+
+  const topDetectiveItems = topDetectives
+    .map((detective) => {
+      if (!detective.slug) return "";
+      const detectiveCountrySlug = getCountrySlug(detective.country || countrySlug);
+      const detectiveStateSlug = normalizeRouteSlugParam(detective.state || stateSlug);
+      const detectiveCitySlug = normalizeRouteSlugParam(detective.city || citySlug);
+      const href = `/detectives/${detectiveCountrySlug}/${detectiveStateSlug}/${detectiveCitySlug}/${normalizeRouteSlugParam(detective.slug)}/`;
+      const locationText = [detective.city, detective.state].filter(Boolean).join(", ");
+      const reviewCount = Number.isFinite(detective.reviewCount) ? Number(detective.reviewCount) : 0;
+      const avgRating = Number.isFinite(detective.avgRating) ? Number(detective.avgRating) : 0;
+      const ratingText = reviewCount > 0 && avgRating > 0
+        ? `${avgRating.toFixed(1)} (${reviewCount} reviews)`
+        : "No reviews yet";
+      const verifiedText = detective.isVerified ? " · Verified" : "";
+
+      return `<li style="margin:0 0 8px 0;line-height:1.45;"><a href="${escapeHtml(href)}" style="color:#1f2937;text-decoration:none;font-weight:600;">${escapeHtml(detective.businessName || "Detective")}</a><span style="color:#6b7280;"> - ${escapeHtml(locationText || countryName)} - ${escapeHtml(ratingText)}${escapeHtml(verifiedText)}</span></li>`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const exploreLinks: string[] = [
+    `<a href="/search" style="color:#1d4ed8;text-decoration:none;">Browse all detectives</a>`,
+  ];
+
+  if (citySlug && stateSlug) {
+    exploreLinks.push(`<a href="/detectives/${escapeHtml(countrySlug)}/${escapeHtml(stateSlug)}/" style="color:#1d4ed8;text-decoration:none;">More detectives in ${escapeHtml(stateName)}</a>`);
+  }
+
+  if (stateSlug) {
+    exploreLinks.push(`<a href="/detectives/${escapeHtml(countrySlug)}/" style="color:#1d4ed8;text-decoration:none;">More detectives in ${escapeHtml(countryName)}</a>`);
+  }
+
+  const topLinksSection = topDetectiveItems
+    ? `<h2 style="font-size:1.1rem;font-weight:700;margin:0 0 10px 0;">Top Detectives</h2><ul style="margin:0;padding-left:18px;">${topDetectiveItems}</ul>`
+    : "";
+
+  return [
+    `<section id="seo-detective-listing-ssr" data-ssr-fragment="detective-listing" style="max-width:1040px;margin:16px auto 8px;padding:0 24px;">`,
+    `<nav aria-label="Breadcrumb" style="margin-bottom:10px;"><ol style="display:flex;gap:8px;flex-wrap:wrap;list-style:none;padding:0;margin:0;font-size:0.9rem;">${breadcrumbItems.join("")}</ol></nav>`,
+    `<h1 style="margin:0 0 8px 0;font-size:2rem;line-height:1.2;color:#111827;">${escapeHtml(input.h1)}</h1>`,
+    `<p style="margin:0 0 6px 0;color:#4b5563;line-height:1.5;">Find licensed private investigators in ${escapeHtml(locationLabel)}. Compare ratings, reviews, and verified profiles before contacting a detective.</p>`,
+    `<p style="margin:0 0 14px 0;color:#6b7280;font-size:0.95rem;">${escapeHtml(String(input.totalCount))} detectives listed${verifiedCount > 0 ? ` · ${escapeHtml(String(verifiedCount))} verified` : ""}</p>`,
+    topLinksSection,
+    `<p style="margin:14px 0 0 0;display:flex;gap:14px;flex-wrap:wrap;font-size:0.95rem;">${exploreLinks.join("<span style=\"color:#9ca3af;\">|</span>")}</p>`,
+    `</section>`,
+  ].join("\n");
+}
+
+export function buildServiceLocationSsrFragment(input: {
+  categoryName: string;
+  categorySlug: string;
+  countrySlug: string;
+  stateSlug?: string;
+  citySlug?: string;
+  location: { country: string; state?: string | null; city?: string | null };
+  h1: string;
+  totalCount: number;
+  services: ServiceListingSsrItem[];
+}): string {
+  const categoryName = input.categoryName || toTitleFromSlug(input.categorySlug) || "Services";
+  const categorySlug = normalizeRouteSlugParam(input.categorySlug);
+  const countrySlug = normalizeRouteSlugParam(input.countrySlug);
+  const stateSlug = input.stateSlug ? normalizeRouteSlugParam(input.stateSlug) : "";
+  const citySlug = input.citySlug ? normalizeRouteSlugParam(input.citySlug) : "";
+
+  const countryName = input.location.country || toTitleFromSlug(countrySlug) || "Country";
+  const stateName = input.location.state || (stateSlug ? toTitleFromSlug(stateSlug) : "");
+  const cityName = input.location.city || (citySlug ? toTitleFromSlug(citySlug) : "");
+
+  const locationLabel = cityName
+    ? `${cityName}, ${stateName}, ${countryName}`
+    : stateName
+    ? `${stateName}, ${countryName}`
+    : countryName;
+
+  const topServices = input.services.slice(0, 6);
+  const verifiedCount = topServices.filter((service) => service.badgeState?.showBlueTick).length;
+
+  const breadcrumbItems: string[] = [
+    `<li><a href="/" style="color:#1d4ed8;text-decoration:none;">Home</a></li>`,
+    `<li><span style="color:#6b7280;">/</span></li>`,
+    `<li><a href="/locations/${escapeHtml(categorySlug)}/" style="color:#1d4ed8;text-decoration:none;">${escapeHtml(categoryName)}</a></li>`,
+    `<li><span style="color:#6b7280;">/</span></li>`,
+    `<li><a href="/locations/${escapeHtml(categorySlug)}/${escapeHtml(countrySlug)}/" style="color:#1d4ed8;text-decoration:none;">${escapeHtml(countryName)}</a></li>`,
+  ];
+
+  if (stateSlug) {
+    breadcrumbItems.push(`<li><span style="color:#6b7280;">/</span></li>`);
+    breadcrumbItems.push(`<li><a href="/locations/${escapeHtml(categorySlug)}/${escapeHtml(countrySlug)}/${escapeHtml(stateSlug)}/" style="color:#1d4ed8;text-decoration:none;">${escapeHtml(stateName)}</a></li>`);
+  }
+
+  if (citySlug) {
+    breadcrumbItems.push(`<li><span style="color:#6b7280;">/</span></li>`);
+    breadcrumbItems.push(`<li><span style="color:#111827;font-weight:600;">${escapeHtml(cityName)}</span></li>`);
+  }
+
+  const topListingItems = topServices
+    .map((service) => {
+      if (!service.slug || !service.detectiveSlug) return "";
+      const serviceUrl = `/service/${normalizeRouteSlugParam(service.detectiveCountrySlug || service.detectiveCountry || countrySlug)}/${normalizeRouteSlugParam(service.detectiveStateSlug || service.detectiveState || stateSlug)}/${normalizeRouteSlugParam(service.detectiveCitySlug || service.detectiveCity || citySlug)}/${normalizeRouteSlugParam(service.detectiveSlug)}/${normalizeRouteSlugParam(service.slug)}/`;
+      const locationText = [service.detectiveCity, service.detectiveState].filter(Boolean).join(", ");
+      const reviewCount = Number.isFinite(service.reviewCount) ? Number(service.reviewCount) : 0;
+      const avgRating = Number.isFinite(service.avgRating) ? Number(service.avgRating) : 0;
+      const ratingText = reviewCount > 0 && avgRating > 0
+        ? `${avgRating.toFixed(1)} (${reviewCount} reviews)`
+        : "No reviews yet";
+      const verifiedText = service.badgeState?.showBlueTick ? " · Verified" : "";
+
+      return `<li style="margin:0 0 8px 0;line-height:1.45;"><a href="${escapeHtml(serviceUrl)}" style="color:#1f2937;text-decoration:none;font-weight:600;">${escapeHtml(service.detectiveBusinessName || service.title || "Service Listing")}</a><span style="color:#6b7280;"> - ${escapeHtml(locationText || locationLabel)} - ${escapeHtml(ratingText)}${escapeHtml(verifiedText)}</span></li>`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const exploreLinks: string[] = [
+    `<a href="/search" style="color:#1d4ed8;text-decoration:none;">Browse all services</a>`,
+  ];
+
+  if (citySlug && stateSlug) {
+    exploreLinks.push(`<a href="/locations/${escapeHtml(categorySlug)}/${escapeHtml(countrySlug)}/${escapeHtml(stateSlug)}/" style="color:#1d4ed8;text-decoration:none;">More ${escapeHtml(categoryName.toLowerCase())} in ${escapeHtml(stateName)}</a>`);
+  }
+
+  if (stateSlug) {
+    exploreLinks.push(`<a href="/locations/${escapeHtml(categorySlug)}/${escapeHtml(countrySlug)}/" style="color:#1d4ed8;text-decoration:none;">More ${escapeHtml(categoryName.toLowerCase())} in ${escapeHtml(countryName)}</a>`);
+  }
+
+  const topLinksSection = topListingItems
+    ? `<h2 style="font-size:1.1rem;font-weight:700;margin:0 0 10px 0;">Top ${escapeHtml(categoryName)} Listings</h2><ul style="margin:0;padding-left:18px;">${topListingItems}</ul>`
+    : "";
+
+  return [
+    `<section id="seo-service-location-ssr" data-ssr-fragment="service-location" style="max-width:1040px;margin:16px auto 8px;padding:0 24px;">`,
+    `<nav aria-label="Breadcrumb" style="margin-bottom:10px;"><ol style="display:flex;gap:8px;flex-wrap:wrap;list-style:none;padding:0;margin:0;font-size:0.9rem;">${breadcrumbItems.join("")}</ol></nav>`,
+    `<h1 style="margin:0 0 8px 0;font-size:2rem;line-height:1.2;color:#111827;">${escapeHtml(input.h1)}</h1>`,
+    `<p style="margin:0 0 6px 0;color:#4b5563;line-height:1.5;">Discover ${escapeHtml(categoryName.toLowerCase())} providers in ${escapeHtml(locationLabel)}. Compare ratings, reviews, and verified professionals before making contact.</p>`,
+    `<p style="margin:0 0 14px 0;color:#6b7280;font-size:0.95rem;">${escapeHtml(String(input.totalCount))} listings found${verifiedCount > 0 ? ` · ${escapeHtml(String(verifiedCount))} verified providers` : ""}</p>`,
+    topLinksSection,
+    `<p style="margin:14px 0 0 0;display:flex;gap:14px;flex-wrap:wrap;font-size:0.95rem;">${exploreLinks.join("<span style=\"color:#9ca3af;\">|</span>")}</p>`,
+    `</section>`,
+  ].join("\n");
+}
+
 /**
  * Checks if a request path is a detective profile route
  */
@@ -2917,5 +3138,193 @@ export function injectDetectiveLocationAuthorityLink(
 
   // Fallback: inject right after </h1>
   return htmlContent.substring(0, h1CloseIndex + 5) + authorityLinkHtml + htmlContent.substring(h1CloseIndex + 5);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ARTICLE (NEWS) SSR FRAGMENT BUILDER
+// Produces lightweight crawlable HTML placed outside #root.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ArticleSsrInput {
+  slug: string;
+  title: string;
+  h1?: string;
+  category: string;
+  publishedAt: string;
+  /** Plain-text excerpt – first ~300 chars of content, stripped of HTML. */
+  excerpt: string;
+  thumbnail?: string | null;
+  detective?: {
+    businessName?: string | null;
+    slug?: string | null;
+    city?: string | null;
+    country?: string | null;
+  } | null;
+}
+
+export function buildArticleSsrFragment(input: ArticleSsrInput): string {
+  const { slug, title, h1, category, publishedAt, excerpt, thumbnail, detective } = input;
+
+  const displayH1 = escapeHtml(h1 || title);
+  const displayCategory = escapeHtml(category);
+  const canonicalUrl = `https://www.askdetectives.com/news/${encodeURIComponent(slug)}`;
+  const categoryUrl = `https://www.askdetectives.com/news`;
+
+  // Breadcrumb
+  const breadcrumbItems = [
+    `<li style="display:inline;"><a href="https://www.askdetectives.com/" style="color:#1d4ed8;text-decoration:none;">Home</a></li>`,
+    `<li style="display:inline;"><span style="margin:0 6px;color:#9ca3af;">/</span><a href="${canonicalUrl.replace(/\/news\/.*/, "/news")}" style="color:#1d4ed8;text-decoration:none;">News &amp; Cases</a></li>`,
+    `<li style="display:inline;"><span style="margin:0 6px;color:#9ca3af;">/</span><span style="color:#374151;">${displayH1}</span></li>`,
+  ];
+
+  // Format date safely
+  let formattedDate = "";
+  try {
+    formattedDate = new Intl.DateTimeFormat("en-US", {
+      year: "numeric", month: "long", day: "numeric", timeZone: "UTC",
+    }).format(new Date(publishedAt));
+  } catch {
+    formattedDate = publishedAt;
+  }
+
+  // Optional hero image
+  const heroHtml = thumbnail
+    ? `<div style="margin:12px 0;"><img src="${escapeHtml(thumbnail)}" alt="${displayH1}" width="800" height="320" style="width:100%;max-height:320px;object-fit:cover;border-radius:8px;" loading="eager" /></div>`
+    : "";
+
+  // Detective attribution
+  const detectiveHtml = detective?.businessName
+    ? `<span style="color:#374151;font-size:0.9rem;">By <a href="https://www.askdetectives.com${detective.slug ? `/detectives/${encodeURIComponent(detective.slug)}` : "/search"}" style="color:#1d4ed8;text-decoration:none;">${escapeHtml(detective.businessName)}</a></span>`
+    : `<span style="color:#374151;font-size:0.9rem;">By <a href="https://www.askdetectives.com/" style="color:#1d4ed8;text-decoration:none;">Ask Detectives</a></span>`;
+
+  const metaHtml = `<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:8px 0 12px 0;font-size:0.9rem;color:#6b7280;">
+    <span style="background:#e0e7ff;color:#3730a3;padding:2px 10px;border-radius:12px;font-size:0.85rem;">${displayCategory}</span>
+    <span>Published: <time datetime="${escapeHtml(publishedAt)}">${escapeHtml(formattedDate)}</time></span>
+    ${detectiveHtml}
+  </div>`;
+
+  // Excerpt paragraph
+  const excerptHtml = excerpt
+    ? `<p style="margin:0 0 16px 0;color:#374151;line-height:1.65;font-size:1rem;">${escapeHtml(excerpt.substring(0, 320))}${excerpt.length > 320 ? "…" : ""}</p>`
+    : "";
+
+  // Related links
+  const relatedLinksHtml = `<p style="margin:16px 0 0 0;font-size:0.95rem;display:flex;gap:14px;flex-wrap:wrap;">
+    <a href="/news" style="color:#1d4ed8;text-decoration:none;">Browse All Articles</a>
+    <span style="color:#9ca3af;">|</span>
+    <a href="/search" style="color:#1d4ed8;text-decoration:none;">Find a Detective</a>
+  </p>`;
+
+  return [
+    `<section id="seo-article-ssr" data-ssr-fragment="article" style="max-width:900px;margin:16px auto 8px;padding:0 24px;">`,
+    `<nav aria-label="Breadcrumb" style="margin-bottom:10px;"><ol style="display:flex;gap:0;flex-wrap:wrap;list-style:none;padding:0;margin:0;font-size:0.875rem;">${breadcrumbItems.join("")}</ol></nav>`,
+    `<h1 style="margin:0 0 4px 0;font-size:2rem;line-height:1.25;color:#111827;">${displayH1}</h1>`,
+    metaHtml,
+    heroHtml,
+    excerptHtml,
+    relatedLinksHtml,
+    `</section>`,
+  ].join("\n");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CMS PAGE SSR FRAGMENT BUILDER
+// Produces lightweight crawlable HTML placed outside #root.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CmsPageSsrInput {
+  slug: string;
+  title: string;
+  h1?: string;
+  metaTitle?: string;
+  metaDescription?: string;
+  /** ISO date string */
+  createdAt: string;
+  updatedAt?: string;
+  /** Plain-text excerpt – first ~300 chars of content, stripped of HTML blocks. */
+  excerpt: string;
+  bannerImage?: string | null;
+  author?: { name: string } | null;
+  category?: { name: string; slug: string } | null;
+  tags?: Array<{ name: string; slug: string }>;
+  /** Full canonical path, e.g. /blog/guides/my-slug */
+  canonicalPath: string;
+}
+
+export function buildCmsPageSsrFragment(input: CmsPageSsrInput): string {
+  const {
+    title, h1, createdAt, excerpt, bannerImage,
+    author, category, tags, canonicalPath,
+  } = input;
+
+  const displayH1 = escapeHtml(h1 || title);
+  const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+
+  // Breadcrumb
+  const breadcrumbItems: string[] = [
+    `<li style="display:inline;"><a href="https://www.askdetectives.com/" style="color:#1d4ed8;text-decoration:none;">Home</a></li>`,
+  ];
+  if (category) {
+    breadcrumbItems.push(
+      `<li style="display:inline;"><span style="margin:0 6px;color:#9ca3af;">/</span><a href="https://www.askdetectives.com/blog/category/${encodeURIComponent(category.slug)}" style="color:#1d4ed8;text-decoration:none;">${escapeHtml(category.name)}</a></li>`,
+    );
+  }
+  breadcrumbItems.push(
+    `<li style="display:inline;"><span style="margin:0 6px;color:#9ca3af;">/</span><span style="color:#374151;">${displayH1}</span></li>`,
+  );
+
+  // Format date
+  let formattedDate = "";
+  try {
+    formattedDate = new Intl.DateTimeFormat("en-US", {
+      year: "numeric", month: "long", day: "numeric", timeZone: "UTC",
+    }).format(new Date(createdAt));
+  } catch {
+    formattedDate = createdAt;
+  }
+
+  // Banner image
+  const heroHtml = bannerImage
+    ? `<div style="margin:12px 0;"><img src="${escapeHtml(bannerImage)}" alt="${displayH1}" width="800" height="320" style="width:100%;max-height:320px;object-fit:cover;border-radius:8px;" loading="eager" /></div>`
+    : "";
+
+  // Meta row
+  const metaParts: string[] = [];
+  if (category) {
+    metaParts.push(`<span style="background:#dcfce7;color:#166534;padding:2px 10px;border-radius:12px;font-size:0.85rem;">${escapeHtml(category.name)}</span>`);
+  }
+  metaParts.push(`<span>Published: <time datetime="${escapeHtml(createdAt)}">${escapeHtml(formattedDate)}</time></span>`);
+  if (author?.name) {
+    metaParts.push(`<span>By ${escapeHtml(author.name)}</span>`);
+  }
+  const metaHtml = `<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:8px 0 12px 0;font-size:0.9rem;color:#6b7280;">${metaParts.join("")}</div>`;
+
+  // Tags
+  const tagsHtml = tags && tags.length > 0
+    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px 0;">${tags.map(t => `<a href="https://www.askdetectives.com/blog/tag/${encodeURIComponent(t.slug)}" style="display:inline-block;padding:2px 10px;background:#f3f4f6;color:#374151;border-radius:12px;font-size:0.8rem;text-decoration:none;">#${escapeHtml(t.name)}</a>`).join("")}</div>`
+    : "";
+
+  // Excerpt
+  const excerptHtml = excerpt
+    ? `<p style="margin:0 0 16px 0;color:#374151;line-height:1.65;font-size:1rem;">${escapeHtml(excerpt.substring(0, 320))}${excerpt.length > 320 ? "…" : ""}</p>`
+    : "";
+
+  // Footer links
+  const footerLinksHtml = `<p style="margin:16px 0 0 0;font-size:0.95rem;display:flex;gap:14px;flex-wrap:wrap;">
+    ${category ? `<a href="/blog/category/${encodeURIComponent(category.slug)}" style="color:#1d4ed8;text-decoration:none;">More from ${escapeHtml(category.name)}</a><span style="color:#9ca3af;">|</span>` : ""}
+    <a href="/search" style="color:#1d4ed8;text-decoration:none;">Browse All Pages</a>
+  </p>`;
+
+  return [
+    `<section id="seo-cms-page-ssr" data-ssr-fragment="cms-page" style="max-width:900px;margin:16px auto 8px;padding:0 24px;">`,
+    `<nav aria-label="Breadcrumb" style="margin-bottom:10px;"><ol style="display:flex;gap:0;flex-wrap:wrap;list-style:none;padding:0;margin:0;font-size:0.875rem;">${breadcrumbItems.join("")}</ol></nav>`,
+    `<h1 style="margin:0 0 4px 0;font-size:2rem;line-height:1.25;color:#111827;">${displayH1}</h1>`,
+    metaHtml,
+    heroHtml,
+    tagsHtml,
+    excerptHtml,
+    footerLinksHtml,
+    `</section>`,
+  ].join("\n");
 }
 
