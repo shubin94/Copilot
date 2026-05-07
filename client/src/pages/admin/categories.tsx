@@ -17,6 +17,10 @@ interface Category {
   updatedAt: string;
 }
 
+interface CategoryListResponse {
+  categories: Category[];
+}
+
 const categoryDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
   year: "numeric",
@@ -34,6 +38,46 @@ export default function CategoriesAdmin() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [formData, setFormData] = useState({ name: "", parentId: null as string | null });
   const [error, setError] = useState<string>("");
+
+  const mergeCategoryIntoCaches = (savedCategory: Category) => {
+    const categoryQueries = queryClient.getQueriesData<CategoryListResponse>({
+      queryKey: ["/api/admin/categories"],
+    });
+
+    for (const [queryKey, existingData] of categoryQueries) {
+      if (!existingData?.categories) continue;
+
+      const queryStatusFilter = typeof queryKey[1] === "string" ? queryKey[1] : "";
+      const shouldAppearInThisQuery = !queryStatusFilter || savedCategory.status === queryStatusFilter;
+
+      queryClient.setQueryData<CategoryListResponse>(queryKey, (current) => {
+        if (!current?.categories) return current;
+
+        const withoutCurrentCategory = current.categories.filter((category) => category.id !== savedCategory.id);
+
+        if (!shouldAppearInThisQuery) {
+          return { categories: withoutCurrentCategory };
+        }
+
+        return { categories: [savedCategory, ...withoutCurrentCategory] };
+      });
+    }
+  };
+
+  const removeCategoryFromCaches = (deletedCategoryId: string) => {
+    const categoryQueries = queryClient.getQueriesData<CategoryListResponse>({
+      queryKey: ["/api/admin/categories"],
+    });
+
+    for (const [queryKey] of categoryQueries) {
+      queryClient.setQueryData<CategoryListResponse>(queryKey, (current) => {
+        if (!current?.categories) return current;
+        return {
+          categories: current.categories.filter((category) => category.id !== deletedCategoryId),
+        };
+      });
+    }
+  };
 
   // Redirect if not authenticated or not admin
   useEffect(() => {
@@ -66,6 +110,9 @@ export default function CategoriesAdmin() {
       api.get<{ categories: Category[] }>(
         `/api/admin/categories${statusFilter ? `?status=${statusFilter}` : ""}`
       ),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
   });
 
   const categories: Category[] = categoriesData?.categories || [];
@@ -82,11 +129,9 @@ export default function CategoriesAdmin() {
         throw new Error(err?.message || "Failed to save category");
       }
     },
-    onSuccess: () => {
-      // Invalidate all category queries regardless of status filter
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/categories"] });
-      // Refetch the current query with its status filter
-      queryClient.refetchQueries({ queryKey: ["/api/admin/categories", statusFilter] });
+    onSuccess: async (response) => {
+      mergeCategoryIntoCaches(response.category);
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/categories"] });
       setShowModal(false);
       setFormData({ name: "", parentId: null });
       setEditingId(null);
@@ -106,11 +151,9 @@ export default function CategoriesAdmin() {
         throw new Error(err?.message || "Failed to delete category");
       }
     },
-    onSuccess: () => {
-      // Invalidate all category queries regardless of status filter
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/categories"] });
-      // Refetch the current query with its status filter
-      queryClient.refetchQueries({ queryKey: ["/api/admin/categories", statusFilter] });
+    onSuccess: async (_response, deletedCategoryId) => {
+      removeCategoryFromCaches(deletedCategoryId);
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/categories"] });
       setError("");
     },
     onError: (error: any) => {

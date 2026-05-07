@@ -31,13 +31,6 @@ CREATE EXTENSION IF NOT EXISTS "index_advisor" WITH SCHEMA "extensions";
 
 
 
-CREATE EXTENSION IF NOT EXISTS "pg_graphql" WITH SCHEMA "graphql";
-
-
-
-
-
-
 CREATE EXTENSION IF NOT EXISTS "pg_stat_statements" WITH SCHEMA "extensions";
 
 
@@ -470,6 +463,37 @@ CREATE TABLE IF NOT EXISTS "public"."detective_applications" (
 ALTER TABLE "public"."detective_applications" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."detective_location_seo" (
+    "id" integer NOT NULL,
+    "country_slug" character varying(64) NOT NULL,
+    "city_slug" character varying(64),
+    "h1" character varying(255),
+    "meta_title" character varying(255),
+    "meta_description" "text",
+    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    "state_slug" "text"
+);
+
+
+ALTER TABLE "public"."detective_location_seo" OWNER TO "postgres";
+
+
+CREATE SEQUENCE IF NOT EXISTS "public"."detective_location_seo_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE "public"."detective_location_seo_id_seq" OWNER TO "postgres";
+
+
+ALTER SEQUENCE "public"."detective_location_seo_id_seq" OWNED BY "public"."detective_location_seo"."id";
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."detective_snippets" (
     "id" character varying(36) DEFAULT "gen_random_uuid"() NOT NULL,
     "name" "text" NOT NULL,
@@ -479,7 +503,9 @@ CREATE TABLE IF NOT EXISTS "public"."detective_snippets" (
     "category" "text" NOT NULL,
     "limit" integer DEFAULT 4 NOT NULL,
     "created_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "snippet_type" "text" DEFAULT 'service_card_snippet'::"text" NOT NULL,
+    CONSTRAINT "detective_snippets_snippet_type_check" CHECK (("snippet_type" = ANY (ARRAY['service_card_snippet'::"text", 'detectives_card_snippet'::"text"])))
 );
 
 
@@ -554,7 +580,9 @@ CREATE TABLE IF NOT EXISTS "public"."detectives" (
     "slug" "text",
     "city_id" integer NOT NULL,
     "state_id" integer NOT NULL,
-    "country_id" integer NOT NULL
+    "country_id" integer NOT NULL,
+    "phone_country_code" character varying(10),
+    "social_links" "jsonb"
 );
 
 
@@ -617,7 +645,8 @@ CREATE TABLE IF NOT EXISTS "public"."location_seo_overrides" (
     "meta_description" "text",
     "h1" "text",
     "created_at" timestamp without time zone DEFAULT "now"(),
-    "updated_at" timestamp without time zone DEFAULT "now"()
+    "updated_at" timestamp without time zone DEFAULT "now"(),
+    CONSTRAINT "location_seo_overrides_entity_type_check" CHECK (("entity_type" = ANY (ARRAY['detective'::"text", 'country'::"text", 'state'::"text", 'city'::"text"])))
 );
 
 
@@ -666,6 +695,7 @@ CREATE TABLE IF NOT EXISTS "public"."pages" (
     "banner_image" "text",
     "meta_title" character varying(255),
     "meta_description" "text",
+    "h1" "text",
     CONSTRAINT "pages_status_check" CHECK ((("status")::"text" = ANY ((ARRAY['published'::character varying, 'draft'::character varying, 'archived'::character varying])::"text"[])))
 );
 
@@ -849,6 +879,40 @@ CREATE TABLE IF NOT EXISTS "public"."service_categories" (
 ALTER TABLE "public"."service_categories" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."service_location_seo" (
+    "id" integer NOT NULL,
+    "service_slug" character varying(64) NOT NULL,
+    "country_slug" character varying(64) NOT NULL,
+    "city_slug" character varying(64),
+    "area_slug" character varying(64),
+    "h1" character varying(255),
+    "meta_title" character varying(255),
+    "meta_description" "text",
+    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    "state_slug" "text",
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."service_location_seo" OWNER TO "postgres";
+
+
+CREATE SEQUENCE IF NOT EXISTS "public"."service_location_seo_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE "public"."service_location_seo_id_seq" OWNER TO "postgres";
+
+
+ALTER SEQUENCE "public"."service_location_seo_id_seq" OWNED BY "public"."service_location_seo"."id";
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."service_packages" (
     "id" character varying DEFAULT "gen_random_uuid"() NOT NULL,
     "service_id" character varying NOT NULL,
@@ -1030,7 +1094,15 @@ ALTER TABLE ONLY "public"."countries" ALTER COLUMN "id" SET DEFAULT "nextval"('"
 
 
 
+ALTER TABLE ONLY "public"."detective_location_seo" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."detective_location_seo_id_seq"'::"regclass");
+
+
+
 ALTER TABLE ONLY "public"."payment_gateways" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."payment_gateways_id_seq"'::"regclass");
+
+
+
+ALTER TABLE ONLY "public"."service_location_seo" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."service_location_seo_id_seq"'::"regclass");
 
 
 
@@ -1139,6 +1211,11 @@ ALTER TABLE ONLY "public"."detective_applications"
 
 ALTER TABLE ONLY "public"."detective_applications"
     ADD CONSTRAINT "detective_applications_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."detective_location_seo"
+    ADD CONSTRAINT "detective_location_seo_pkey" PRIMARY KEY ("id");
 
 
 
@@ -1259,6 +1336,11 @@ ALTER TABLE ONLY "public"."service_categories"
 
 ALTER TABLE ONLY "public"."service_categories"
     ADD CONSTRAINT "service_categories_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."service_location_seo"
+    ADD CONSTRAINT "service_location_seo_pkey" PRIMARY KEY ("id");
 
 
 
@@ -1401,6 +1483,10 @@ CREATE INDEX "detective_applications_status_idx" ON "public"."detective_applicat
 
 
 
+CREATE UNIQUE INDEX "detective_location_seo_slugs_idx" ON "public"."detective_location_seo" USING "btree" ("country_slug", COALESCE("state_slug", ''::"text"), COALESCE("city_slug", ''::character varying));
+
+
+
 CREATE INDEX "detective_snippets_category_idx" ON "public"."detective_snippets" USING "btree" ("category");
 
 
@@ -1426,6 +1512,10 @@ CREATE INDEX "detectives_claim_completed_at_idx" ON "public"."detectives" USING 
 
 
 CREATE INDEX "detectives_country_idx" ON "public"."detectives" USING "btree" ("country");
+
+
+
+CREATE INDEX "detectives_location_composite_idx" ON "public"."detectives" USING "btree" ("country_id", "state_id", "city_id");
 
 
 
@@ -1462,6 +1552,10 @@ CREATE INDEX "email_templates_key_idx" ON "public"."email_templates" USING "btre
 
 
 CREATE INDEX "favorites_user_service_idx" ON "public"."favorites" USING "btree" ("user_id", "service_id");
+
+
+
+CREATE INDEX "idx_access_pages_key" ON "public"."access_pages" USING "btree" ("key") WHERE ("is_active" = true);
 
 
 
@@ -1561,6 +1655,10 @@ CREATE INDEX "idx_detectives_subscription_package_id" ON "public"."detectives" U
 
 
 
+CREATE INDEX "idx_detectives_user_id" ON "public"."detectives" USING "btree" ("user_id");
+
+
+
 CREATE INDEX "idx_homepage_country" ON "public"."homepage_featured_services" USING "btree" ("country");
 
 
@@ -1593,11 +1691,23 @@ CREATE INDEX "idx_pages_status" ON "public"."pages" USING "btree" ("status");
 
 
 
+CREATE INDEX "idx_pages_status_created" ON "public"."pages" USING "btree" ("status", "created_at" DESC) WHERE (("status")::"text" = 'published'::"text");
+
+
+
+CREATE INDEX "idx_payment_orders_detective_status_created" ON "public"."payment_orders" USING "btree" ("detective_id", "status", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_payment_orders_paypal_order_id" ON "public"."payment_orders" USING "btree" ("paypal_order_id") WHERE ("paypal_order_id" IS NOT NULL);
 
 
 
 CREATE INDEX "idx_payment_orders_provider" ON "public"."payment_orders" USING "btree" ("provider") WHERE ("provider" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_payment_orders_status_created" ON "public"."payment_orders" USING "btree" ("status", "created_at" DESC);
 
 
 
@@ -1613,6 +1723,14 @@ CREATE INDEX "idx_reviews_service_published" ON "public"."reviews" USING "btree"
 
 
 
+CREATE INDEX "idx_reviews_service_published_comment" ON "public"."reviews" USING "btree" ("service_id", "rating" DESC, "created_at" DESC) WHERE (("is_published" = true) AND ("comment" IS NOT NULL));
+
+
+
+CREATE INDEX "idx_reviews_service_published_rating" ON "public"."reviews" USING "btree" ("service_id", "is_published", "rating") WHERE (("is_published" = true) AND ("rating" IS NOT NULL));
+
+
+
 CREATE INDEX "idx_services_active_popular_with_images" ON "public"."services" USING "btree" ("order_count" DESC) WHERE (("is_active" = true) AND ("images" IS NOT NULL) AND ("array_length"("images", 1) > 0));
 
 
@@ -1622,6 +1740,10 @@ CREATE INDEX "idx_services_category_active" ON "public"."services" USING "btree"
 
 
 CREATE INDEX "idx_services_detective_active" ON "public"."services" USING "btree" ("detective_id", "is_active");
+
+
+
+CREATE INDEX "idx_services_detective_active_order" ON "public"."services" USING "btree" ("detective_id", "is_active", "order_count" DESC);
 
 
 
@@ -1666,6 +1788,10 @@ CREATE INDEX "idx_tags_slug" ON "public"."tags" USING "btree" ("slug");
 
 
 CREATE INDEX "idx_tags_status" ON "public"."tags" USING "btree" ("status");
+
+
+
+CREATE INDEX "idx_user_pages_user_page" ON "public"."user_pages" USING "btree" ("user_id", "page_id");
 
 
 
@@ -1757,6 +1883,10 @@ CREATE INDEX "service_categories_name_idx" ON "public"."service_categories" USIN
 
 
 
+CREATE UNIQUE INDEX "service_location_seo_slugs_idx" ON "public"."service_location_seo" USING "btree" ("service_slug", "country_slug", COALESCE("state_slug", ''::"text"), COALESCE("city_slug", ''::character varying));
+
+
+
 CREATE INDEX "service_packages_service_id_idx" ON "public"."service_packages" USING "btree" ("service_id");
 
 
@@ -1766,6 +1896,10 @@ CREATE INDEX "services_active_idx" ON "public"."services" USING "btree" ("is_act
 
 
 CREATE INDEX "services_category_idx" ON "public"."services" USING "btree" ("category");
+
+
+
+CREATE INDEX "services_detective_active_idx" ON "public"."services" USING "btree" ("detective_id", "is_active");
 
 
 
@@ -2263,9 +2397,6 @@ GRANT USAGE ON SCHEMA "public" TO "service_role";
 
 
 
-
-
-
 GRANT ALL ON FUNCTION "public"."detectives_iso_enforce"() TO "anon";
 GRANT ALL ON FUNCTION "public"."detectives_iso_enforce"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."detectives_iso_enforce"() TO "service_role";
@@ -2401,6 +2532,18 @@ GRANT ALL ON TABLE "public"."detective_applications" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."detective_location_seo" TO "anon";
+GRANT ALL ON TABLE "public"."detective_location_seo" TO "authenticated";
+GRANT ALL ON TABLE "public"."detective_location_seo" TO "service_role";
+
+
+
+GRANT ALL ON SEQUENCE "public"."detective_location_seo_id_seq" TO "anon";
+GRANT ALL ON SEQUENCE "public"."detective_location_seo_id_seq" TO "authenticated";
+GRANT ALL ON SEQUENCE "public"."detective_location_seo_id_seq" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."detective_snippets" TO "anon";
 GRANT ALL ON TABLE "public"."detective_snippets" TO "authenticated";
 GRANT ALL ON TABLE "public"."detective_snippets" TO "service_role";
@@ -2518,6 +2661,18 @@ GRANT ALL ON TABLE "public"."search_stats" TO "service_role";
 GRANT ALL ON TABLE "public"."service_categories" TO "anon";
 GRANT ALL ON TABLE "public"."service_categories" TO "authenticated";
 GRANT ALL ON TABLE "public"."service_categories" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."service_location_seo" TO "anon";
+GRANT ALL ON TABLE "public"."service_location_seo" TO "authenticated";
+GRANT ALL ON TABLE "public"."service_location_seo" TO "service_role";
+
+
+
+GRANT ALL ON SEQUENCE "public"."service_location_seo_id_seq" TO "anon";
+GRANT ALL ON SEQUENCE "public"."service_location_seo_id_seq" TO "authenticated";
+GRANT ALL ON SEQUENCE "public"."service_location_seo_id_seq" TO "service_role";
 
 
 
@@ -2823,9 +2978,5 @@ using (((bucket_id = 'site-assets'::text) AND (EXISTS ( SELECT 1
    FROM public.users
   WHERE (((users.id)::text = (auth.uid())::text) AND (users.role = ANY (ARRAY['admin'::public.user_role, 'employee'::public.user_role])))))));
 
-
-CREATE TRIGGER protect_buckets_delete BEFORE DELETE ON storage.buckets FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete();
-
-CREATE TRIGGER protect_objects_delete BEFORE DELETE ON storage.objects FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete();
 
 

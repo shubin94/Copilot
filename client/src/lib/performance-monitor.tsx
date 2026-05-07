@@ -29,6 +29,11 @@ const CWV_BUDGETS = {
   cls: 0.1,
 };
 
+interface PerformanceMonitoringBootstrapOptions {
+  enabled?: boolean;
+  reportOnUnload?: boolean;
+}
+
 export class PerformanceMonitor {
   private static instance: PerformanceMonitor;
   private metrics: PerformanceMetrics = {};
@@ -280,7 +285,7 @@ export class PerformanceMonitor {
    * Log metrics to console (development)
    */
   logMetrics() {
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       const summary = this.getSummary();
       console.log('Performance Metrics:', {
         ...summary,
@@ -371,13 +376,34 @@ export async function measureAsync<T>(
   }
 }
 
-// Auto-report metrics on page unload
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    const monitor = PerformanceMonitor.getInstance();
-    monitor.report();
+export function initializePerformanceMonitoring(options: PerformanceMonitoringBootstrapOptions = {}) {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  const { enabled = true, reportOnUnload = false } = options;
+
+  if (!enabled) {
+    return () => {};
+  }
+
+  const monitor = PerformanceMonitor.getInstance();
+  let unloadHandler: (() => void) | null = null;
+
+  if (reportOnUnload) {
+    unloadHandler = () => {
+      monitor.report();
+      monitor.cleanup();
+    };
+    window.addEventListener('beforeunload', unloadHandler);
+  }
+
+  return () => {
+    if (unloadHandler) {
+      window.removeEventListener('beforeunload', unloadHandler);
+    }
     monitor.cleanup();
-  });
+  };
 }
 
 export default PerformanceMonitor;

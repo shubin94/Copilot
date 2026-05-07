@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useCurrency, COUNTRIES } from "@/lib/currency-context";
 import {
   Dialog,
@@ -14,20 +14,25 @@ import { Search, Info } from "lucide-react";
 export default function CountrySelectorPopup() {
   const { showCountrySelector, setShowCountrySelector, selectedCountry, setCountry, showUnsupportedCurrencyNotice } = useCurrency();
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredCountries, setFilteredCountries] = useState(COUNTRIES);
 
-  // Filter countries based on search
-  useEffect(() => {
+  const filteredCountries = useMemo(() => {
+    if (!showCountrySelector) {
+      return COUNTRIES;
+    }
+
     const query = searchQuery.toLowerCase();
-    const filtered = COUNTRIES.filter(
+    if (!query) {
+      return COUNTRIES;
+    }
+
+    return COUNTRIES.filter(
       (country) =>
         country.name.toLowerCase().includes(query) ||
         country.code.toLowerCase().includes(query) ||
         country.currency.toLowerCase().includes(query) ||
         country.currencyName.toLowerCase().includes(query)
     );
-    setFilteredCountries(filtered);
-  }, [searchQuery]);
+  }, [searchQuery, showCountrySelector]);
 
   const handleSelectCountry = (country: typeof COUNTRIES[0]) => {
     setCountry(country);

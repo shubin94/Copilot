@@ -7846,33 +7846,42 @@ Content-Signal: index=public; train=deny
   // Route: GET /api/services/:category/:country/:state/:city/
   // Category slug is resolved dynamically from service_categories table — NOT hardcoded.
 
-  // In-memory cache: slug → { name, expires }
-  const _categorySlugCache = new Map<string, { name: string; expires: number }>();
+  // In-memory cache: slug → { canonical slug + category name, expires }
+  const _categorySlugCache = new Map<string, { name: string; canonicalSlug: string; expires: number }>();
 
-  async function resolveCategoryBySlug(slug: string): Promise<string | null> {
+  async function resolveCategoryBySlug(slug: string): Promise<{ name: string; canonicalSlug: string } | null> {
     const now = Date.now();
     const cached = _categorySlugCache.get(slug);
-    if (cached && now < cached.expires) return cached.name;
+    if (cached && now < cached.expires) {
+      return { name: cached.name, canonicalSlug: cached.canonicalSlug };
+    }
 
     // Refresh cache from DB
     _categorySlugCache.clear();
     const allCats = await storage.getAllServiceCategories(false); // include inactive so slugs resolve
     for (const cat of allCats) {
+      const canonicalSlug = generateSlug(cat.name);
       // Build multiple slug variants for each category name so URLs remain flexible
       const variants = new Set([
-        generateSlug(cat.name),                                   // 'background-check'
+        canonicalSlug,                                            // 'background-check'
         cat.name.toLowerCase().replace(/\s+/g, '-'),              // same via simple replace
         cat.name.toLowerCase().replace(/\s+/g, '-') + 's',       // plural: 'background-checks'
-        generateSlug(cat.name) + 's',                             // generateSlug + plural
+        canonicalSlug + 's',                                      // generateSlug + plural
         cat.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-'), // extra normalize
       ]);
       for (const v of variants) {
         if (v && !_categorySlugCache.has(v)) {
-          _categorySlugCache.set(v, { name: cat.name, expires: now + 10 * 60 * 1000 }); // 10 min cache
+          _categorySlugCache.set(v, {
+            name: cat.name,
+            canonicalSlug,
+            expires: now + 10 * 60 * 1000,
+          }); // 10 min cache
         }
       }
     }
-    return _categorySlugCache.get(slug)?.name || null;
+    const resolved = _categorySlugCache.get(slug);
+    if (!resolved) return null;
+    return { name: resolved.name, canonicalSlug: resolved.canonicalSlug };
   }
 
   // Register all 3 levels pointing to the same handler
@@ -7880,11 +7889,14 @@ Content-Signal: index=public; train=deny
     try {
       const rawParams = req.params as { category: string; country: string; state?: string; city?: string };
       const categorySlug = rawParams.category?.toLowerCase();
-      const dbCategory = await resolveCategoryBySlug(categorySlug);
+      const resolvedCategory = await resolveCategoryBySlug(categorySlug);
 
-      if (!dbCategory) {
+      if (!resolvedCategory) {
         return res.status(404).json({ error: 'Unknown service category', code: 'INVALID_CATEGORY' });
       }
+
+      const dbCategory = resolvedCategory.name;
+      const canonicalCategorySlug = resolvedCategory.canonicalSlug;
 
       const countrySlug = normalizeRouteSlugParam(rawParams.country);
       const stateSlug = rawParams.state ? normalizeRouteSlugParam(rawParams.state) : undefined;
@@ -7946,7 +7958,7 @@ Content-Signal: index=public; train=deny
 
       // Fetch custom SEO from service_location_seo table
       const seoConditions: any[] = [
-        eq(service_location_seo.service_slug, categorySlug),
+        eq(service_location_seo.service_slug, canonicalCategorySlug),
         eq(service_location_seo.country_slug, countrySlug),
         stateSlug ? eq(service_location_seo.state_slug, stateSlug) : sql`${service_location_seo.state_slug} IS NULL`,
         citySlug ? eq(service_location_seo.city_slug, citySlug) : sql`${service_location_seo.city_slug} IS NULL`,
@@ -7974,7 +7986,7 @@ Content-Signal: index=public; train=deny
           state: stateRow?.name || null,
           city: cityRow?.name || null,
           category: dbCategory,
-          categorySlug,
+          categorySlug: canonicalCategorySlug,
           total: maskedServices.length,
           hasMore: maskedServices.length === limitNum,
           offset: offsetNum,
@@ -8016,15 +8028,28 @@ Content-Signal: index=public; train=deny
       const { activeOnly } = req.query;
       const isActiveOnly = activeOnly === "true";
       const cacheKey = `service-categories:${isActiveOnly}`;
-      const cached = cache.get<any[]>(cacheKey);
-      if (cached) {
-        res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-        return sendCachedJson(req, res, { categories: cached });
+
+      // activeOnly=false is used by admin management screens and should always be fresh.
+      if (isActiveOnly) {
+        const cached = cache.get<any[]>(cacheKey);
+        if (cached) {
+          res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+          return sendCachedJson(req, res, { categories: cached });
+        }
       }
+
       const categories = await storage.getAllServiceCategories(isActiveOnly);
-      cache.set(cacheKey, categories, 3600);
-      res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-      sendCachedJson(req, res, { categories });
+
+      if (isActiveOnly) {
+        cache.set(cacheKey, categories, 3600);
+        res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+        return sendCachedJson(req, res, { categories });
+      }
+
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      res.set("Pragma", "no-cache");
+      res.set("Expires", "0");
+      return res.json({ categories });
     } catch (error) {
       console.error("Get service categories error:", error);
       res.status(500).json({ error: "Failed to get service categories" });
@@ -8081,6 +8106,10 @@ Content-Signal: index=public; train=deny
     try {
       const validatedData = insertServiceCategorySchema.parse(req.body);
       const category = await storage.createServiceCategory(validatedData);
+
+      cache.del("service-categories:true");
+      cache.del("service-categories:false");
+
       res.status(201).json({ category });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -8224,6 +8253,9 @@ Content-Signal: index=public; train=deny
       }
       
       const updatedCategory = await storage.updateServiceCategory(req.params.id, validatedData);
+
+      cache.del("service-categories:true");
+      cache.del("service-categories:false");
       
       // Invalidate all service-related caches
       cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => { cache.del(k); });
@@ -8253,6 +8285,9 @@ Content-Signal: index=public; train=deny
       }
 
       await storage.deleteServiceCategory(req.params.id);
+
+      cache.del("service-categories:true");
+      cache.del("service-categories:false");
       
       // Invalidate all service-related caches
       cache.keys().filter((k) => k.startsWith("services:")).forEach((k) => { cache.del(k); });

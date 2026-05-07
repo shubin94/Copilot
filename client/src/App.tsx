@@ -1,22 +1,144 @@
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { Suspense, lazy, useEffect, type ComponentType } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyProvider } from "./lib/currency-context";
 import { UserProvider } from "./lib/user-context";
 import ScrollToTop from "@/components/scroll-to-top";
-import { SmokeTester } from "@/components/dev/smoke-tester";
-import CountrySelectorPopup from "@/components/modals/country-selector-popup";
 import { initializeAuthSession } from "./lib/authSessionManager";
 import { AdminRoute } from "@/components/admin-route";
 import { EmployeeRoute } from "@/components/employee-route";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { NetworkErrorHandler } from "@/components/network-error-handler";
+import { useLocation } from "wouter";
 
 import { KeepAlive } from "@/components/KeepAlive";
+
+const LazyToaster = lazy(() =>
+  import("@/components/ui/toaster").then((module) => ({ default: module.Toaster }))
+);
+
+const LazyCountrySelectorPopup = lazy(() =>
+  import("@/components/modals/country-selector-popup").then((module) => ({ default: module.default }))
+);
+
+const LazyNetworkErrorHandler = lazy(() =>
+  import("@/components/network-error-handler").then((module) => ({ default: module.NetworkErrorHandler }))
+);
+
+type TooltipProviderComponent = ComponentType<{ children: ReactNode }>;
+
+function isPublicSeoRoute(pathname: string): boolean {
+  if (pathname === "/") {
+    return true;
+  }
+
+  const seoPrefixPatterns = [
+    /^\/detectives(\/|$)/,
+    /^\/locations(\/|$)/,
+    /^\/news(\/|$)/,
+    /^\/blog(\/|$)/,
+    /^\/category(\/|$)/,
+  ];
+
+  if (seoPrefixPatterns.some((pattern) => pattern.test(pathname))) {
+    return true;
+  }
+
+  const seoStaticRoutes = new Set([
+    "/about",
+    "/privacy",
+    "/terms",
+    "/packages",
+    "/support",
+    "/contact",
+    "/categories",
+    "/locations/countries",
+    "/locations/states",
+    "/locations/cities",
+  ]);
+
+  return seoStaticRoutes.has(pathname);
+}
+
+function useDeferredGlobalUiMount(pathname: string): boolean {
+  const publicSeoRoute = isPublicSeoRoute(pathname);
+  const [ready, setReady] = useState(!publicSeoRoute);
+
+  useEffect(() => {
+    if (!publicSeoRoute) {
+      setReady(true);
+      return;
+    }
+
+    setReady(false);
+    let active = true;
+
+    const enable = () => {
+      if (active) {
+        setReady(true);
+      }
+    };
+
+    let idleId: number | null = null;
+    let idleCancel: (() => void) | null = null;
+
+    if (typeof window.requestIdleCallback === "function") {
+      idleId = window.requestIdleCallback(enable, { timeout: 2000 });
+      idleCancel = () => {
+        if (idleId !== null) {
+          window.cancelIdleCallback(idleId);
+        }
+      };
+    } else {
+      const timeoutId = window.setTimeout(enable, 0);
+      idleCancel = () => {
+        window.clearTimeout(timeoutId);
+      };
+    }
+
+    window.addEventListener("pointerdown", enable, { once: true, passive: true });
+    window.addEventListener("keydown", enable, { once: true });
+    window.addEventListener("touchstart", enable, { once: true, passive: true });
+
+    return () => {
+      active = false;
+      idleCancel?.();
+      window.removeEventListener("pointerdown", enable);
+      window.removeEventListener("keydown", enable);
+      window.removeEventListener("touchstart", enable);
+    };
+  }, [publicSeoRoute, pathname]);
+
+  return ready;
+}
+
+function DevSmokeTester() {
+  const [Component, setComponent] = useState<ComponentType | null>(null);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+
+    let mounted = true;
+    import("@/components/dev/smoke-tester").then((module) => {
+      if (mounted) {
+        setComponent(() => module.SmokeTester);
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (!Component) {
+    return null;
+  }
+
+  return <Component />;
+}
 
 // Lazy load pages to improve initial load performance
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -140,7 +262,6 @@ function Router() {
   return (
     <>
       <ScrollToTop />
-      <CountrySelectorPopup />
       <Suspense fallback={<PageSkeleton />}>
         <Switch>
           {/* Public Routes */}
@@ -271,9 +392,33 @@ function Router() {
 }
 
 function App() {
+  const [location] = useLocation();
+  const [TooltipProviderComponent, setTooltipProviderComponent] = useState<TooltipProviderComponent | null>(null);
+  const shouldMountGlobalUi = useDeferredGlobalUiMount(location);
+
+  useEffect(() => {
+    if (!shouldMountGlobalUi) {
+      setTooltipProviderComponent(null);
+      return;
+    }
+
+    let mounted = true;
+    import("@/components/ui/tooltip").then((module) => {
+      if (mounted) {
+        setTooltipProviderComponent(() => module.TooltipProvider as TooltipProviderComponent);
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [shouldMountGlobalUi]);
+
   // Initialize auth session management on app mount (ONCE)
   useEffect(() => {
-    console.log('[APP] Initializing auth session management...');
+    if (import.meta.env.DEV) {
+      console.log('[APP] Initializing auth session management...');
+    }
     
     const cleanup = initializeAuthSession({
       enableIdleTimeout: false, // Disable idle timeout (optional feature)
@@ -284,6 +429,28 @@ function App() {
     
     return cleanup;
   }, []);
+
+  const appContent = useMemo(() => (
+    <>
+      {shouldMountGlobalUi && (
+        <Suspense fallback={null}>
+          <LazyToaster />
+          <LazyCountrySelectorPopup />
+
+          {/* Network Error Handler: Auto-detects offline/connectivity issues */}
+          <LazyNetworkErrorHandler
+            onRetry={() => {
+              // Refetch queries when connection is restored
+              queryClient.refetchQueries();
+            }}
+            dismissable={true}
+          />
+        </Suspense>
+      )}
+
+      <Router />
+    </>
+  ), [shouldMountGlobalUi]);
 
   return (
     <ErrorBoundary
@@ -299,21 +466,14 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <UserProvider>
           <CurrencyProvider>
-            <TooltipProvider>
-              <Toaster />
-              <SmokeTester />
-              
-              {/* Network Error Handler: Auto-detects offline/connectivity issues */}
-              <NetworkErrorHandler
-                onRetry={() => {
-                  // Refetch queries when connection is restored
-                  queryClient.refetchQueries();
-                }}
-                dismissable={true}
-              />
-              
-              <Router />
-            </TooltipProvider>
+            <DevSmokeTester />
+            {TooltipProviderComponent ? (
+              <TooltipProviderComponent>
+                {appContent}
+              </TooltipProviderComponent>
+            ) : (
+              appContent
+            )}
           </CurrencyProvider>
         </UserProvider>
       </QueryClientProvider>

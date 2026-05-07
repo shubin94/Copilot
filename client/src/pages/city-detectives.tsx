@@ -567,13 +567,18 @@ export default function CityDetectivesPage() {
       : undefined
   };
 
+  const robotsDirective = !loading && detectives.length === 0
+    ? "noindex, follow"
+    : "index, follow";
+
   return (
     <div className="min-h-screen bg-white">
       <SEO 
         title={seoTitle}
         description={seoDescription}
         canonical={canonicalUrl}
-        robots="index, follow"
+        robots={robotsDirective}
+        respectSsrRobots={true}
         schema={allSchemas}
         breadcrumbs={breadcrumbs}
         pagination={pagination}

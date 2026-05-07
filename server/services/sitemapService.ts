@@ -225,16 +225,19 @@ async function generateStatesSitemap(page: number = 1): Promise<string> {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
 
-  // Include all states, not just those with active detectives
+  // Include only states that currently have at least one active detective
   const result = await pool.query(
     `
     SELECT c.name as country_name,
            c.slug as country_slug,
            s.name as state_name,
            s.slug as state_slug,
-           s.created_at as last_mod
+           MAX(d.updated_at) as last_mod
     FROM states s
     INNER JOIN countries c ON s.country_id = c.id
+    INNER JOIN detectives d ON d.state_id = s.id
+    WHERE d.status = 'active'
+    GROUP BY c.name, c.slug, s.name, s.slug
     ORDER BY c.name, s.name
     LIMIT $1 OFFSET $2
   `,
@@ -273,7 +276,7 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 `;
 
-  // Include all cities, not just those with active detectives
+  // Include only cities that currently have at least one active detective
   const result = await pool.query(
     `
     SELECT c.name as country_name,
@@ -282,10 +285,13 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
            s.slug as state_slug,
            ci.name as city_name,
            ci.slug as city_slug,
-           ci.created_at as last_mod
+           MAX(d.updated_at) as last_mod
     FROM cities ci
     INNER JOIN states s ON ci.state_id = s.id
     INNER JOIN countries c ON s.country_id = c.id
+    INNER JOIN detectives d ON d.city_id = ci.id
+    WHERE d.status = 'active'
+    GROUP BY c.name, c.slug, s.name, s.slug, ci.name, ci.slug
     ORDER BY c.name, s.name, ci.name
     LIMIT $1 OFFSET $2
   `,
@@ -315,7 +321,10 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
 // ============= GET STATES SITEMAP COUNT =============
 async function getStatesSitemapCount(): Promise<number> {
   const result = await pool.query(`
-    SELECT COUNT(*) as count FROM states s
+    SELECT COUNT(DISTINCT s.id) as count
+    FROM states s
+    INNER JOIN detectives d ON d.state_id = s.id
+    WHERE d.status = 'active'
   `);
     const totalStates = Number(result.rows[0].count);
   return Math.ceil(totalStates / 5000);
@@ -324,7 +333,10 @@ async function getStatesSitemapCount(): Promise<number> {
 // ============= GET CITIES SITEMAP COUNT =============
 async function getCitiesSitemapCount(): Promise<number> {
   const result = await pool.query(`
-    SELECT COUNT(*) as count FROM cities ci
+    SELECT COUNT(DISTINCT ci.id) as count
+    FROM cities ci
+    INNER JOIN detectives d ON d.city_id = ci.id
+    WHERE d.status = 'active'
   `);
     const totalCities = Number(result.rows[0].count);
     return Math.ceil(totalCities / 5000);

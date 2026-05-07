@@ -1,38 +1,55 @@
 import { createRoot, hydrateRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
-import { PerformanceMonitor } from "./lib/performance-monitor";
+import { initializePerformanceMonitoring } from "./lib/performance-monitor";
+
+const isDev = import.meta.env.DEV;
+
+function logDev(message: string, ...args: unknown[]) {
+  if (isDev) {
+    console.log(message, ...args);
+  }
+}
 
 // Global error handlers for unhandled async errors
 if (typeof window !== "undefined") {
   // Handle unhandled promise rejections (async errors not caught)
   window.addEventListener("unhandledrejection", (event) => {
-    console.error('[Unhandled Promise Rejection]', event.reason);
+    if (isDev) {
+      console.error('[Unhandled Promise Rejection]', event.reason);
+    }
     // Prevent default browser error handling
     event.preventDefault();
   });
 
   // Handle global synchronous errors
   window.addEventListener("error", (event) => {
-    console.error('[Global Error]', event.error);
+    if (isDev) {
+      console.error('[Global Error]', event.error);
+    }
   });
 }
 
-// Log startup information
-console.log('[App Startup] Application initializing...');
-console.log('[App Startup] Environment:', import.meta.env.MODE);
-console.log('[App Startup] Production Mode:', import.meta.env.PROD);
+logDev('[App Startup] Application initializing...');
+logDev('[App Startup] Environment:', import.meta.env.MODE);
+logDev('[App Startup] Production Mode:', import.meta.env.PROD);
 
-// Initialize Performance Monitoring
-const monitor = PerformanceMonitor.getInstance();
-console.log('[Performance Monitor] Initialized - tracking Core Web Vitals and API latency');
+if (typeof window !== "undefined") {
+  const searchParams = new URLSearchParams(window.location.search);
+  const enablePerfMonitoring = isDev || searchParams.get("perf") === "1" || searchParams.get("perf") === "true";
 
-// Log metrics summary when user leaves the page
-window.addEventListener('beforeunload', () => {
-  const summary = monitor.getSummary();
-  console.log('[Performance Monitor] Session Summary:', summary);
-  monitor.report('/api/metrics');
-});
+  // Defer non-essential diagnostics to avoid blocking initial hydration work.
+  const deferredInit = () => initializePerformanceMonitoring({
+    enabled: enablePerfMonitoring,
+    reportOnUnload: enablePerfMonitoring,
+  });
+
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(() => deferredInit(), { timeout: 2000 });
+  } else {
+    window.setTimeout(deferredInit, 0);
+  }
+}
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -55,12 +72,12 @@ function hasServerRenderedMarkup(container: HTMLElement): boolean {
   });
 }
 
-console.log('[App Startup] Mounting React app...');
+logDev('[App Startup] Mounting React app...');
 if (hasServerRenderedMarkup(rootElement)) {
-  console.log('[App Startup] Detected pre-rendered HTML, hydrating React app...');
+  logDev('[App Startup] Detected pre-rendered HTML, hydrating React app...');
   hydrateRoot(rootElement, <App />);
 } else {
-  console.log('[App Startup] No pre-rendered HTML detected, using createRoot...');
+  logDev('[App Startup] No pre-rendered HTML detected, using createRoot...');
   createRoot(rootElement).render(<App />);
 }
-console.log('[App Startup] React app mounted successfully');
+logDev('[App Startup] React app mounted successfully');

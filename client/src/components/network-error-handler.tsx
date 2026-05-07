@@ -9,6 +9,7 @@ interface NetworkErrorProps {
   message?: string;
   dismissable?: boolean;
   onDismiss?: () => void;
+  enabled?: boolean;
 }
 
 /**
@@ -23,19 +24,21 @@ export function NetworkErrorHandler({
   message = 'Network connection lost',
   dismissable = false,
   onDismiss,
+  enabled = true,
 }: NetworkErrorProps) {
   const [isOnline, setIsOnline] = useState(true);
-  const [pathname, setPathname] = useState('/');
 
   const [isDismissed, setIsDismissed] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const updateOnlineStatus = () => setIsOnline(navigator.onLine);
-    const updatePathname = () => setPathname(window.location.pathname);
 
     updateOnlineStatus();
-    updatePathname();
 
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
@@ -44,7 +47,7 @@ export function NetworkErrorHandler({
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
     };
-  }, []);
+  }, [enabled]);
 
   const handleRetry = async () => {
     setRetrying(true);
@@ -65,9 +68,11 @@ export function NetworkErrorHandler({
     ? isVisible && !isDismissed
     : !isOnline && !isDismissed;
 
-  if (!shouldShow) {
+  if (!enabled || !shouldShow) {
     return null;
   }
+
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
 
   // Full page error modal for offline state
   if (!isOnline && pathname !== '/') {
