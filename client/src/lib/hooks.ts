@@ -820,12 +820,16 @@ export function useUpdateClaimStatus() {
 }
 
 export function useServiceCategories(activeOnly?: boolean, enabled: boolean = true) {
+  const isAdminListing = activeOnly === false;
+
   return useQuery({
     queryKey: ["serviceCategories", activeOnly],
     queryFn: () => api.serviceCategories.getAll(activeOnly),
     enabled,
-    staleTime: 60 * 60 * 1000, // 1 hour - static data rarely changes
-    gcTime: 6 * 60 * 60 * 1000, // 6 hours - keep in memory longer
+    // Admin service-categories page must reflect DB changes immediately.
+    staleTime: isAdminListing ? 0 : 60 * 60 * 1000,
+    gcTime: isAdminListing ? 0 : 6 * 60 * 60 * 1000,
+    refetchOnMount: isAdminListing ? "always" : false,
   });
 }
 

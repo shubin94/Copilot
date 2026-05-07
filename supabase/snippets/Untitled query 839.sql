@@ -1,1 +1,0 @@
-SELECT * FROM services LIMIT 5;

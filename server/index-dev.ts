@@ -44,6 +44,24 @@ const STATIC_CMS_SEO_SLUGS = new Set([
   "categories",
 ]);
 
+function serveDev404Page(res: Response, title: string, message: string): void {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title} | Ask Detectives</title>
+  <meta name="robots" content="noindex, follow" />
+</head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:760px;margin:64px auto;padding:0 16px;">
+  <h1>${message}</h1>
+  <p>The requested route is not part of the SPA route manifest.</p>
+  <p><a href="/">Go to homepage</a></p>
+</body>
+</html>`;
+  res.status(404).set({ "Content-Type": "text/html; charset=utf-8" }).end(html);
+}
+
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
@@ -685,7 +703,7 @@ export async function setupVite(app: Express, server: Server) {
         return res.status(200).set({ "Content-Type": "text/html" }).end(page);
       }
 
-      return res.status(404).set({ "Content-Type": "text/html" }).end(page);
+      return serveDev404Page(res, "Page Not Found", "404 - Route not found");
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);

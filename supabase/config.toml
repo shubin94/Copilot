@@ -2,7 +2,7 @@
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
-project_id = "co_piolet"
+project_id = "Copilot"
 
 [api]
 enabled = true
@@ -215,10 +215,10 @@ otp_expiry = 3600
 # Use a production-ready SMTP server
 # [auth.email.smtp]
 # enabled = true
-# host = "smtp.yourprovider.com"
+# host = "smtp.sendgrid.net"
 # port = 587
-# user = "smtp_user"
-# pass = "env(SMTP_PASS)"
+# user = "apikey"
+# pass = "env(SENDGRID_API_KEY)"
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 

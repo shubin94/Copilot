@@ -111,6 +111,17 @@ router.post("/categories", requireRole("admin", "employee"), async (req: Request
       console.error("[cms] Create category error - null result after INSERT", { name, slug, status, parentId });
       return res.status(500).json({ error: "Failed to create category" });
     }
+
+    try {
+      cache.del("cms:admin:categories");
+      cache.del("cms:admin:pages");
+      cache.keys().filter(k => k.startsWith("services:")).forEach(k => cache.del(k));
+      cache.keys().filter(k => k.startsWith("detective:public:")).forEach(k => cache.del(k));
+      console.debug("[cache INVALIDATE] Category created - cleared CMS and service caches");
+    } catch (cacheError) {
+      console.warn("[cache] Error invalidating caches after category create:", cacheError instanceof Error ? cacheError.message : String(cacheError));
+    }
+
     res.json({ category });
   } catch (error) {
     if (error instanceof z.ZodError) {

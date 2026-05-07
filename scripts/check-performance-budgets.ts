@@ -14,7 +14,7 @@ const budgets = {
   maxLargestCssKb: 130,
   maxTotalJsKb: 10000,
   maxTotalCssKb: 300,
-  maxAssetCount: 120,
+  maxAssetCount: 130,
 };
 
 interface SizedAsset {

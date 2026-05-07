@@ -48,6 +48,7 @@ interface SEOProps {
     prevUrl?: string;
     nextUrl?: string;
   };
+  respectSsrRobots?: boolean;
 }
 
 export function SEO({ 
@@ -64,7 +65,8 @@ export function SEO({
   structuredData,
   publishedTime,
   modifiedTime,
-  pagination
+  pagination,
+  respectSsrRobots = false,
 }: SEOProps) {
   useEffect(() => {
     const toAbsoluteUrl = (value: string): string => {
@@ -121,7 +123,28 @@ export function SEO({
 
     // Standard Meta
     updateMeta('description', description);
-    updateMeta('robots', robots);
+    const robotsMeta = document.querySelector('meta[name="robots"]');
+    const existingRobotsRaw = robotsMeta?.getAttribute('content') || '';
+    const existingRobots = existingRobotsRaw.toLowerCase();
+    const requestedRobots = robots.toLowerCase();
+    const ssrRobotsAuthoritative = robotsMeta?.getAttribute('data-ssr-robots') === 'authoritative';
+    const preserveSsrNoindex =
+      respectSsrRobots &&
+      ssrRobotsAuthoritative &&
+      existingRobots.includes('noindex') &&
+      !requestedRobots.includes('noindex');
+
+    if (preserveSsrNoindex) {
+      updateMeta('robots', existingRobotsRaw || 'noindex, follow');
+    } else {
+      updateMeta('robots', robots);
+    }
+
+    // Marker is only used to guard initial hydration behavior.
+    if (robotsMeta?.getAttribute('data-ssr-robots') === 'authoritative') {
+      robotsMeta.removeAttribute('data-ssr-robots');
+    }
+
     if (keywords.length > 0) {
       updateMeta('keywords', keywords.join(', '));
     }
@@ -366,7 +389,7 @@ export function SEO({
     updateMeta('twitter:image', ogImage);
     updateMeta('twitter:image:alt', title);
 
-  }, [title, description, image, type, keywords, canonical, robots, schema, breadcrumbs, structuredData, publishedTime, modifiedTime, pagination]);
+  }, [title, description, image, type, keywords, canonical, robots, schema, breadcrumbs, structuredData, publishedTime, modifiedTime, pagination, respectSsrRobots]);
 
   return null;
 }

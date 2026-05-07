@@ -32,6 +32,7 @@ import {
 } from "./lib/seo-injection.js";
 import { getPublishedCmsPageSeo, injectCmsPageSeoTags } from "./lib/cms-page-seo.js";
 import { storage } from "./storage.js";
+import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
 
 const STATIC_CMS_SEO_SLUGS = new Set([
   "about",
@@ -42,6 +43,106 @@ const STATIC_CMS_SEO_SLUGS = new Set([
   "packages",
   "categories",
 ]);
+
+const SERVICE_CATEGORY_SLUG_CACHE_TTL_MS = 10 * 60 * 1000;
+const serviceCategorySlugCache = new Map<string, { canonicalSlug: string; expires: number }>();
+
+const NON_CRITICAL_PRELOAD_HREF_PATTERN = /<link\b[^>]*rel=["']modulepreload["'][^>]*href=["']\/assets\/(?:radix-ui|icons)-[^"']+\.js["'][^>]*>\s*/gi;
+
+function isPublicSeoRoutePath(pathname: string): boolean {
+  if (pathname === "/") return true;
+
+  const seoPrefixes = [
+    "/detectives",
+    "/locations",
+    "/news",
+    "/blog",
+    "/category",
+  ];
+
+  if (seoPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    return true;
+  }
+
+  return STATIC_CMS_SEO_SLUGS.has(pathname.replace(/^\/+|\/+$/g, ""));
+}
+
+function stripNonCriticalModulePreloads(html: string): string {
+  if (!html.includes("modulepreload")) {
+    return html;
+  }
+
+  return html.replace(NON_CRITICAL_PRELOAD_HREF_PATTERN, "");
+}
+
+function applyPublicSeoPreloadFiltering(html: string, pathname: string): string {
+  if (!isPublicSeoRoutePath(pathname)) {
+    return html;
+  }
+
+  return stripNonCriticalModulePreloads(html);
+}
+
+function sendIndexHtmlResponse(
+  req: Request,
+  res: Response,
+  html: string,
+  cacheControl: string,
+  extraHeaders?: Record<string, string>,
+): void {
+  const filteredHtml = applyPublicSeoPreloadFiltering(html, req.path || "/");
+  res.setHeader("Cache-Control", cacheControl);
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+
+  if (extraHeaders) {
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      res.setHeader(key, value);
+    }
+  }
+
+  res.send(filteredHtml);
+}
+
+function generateServiceCategorySlug(text: string): string {
+  return text
+    .toString()
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function resolveCanonicalServiceCategorySlug(slug: string): Promise<string | null> {
+  const now = Date.now();
+  const cached = serviceCategorySlugCache.get(slug);
+  if (cached && cached.expires > now) {
+    return cached.canonicalSlug;
+  }
+
+  serviceCategorySlugCache.clear();
+  const categories = await storage.getAllServiceCategories(false);
+  for (const category of categories) {
+    const canonicalSlug = generateServiceCategorySlug(category.name);
+    const variants = new Set([
+      canonicalSlug,
+      category.name.toLowerCase().replace(/\s+/g, "-"),
+      `${category.name.toLowerCase().replace(/\s+/g, "-")}s`,
+      `${canonicalSlug}s`,
+      category.name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-"),
+    ]);
+
+    for (const variant of variants) {
+      if (!variant) continue;
+      serviceCategorySlugCache.set(variant, {
+        canonicalSlug,
+        expires: now + SERVICE_CATEGORY_SLUG_CACHE_TTL_MS,
+      });
+    }
+  }
+
+  return serviceCategorySlugCache.get(slug)?.canonicalSlug || null;
+}
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 
@@ -173,10 +274,9 @@ export async function serveStatic(app: Express, _server: Server) {
       const cacheKey = requestPath.replace(/\/+$/, '').toLowerCase();
       const cachedHtml = getSsrCache(cacheKey);
       if (cachedHtml) {
-        res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.setHeader("X-SSR-Cache", "HIT");
-        return res.send(cachedHtml);
+        return sendIndexHtmlResponse(req, res, cachedHtml, "public, max-age=3600, stale-while-revalidate=86400", {
+          "X-SSR-Cache": "HIT",
+        });
       }
 
       const params = extractLocationRouteParams(requestPath);
@@ -230,8 +330,13 @@ export async function serveStatic(app: Express, _server: Server) {
 
       // Handle zero-detective pages
       if (detectiveCount === 0) {
-        // Add noindex meta tag
-        seoHtml = seoHtml.replace('<head>', '<head>\n<meta name="robots" content="noindex, follow">');
+        // Replace existing robots with authoritative SSR noindex to avoid conflicting tags.
+        const ssrNoindexTag = '<meta name="robots" content="noindex, follow" data-ssr-robots="authoritative">';
+        if (/<meta\s+name=["']robots["'][^>]*>/i.test(seoHtml)) {
+          seoHtml = seoHtml.replace(/<meta\s+name=["']robots["'][^>]*>/i, ssrNoindexTag);
+        } else {
+          seoHtml = seoHtml.replace('<head>', `<head>\n${ssrNoindexTag}`);
+        }
         // Show special message
         const cityName = params.city ? params.city.replace(/-/g, ' ') : 'this location';
         const noDetectiveHtml = `<section style="margin-top:32px"><h2 style="font-size:1.5rem;font-weight:700;margin-bottom:16px">No detectives available in ${cityName} yet.</h2><p style="color:#6b7280;margin-bottom:24px;">We are expanding our network. Please check back soon.</p></section>`;
@@ -239,10 +344,9 @@ export async function serveStatic(app: Express, _server: Server) {
       }
 
       setSsrCache(cacheKey, seoHtml);
-      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.setHeader("X-SSR-Cache", "MISS");
-      return res.send(seoHtml);
+      return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400", {
+        "X-SSR-Cache": "MISS",
+      });
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -303,9 +407,7 @@ export async function serveStatic(app: Express, _server: Server) {
           meta_description: citySeo.meta_description,
         }, canonicalUrl);
       }
-      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(seoHtml);
+      return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400");
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -339,9 +441,7 @@ export async function serveStatic(app: Express, _server: Server) {
         meta_description: seoData.meta_description,
       }, canonicalUrl);
 
-      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(seoHtml);
+      return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[Service Detail SEO] Error:', { url: req.originalUrl, message: errorMsg });
@@ -350,8 +450,7 @@ export async function serveStatic(app: Express, _server: Server) {
   });
 
   // CATCH-ALL ROUTE FOR UNMATCHED /detectives PATHS (6+ segments or invalid patterns)
-  // Prevents hard 404s for paths like /detectives/:country/:state/:city/:agency/:something
-  // Serves SPA to allow client-side routing to handle navigation
+  // Return hard 404 to avoid soft-404 crawl waste.
   app.get(/^\/detectives\//, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const requestPath = req.path;
@@ -362,11 +461,8 @@ export async function serveStatic(app: Express, _server: Server) {
         return next(); // Pass through to next middleware/catch-all
       }
 
-      console.log(`[Detectives Catch-All] Serving SPA for unmatched path: ${requestPath} (${segments.length} segments)`);
-      
-      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(await readIndexHtml());
+      console.log(`[Detectives Catch-All] 404 for invalid deep path: ${requestPath} (${segments.length} segments)`);
+      return serve404Page(res, 'Page Not Found', 'This detective route does not exist');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[Detectives Catch-All] Error:', errorMsg);
@@ -380,16 +476,6 @@ export async function serveStatic(app: Express, _server: Server) {
     try {
       const requestPath = req.path;
 
-      // ✅ SSR CACHE: serve pre-rendered HTML within 5-min TTL
-      const serviceCacheKey = `svc:${requestPath.replace(/\/+$/, '').toLowerCase()}`;
-      const cachedServiceHtml = getSsrCache(serviceCacheKey);
-      if (cachedServiceHtml) {
-        res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.setHeader("X-SSR-Cache", "HIT");
-        return res.send(cachedServiceHtml);
-      }
-
       const {
         extractServiceLocationRouteParams,
         resolveServiceLocation,
@@ -399,6 +485,31 @@ export async function serveStatic(app: Express, _server: Server) {
       if (!params) {
         console.warn("[Service SEO] Route params extraction failed for:", requestPath);
         return serve404Page(res, 'Service Not Found', 'Invalid service route');
+      }
+
+      const canonicalCategorySlug = await resolveCanonicalServiceCategorySlug(params.categorySlug);
+      if (!canonicalCategorySlug) {
+        console.warn("[Service SEO] Unknown service category slug:", params.categorySlug);
+        return serve404Page(res, 'Service Not Found', 'Invalid service category');
+      }
+
+      if (params.categorySlug !== canonicalCategorySlug) {
+        const canonicalPath = params.level === 'city'
+          ? `/locations/${canonicalCategorySlug}/${params.countrySlug}/${params.stateSlug}/${params.citySlug}/`
+          : params.level === 'state'
+          ? `/locations/${canonicalCategorySlug}/${params.countrySlug}/${params.stateSlug}/`
+          : `/locations/${canonicalCategorySlug}/${params.countrySlug}/`;
+        const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+        return res.redirect(301, `${canonicalPath}${query}`);
+      }
+
+      // ✅ SSR CACHE: serve pre-rendered HTML within 5-min TTL
+      const serviceCacheKey = `svc:${requestPath.replace(/\/+$/, '').toLowerCase()}`;
+      const cachedServiceHtml = getSsrCache(serviceCacheKey);
+      if (cachedServiceHtml) {
+        return sendIndexHtmlResponse(req, res, cachedServiceHtml, "public, max-age=3600, stale-while-revalidate=86400", {
+          "X-SSR-Cache": "HIT",
+        });
       }
 
       console.log("[Service SEO] Extracted params:", params);
@@ -416,7 +527,7 @@ export async function serveStatic(app: Express, _server: Server) {
       // Use categorySlug (regexp_replace) so special chars like & are handled
       // Use pre-resolved IDs directly — avoids a second country/state/city DB lookup
       const serviceResults = await storage.searchServices(
-        { categorySlug: params.categorySlug },
+        { categorySlug: canonicalCategorySlug },
         50,
         0,
         "popular",
@@ -445,9 +556,9 @@ export async function serveStatic(app: Express, _server: Server) {
       // Fetch SEO values
       let seoValues;
       try {
-        seoValues = await getServiceLocationSeo(params.categorySlug, params.countrySlug, params.stateSlug || '', params.citySlug || '');
+        seoValues = await getServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.stateSlug || '', params.citySlug || '');
       } catch (e) {
-        seoValues = generateServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug || '', undefined, params.stateSlug || '');
+        seoValues = generateServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.citySlug || '', undefined, params.stateSlug || '');
       }
       let seoHtml = injectServiceSeoTags(await readIndexHtml(), {
         title: seoValues.meta_title,
@@ -457,10 +568,9 @@ export async function serveStatic(app: Express, _server: Server) {
 
 
       setSsrCache(serviceCacheKey, seoHtml);
-      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.setHeader("X-SSR-Cache", "MISS");
-      return res.send(seoHtml);
+      return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400", {
+        "X-SSR-Cache": "MISS",
+      });
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -494,9 +604,7 @@ export async function serveStatic(app: Express, _server: Server) {
         html = injectCmsPageSeoTags(html, seo, canonicalUrl);
       }
 
-      res.setHeader("Cache-Control", "no-store");
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(html);
+      return sendIndexHtmlResponse(req, res, html, "no-store");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error("[SEO] Static CMS page SEO injection failed:", {
@@ -524,9 +632,7 @@ export async function serveStatic(app: Express, _server: Server) {
       html = injectCmsPageSeoTags(html, seo, "https://www.askdetectives.com/", { logoUrl });
 
       // Homepage: allow 1-hour browser/CDN cache, refresh in background (stale-while-revalidate)
-      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.send(html);
+      sendIndexHtmlResponse(_req, res, html, "public, max-age=3600, stale-while-revalidate=86400");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error("[Homepage] Error:", {
@@ -552,11 +658,14 @@ export async function serveStatic(app: Express, _server: Server) {
   // SPA fallback: only after all API routes and middleware
   app.get("*", async (req, res) => {
     if (req.path.startsWith("/api")) return res.status(404).end();
+    if (isStaticAssetPath(req.path)) return res.status(404).end();
+    if (!isKnownSpaPath(req.path)) {
+      return serve404Page(res, 'Page Not Found', 'This page could not be found');
+    }
+
     try {
       const html = await readIndexHtml();
-      res.setHeader("Cache-Control", "no-store");
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.send(html);
+      sendIndexHtmlResponse(req, res, html, "no-store");
     } catch {
       res.status(500).type("text/plain").send("Error loading page");
     }
@@ -580,9 +689,7 @@ async function serveIndexHtmlWithSeo(
       html = injectSeoTags(html, detective, canonicalUrl);
     }
 
-    res.setHeader("Cache-Control", "no-store");
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(html);
+    sendIndexHtmlResponse(res.req as Request, res, html, "no-store");
   } catch (error) {
     console.error('[SEO] Error serving index.html:', error);
     res.status(500).type("text/plain").send("Error loading page");

@@ -45,6 +45,16 @@ interface CaseStudy {
   investigationType?: string;
 }
 
+const SITE_BASE_URL = "https://www.askdetectives.com";
+
+function toAbsoluteUrl(url: string): string {
+  if (!url) return SITE_BASE_URL;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("//")) return `https:${url}`;
+  if (url.startsWith("/")) return `${SITE_BASE_URL}${url}`;
+  return `${SITE_BASE_URL}/${url.replace(/^\/+/, "")}`;
+}
+
 /**
  * Generate LocalBusiness + ProfessionalService schema
  * Includes verification, contact, and service offerings
@@ -220,7 +230,10 @@ export function generateBreadcrumbListSchema(
       "@type": "ListItem",
       "position": index + 1,
       "name": crumb.name,
-      "item": crumb.url
+      "item": {
+        "@id": toAbsoluteUrl(crumb.url),
+        "name": crumb.name
+      }
     }))
   };
 }
