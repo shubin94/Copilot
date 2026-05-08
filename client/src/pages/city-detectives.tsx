@@ -53,10 +53,14 @@ interface CityPageData {
 }
 
 let initialHydrationCityPageData: CityPageData | null = typeof window !== "undefined"
-  ? (((window as any).__CITY_PAGE_DATA__ as CityPageData | undefined) ?? null)
+  ? ((((window as any).CITY_PAGE_DATA as CityPageData | undefined)
+      ?? ((window as any).__CITY_PAGE_DATA__ as CityPageData | undefined)
+      ?? null))
   : null;
 let initialHydrationSeoData: { title?: string; description?: string; h1?: string } | null = typeof window !== "undefined"
-  ? (((window as any).__SEO_DATA__ as { title?: string; description?: string; h1?: string } | undefined) ?? null)
+  ? ((((window as any).SEO_DATA as { title?: string; description?: string; h1?: string } | undefined)
+      ?? ((window as any).__SEO_DATA__ as { title?: string; description?: string; h1?: string } | undefined)
+      ?? null))
   : null;
 let initialHydrationOffset = typeof window !== "undefined"
   ? Number(new URLSearchParams(window.location.search).get("offset") || 0)
@@ -174,29 +178,50 @@ export default function CityDetectivesPage() {
   
   // Use the matched route params
   const matchedParams = match ? params : (matchState ? paramsState : paramsCountry);
+  const countrySlug = matchedParams?.country || "";
+  const stateSlug = (matchedParams as any)?.state || "";
+  const citySlug = (matchedParams as any)?.city || "";
+
+  const normalizeToSlug = (value?: string | null): string => {
+    if (!value) return "";
+    return value
+      .toString()
+      .normalize("NFKD")
+      .toLowerCase()
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  };
+
   const [ssrData] = useState<CityPageData | null>(() => consumeInitialCityPageData());
-  const [detectives, setDetectives] = useState<Detective[]>(() => ssrData?.detectives || []);
-  const [currentOffset, setCurrentOffset] = useState<number>(() => ssrData?.detectives?.length || 0);
-  const [totalCount, setTotalCount] = useState<number>(() => ssrData?.count || ssrData?.detectives?.length || 0);
-  const [locationMeta, setLocationMeta] = useState<LocationMeta | null>(() => ssrData ? {
-    country: ssrData.location.country,
-    state: ssrData.location.state,
-    city: ssrData.location.city,
+  const [initialSeoSeed] = useState<{ title?: string; description?: string; h1?: string } | null>(() => consumeInitialSeoData());
+
+  const seedMatchesRoute = !!(
+    ssrData
+    && normalizeToSlug(ssrData.location.country) === countrySlug
+    && normalizeToSlug(ssrData.location.state || "") === stateSlug
+    && normalizeToSlug(ssrData.location.city || "") === citySlug
+  );
+
+  const initialSeedData = seedMatchesRoute ? ssrData : null;
+  const [detectives, setDetectives] = useState<Detective[]>(() => initialSeedData?.detectives || []);
+  const [currentOffset, setCurrentOffset] = useState<number>(() => initialSeedData?.detectives?.length || 0);
+  const [totalCount, setTotalCount] = useState<number>(() => initialSeedData?.count || initialSeedData?.detectives?.length || 0);
+  const [locationMeta, setLocationMeta] = useState<LocationMeta | null>(() => initialSeedData ? {
+    country: initialSeedData.location.country,
+    state: initialSeedData.location.state,
+    city: initialSeedData.location.city,
   } : null);
-  const [relatedLocations, setRelatedLocations] = useState<RelatedLocation[]>(() => Array.isArray(ssrData?.relatedLocations) ? ssrData.relatedLocations : []);
-  const [seoMetadata, setSeoMetadata] = useState<{ metaTitle: string | null; metaDescription: string | null; h1: string | null } | null>(() => ssrData?.seoMetadata || null);
-  const [clientSeoData, setClientSeoData] = useState<{ title?: string; description?: string; h1?: string } | null>(() => consumeInitialSeoData());
-  const [loading, setLoading] = useState(() => !ssrData);
+  const [relatedLocations, setRelatedLocations] = useState<RelatedLocation[]>(() => Array.isArray(initialSeedData?.relatedLocations) ? initialSeedData.relatedLocations : []);
+  const [seoMetadata, setSeoMetadata] = useState<{ metaTitle: string | null; metaDescription: string | null; h1: string | null } | null>(() => initialSeedData?.seoMetadata || null);
+  const [clientSeoData, setClientSeoData] = useState<{ title?: string; description?: string; h1?: string } | null>(() => seedMatchesRoute ? initialSeoSeed : null);
+  const [loading, setLoading] = useState(() => !initialSeedData);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedFAQs, setExpandedFAQs] = useState<{ [key: number]: boolean }>({ 0: false, 1: false, 2: false });
   const [currentOffsetValue, setCurrentOffsetValue] = useState(() => consumeInitialOffset());
   const [topLocations, setTopLocations] = useState<Array<{ name: string; slug: string; countrySlug?: string; stateSlug?: string; detectiveCount: number }>>([]);
   const [topLocationsLoading, setTopLocationsLoading] = useState(false);
-
-  const countrySlug = matchedParams?.country || "";
-  const stateSlug = (matchedParams as any)?.state || "";
-  const citySlug = (matchedParams as any)?.city || "";
   const isCountryLevel = !!countrySlug && !stateSlug;
   const isStateLevel = !!countrySlug && !!stateSlug && !citySlug;
   const isCityLevel = !!countrySlug && !!stateSlug && !!citySlug;
@@ -217,7 +242,7 @@ export default function CityDetectivesPage() {
   );
 
   useEffect(() => {
-    if (ssrData) {
+    if (seedMatchesRoute) {
       return;
     }
 
@@ -273,7 +298,7 @@ export default function CityDetectivesPage() {
     if (countrySlug) {
       fetchLocationDetectives();
     }
-  }, [countrySlug, stateSlug, citySlug, ssrData]);
+  }, [countrySlug, stateSlug, citySlug, seedMatchesRoute, locationApiPath]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

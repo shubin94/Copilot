@@ -33,6 +33,7 @@ interface PageData {
   h1?: string;
   createdAt: string;
   updatedAt: string;
+  categoryPath?: string | null;
   author?: {
     name: string;
     email?: string;
@@ -53,6 +54,24 @@ interface PageData {
     slug: string;
   }>;
 }
+
+// ── Hydration seed helpers ────────────────────────────────────────────────────
+const _cmsPageSeed: PageData | null = (() => {
+  try {
+    const d = (window as any).CMS_PAGE_DATA ?? (window as any).__CMS_PAGE_DATA__;
+    return d && typeof d === "object" && d.slug ? (d as PageData) : null;
+  } catch {
+    return null;
+  }
+})();
+
+let _cmsPageSeedConsumed = false;
+function consumeCmsPageSeed(): PageData | null {
+  if (_cmsPageSeedConsumed || !_cmsPageSeed) return null;
+  _cmsPageSeedConsumed = true;
+  return _cmsPageSeed;
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function PageView() {
   const [locationPath, setLocation] = useLocation();
@@ -85,6 +104,20 @@ export default function PageView() {
       : undefined
   ) as string | undefined;
 
+  const normalizedCategoryPath = (categorySlug || "").replace(/^\/+|\/+$/g, "").toLowerCase();
+  const seedCategoryPath = ((_cmsPageSeed as any)?.categoryPath || _cmsPageSeed?.category?.slug || "")
+    .replace(/^\/+|\/+$/g, "")
+    .toLowerCase();
+
+  // Validate seed against current route category path + slug before using
+  const seedMatchesRoute = !!(
+    _cmsPageSeed
+    && slug
+    && normalizedCategoryPath
+    && _cmsPageSeed.slug === slug
+    && seedCategoryPath === normalizedCategoryPath
+  );
+
   const { data, isLoading, isError } = useQuery<{ page: PageData }>({
     queryKey: ["public-page", categorySlug || "", slug],
     queryFn: async () => {
@@ -97,6 +130,12 @@ export default function PageView() {
       }
       return res.json();
     },
+    // Skip fetch on first render when seed matches — React Query will still revalidate later
+    initialData: seedMatchesRoute ? () => {
+      const seed = consumeCmsPageSeed();
+      return seed ? { page: seed } : undefined;
+    } : undefined,
+    staleTime: seedMatchesRoute ? 60_000 : 0,
     enabled: !!slug && (matchNested || matchNew || matchLegacyNested || matchLegacyCategory || matchLegacy),
   });
 
@@ -121,10 +160,12 @@ export default function PageView() {
   if (!data?.page) return <NotFound />;
 
   const page = data.page;
-  
-  // Normalize canonical URL by removing legacy "/pages" prefix
-  const cleanedPath = locationPath.startsWith('/pages/') ? locationPath.replace('/pages', '') : locationPath;
-  const canonicalUrl = `https://www.askdetectives.com${cleanedPath}`;
+  const canonicalCategoryPath = (page.categoryPath || categorySlug || page.category?.slug || "")
+    .replace(/^\/+|\/+$/g, "");
+  const canonicalPath = canonicalCategoryPath
+    ? `/${canonicalCategoryPath}/${page.slug}`
+    : `/${page.slug}`;
+  const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
   
   const breadcrumbs = page.category
     ? [

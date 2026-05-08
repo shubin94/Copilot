@@ -236,6 +236,51 @@ const withEmployeeRoute = (Component: ComponentType<any>) => (props: any) => (
   </EmployeeRoute>
 );
 
+const CMS_RESERVED_PREFIXES = new Set([
+  "detectives",
+  "locations",
+  "service",
+  "news",
+  "api",
+  "blog",
+  "pages",
+  "about",
+  "contact",
+  "support",
+  "privacy",
+  "terms",
+  "packages",
+  "categories",
+  "admin",
+  "dashboard",
+  "auth",
+  "login",
+  "signup",
+  "search",
+  "verify",
+  "reset-password",
+  "detective",
+  "user",
+  "employee",
+]);
+
+function CmsPageRoute() {
+  const [location] = useLocation();
+  const pathname = location.split("?")[0].replace(/\/+$/, "");
+  const segments = pathname.split("/").filter(Boolean);
+
+  if (segments.length < 2 || segments.length > 3) {
+    return <NotFound />;
+  }
+
+  const firstSegment = (segments[0] || "").toLowerCase();
+  if (CMS_RESERVED_PREFIXES.has(firstSegment)) {
+    return <NotFound />;
+  }
+
+  return <PageView />;
+}
+
 function PageSkeleton() {
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -377,8 +422,8 @@ function Router() {
           <Route path="/user/favorites" component={FavoritesPage} />
 
           {/* CMS Public Routes - These are catch-all, must be LAST */}
-          <Route path="/:parent/:category/:slug" component={PageView} />
-          <Route path="/:category/:slug" component={PageView} />
+          <Route path="/:parent/:category/:slug" component={CmsPageRoute} />
+          <Route path="/:category/:slug" component={CmsPageRoute} />
           <Route path="/pages/:parent/:category/:slug" component={PageView} />
           <Route path="/pages/:category/:slug" component={PageView} />
           <Route path="/pages/:slug" component={PageView} />

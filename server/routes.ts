@@ -3156,6 +3156,36 @@ Content-Signal: index=public; train=deny
     await sendSitemap(res, generateNewsSitemap, CACHE_MAX_AGE);
   });
 
+  // CMS pages sitemap (paginated) - /sitemap-cms-1.xml, /sitemap-cms-2.xml, etc.
+  app.get(/\/sitemap-cms-(\d+)\.xml$/, async (req: Request, res: Response) => {
+    const match = req.path.match(/\/sitemap-cms-(\d+)\.xml$/);
+    const page = match ? parseInt(match[1]) : 1;
+
+    console.log(`[Sitemap] Serving cms sitemap page ${page}`);
+
+    if (page < 1 || page > 1000) {
+      return res.status(400).json({ error: "Invalid page number" });
+    }
+
+    try {
+      const {
+        getCmsSitemapCount,
+        generateCmsSitemap,
+        CACHE_MAX_AGE,
+      } = await import("./services/sitemapService.js");
+
+      const totalPages = await getCmsSitemapCount();
+      if (page > totalPages) {
+        return res.status(404).json({ error: `Page ${page} does not exist` });
+      }
+
+      await sendSitemap(res, () => generateCmsSitemap(page), CACHE_MAX_AGE);
+    } catch (error) {
+      console.error("[Sitemap] Error with cms page:", error);
+      res.status(500).json({ error: "Failed to generate cms sitemap" });
+    }
+  });
+
   // Services sitemaps (paginated) - /sitemap-services-1.xml, /sitemap-services-2.xml, etc.
   app.get(/\/sitemap-services-(\d+)\.xml$/, async (req: Request, res: Response) => {
     const match = req.path.match(/\/sitemap-services-(\d+)\.xml$/);
@@ -3227,8 +3257,55 @@ Content-Signal: index=public; train=deny
         INNER JOIN detectives d ON s.detective_id = d.id
         WHERE s.is_active = true AND d.status = 'active'
       `);
+      const cmsCountQuery = await pool.query(`
+        WITH RECURSIVE category_paths AS (
+          SELECT c.id, c.parent_id, c.slug::text AS path_slug
+          FROM categories c
+          WHERE c.parent_id IS NULL
+
+          UNION ALL
+
+          SELECT child.id, child.parent_id, (cp.path_slug || '/' || child.slug)::text AS path_slug
+          FROM categories child
+          INNER JOIN category_paths cp ON cp.id = child.parent_id
+        ),
+        canonical_pages AS (
+          SELECT DISTINCT p.id
+          FROM pages p
+          INNER JOIN category_paths cp ON cp.id = p.category_id
+          WHERE p.status = 'published'
+            AND p.category_id IS NOT NULL
+            AND COALESCE(TRIM(p.slug), '') <> ''
+        ),
+        category_archives AS (
+          SELECT DISTINCT cp.id
+          FROM pages p
+          INNER JOIN category_paths cp ON cp.id = p.category_id
+          WHERE p.status = 'published'
+            AND p.category_id IS NOT NULL
+            AND COALESCE(TRIM(p.slug), '') <> ''
+        ),
+        tag_archives AS (
+          SELECT DISTINCT t.id
+          FROM tags t
+          INNER JOIN page_tags pt ON pt.tag_id = t.id
+          INNER JOIN pages p ON p.id = pt.page_id
+          WHERE p.status = 'published'
+            AND COALESCE(TRIM(p.slug), '') <> ''
+            AND COALESCE(TRIM(t.slug), '') <> ''
+        )
+        SELECT (
+          (SELECT COUNT(*) FROM canonical_pages)
+          +
+          (SELECT COUNT(*) FROM category_archives)
+          +
+          (SELECT COUNT(*) FROM tag_archives)
+        )::int AS total
+      `);
       const totalServices = r.rows[0].count;
       const servicePages = Math.ceil(totalServices / 5000);
+      const totalCmsUrls = Number(cmsCountQuery.rows[0]?.total || 0);
+      const cmsPages = Math.max(1, Math.ceil(totalCmsUrls / 5000));
 
       res.json({
         status: "ok",
@@ -3244,11 +3321,14 @@ Content-Signal: index=public; train=deny
           cities: "/sitemap-cities.xml",
           detectives: "/sitemap-detectives.xml",
           services: `${servicePages} pages at /sitemap-services-:page.xml`,
+          cms: `${cmsPages} pages at /sitemap-cms-:page.xml`,
         },
         stats: {
           totalServices,
           servicePages,
-          totalSitemaps: 6 + servicePages,
+          totalCmsUrls,
+          cmsPages,
+          totalSitemaps: 6 + servicePages + cmsPages,
         },
       });
     } catch (error) {

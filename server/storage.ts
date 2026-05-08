@@ -1245,8 +1245,91 @@ export class DatabaseStorage implements IStorage {
 
     let query: any;
     const cappedLimit = limit;
+    const isDefaultUnfilteredRecent =
+      sortBy === 'recent' &&
+      !filters.category &&
+      !filters.categorySlug &&
+      !filters.country &&
+      !filters.state &&
+      !filters.city &&
+      !filters.searchQuery &&
+      filters.minPrice === undefined &&
+      filters.maxPrice === undefined &&
+      filters.ratingMin === undefined &&
+      !filters.planName &&
+      !filters.level;
 
-    if (sortBy === 'popular') {
+    let results: any[];
+
+    if (isDefaultUnfilteredRecent) {
+      // Default /search landing page: show only one representative service per detective.
+      const representativeRows = await db.execute(sql`
+        SELECT *
+        FROM (
+          SELECT DISTINCT ON (s.detective_id)
+            s.id AS "serviceId",
+            s.slug AS "serviceSlug",
+            s.title AS "serviceTitle",
+            s.category AS "serviceCategory",
+            s.base_price AS "serviceBasePrice",
+            s.offer_price AS "serviceOfferPrice",
+            s.is_on_enquiry AS "serviceIsOnEnquiry",
+            s.images[1] AS "serviceMainImage",
+            s.order_count AS "serviceOrderCount",
+            d.id AS "detectiveId",
+            d.user_id AS "detectiveUserId",
+            d.business_name AS "detectiveBusinessName",
+            d.level AS "detectiveLevel",
+            d.logo AS "detectiveLogo",
+            d.country AS "detectiveCountry",
+            d.state AS "detectiveState",
+            d.city AS "detectiveCity",
+            c.slug AS "detectiveCountrySlug",
+            st.slug AS "detectiveStateSlug",
+            ci.slug AS "detectiveCitySlug",
+            d.slug AS "detectiveSlug",
+            d.phone AS "detectivePhone",
+            d.whatsapp AS "detectiveWhatsapp",
+            d.contact_email AS "detectiveContactEmail",
+            d.is_verified AS "detectiveIsVerified",
+            d.subscription_package_id AS "detectiveSubscriptionPackageId",
+            d.subscription_expires_at AS "detectiveSubscriptionExpiresAt",
+            d.has_blue_tick AS "detectiveHasBlueTick",
+            d.blue_tick_addon AS "detectiveBlueTickAddon",
+            sp.name AS "subscriptionPackageName",
+            sp.badges AS "subscriptionPackageBadges",
+            sp.features AS "subscriptionPackageFeatures",
+            sp.is_active AS "subscriptionPackageIsActive",
+            COALESCE(reviews_agg.avg_rating, 0) AS "avgRating",
+            COALESCE(reviews_agg.review_count, 0) AS "reviewCount",
+            d.created_at AS "detectiveCreatedAt",
+            s.created_at AS "serviceCreatedAt"
+          FROM services s
+          INNER JOIN detectives d ON s.detective_id = d.id
+          LEFT JOIN countries c ON d.country_id = c.id
+          LEFT JOIN states st ON d.state_id = st.id
+          LEFT JOIN cities ci ON d.city_id = ci.id
+          LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
+          LEFT JOIN (
+            SELECT
+              r.service_id,
+              COALESCE(AVG(r.rating), 0) AS avg_rating,
+              COUNT(r.id) AS review_count
+            FROM reviews r
+            WHERE r.is_published = true
+            GROUP BY r.service_id
+          ) reviews_agg ON s.id = reviews_agg.service_id
+          WHERE s.is_active = true
+            AND s.images IS NOT NULL
+            AND array_length(s.images, 1) > 0
+          ORDER BY s.detective_id, s.created_at DESC, s.id DESC
+        ) representative_services
+        ORDER BY "serviceCreatedAt" DESC, "detectiveCreatedAt" DESC, "serviceId" DESC
+        LIMIT ${cappedLimit} OFFSET ${offset}
+      `);
+
+      results = representativeRows.rows as any[];
+    } else if (sortBy === 'popular') {
       // Popular sort: Sort by order_count DESC (most popular first)
       // Shows ALL services, not just one per detective
       query = db.select(baseSelect)
@@ -1289,9 +1372,8 @@ export class DatabaseStorage implements IStorage {
       } else {
         query = query.orderBy(desc(services.createdAt)) as any;
       }
+      results = await query.limit(cappedLimit).offset(offset);
     }
-
-    const results = await query.limit(cappedLimit).offset(offset);
     
     console.log('[searchServices] FINAL services count:', results.length, 'sortBy:', sortBy);
 

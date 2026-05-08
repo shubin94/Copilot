@@ -133,8 +133,6 @@ const SPA_ROUTE_PATTERNS: RegExp[] = [
   /^\/pages\/[^/]+\/?$/,
   /^\/pages\/[^/]+\/[^/]+\/?$/,
   /^\/pages\/[^/]+\/[^/]+\/[^/]+\/?$/,
-  /^\/[^/]+\/[^/]+\/?$/,
-  /^\/[^/]+\/[^/]+\/[^/]+\/?$/,
 ];
 
 export function normalizePathname(pathname: string): string {
