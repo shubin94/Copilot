@@ -10,6 +10,7 @@ import { join } from "path";
 
 const SITEMAP_CACHE_DIR = process.env.SITEMAP_CACHE_DIR || "/tmp/.sitemap-cache";
 const CACHE_MAX_AGE = 86400; // 24 hours in seconds
+const SITEMAP_PAGE_SIZE = 5000;
 
 // Ensure cache directory exists (Vercel serverless: use /tmp for writable storage)
 try {
@@ -218,7 +219,7 @@ async function generateStatesSitemap(page: number = 1): Promise<string> {
   const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
-  const pageSize = 5000;
+  const pageSize = SITEMAP_PAGE_SIZE;
   const offset = (page - 1) * pageSize;
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -269,7 +270,7 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
   const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
-  const pageSize = 5000;
+  const pageSize = SITEMAP_PAGE_SIZE;
   const offset = (page - 1) * pageSize;
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -327,7 +328,7 @@ async function getStatesSitemapCount(): Promise<number> {
     WHERE d.status = 'active'
   `);
     const totalStates = Number(result.rows[0].count);
-  return Math.ceil(totalStates / 5000);
+  return Math.ceil(totalStates / SITEMAP_PAGE_SIZE);
 }
 
 // ============= GET CITIES SITEMAP COUNT =============
@@ -339,7 +340,7 @@ async function getCitiesSitemapCount(): Promise<number> {
     WHERE d.status = 'active'
   `);
     const totalCities = Number(result.rows[0].count);
-    return Math.ceil(totalCities / 5000);
+    return Math.ceil(totalCities / SITEMAP_PAGE_SIZE);
 }
 
 // ============= DETECTIVES =============
@@ -401,7 +402,7 @@ async function generateServicesSitemap(page: number = 1): Promise<string> {
   const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
-  const pageSize = 5000;
+  const pageSize = SITEMAP_PAGE_SIZE;
   const offset = (page - 1) * pageSize;
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -475,7 +476,7 @@ async function getServiceSitemapCount(): Promise<number> {
       AND s.images IS NOT NULL AND array_length(s.images, 1) > 0
   `);
   const totalServices = result.rows[0].count;
-  return Math.ceil(totalServices / 5000);
+  return Math.ceil(totalServices / SITEMAP_PAGE_SIZE);
 }
 
 // ============= SERVICE LOCATIONS (PAGINATED) =============
@@ -499,7 +500,7 @@ async function generateServiceLocationsSitemap(page: number = 1): Promise<string
   const cached = getCachedSitemap(cacheFile);
   if (cached) return cached;
 
-  const pageSize = 5000; // 1 URL per row
+  const pageSize = SITEMAP_PAGE_SIZE; // 1 URL per row
   const offset = (page - 1) * pageSize;
 
   // UNION produces one already-deduplicated row per URL level:
@@ -635,7 +636,160 @@ async function getServiceLocationsSitemapCount(): Promise<number> {
     ) AS total
   `);
   const total = parseInt(result.rows[0].total) || 0;
-  return Math.max(1, Math.ceil(total / 5000));
+  return Math.max(1, Math.ceil(total / SITEMAP_PAGE_SIZE));
+}
+
+// ============= CMS PAGES + ARCHIVES (PAGINATED) =============
+async function getCmsSitemapCount(): Promise<number> {
+  const result = await pool.query(
+    `
+    WITH RECURSIVE category_paths AS (
+      SELECT c.id, c.parent_id, c.slug::text AS path_slug
+      FROM categories c
+      WHERE c.parent_id IS NULL
+
+      UNION ALL
+
+      SELECT child.id, child.parent_id, (cp.path_slug || '/' || child.slug)::text AS path_slug
+      FROM categories child
+      INNER JOIN category_paths cp ON cp.id = child.parent_id
+    ),
+    canonical_pages AS (
+      SELECT DISTINCT p.id
+      FROM pages p
+      INNER JOIN category_paths cp ON cp.id = p.category_id
+      WHERE p.status = 'published'
+        AND p.category_id IS NOT NULL
+        AND COALESCE(TRIM(p.slug), '') <> ''
+    ),
+    category_archives AS (
+      SELECT DISTINCT cp.id
+      FROM pages p
+      INNER JOIN category_paths cp ON cp.id = p.category_id
+      WHERE p.status = 'published'
+        AND p.category_id IS NOT NULL
+        AND COALESCE(TRIM(p.slug), '') <> ''
+    ),
+    tag_archives AS (
+      SELECT DISTINCT t.id
+      FROM tags t
+      INNER JOIN page_tags pt ON pt.tag_id = t.id
+      INNER JOIN pages p ON p.id = pt.page_id
+      WHERE p.status = 'published'
+        AND COALESCE(TRIM(p.slug), '') <> ''
+        AND COALESCE(TRIM(t.slug), '') <> ''
+    )
+    SELECT (
+      (SELECT COUNT(*) FROM canonical_pages)
+      +
+      (SELECT COUNT(*) FROM category_archives)
+      +
+      (SELECT COUNT(*) FROM tag_archives)
+    ) AS total
+    `,
+  );
+
+  const total = Number(result.rows[0]?.total || 0);
+  return Math.max(1, Math.ceil(total / SITEMAP_PAGE_SIZE));
+}
+
+async function generateCmsSitemap(page: number = 1): Promise<string> {
+  const cacheFile = `cms-${page}.xml`;
+  const cached = getCachedSitemap(cacheFile);
+  if (cached) return cached;
+
+  const offset = (page - 1) * SITEMAP_PAGE_SIZE;
+
+  const result = await pool.query(
+    `
+    WITH RECURSIVE category_paths AS (
+      SELECT c.id, c.parent_id, c.slug::text AS path_slug, c.slug::text AS display_slug
+      FROM categories c
+      WHERE c.parent_id IS NULL
+
+      UNION ALL
+
+      SELECT child.id,
+             child.parent_id,
+             (cp.path_slug || '/' || child.slug)::text AS path_slug,
+             child.slug::text AS display_slug
+      FROM categories child
+      INNER JOIN category_paths cp ON cp.id = child.parent_id
+    ),
+    canonical_pages AS (
+      SELECT
+        1 AS sort_group,
+        ('https://www.askdetectives.com/' || cp.path_slug || '/' || p.slug) AS loc,
+        GREATEST(COALESCE(p.updated_at, p.created_at), p.created_at) AS last_mod,
+        'weekly'::text AS changefreq,
+        '0.7'::text AS priority
+      FROM pages p
+      INNER JOIN category_paths cp ON cp.id = p.category_id
+      WHERE p.status = 'published'
+        AND p.category_id IS NOT NULL
+        AND COALESCE(TRIM(p.slug), '') <> ''
+    ),
+    category_archives AS (
+      SELECT
+        2 AS sort_group,
+        ('https://www.askdetectives.com/blog/category/' || cp.path_slug) AS loc,
+        MAX(GREATEST(COALESCE(p.updated_at, p.created_at), p.created_at)) AS last_mod,
+        'weekly'::text AS changefreq,
+        '0.5'::text AS priority
+      FROM pages p
+      INNER JOIN category_paths cp ON cp.id = p.category_id
+      WHERE p.status = 'published'
+        AND p.category_id IS NOT NULL
+        AND COALESCE(TRIM(p.slug), '') <> ''
+      GROUP BY cp.path_slug
+    ),
+    tag_archives AS (
+      SELECT
+        3 AS sort_group,
+        ('https://www.askdetectives.com/blog/tag/' || t.slug) AS loc,
+        MAX(GREATEST(COALESCE(p.updated_at, p.created_at), p.created_at)) AS last_mod,
+        'weekly'::text AS changefreq,
+        '0.4'::text AS priority
+      FROM tags t
+      INNER JOIN page_tags pt ON pt.tag_id = t.id
+      INNER JOIN pages p ON p.id = pt.page_id
+      WHERE p.status = 'published'
+        AND COALESCE(TRIM(p.slug), '') <> ''
+        AND COALESCE(TRIM(t.slug), '') <> ''
+      GROUP BY t.slug
+    ),
+    all_indexable_urls AS (
+      SELECT * FROM canonical_pages
+      UNION ALL
+      SELECT * FROM category_archives
+      UNION ALL
+      SELECT * FROM tag_archives
+    )
+    SELECT loc, last_mod, changefreq, priority
+    FROM all_indexable_urls
+    ORDER BY sort_group, loc
+    LIMIT $1 OFFSET $2
+    `,
+    [SITEMAP_PAGE_SIZE, offset],
+  );
+
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+`;
+
+  for (const row of result.rows) {
+    xml += `  <url>
+    <loc>${row.loc}</loc>
+    <lastmod>${getValidLastmod(row.last_mod)}</lastmod>
+    <changefreq>${row.changefreq || "weekly"}</changefreq>
+    <priority>${row.priority || "0.6"}</priority>
+  </url>
+`;
+  }
+
+  xml += `</urlset>`;
+  cacheSitemap(cacheFile, xml);
+  return xml;
 }
 
 // ============= NEWS/ARTICLES =============
@@ -654,6 +808,7 @@ async function generateNewsSitemap(): Promise<string> {
       cs.published_at
     FROM case_studies cs
     WHERE cs.published_at <= NOW()
+      AND COALESCE(TRIM(cs.slug), '') <> ''
     ORDER BY cs.published_at DESC
   `);
 
@@ -662,7 +817,7 @@ async function generateNewsSitemap(): Promise<string> {
       continue;
     }
 
-    const lastmod = getValidLastmod(article.updated_at);
+    const lastmod = getValidLastmod(article.updated_at || article.published_at);
 
     const url = `https://www.askdetectives.com/news/${article.slug}`;
 
@@ -689,6 +844,7 @@ async function generateSitemapIndex(): Promise<string> {
   const statesPages = await getStatesSitemapCount();
   const citiesPages = await getCitiesSitemapCount();
   const serviceLocationPages = await getServiceLocationsSitemapCount();
+  const cmsPages = await getCmsSitemapCount();
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -736,6 +892,13 @@ async function generateSitemapIndex(): Promise<string> {
 `;
   }
 
+  for (let i = 1; i <= cmsPages; i++) {
+    xml += `  <sitemap>
+    <loc>https://www.askdetectives.com/sitemap-cms-${i}.xml</loc>
+  </sitemap>
+`;
+  }
+
   xml += `</sitemapindex>`;
   cacheSitemap("index.xml", xml);
   return xml;
@@ -753,7 +916,7 @@ async function generateSitemapIndex(): Promise<string> {
  *   'all'               → every file in the cache directory
  */
 export function invalidateSitemapCache(
-  types: Array<"detectives" | "services" | "service-locations" | "news" | "all">
+  types: Array<"detectives" | "services" | "service-locations" | "news" | "cms" | "all">
 ): void {
   try {
     let files: string[];
@@ -782,6 +945,9 @@ export function invalidateSitemapCache(
       }
       if (types.includes("news")) {
         toDelete.add("news.xml");
+      }
+      if (types.includes("cms")) {
+        files.filter(f => f.startsWith("cms-")).forEach(f => toDelete.add(f));
       }
     }
 
@@ -835,10 +1001,12 @@ export {
   generateDetectivesSitemap,
   generateServicesSitemap,
   generateServiceLocationsSitemap,
+  generateCmsSitemap,
   generateNewsSitemap,
   generateSitemapIndex,
   getServiceSitemapCount,
   getServiceLocationsSitemapCount,
+  getCmsSitemapCount,
   getStatesSitemapCount,
   getCitiesSitemapCount,
   CACHE_MAX_AGE,

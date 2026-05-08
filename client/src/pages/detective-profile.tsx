@@ -52,7 +52,6 @@ export default function DetectiveProfile() {
   const city = params?.city;
   const [isPreview, setIsPreview] = useState(false);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
-  const [detailSeoH1, setDetailSeoH1] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -69,24 +68,6 @@ export default function DetectiveProfile() {
   }, []);
 
   const { data: serviceData, isLoading: isLoadingService, error: serviceError } = useServiceBySlug(serviceSlug, detectiveSlug, isPreview, country, state, city);
-  // Fetch detective page SEO data (H1 override)
-  useEffect(() => {
-    if (!serviceData?.detective?.id) return;
-
-    const fetchDetectiveSeo = async () => {
-      try {
-        const response = await api.get<{ h1?: string | null }>(`/api/detective-seo/${serviceData.detective.id}`);
-        if (response.h1) {
-          setDetailSeoH1(response.h1);
-        }
-      } catch (error) {
-        console.debug("Could not fetch detective SEO data");
-      }
-    };
-
-    fetchDetectiveSeo();
-  }, [serviceData?.detective?.id]);
-
   const detectiveIdForServices = serviceData?.detective?.id;
   useServicesByDetective(detectiveIdForServices);
   const { data: similarDetectives, isLoading: isLoadingSimilar } = useSimilarDetectives(detectiveIdForServices);
@@ -321,11 +302,17 @@ export default function DetectiveProfile() {
     return (isNaN(parsed) || parsed <= 0) ? null : parsed;
   })();
   
-  // SEO: Enhanced H1 with location for better ranking
-  // Use detective pages override H1 if available, otherwise use computed default
-  const seoH1 = detailSeoH1 || (detective.city && displayCountryName
-    ? `${detectiveName} - Private Investigator in ${detective.city}, ${displayCountryName}`
-    : `${detectiveName} - Private Investigator`);
+  const serviceHeadingBase = (service.category && service.category.trim() !== "")
+    ? `${service.category.trim()} Services`
+    : (service.title || "Investigation Services");
+  const serviceLocationText = detective.city && detective.state
+    ? `${detective.city}, ${detective.state}`
+    : detective.city
+    ? detective.city
+    : detective.state
+    ? detective.state
+    : displayCountryName;
+  const seoH1 = `${serviceHeadingBase} by ${detectiveName} in ${serviceLocationText}`;
   
   // SEO: Generate FAQs for schema
   const serviceFaqs = getServiceFAQs(
@@ -430,7 +417,7 @@ export default function DetectiveProfile() {
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900">
       <SEO 
-        title={`${service.title} in ${locationText} | Ask Detectives`}
+        title={`${seoH1} | Ask Detectives`}
         description={`${service.title} in ${locationText}. ${service.description.slice(0, 140)}`}
         image={serviceImage || detectiveLogo || ""}
         type="profile"

@@ -34,7 +34,12 @@ async function getCategoryIdFromHierarchicalSlug(slugPath: string): Promise<stri
   return currentCategoryId;
 }
 
-async function fetchPage(slug: string, category?: string) {
+async function fetchPage(
+  slug: string,
+  category?: string,
+  options?: { strictCategoryPath?: boolean },
+) {
+  const strictCategoryPath = !!options?.strictCategoryPath;
   const baseSelect = `SELECT 
       p.id,
       p.title,
@@ -120,14 +125,22 @@ async function fetchPage(slug: string, category?: string) {
   if (category) {
     // Resolve the hierarchical category slug to get the category ID
     const categoryId = await getCategoryIdFromHierarchicalSlug(category);
-    if (categoryId) {
+    if (!categoryId) {
+      if (strictCategoryPath) {
+        return null;
+      }
+    } else {
       params.push(categoryId);
       where = `${where} AND p.category_id = $2`;
       pageResult = await runQuery(where, params);
+
+      if (strictCategoryPath && pageResult.rows.length === 0) {
+        return null;
+      }
     }
   }
 
-  if (!pageResult || pageResult.rows.length === 0) {
+  if ((!pageResult || pageResult.rows.length === 0) && !strictCategoryPath) {
     pageResult = await runQuery("p.slug = $1 AND p.status = 'published'", [slug]);
   }
 
@@ -163,6 +176,7 @@ async function fetchPage(slug: string, category?: string) {
     category: pageRow.category_id
       ? { id: pageRow.category_id, name: pageRow.category_name, slug: pageRow.category_slug }
       : null,
+    categoryPath: category || pageRow.category_slug || null,
     tags: tagsResult.rows.map(row => ({
       id: row.id,
       name: row.name,
@@ -194,7 +208,7 @@ router.get("/:parent/:category/:slug", async (req: Request, res: Response) => {
     console.debug("[cache MISS]", cacheKey);
 
     console.log(`[public-pages] Fetching page with category: ${categorySlug}, slug: ${slug}`);
-    const page = await fetchPage(slug, categorySlug);
+    const page = await fetchPage(slug, categorySlug, { strictCategoryPath: true });
     if (!page) {
       console.warn(`[public-pages] Page not found or not published: ${categorySlug}/${slug}`);
       return res.status(404).json({ error: "Page not found" });
@@ -241,7 +255,7 @@ router.get("/:category/:slug", async (req: Request, res: Response) => {
     console.debug("[cache MISS]", cacheKey);
 
     console.log(`[public-pages] Fetching page with category: ${category}, slug: ${slug}`);
-    const page = await fetchPage(slug, category);
+    const page = await fetchPage(slug, category, { strictCategoryPath: true });
     if (!page) {
       console.warn(`[public-pages] Page not found or not published: ${category}/${slug}`);
       return res.status(404).json({ error: "Page not found" });

@@ -40,13 +40,31 @@ const DEFAULT_FILTERS: FilterState = {
   agencyOnly: false,
   level1Only: false,
   level2Only: false,
-  sortBy: "popular",
+  sortBy: "recent",
   offset: 0,
   limit: 15,
 };
 
+function hasActiveSearchCriteria(params: URLSearchParams): boolean {
+  return [
+    "q",
+    "category",
+    "country",
+    "state",
+    "city",
+    "minPrice",
+    "maxPrice",
+    "minRating",
+    "proOnly",
+    "agencyOnly",
+    "lvl1",
+    "lvl2",
+  ].some((key) => Boolean(params.get(key)?.trim()));
+}
+
 function getFiltersFromSearch(search: string): { query: string; filters: FilterState } {
   const params = new URLSearchParams(search);
+  const defaultSortBy = params.get("sortBy") || (hasActiveSearchCriteria(params) ? "popular" : "recent");
 
   return {
     query: params.get("q") || "All Services",
@@ -65,9 +83,17 @@ function getFiltersFromSearch(search: string): { query: string; filters: FilterS
       agencyOnly: params.get("agencyOnly") === "1",
       level1Only: params.get("lvl1") === "1",
       level2Only: params.get("lvl2") === "1",
-      sortBy: params.get("sortBy") || "popular",
+      sortBy: defaultSortBy,
     },
   };
+}
+
+function getInitialSearchState(): { query: string; filters: FilterState } {
+  if (typeof window === "undefined") {
+    return { query: "All Services", filters: DEFAULT_FILTERS };
+  }
+
+  return getFiltersFromSearch(window.location.search);
 }
 
 // Consolidated filter state using reducer
@@ -159,9 +185,10 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
 
 export default function SearchPage() {
   console.log("[search-page] Component initializing...");
+  const initialState = getInitialSearchState();
   const [location] = useLocation();
-  const [query, setQuery] = useState("All Services");
-  const [filters, dispatch] = useReducer(filterReducer, DEFAULT_FILTERS);
+  const [query, setQuery] = useState(initialState.query);
+  const [filters, dispatch] = useReducer(filterReducer, initialState.filters);
 
   // Sync filters when navigating to this page with new URL params
   useEffect(() => {

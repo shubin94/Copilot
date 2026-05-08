@@ -136,12 +136,16 @@ function injectScriptPayloads(
 }
 
 function injectFragmentBeforeRoot(html: string, fragmentHtml: string): string {
+  const markedFragmentHtml = /data-ssr-fragment\s*=/.test(fragmentHtml)
+    ? fragmentHtml
+    : `<section data-ssr-fragment="generic">${fragmentHtml}</section>`;
+
   const rootMarker = '<div id="root"><!--app-html--></div>';
   if (html.includes(rootMarker)) {
-    return html.replace(rootMarker, `${fragmentHtml}\n${rootMarker}`);
+    return html.replace(rootMarker, `${markedFragmentHtml}\n${rootMarker}`);
   }
 
-  return html.replace("<body>", `<body>\n${fragmentHtml}`);
+  return html.replace("<body>", `<body>\n${markedFragmentHtml}`);
 }
 
 function generateServiceCategorySlug(text: string): string {
@@ -183,6 +187,37 @@ async function resolveCanonicalServiceCategorySlug(slug: string): Promise<string
   }
 
   return serviceCategorySlugCache.get(slug)?.canonicalSlug || null;
+}
+
+async function getCategoryIdFromHierarchicalSlug(slugPath: string): Promise<string | null> {
+  const directResult = await pool.query("SELECT id FROM categories WHERE slug = $1", [slugPath]);
+  if (directResult.rows.length > 0) {
+    return directResult.rows[0].id;
+  }
+
+  const slugParts = slugPath.split("/").filter(Boolean);
+  let currentCategoryId: string | null = null;
+
+  for (const slugPart of slugParts) {
+    let query = "SELECT id FROM categories WHERE slug = $1";
+    const params: any[] = [slugPart];
+
+    if (currentCategoryId) {
+      query += " AND parent_id = $2";
+      params.push(currentCategoryId);
+    } else {
+      query += " AND parent_id IS NULL";
+    }
+
+    const result = await pool.query(query, params);
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    currentCategoryId = result.rows[0].id;
+  }
+
+  return currentCategoryId;
 }
 
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
@@ -868,36 +903,133 @@ export async function serveStatic(app: Express, _server: Server) {
     }
   });
 
+  // LEGACY CMS URL BRIDGE — redirect /pages/* routes to canonical CMS paths or return hard 404.
+  app.get(/^\/pages\/([^/]+)\/([^/]+)\/([^/]+)\/?$/, async (req: Request, res: Response) => {
+    try {
+      const segments = req.path.replace(/\/+$/, "").split("/").filter(Boolean);
+      const parentSlug = segments[1];
+      const categorySlug = segments[2];
+      const pageSlug = segments[3];
+      const categoryPath = `${parentSlug}/${categorySlug}`;
+      const categoryId = await getCategoryIdFromHierarchicalSlug(categoryPath);
+
+      if (!categoryId) {
+        return serve404Page(res, "Page Not Found", "This page could not be found");
+      }
+
+      const pageResult = await pool.query(
+        `SELECT p.slug
+         FROM pages p
+         WHERE p.slug = $1 AND p.status = 'published' AND p.category_id = $2
+         LIMIT 1`,
+        [pageSlug, categoryId],
+      );
+
+      if (pageResult.rows.length === 0) {
+        return serve404Page(res, "Page Not Found", "This page could not be found");
+      }
+
+      return res.redirect(301, `/${categoryPath}/${pageSlug}`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[Legacy CMS Redirect] Error:", { url: req.originalUrl, message: errorMsg });
+      return serve404Page(res, "Page Not Found", "This page could not be found");
+    }
+  });
+
+  app.get(/^\/pages\/([^/]+)\/([^/]+)\/?$/, async (req: Request, res: Response) => {
+    try {
+      const segments = req.path.replace(/\/+$/, "").split("/").filter(Boolean);
+      const categorySlug = segments[1];
+      const pageSlug = segments[2];
+      const categoryId = await getCategoryIdFromHierarchicalSlug(categorySlug);
+
+      if (!categoryId) {
+        return serve404Page(res, "Page Not Found", "This page could not be found");
+      }
+
+      const pageResult = await pool.query(
+        `SELECT p.slug
+         FROM pages p
+         WHERE p.slug = $1 AND p.status = 'published' AND p.category_id = $2
+         LIMIT 1`,
+        [pageSlug, categoryId],
+      );
+
+      if (pageResult.rows.length === 0) {
+        return serve404Page(res, "Page Not Found", "This page could not be found");
+      }
+
+      return res.redirect(301, `/${categorySlug}/${pageSlug}`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[Legacy CMS Redirect] Error:", { url: req.originalUrl, message: errorMsg });
+      return serve404Page(res, "Page Not Found", "This page could not be found");
+    }
+  });
+
+  app.get(/^\/pages\/([^/]+)\/?$/, async (req: Request, res: Response) => {
+    try {
+      const segments = req.path.replace(/\/+$/, "").split("/").filter(Boolean);
+      const pageSlug = segments[1];
+      const pageResult = await pool.query(
+        `SELECT p.slug, c.slug AS category_slug
+         FROM pages p
+         LEFT JOIN categories c ON p.category_id = c.id
+         WHERE p.slug = $1 AND p.status = 'published'
+         LIMIT 1`,
+        [pageSlug],
+      );
+
+      if (pageResult.rows.length === 0 || !pageResult.rows[0].category_slug) {
+        return serve404Page(res, "Page Not Found", "This page could not be found");
+      }
+
+      return res.redirect(301, `/${pageResult.rows[0].category_slug}/${pageSlug}`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[Legacy CMS Redirect] Error:", { url: req.originalUrl, message: errorMsg });
+      return serve404Page(res, "Page Not Found", "This page could not be found");
+    }
+  });
+
   // CMS BLOG/PAGE SSR — Phase A+B
-  // Intercepts /:category/:slug and /blog/:category/:slug patterns (CMS pages).
+  // Intercepts /:category/:slug and /:parent/:category/:slug patterns (CMS pages).
   // Injects CMS_PAGE_DATA seed + visible SSR fragment outside #root.
   // Must run BEFORE SPA fallback. Only handles routes that are known CMS page patterns.
-  app.get(/^\/(?:blog\/)?([^/]+)\/([^/]+)\/?$/, async (req: Request, res: Response, next: NextFunction) => {
+  app.get(/^\/([^/]+)\/([^/]+)(?:\/([^/]+))?\/?$/, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rawPath = req.path.replace(/\/+$/, "");
       const segments = rawPath.split("/").filter(Boolean);
 
-      // This regex handles: /category/slug and /blog/category/slug
-      // Segments: [category, slug] or [blog, category, slug]
-      let categorySlug: string;
+      // This regex handles: /category/slug and /parent/category/slug
+      // Segments: [category, slug] or [parent, category, slug]
+      let categoryPath: string;
       let pageSlug: string;
 
       if (segments.length === 2) {
-        [categorySlug, pageSlug] = segments;
-      } else if (segments.length === 3 && segments[0] === "blog") {
-        [, categorySlug, pageSlug] = segments;
+        categoryPath = segments[0];
+        pageSlug = segments[1];
+      } else if (segments.length === 3) {
+        categoryPath = `${segments[0]}/${segments[1]}`;
+        pageSlug = segments[2];
       } else {
         return next();
       }
 
       // Skip known non-CMS two-segment routes that have their own handlers
       const NON_CMS_PREFIXES = new Set([
-        "detectives", "locations", "service", "news", "api",
+        "detectives", "locations", "service", "news", "api", "blog", "pages",
         "about", "contact", "support", "privacy", "terms", "packages", "categories",
         "admin", "dashboard", "auth", "login", "register",
         "search", "verify", "reset-password",
       ]);
-      if (NON_CMS_PREFIXES.has(categorySlug)) return next();
+      if (NON_CMS_PREFIXES.has(segments[0])) return next();
+
+      const categoryId = await getCategoryIdFromHierarchicalSlug(categoryPath);
+      if (!categoryId) {
+        return serve404Page(res, "Page Not Found", "This page could not be found");
+      }
 
       // Fetch CMS page from DB
       const pageResult = await pool.query(
@@ -907,12 +1039,14 @@ export async function serveStatic(app: Express, _server: Server) {
                 c.id as category_id, c.name as category_name, c.slug as category_slug
          FROM pages p
          LEFT JOIN categories c ON p.category_id = c.id
-         WHERE p.slug = $1 AND p.status = 'published'
+         WHERE p.slug = $1 AND p.status = 'published' AND p.category_id = $2
          LIMIT 1`,
-        [pageSlug],
+        [pageSlug, categoryId],
       );
 
-      if (pageResult.rows.length === 0) return next();
+      if (pageResult.rows.length === 0) {
+        return serve404Page(res, "Page Not Found", "This page could not be found");
+      }
       const row = pageResult.rows[0];
 
       // Fetch tags
@@ -939,6 +1073,7 @@ export async function serveStatic(app: Express, _server: Server) {
         id: row.id,
         title: row.title,
         slug: row.slug,
+        categoryPath,
         content: row.content,
         bannerImage: row.banner_image || null,
         status: row.status,
@@ -960,11 +1095,17 @@ export async function serveStatic(app: Express, _server: Server) {
         description: seoDescription,
         h1: row.h1 || row.title,
         slug: row.slug,
-        categorySlug: category?.slug || categorySlug,
+        categorySlug: category?.slug || null,
+        categoryPath,
       };
 
-      const canonicalPath = `/${categorySlug}/${pageSlug}`;
+      const canonicalPath = `/${categoryPath}/${row.slug}`;
       const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+
+      if (rawPath !== canonicalPath) {
+        const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+        return res.redirect(301, `${canonicalPath}${query}`);
+      }
 
       let seoHtml = await readIndexHtml();
 
@@ -1020,11 +1161,85 @@ export async function serveStatic(app: Express, _server: Server) {
 
       const seo = await getPublishedCmsPageSeo(slug);
       let html = await readIndexHtml();
+      const canonicalPath = req.path.replace(/\/$/, "") || `/${slug}`;
+      const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+
+      const pageResult = await pool.query(
+        `SELECT p.id, p.title, p.slug, p.content, p.banner_image, p.status,
+                p.meta_title, p.meta_description, p.h1, p.created_at, p.updated_at,
+                p.author_name, p.author_email, c.id as category_id,
+                c.name as category_name, c.slug as category_slug
+         FROM pages p
+         LEFT JOIN categories c ON p.category_id = c.id
+         WHERE p.slug = $1 AND p.status = 'published'
+         LIMIT 1`,
+        [slug],
+      );
 
       if (seo) {
-        const canonicalPath = req.path.replace(/\/$/, "") || `/${slug}`;
-        const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
         html = injectCmsPageSeoTags(html, seo, canonicalUrl);
+      }
+
+      if (pageResult.rows.length > 0) {
+        const row = pageResult.rows[0];
+        const category = row.category_id
+          ? { id: row.category_id, name: row.category_name, slug: row.category_slug }
+          : null;
+        const author = row.author_name
+          ? { name: row.author_name, email: row.author_email || undefined }
+          : null;
+
+        const rawContent: string = row.content || "";
+        const plainExcerpt = rawContent.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().substring(0, 300);
+
+        const cmsPagePayload = {
+          id: row.id,
+          title: row.title,
+          slug: row.slug,
+          content: row.content,
+          bannerImage: row.banner_image || null,
+          status: row.status,
+          metaTitle: row.meta_title || null,
+          metaDescription: row.meta_description || null,
+          h1: row.h1 || null,
+          createdAt: new Date(row.created_at).toISOString(),
+          updatedAt: new Date(row.updated_at).toISOString(),
+          author,
+          category,
+          tags: [],
+        };
+
+        const cmsSeoPayload = {
+          title: row.meta_title || row.title,
+          description: row.meta_description || plainExcerpt.substring(0, 160) || `Learn more about ${row.title} on Ask Detectives.`,
+          h1: row.h1 || row.title,
+          slug: row.slug,
+          categorySlug: category?.slug || null,
+        };
+
+        html = injectScriptPayloads(html, [
+          { globalName: "CMS_PAGE_DATA", data: cmsPagePayload },
+          { globalName: "CMS_SEO_DATA", data: cmsSeoPayload },
+        ]);
+
+        const fragmentHtml = buildCmsPageSsrFragment({
+          slug: row.slug,
+          title: row.title,
+          h1: row.h1 || undefined,
+          metaTitle: row.meta_title || undefined,
+          metaDescription: row.meta_description || undefined,
+          createdAt: cmsPagePayload.createdAt,
+          updatedAt: cmsPagePayload.updatedAt,
+          excerpt: plainExcerpt,
+          bannerImage: row.banner_image || null,
+          author,
+          category,
+          tags: [],
+          canonicalPath,
+        });
+
+        html = stripHiddenSeoH1(html);
+        html = injectFragmentBeforeRoot(html, fragmentHtml);
       }
 
       return sendIndexHtmlResponse(req, res, html, "no-store");

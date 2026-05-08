@@ -33,6 +33,7 @@ interface PageData {
   h1?: string;
   createdAt: string;
   updatedAt: string;
+  categoryPath?: string | null;
   author?: {
     name: string;
     email?: string;
@@ -103,8 +104,19 @@ export default function PageView() {
       : undefined
   ) as string | undefined;
 
-  // Validate seed against current route slug before using
-  const seedMatchesRoute = !!(_cmsPageSeed && slug && _cmsPageSeed.slug === slug);
+  const normalizedCategoryPath = (categorySlug || "").replace(/^\/+|\/+$/g, "").toLowerCase();
+  const seedCategoryPath = ((_cmsPageSeed as any)?.categoryPath || _cmsPageSeed?.category?.slug || "")
+    .replace(/^\/+|\/+$/g, "")
+    .toLowerCase();
+
+  // Validate seed against current route category path + slug before using
+  const seedMatchesRoute = !!(
+    _cmsPageSeed
+    && slug
+    && normalizedCategoryPath
+    && _cmsPageSeed.slug === slug
+    && seedCategoryPath === normalizedCategoryPath
+  );
 
   const { data, isLoading, isError } = useQuery<{ page: PageData }>({
     queryKey: ["public-page", categorySlug || "", slug],
@@ -148,10 +160,12 @@ export default function PageView() {
   if (!data?.page) return <NotFound />;
 
   const page = data.page;
-  
-  // Normalize canonical URL by removing legacy "/pages" prefix
-  const cleanedPath = locationPath.startsWith('/pages/') ? locationPath.replace('/pages', '') : locationPath;
-  const canonicalUrl = `https://www.askdetectives.com${cleanedPath}`;
+  const canonicalCategoryPath = (page.categoryPath || categorySlug || page.category?.slug || "")
+    .replace(/^\/+|\/+$/g, "");
+  const canonicalPath = canonicalCategoryPath
+    ? `/${canonicalCategoryPath}/${page.slug}`
+    : `/${page.slug}`;
+  const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
   
   const breadcrumbs = page.category
     ? [

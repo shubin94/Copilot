@@ -72,10 +72,63 @@ function hasServerRenderedMarkup(container: HTMLElement): boolean {
   });
 }
 
+function cleanupSsrFragmentsAfterHydration(): void {
+  if (typeof window === "undefined") return;
+
+  const root = document.getElementById("root");
+  if (!root) return;
+
+  const maxAttempts = 24;
+  let attempts = 0;
+
+  const tryCleanup = () => {
+    attempts += 1;
+
+    const rootReady = root.childElementCount > 0 || Boolean(root.textContent?.trim());
+    if (!rootReady) {
+      if (attempts < maxAttempts) {
+        window.setTimeout(tryCleanup, 125);
+      }
+      return;
+    }
+
+    const fragments = Array.from(document.querySelectorAll<HTMLElement>("[data-ssr-fragment]")).filter(
+      (node) => !root.contains(node),
+    );
+
+    if (!fragments.length) {
+      return;
+    }
+
+    const fadeAndRemove = () => {
+      for (const fragment of fragments) {
+        fragment.style.transition = "opacity 160ms ease";
+        fragment.style.opacity = "0";
+        fragment.style.pointerEvents = "none";
+      }
+
+      window.setTimeout(() => {
+        for (const fragment of fragments) {
+          fragment.remove();
+        }
+      }, 180);
+    };
+
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(fadeAndRemove));
+    } else {
+      window.setTimeout(fadeAndRemove, 0);
+    }
+  };
+
+  window.setTimeout(tryCleanup, 0);
+}
+
 logDev('[App Startup] Mounting React app...');
 if (hasServerRenderedMarkup(rootElement)) {
   logDev('[App Startup] Detected pre-rendered HTML, hydrating React app...');
   hydrateRoot(rootElement, <App />);
+  cleanupSsrFragmentsAfterHydration();
 } else {
   logDev('[App Startup] No pre-rendered HTML detected, using createRoot...');
   createRoot(rootElement).render(<App />);
