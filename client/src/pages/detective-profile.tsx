@@ -21,7 +21,7 @@ import { useLocation, useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
-import { ServiceFAQ, getServiceFAQs } from "@/components/service-faq";
+import { ServiceFAQ } from "@/components/service-faq";
 import { buildServiceUrl, getCountryName } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
 import { getDetectiveProfileUrl } from "@/lib/utils";
@@ -313,26 +313,7 @@ export default function DetectiveProfile() {
     ? detective.state
     : displayCountryName;
   const seoH1 = `${serviceHeadingBase} by ${detectiveName} in ${serviceLocationText}`;
-  
-  // SEO: Generate FAQs for schema
-  const serviceFaqs = getServiceFAQs(
-    {
-      title: service.title,
-      category: service.category,
-      basePrice,
-      offerPrice,
-      isOnEnquiry: service.isOnEnquiry
-    },
-    {
-      businessName: detectiveName,
-      city: detective.city,
-      country: displayCountryName,
-      phone: detective.phone,
-      whatsapp: detective.whatsapp,
-      contactEmail: detective.contactEmail
-    },
-    (price) => formatPriceFromTo && formatPriceFromTo(price, detective.country, selectedCountryCode) || String(price)
-  );
+
   // Use actual detective logo and service images from database - NO MOCK DATA
   const detectiveLogo = detective.logo;
   const serviceImage = service.images && service.images.length > 0 ? service.images[0] : null;
@@ -361,59 +342,6 @@ export default function DetectiveProfile() {
     toggleFavorite(service.id);
   };
 
-  // Schema.org Structured Data
-  const schemaReviews = reviews
-    .filter((r: any) => r.comment && r.comment.trim().length > 20)
-    .slice(0, 5)
-    .map((r: any) => ({
-      "@type": "Review",
-      "reviewRating": {
-        "@type": "Rating",
-        "ratingValue": Number(r.rating),
-        "bestRating": 5,
-        "worstRating": 1,
-      },
-      "author": {
-        "@type": "Person",
-        "name": reviewUsers[r.userId]?.name || "Verified Client",
-      },
-      "datePublished": r.createdAt
-        ? new Date(r.createdAt).toISOString().split("T")[0]
-        : undefined,
-      "reviewBody": r.comment,
-    }));
-
-  const detectiveSchema = {
-    "@context": "https://schema.org",
-    "@type": ["LocalBusiness", "ProfessionalService"],
-    "name": detectiveName,
-    "image": serviceImage || detectiveLogo || "",
-    "description": service.description,
-    "url": canonicalUrl,
-    "serviceType": service.category || "Private Investigation",
-    "areaServed": locationText ? { "@type": "Place", "name": locationText } : undefined,
-    "provider": {
-      "@type": "Organization",
-      "name": detectiveName,
-      "url": `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`,
-    },
-    "address": {
-      "@type": "PostalAddress",
-      ...(detective.city ? { "addressLocality": detective.city } : {}),
-      ...(detective.state ? { "addressRegion": detective.state } : {}),
-      ...(displayCountryName ? { "addressCountry": displayCountryName } : {})
-    },
-    "aggregateRating": reviewCount > 0 ? {
-      "@type": "AggregateRating",
-      "ratingValue": Math.round(avgRating * 10) / 10,
-      "bestRating": 5,
-      "worstRating": 1,
-      "reviewCount": Math.round(reviewCount),
-    } : undefined,
-    ...(schemaReviews.length > 0 ? { "review": schemaReviews } : {}),
-    "priceRange": "$$"
-  };
-
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900">
       <SEO 
@@ -424,21 +352,7 @@ export default function DetectiveProfile() {
         keywords={seoKeywords}
         canonical={canonicalUrl}
         robots={isPreview ? "noindex, nofollow" : "index, follow"}
-        schema={detectiveSchema}
         breadcrumbs={breadcrumbs}
-        structuredData={{
-          service: {
-            price: basePrice,
-            offerPrice,
-            isOnEnquiry: service.isOnEnquiry,
-            category: service.category,
-            city: detective.city,
-            country: detective.country,
-            detectiveName,
-            detectiveLogo
-          },
-          faqs: serviceFaqs
-        }}
         publishedTime={service.createdAt instanceof Date ? service.createdAt.toISOString() : service.createdAt}
         modifiedTime={service.updatedAt instanceof Date ? service.updatedAt.toISOString() : service.updatedAt}
       />

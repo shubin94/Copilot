@@ -584,7 +584,7 @@ async function fetchDetectiveSeoOverride(detectiveId: string): Promise<{ metaTit
 
 /**
  * Fetches service + detective by slug for SSR SEO injection on /service/... pages.
- * Returns { title, h1, meta_title, meta_description } or null if not found.
+ * Returns canonicalized service SEO payload used by SSR head injection.
  */
 export async function getServiceBySlugForSEO(
   countrySlug: string,
@@ -592,17 +592,39 @@ export async function getServiceBySlugForSEO(
   citySlug: string,
   detectiveSlug: string,
   serviceSlug: string
-): Promise<{ title: string; h1: string; meta_title: string; meta_description: string } | null> {
+): Promise<{
+  title: string;
+  serviceTitle: string;
+  detectiveName: string;
+  h1: string;
+  meta_title: string;
+  meta_description: string;
+  category: string;
+  serviceDescription: string;
+  basePrice: number | null;
+  offerPrice: number | null;
+  isOnEnquiry: boolean;
+  avgRating: number;
+  reviewCount: number;
+  countryName: string;
+  countrySlug: string;
+  stateName: string;
+  stateSlug: string;
+  cityName: string;
+  citySlug: string;
+  canonicalServiceSlug: string;
+  canonicalPath: string;
+} | null> {
   try {
-    const countryRow = await db.select({ id: countries.id, name: countries.name })
+    const countryRow = await db.select({ id: countries.id, name: countries.name, slug: countries.slug })
       .from(countries).where(eq(countries.slug, countrySlug.toLowerCase())).limit(1);
     if (!countryRow[0]) return null;
 
-    const stateRow = await db.select({ id: states.id, name: states.name })
+    const stateRow = await db.select({ id: states.id, name: states.name, slug: states.slug })
       .from(states).where(and(eq(states.slug, stateSlug.toLowerCase()), eq(states.countryId, countryRow[0].id))).limit(1);
     if (!stateRow[0]) return null;
 
-    const cityRow = await db.select({ id: cities.id, name: cities.name })
+    const cityRow = await db.select({ id: cities.id, name: cities.name, slug: cities.slug })
       .from(cities).where(and(eq(cities.slug, citySlug.toLowerCase()), eq(cities.stateId, stateRow[0].id))).limit(1);
     if (!cityRow[0]) return null;
 
@@ -624,14 +646,60 @@ export async function getServiceBySlugForSEO(
     if (!rows[0]) return null;
 
     const { service, detective } = rows[0];
+    const canonicalServiceSlug = String(service.slug || "").replace(
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-/,
+      "",
+    );
+    if (!canonicalServiceSlug) return null;
+
+    const ratingsResult = await pool.query(
+      `SELECT
+         COALESCE(AVG(r.rating), 0)::numeric AS "avgRating",
+         COUNT(r.id)::int                     AS "reviewCount"
+       FROM reviews r
+       WHERE r.service_id = $1
+         AND r.is_published = true
+         AND r.rating IS NOT NULL`,
+      [service.id],
+    );
+
+    const avgRating = Number(ratingsResult.rows[0]?.avgRating ?? 0);
+    const reviewCount = Number(ratingsResult.rows[0]?.reviewCount ?? 0);
     const detectiveName = detective.businessName || `${(detective as any).firstName || ''} ${(detective as any).lastName || ''}`.trim() || 'Detective';
     const cityName = cityRow[0].name;
     const stateName = stateRow[0].name;
+    const category = service.category || "Services";
     const h1 = `${service.title} by ${detectiveName} in ${cityName}`;
     const meta_title = `${service.title} by ${detectiveName} in ${cityName}, ${stateName} | AskDetectives`;
-    const meta_description = `Professional ${service.category} services by ${detectiveName} from ${cityName}, ${stateName}, ${countryRow[0].name}. Contact for a detailed consultation.`;
+    const meta_description = `Professional ${category} services by ${detectiveName} from ${cityName}, ${stateName}, ${countryRow[0].name}. Contact for a detailed consultation.`;
+    const canonicalPath = `/service/${countryRow[0].slug}/${stateRow[0].slug}/${cityRow[0].slug}/${detective.slug}/${canonicalServiceSlug}`;
 
-    return { title: meta_title, h1, meta_title, meta_description };
+    const parsedBasePrice = service.basePrice == null ? null : Number(service.basePrice);
+    const parsedOfferPrice = service.offerPrice == null ? null : Number(service.offerPrice);
+
+    return {
+      title: meta_title,
+      serviceTitle: service.title,
+      detectiveName,
+      h1,
+      meta_title,
+      meta_description,
+      category,
+      serviceDescription: service.description || "",
+      basePrice: Number.isFinite(parsedBasePrice) ? parsedBasePrice : null,
+      offerPrice: Number.isFinite(parsedOfferPrice) ? parsedOfferPrice : null,
+      isOnEnquiry: Boolean(service.isOnEnquiry),
+      avgRating,
+      reviewCount,
+      countryName: countryRow[0].name,
+      countrySlug: countryRow[0].slug,
+      stateName: stateRow[0].name,
+      stateSlug: stateRow[0].slug,
+      cityName: cityRow[0].name,
+      citySlug: cityRow[0].slug,
+      canonicalServiceSlug,
+      canonicalPath,
+    };
   } catch {
     return null;
   }
@@ -858,6 +926,132 @@ function getCountryName(country: string): string {
   }
 
   return normalized;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: LocalBusiness schema — detective profile pages only
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a Phase 3 LocalBusiness JSON-LD object for a detective profile.
+ *
+ * Scope: LocalBusiness core fields (Phase 3) + AggregateRating (Phase 4).
+ * Deliberately excluded (future phases): Review schema, hasOfferCatalog,
+ * paymentAccepted, currenciesAccepted, priceRange, sameAs, knowsAbout,
+ * Service, ItemList, FAQPage.
+ *
+ * Returns null when the profile lacks the minimum required fields
+ * (business name) — prevents empty/placeholder entities in the index.
+ *
+ * @id and url ALWAYS use the canonical Ask Detectives profile URL —
+ * never the detective's external website — for unambiguous entity identity.
+ */
+function buildPhase3LocalBusinessSchema(
+  detective: any,
+  canonicalUrl: string,
+): Record<string, unknown> | null {
+  // Required-field gate: must have a business name to produce a valid entity
+  const name = (detective.businessName || "").trim();
+  if (!name) return null;
+
+  const schema: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": ["LocalBusiness", "ProfessionalService"],
+    // @id is the canonical profile URL — not the detective's external website
+    "@id": `${canonicalUrl}#localbusiness`,
+    name,
+    // url is also the canonical profile URL for entity consistency
+    url: canonicalUrl,
+  };
+
+  // description — bio takes priority, fallback to location-based text
+  const city = (detective.city || "").trim();
+  const state = (detective.state || "").trim();
+  const country = (detective.country || "").trim();
+  const locationStr = city && state ? `${city}, ${state}` : city || state || country;
+  schema.description =
+    (detective.bio || "").trim() ||
+    `Professional private investigator${locationStr ? ` in ${locationStr}` : ""}.`;
+
+  // address — only when at least city or state is present
+  if (city || state || country) {
+    schema.address = {
+      "@type": "PostalAddress",
+      ...(city && { addressLocality: city }),
+      ...(state && { addressRegion: state }),
+      ...(country && { addressCountry: country }),
+    };
+
+    // areaServed — mirrors address locality for local relevance signals
+    if (city && state) {
+      schema.areaServed = {
+        "@type": "City",
+        name: city,
+        containedInPlace: {
+          "@type": "AdministrativeArea",
+          name: state,
+        },
+      };
+    } else if (locationStr) {
+      schema.areaServed = locationStr;
+    }
+  }
+
+  // telephone — include only when non-empty
+  const phone = (detective.phone || "").trim();
+  if (phone) schema.telephone = phone;
+
+  // email — contact email only
+  const email = (detective.contactEmail || "").trim();
+  if (email) schema.email = email;
+
+  // image / logo — only when a real logo URL is present
+  const logo = (detective.logo || "").trim();
+  if (logo) {
+    schema.image = logo;
+    schema.logo = { "@type": "ImageObject", url: logo };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 4: AggregateRating — attached to LocalBusiness only when valid data exists.
+  //
+  // Validation gates (all must pass):
+  //   1. reviewCount is a positive integer (> 0)
+  //   2. ratingValue is a finite number in the range [1, 5]
+  //   3. Both values pass Number.isFinite / Number.isInteger checks
+  //
+  // These gates ensure:
+  //   - No schema on profiles without real published reviews
+  //   - No schema on placeholder/zero-count profiles
+  //   - Values exactly match what the visible page displays after hydration
+  //
+  // Display parity:
+  //   - ratingValue is rounded to 1 decimal (matches `avgRating.toFixed(1)` in UI)
+  //   - reviewCount is a strict integer (matches integer display in UI)
+  // ---------------------------------------------------------------------------
+  const rawReviewCount = detective.reviewCount;
+  const rawAvgRating = detective.avgRating;
+  const reviewCountInt = Math.round(Number(rawReviewCount));
+  const ratingValue = Math.round(Number(rawAvgRating) * 10) / 10;
+
+  if (
+    Number.isFinite(reviewCountInt) &&
+    Number.isInteger(reviewCountInt) &&
+    reviewCountInt > 0 &&
+    Number.isFinite(ratingValue) &&
+    ratingValue >= 1 &&
+    ratingValue <= 5
+  ) {
+    schema.aggregateRating = {
+      "@type": "AggregateRating",
+      ratingValue,
+      bestRating: 5,
+      worstRating: 1,
+      reviewCount: reviewCountInt,
+    };
+  }
+
+  return schema;
 }
 
 /**
@@ -1236,8 +1430,7 @@ export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl:
     `<!-- SEO_H1_INJECTION_POINT -->\n    <h1 style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">${escapeHtml(h1Value)}</h1>`
   );
 
-  // Inject JSON-LD at SEO_JSON_LD_INJECTION_POINT
-  // Four separate script tags: LocalBusiness, BreadcrumbList, Person, ProfilePage (WebPage)
+  // Inject JSON-LD at SEO_JSON_LD_INJECTION_POINT (Phase 1 + Phase 3)
   const jsonLd = generateDetectiveJsonLd(detective, canonicalUrl);
   const detectiveTitle = detective?.seoOverride?.metaTitle?.trim()
     || `${detective.businessName || 'Detective'} - Private Detective${detective.city ? ` in ${detective.city}` : ''} | Ask Detectives`;
@@ -1245,14 +1438,19 @@ export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl:
     || detective.bio?.substring(0, 160)
     || `Professional private investigator services${detective.city ? ` in ${detective.city}` : ''}`;
   const webPageSchema = generateWebPageSchema('ProfilePage', detectiveTitle, detectiveDesc, canonicalUrl);
-  const speakableSchema = generateSpeakableSchema();
+
+  // Phase 3: LocalBusiness — only emitted when required fields are present
+  const localBusinessSchemaObj = buildPhase3LocalBusinessSchema(detective, canonicalUrl);
+  const phase3Script = localBusinessSchemaObj
+    ? `\n    <script type="application/ld+json" data-ssr-schema-owner="phase3">\n      ${JSON.stringify(localBusinessSchemaObj, null, 2).replace(/\n/g, '\n      ')}\n    </script>`
+    : "";
+
   const jsonLdScripts = [
-    `<script type="application/ld+json">\n      ${jsonLd.localBusiness}\n    </script>`,
-    `<script type="application/ld+json">\n      ${jsonLd.breadcrumbs}\n    </script>`,
-    `<script type="application/ld+json">\n      ${jsonLd.person}\n    </script>`,
-    `<script type="application/ld+json">\n      ${webPageSchema}\n    </script>`,
-    `<script type="application/ld+json">\n      ${speakableSchema}\n    </script>`,
-  ].join('\n    ');
+    `<meta name="askdetectives:ssr-schema" content="authoritative" data-ssr-schema-owner="phase1" />`,
+    `<script type="application/ld+json" data-ssr-schema-owner="phase1">\n      ${jsonLd.breadcrumbs}\n    </script>`,
+    `<script type="application/ld+json" data-ssr-schema-owner="phase1">\n      ${webPageSchema}\n    </script>`,
+  ].join('\n    ') + phase3Script;
+
   modified = modified.replace(
     /<!-- SEO_JSON_LD_INJECTION_POINT -->/,
     `<!-- SEO_JSON_LD_INJECTION_POINT -->\n    ${jsonLdScripts}`

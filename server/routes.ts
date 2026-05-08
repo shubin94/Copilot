@@ -5451,7 +5451,7 @@ Content-Signal: index=public; train=deny
 
       // Resolve country
       const countryRow = await db
-        .select({ id: countries.id })
+        .select({ id: countries.id, slug: countries.slug })
         .from(countries)
         .where(eq(countries.slug, country.toLowerCase()))
         .limit(1);
@@ -5462,7 +5462,7 @@ Content-Signal: index=public; train=deny
 
       // Resolve state
       const stateRow = await db
-        .select({ id: states.id })
+        .select({ id: states.id, slug: states.slug })
         .from(states)
         .where(and(eq(states.slug, state.toLowerCase()), eq(states.countryId, countryId)))
         .limit(1);
@@ -5473,7 +5473,7 @@ Content-Signal: index=public; train=deny
 
       // Resolve city
       const cityRow = await db
-        .select({ id: cities.id })
+        .select({ id: cities.id, slug: cities.slug })
         .from(cities)
         .where(and(eq(cities.slug, city.toLowerCase()), eq(cities.stateId, stateId)))
         .limit(1);
@@ -5522,12 +5522,37 @@ Content-Signal: index=public; train=deny
         : [];
       const effectiveBadges = computeEffectiveBadges(maskedDetective, planRow1[0] ?? null);
 
+      const canonicalServiceSlug = String(service.slug || "").replace(
+        /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-/,
+        "",
+      );
+
+      // Service pages must use service-scoped ratings to match the visible review list scope.
+      const ratingsResult = await pool.query(
+        `SELECT
+           COALESCE(AVG(r.rating), 0)::numeric AS "avgRating",
+           COUNT(r.id)::int                     AS "reviewCount"
+         FROM reviews r
+         WHERE r.service_id = $1
+           AND r.is_published = true
+           AND r.rating IS NOT NULL`,
+        [service.id],
+      );
+      const avgRating = Number(ratingsResult.rows[0]?.avgRating ?? 0);
+      const reviewCount = Number(ratingsResult.rows[0]?.reviewCount ?? 0);
+
       res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
       res.json({
-        service,
-        detective: { ...maskedDetective, effectiveBadges },
-        avgRating: 0, // You can fetch real stats if needed
-        reviewCount: 0
+        service: { ...service, slug: canonicalServiceSlug || service.slug },
+        detective: {
+          ...maskedDetective,
+          effectiveBadges,
+          countrySlug: countryRow[0]?.slug || country.toLowerCase(),
+          stateSlug: stateRow[0]?.slug || state.toLowerCase(),
+          citySlug: cityRow[0]?.slug || city.toLowerCase(),
+        },
+        avgRating,
+        reviewCount,
       });
     } catch (error) {
       console.error("[GET /api/services/:country/:state/:city/:slug] Error:", error);

@@ -340,14 +340,15 @@ export async function setupVite(app: Express, server: Server) {
 
       const [, country, state, city, detectiveSlug, serviceSlug] = segments;
 
-      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
-
       const clientTemplate = path.resolve(import.meta.dirname, "..", "client", "index.html");
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(`src="/src/main.tsx"`, `src="/src/main.tsx?v=${nanoid()}"`);
 
       // Fetch service + detective data for SEO
       const seoData = await getServiceBySlugForSEO(country, state, city, detectiveSlug, serviceSlug);
+      const canonicalUrl = seoData
+        ? `https://www.askdetectives.com${seoData.canonicalPath}`
+        : `https://www.askdetectives.com${requestPath.replace(/\/$/, "")}`;
 
       let page = await vite.transformIndexHtml(req.originalUrl, template);
       if (seoData) {
