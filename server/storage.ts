@@ -1372,6 +1372,9 @@ export class DatabaseStorage implements IStorage {
       } else {
         query = query.orderBy(desc(services.createdAt)) as any;
       }
+    }
+
+    if (!isDefaultUnfilteredRecent) {
       results = await query.limit(cappedLimit).offset(offset);
     }
     
