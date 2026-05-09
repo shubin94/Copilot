@@ -1190,11 +1190,6 @@ export class DatabaseStorage implements IStorage {
       );
     }
 
-    // ✅ Filter to ensure services have at least one image (in SQL, not post-pagination)
-    conditions.push(
-      sql`${services.images} IS NOT NULL AND array_length(${services.images}, 1) > 0`
-    );
-
     if (filters.ratingMin !== undefined) {
       conditions.push(sql`COALESCE(${services.reviewAvg}, 0) >= ${filters.ratingMin}`);
     }
@@ -1312,8 +1307,6 @@ export class DatabaseStorage implements IStorage {
           LEFT JOIN cities ci ON d.city_id = ci.id
           LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
           WHERE s.is_active = true
-            AND s.images IS NOT NULL
-            AND array_length(s.images, 1) > 0
           ORDER BY s.detective_id, s.created_at DESC, s.id DESC
         ) representative_services
         ORDER BY "serviceCreatedAt" DESC, "detectiveCreatedAt" DESC, "serviceId" DESC
