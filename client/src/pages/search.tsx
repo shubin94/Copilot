@@ -451,6 +451,15 @@ export default function SearchPage() {
   const hasInitializedFromUrl = useRef(false);
   const hasHandledInitialQueryReset = useRef(false);
   const previousQueryRef = useRef(query);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to load more area when new results are loaded
+  useEffect(() => {
+    if (!isLoading && filters.offset > 0 && loadMoreRef.current) {
+      // Scroll to the load more button area with some offset for better UX
+      loadMoreRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [isLoading, filters.offset]);
 
   // Clear filters only when user changes the main search query without a category param
   useEffect(() => {
@@ -947,7 +956,7 @@ export default function SearchPage() {
               <ServiceCardGrid services={services} isLoading={isLoading} emptyMessage="No results yet." />
 
                 {!isLoading && finalResults.length >= filters.limit && (
-                 <div className="mt-12 flex justify-center">
+                 <div ref={loadMoreRef} className="mt-12 flex justify-center">
                    <Button variant="outline" className="px-8 border-black text-black hover:bg-gray-50" data-testid="button-load-more" onClick={() => dispatch({ type: 'LOAD_MORE' })}>Load More</Button>
                  </div>
                )}
