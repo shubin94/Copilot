@@ -1195,17 +1195,9 @@ export class DatabaseStorage implements IStorage {
       sql`${services.images} IS NOT NULL AND array_length(${services.images}, 1) > 0`
     );
 
-    // Use subquery for reviews aggregation to avoid cartesian product
-    // This prevents the LEFT JOIN reviews from multiplying rows
-    const reviewsAgg = db.select({
-      serviceId: reviews.serviceId,
-      avgRating: sql<number>`COALESCE(AVG(${reviews.rating}), 0)`.as('avg_rating'),
-      reviewCount: count(reviews.id).as('review_count'),
-    })
-    .from(reviews)
-    .where(eq(reviews.isPublished, true))
-    .groupBy(reviews.serviceId)
-    .as('reviews_agg');
+    if (filters.ratingMin !== undefined) {
+      conditions.push(sql`COALESCE(${services.reviewAvg}, 0) >= ${filters.ratingMin}`);
+    }
 
     const baseSelect = {
       // Service fields needed by ServiceCard
@@ -1248,8 +1240,8 @@ export class DatabaseStorage implements IStorage {
       subscriptionPackageIsActive: subscriptionPlans.isActive,
       
       // Aggregated values
-      avgRating: reviewsAgg.avgRating,
-      reviewCount: reviewsAgg.reviewCount,
+      avgRating: services.reviewAvg,
+      reviewCount: services.reviewCount,
     };
 
     let query: any;
@@ -1309,8 +1301,8 @@ export class DatabaseStorage implements IStorage {
             sp.badges AS "subscriptionPackageBadges",
             sp.features AS "subscriptionPackageFeatures",
             sp.is_active AS "subscriptionPackageIsActive",
-            COALESCE(reviews_agg.avg_rating, 0) AS "avgRating",
-            COALESCE(reviews_agg.review_count, 0) AS "reviewCount",
+            COALESCE(s.review_avg, 0) AS "avgRating",
+            COALESCE(s.review_count, 0) AS "reviewCount",
             d.created_at AS "detectiveCreatedAt",
             s.created_at AS "serviceCreatedAt"
           FROM services s
@@ -1319,15 +1311,6 @@ export class DatabaseStorage implements IStorage {
           LEFT JOIN states st ON d.state_id = st.id
           LEFT JOIN cities ci ON d.city_id = ci.id
           LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
-          LEFT JOIN (
-            SELECT
-              r.service_id,
-              COALESCE(AVG(r.rating), 0) AS avg_rating,
-              COUNT(r.id) AS review_count
-            FROM reviews r
-            WHERE r.is_published = true
-            GROUP BY r.service_id
-          ) reviews_agg ON s.id = reviews_agg.service_id
           WHERE s.is_active = true
             AND s.images IS NOT NULL
             AND array_length(s.images, 1) > 0
@@ -1348,13 +1331,8 @@ export class DatabaseStorage implements IStorage {
         .leftJoin(states, eq(detectives.stateId, states.id))
         .leftJoin(cities, eq(detectives.cityId, cities.id))
         .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
-        .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))
         .where(and(...conditions) ?? sql`true`)
         .orderBy(desc(services.orderCount)) as any;
-
-      if (filters.ratingMin !== undefined) {
-        query = query.having(sql`COALESCE(${reviewsAgg.avgRating}, 0) >= ${filters.ratingMin}`) as any;
-      }
     } else {
       query = db.select(baseSelect)
         .from(services)
@@ -1363,17 +1341,11 @@ export class DatabaseStorage implements IStorage {
         .leftJoin(states, eq(detectives.stateId, states.id))
         .leftJoin(cities, eq(detectives.cityId, cities.id))
         .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
-        .leftJoin(reviewsAgg, eq(services.id, reviewsAgg.serviceId))  // Join aggregated reviews, not raw reviews
         .where(and(...conditions) ?? sql`true`);
-
-      // rating filter uses WHERE on aggregated values
-      if (filters.ratingMin !== undefined) {
-        query = query.having(sql`COALESCE(${reviewsAgg.avgRating}, 0) >= ${filters.ratingMin}`) as any;
-      }
 
       // Sort
       if (sortBy === 'rating') {
-        query = query.orderBy(desc(reviewsAgg.avgRating)) as any;
+        query = query.orderBy(desc(services.reviewAvg)) as any;
       } else if (sortBy === 'price_low') {
         query = query.orderBy(services.basePrice) as any;
       } else if (sortBy === 'price_high') {
@@ -2459,11 +2431,12 @@ export class DatabaseStorage implements IStorage {
 
   async getServiceStats(serviceId: string): Promise<{ avgRating: number, reviewCount: number }> {
     const [stats] = await db.select({
-      avgRating: avg(reviews.rating),
-      reviewCount: count(reviews.id),
+      avgRating: services.reviewAvg,
+      reviewCount: services.reviewCount,
     })
-    .from(reviews)
-    .where(and(eq(reviews.serviceId, serviceId), eq(reviews.isPublished, true)));
+    .from(services)
+    .where(eq(services.id, serviceId))
+    .limit(1);
 
     return {
       avgRating: Number(stats.avgRating) || 0,
