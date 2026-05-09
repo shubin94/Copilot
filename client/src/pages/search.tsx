@@ -168,6 +168,43 @@ function buildSearchCriteria(query: string, filters: FilterState, planName?: str
   };
 }
 
+function areFiltersEqual(a: FilterState, b: FilterState): boolean {
+  return (
+    a.category === b.category &&
+    a.minRating === b.minRating &&
+    a.country === b.country &&
+    a.state === b.state &&
+    a.city === b.city &&
+    a.minPrice === b.minPrice &&
+    a.maxPrice === b.maxPrice &&
+    a.minPriceInput === b.minPriceInput &&
+    a.maxPriceInput === b.maxPriceInput &&
+    a.proOnly === b.proOnly &&
+    a.agencyOnly === b.agencyOnly &&
+    a.level1Only === b.level1Only &&
+    a.level2Only === b.level2Only &&
+    a.sortBy === b.sortBy &&
+    a.offset === b.offset &&
+    a.limit === b.limit
+  );
+}
+
+function areSearchCriteriaEqual(a: SearchCriteria, b: SearchCriteria): boolean {
+  return (
+    a.search === b.search &&
+    a.country === b.country &&
+    a.state === b.state &&
+    a.city === b.city &&
+    a.category === b.category &&
+    a.minRating === b.minRating &&
+    a.minPrice === b.minPrice &&
+    a.maxPrice === b.maxPrice &&
+    a.planName === b.planName &&
+    a.level === b.level &&
+    a.sortBy === b.sortBy
+  );
+}
+
 function buildSearchPageUrl(criteria: SearchCriteria, filters: FilterState, query: string) {
   const params = new URLSearchParams();
   if (!criteria.category && query !== "All Services") params.set("q", query);
@@ -262,9 +299,18 @@ export default function SearchPage() {
       getPlanName(nextState.filters),
       getLevel(nextState.filters),
     );
-    setQuery(nextState.query);
-    dispatch({ type: 'HYDRATE_FROM_URL', payload: nextState });
-    setCommittedSearchCriteria(nextCriteria);
+
+    if (nextState.query !== query) {
+      setQuery(nextState.query);
+    }
+
+    if (!areFiltersEqual(nextState.filters, filters)) {
+      dispatch({ type: 'HYDRATE_FROM_URL', payload: nextState });
+    }
+
+    if (!areSearchCriteriaEqual(nextCriteria, committedSearchCriteria)) {
+      setCommittedSearchCriteria(nextCriteria);
+    }
     
     console.log("[search-page] URL changed, params:", { urlCategory, urlCountry, urlState });
     console.log("[search-page] Current filters:", filters);
@@ -310,7 +356,9 @@ export default function SearchPage() {
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      setCommittedSearchCriteria(liveSearchCriteria);
+      setCommittedSearchCriteria((prev) =>
+        areSearchCriteriaEqual(prev, liveSearchCriteria) ? prev : liveSearchCriteria,
+      );
     }, SEARCH_SYNC_DEBOUNCE_MS);
 
     return () => {
@@ -401,9 +449,21 @@ export default function SearchPage() {
   
   // Track if we've done initial URL sync to avoid loops
   const hasInitializedFromUrl = useRef(false);
+  const hasHandledInitialQueryReset = useRef(false);
+  const previousQueryRef = useRef(query);
 
   // Clear filters only when user changes the main search query without a category param
   useEffect(() => {
+    if (!hasHandledInitialQueryReset.current) {
+      hasHandledInitialQueryReset.current = true;
+      previousQueryRef.current = query;
+      return;
+    }
+
+    const queryChanged = previousQueryRef.current !== query;
+    previousQueryRef.current = query;
+    if (!queryChanged) return;
+
     const params = new URLSearchParams(window.location.search);
     if (!params.get("category")) {
       dispatch({ type: 'RESET_FILTERS' });
