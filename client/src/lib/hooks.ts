@@ -2,6 +2,16 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import type { User, Detective, Service, Review, Order, ServiceCategory, InsertDetective, InsertService, InsertReview, InsertOrder, InsertServiceCategory, InsertDetectiveApplication } from "@shared/schema";
 
+type HomeTopLocationCountry = { name: string; slug: string; detectiveCount: number };
+type HomeTopLocationState = { name: string; slug: string; countrySlug: string; detectiveCount: number };
+type HomeTopLocationCity = { name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number };
+
+export interface HomeTopLocationsResponse {
+  countries: HomeTopLocationCountry[];
+  states: HomeTopLocationState[];
+  cities: HomeTopLocationCity[];
+}
+
 export function useAuth() {
   return useQuery({
     queryKey: ["auth", "me"],
@@ -333,7 +343,7 @@ export function useServices(limit?: number, offset?: number) {
   });
 }
 
-export function useSearchServices(params?: {
+type SearchServicesParams = {
   category?: string;
   country?: string;
   state?: string;
@@ -347,9 +357,31 @@ export function useSearchServices(params?: {
   level?: string;
   limit?: number;
   offset?: number;
-}) {
+};
+
+function getSearchServicesQueryKey(params?: SearchServicesParams) {
+  return [
+    "services",
+    "search",
+    params?.category ?? null,
+    params?.country ?? null,
+    params?.state ?? null,
+    params?.city ?? null,
+    params?.search ?? null,
+    params?.minPrice ?? null,
+    params?.maxPrice ?? null,
+    params?.sortBy ?? null,
+    params?.minRating ?? null,
+    params?.planName ?? null,
+    params?.level ?? null,
+    params?.limit ?? null,
+    params?.offset ?? null,
+  ] as const;
+}
+
+export function useSearchServices(params?: SearchServicesParams) {
   return useQuery({
-    queryKey: ["services", "search", params],
+    queryKey: getSearchServicesQueryKey(params),
     queryFn: () => api.services.search(params),
     staleTime: 5 * 60 * 1000, // 5 minutes - search results valid for 5 mins
     gcTime: 10 * 60 * 1000, // 10 minutes - keep in memory for 10 mins
@@ -383,7 +415,11 @@ export function useServiceBySlug(
   });
 }
 
-export function useSimilarDetectives(detectiveId: string | null | undefined, limit = 8) {
+export function useSimilarDetectives(
+  detectiveId: string | null | undefined,
+  limit = 8,
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: ["detectives", detectiveId, "similar", limit],
     queryFn: async () => {
@@ -391,7 +427,7 @@ export function useSimilarDetectives(detectiveId: string | null | undefined, lim
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!detectiveId,
+    enabled: !!detectiveId && (options?.enabled ?? true),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   });
@@ -419,16 +455,22 @@ export function useServicesByDetective(detectiveId: string | null | undefined) {
   });
 }
 
-export function useFeaturedHomeServices(country?: string) {
+export function useFeaturedHomeServices(country?: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["services", "featured", "home", country],
     queryFn: () => api.services.getFeaturedHome(country),
+    enabled: options?.enabled ?? true,
     staleTime: 5 * 60 * 1000, // 5 minutes - home page cache
     gcTime: 10 * 60 * 1000, // 10 minutes in memory cache
   });
 }
 
-export function useRelatedServices(category: string | null | undefined, excludeId?: string, limit: number = 4) {
+export function useRelatedServices(
+  category: string | null | undefined,
+  excludeId?: string,
+  limit: number = 4,
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: ["services", "related", category, excludeId, limit],
     queryFn: async () => {
@@ -437,7 +479,7 @@ export function useRelatedServices(category: string | null | undefined, excludeI
       // Filter out the current service, then trim to requested limit
       return result.services.filter((s: any) => s.id !== excludeId).slice(0, limit);
     },
-    enabled: !!category,
+    enabled: !!category && (options?.enabled ?? true),
     staleTime: 60 * 1000, // 60 seconds cache
     gcTime: 5 * 60 * 1000, // 5 minutes
   });
@@ -965,5 +1007,26 @@ export function useCities(country: string | undefined, state: string | undefined
     enabled: !!country && !!state,
     staleTime: 60 * 60 * 1000, // 1 hour - static location data rarely changes
     gcTime: 6 * 60 * 60 * 1000, // 6 hours - keep in memory longer
+  });
+}
+
+export function useHomeTopLocations() {
+  return useQuery<HomeTopLocationsResponse | null>({
+    queryKey: ["locations", "top", "home"],
+    queryFn: async () => {
+      try {
+        return await api.get<HomeTopLocationsResponse>(
+          "/api/locations/top?limitCountries=8&limitStates=8&limitCities=8",
+        );
+      } catch (error) {
+        // Keep homepage resilient: preserve previous null-data fallback behavior.
+        console.error("[Home] Failed to load top locations:", error);
+        return null;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 }

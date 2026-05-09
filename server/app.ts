@@ -72,8 +72,7 @@ export const bodyParsers = {
   }
 };
 
-// CORS/CSRF configuration - define origins once to prevent drift
-const configuredOrigins = config.csrf.allowedOrigins;
+// CORS/CSRF configuration - derive origins from current config so DB-loaded secrets apply.
 const localDevOrigins = [
   "http://localhost:5173",
   "http://localhost:5000",
@@ -90,17 +89,25 @@ function isLocalhostOrigin(origin: string): boolean {
   }
 }
 
-const allowedOrigins = Array.from(new Set(
-  (config.env.isProd
-    ? configuredOrigins.filter((origin) => !isLocalhostOrigin(origin))
-    : [...configuredOrigins, ...localDevOrigins]
-  ).map((origin) => origin.replace(/\/$/, ""))
-));
+function getAllowedOrigins(): string[] {
+  const configuredOrigins = config.csrf.allowedOrigins || [];
+
+  return Array.from(new Set(
+    (config.env.isProd
+      ? configuredOrigins
+      : [...configuredOrigins, ...localDevOrigins]
+    )
+      .map((origin) => origin.replace(/\/$/, ""))
+      .filter((origin) => !!origin)
+  ));
+}
 
 // CORS configuration object - CRITICAL for Vercel proxy fallback support
 // Must handle both Vercel rewrite proxying AND direct backend fallback requests
 const corsConfig = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    const allowedOrigins = getAllowedOrigins();
+
     // Allow requests with no origin (mobile apps, Postman, curl, etc.)
     if (!origin) {
       console.log("[CORS] ✅ No origin header - allowing (mobile/postman/internal)");
@@ -537,6 +544,8 @@ app.use("/api", (req, res, next) => {
   }
 
   const isAllowedOrigin = (urlValue: string | undefined): boolean => {
+    const allowedOrigins = getAllowedOrigins();
+
     if (!urlValue) return false;
     try {
       const incoming = new URL(urlValue);

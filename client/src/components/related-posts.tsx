@@ -80,8 +80,11 @@ export function RelatedPosts({ currentPostId, categoryId }: RelatedPostsProps) {
                   <img
                     src={post.bannerImage}
                     alt={`${post.title} - ${post.category?.name || 'Article'}`}
+                    width={800}
+                    height={176}
                     className="w-full h-44 object-cover"
                     loading="lazy"
+                    decoding="async"
                   />
                 )}
                 <div className="p-5 space-y-3">

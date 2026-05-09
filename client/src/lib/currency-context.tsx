@@ -60,6 +60,7 @@ const RATES_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
 
 interface CurrencyContextType {
   selectedCountry: Country;
+  isCountrySelectionReady: boolean;
   setCountry: (country: Country) => void;
   formatPrice: (priceInUSD: number) => string;
   formatPriceForCountry: (priceInUSD: number, countryCode?: string) => string;
@@ -80,6 +81,7 @@ const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined
 export function CurrencyProvider({ children }: { children: ReactNode }) {
   const { user, isAuthenticated } = useUser();
   const [selectedCountry, setSelectedCountry] = useState<Country>(COUNTRIES[0]);
+  const [isCountrySelectionReady, setIsCountrySelectionReady] = useState(false);
   const [showCountrySelector, setShowCountrySelector] = useState(false);
   const [hasSeenCountrySelector, setHasSeenCountrySelector] = useState(false);
   const [, setIsInitialized] = useState(false);
@@ -204,6 +206,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     }
 
     setShowCountrySelector(shouldShowPopup);
+    setIsCountrySelectionReady(true);
     setIsInitialized(true);
   }, [user, isAuthenticated]);
 
@@ -335,7 +338,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <CurrencyContext.Provider value={{ selectedCountry, setCountry, formatPrice, formatPriceForCountry, formatPriceExactForCountry, formatPriceFromTo, convertPriceFromTo, convertPrice, showCountrySelector, setShowCountrySelector, hasSeenCountrySelector, exchangeRates, isRatesLoaded, showUnsupportedCurrencyNotice }}>
+    <CurrencyContext.Provider value={{ selectedCountry, isCountrySelectionReady, setCountry, formatPrice, formatPriceForCountry, formatPriceExactForCountry, formatPriceFromTo, convertPriceFromTo, convertPrice, showCountrySelector, setShowCountrySelector, hasSeenCountrySelector, exchangeRates, isRatesLoaded, showUnsupportedCurrencyNotice }}>
       {children}
     </CurrencyContext.Provider>
   );
@@ -344,6 +347,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
 // Default currency context value for use outside providers
 const DEFAULT_CURRENCY_CONTEXT: CurrencyContextType = {
   selectedCountry: COUNTRIES[0],
+  isCountrySelectionReady: true,
   setCountry: () => {},
   formatPrice: (priceInUSD: number) => `$${priceInUSD.toFixed(2)}`,
   formatPriceForCountry: (priceInUSD: number) => `$${priceInUSD.toFixed(2)}`,

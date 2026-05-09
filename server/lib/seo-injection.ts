@@ -359,7 +359,7 @@ import { db, pool } from "../../db/index.js";
 import { detectives, services, countries, states, cities, detective_location_seo, service_location_seo, subscriptionPlans } from "../../shared/schema.js";
 import { eq, and, or, ilike, desc, sql, isNull } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.js";
-import { resolveLocationHierarchyForSeo } from "../services/locationSeoResolutionService.js";
+import { resolveLocationHierarchyForSeo, type ResolvedLocationHierarchyForSeo } from "../services/locationSeoResolutionService.js";
 
 /**
  * ✅ OPTIMIZATION: In-memory cache for location resolution (country/state/city IDs)
@@ -1398,6 +1398,13 @@ export function generateWebPageSchema(
 export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl: string): string {
   // STEP 1: Remove all existing default meta tags
   let modified = removeDefaultMetaTags(htmlContent);
+  const routePath = (() => {
+    try {
+      return new URL(canonicalUrl).pathname;
+    } catch {
+      return canonicalUrl;
+    }
+  })();
 
   // STEP 2: Inject new SEO tags
   const metaTags = generateSeoMetaTags(detective, canonicalUrl);
@@ -1455,6 +1462,19 @@ export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl:
     /<!-- SEO_JSON_LD_INJECTION_POINT -->/,
     `<!-- SEO_JSON_LD_INJECTION_POINT -->\n    ${jsonLdScripts}`
   );
+
+  const seoDataScript = `<script>
+      window.__SEO_DATA__ = {
+        title: ${JSON.stringify(detective?.seoOverride?.metaTitle || "")},
+        description: ${JSON.stringify(detective?.seoOverride?.metaDescription || "")},
+        h1: ${JSON.stringify(detective?.seoOverride?.h1 || "")},
+        detectiveId: ${JSON.stringify(detective?.id || null)},
+        routePath: ${JSON.stringify(routePath)},
+        authoritative: true
+      };
+    </script>`;
+
+  modified = modified.replace('</head>', `${seoDataScript}\n  </head>`);
 
   return modified;
 }
@@ -1850,7 +1870,11 @@ export async function getLocationDetectivesForSEO(
   city?: string,
   limit?: number,
   offset?: number,
-  options?: { allowParentFallback?: boolean; includeTotalCount?: boolean }
+  options?: {
+    allowParentFallback?: boolean;
+    includeTotalCount?: boolean;
+    preResolvedHierarchy?: ResolvedLocationHierarchyForSeo;
+  }
 ): Promise<{
   detectives: Array<{
     id: string;
@@ -1897,7 +1921,7 @@ export async function getLocationDetectivesForSEO(
     const stateSlugParam = state ? normalizeRouteSlugParam(state) : undefined;
     const citySlugParam = city ? normalizeRouteSlugParam(city) : undefined;
 
-    const hierarchy = await resolveLocationHierarchyForSeo(
+    const hierarchy = options?.preResolvedHierarchy ?? await resolveLocationHierarchyForSeo(
       countrySlugParam,
       stateSlugParam,
       citySlugParam,

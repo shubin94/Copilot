@@ -154,7 +154,7 @@ export function Footer() {
               const logo = site?.footerLogoUrl || site?.headerLogoUrl || site?.logoUrl;
               
               return logo ? (
-                <img src={logo} alt="Footer Logo" className="h-8 w-auto" />
+                <img src={logo} alt="Footer Logo" width={180} height={32} loading="lazy" decoding="async" className="h-8 w-auto" />
               ) : (
                 <span className="text-2xl font-bold tracking-tight font-heading flex items-center gap-1 text-gray-400">
                   Find<span className="">Detectives</span>

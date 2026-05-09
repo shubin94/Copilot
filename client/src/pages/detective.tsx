@@ -37,6 +37,55 @@ const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
+type DetectiveSeoOverride = {
+  title_tag: string | null;
+  meta_description: string | null;
+  h1: string | null;
+};
+
+type DetectiveSeoHydrationSeed = DetectiveSeoOverride & {
+  routePath: string | null;
+  detectiveId: string | null;
+  authoritative: boolean;
+};
+
+const normalizeSeoSeedValue = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeDetectiveRoutePath = (value?: string | null): string => {
+  if (!value) return "";
+  const [pathname] = value.split("?");
+  if (!pathname) return "";
+  const normalized = pathname.replace(/\/+$/, "");
+  return normalized || "/";
+};
+
+const readInitialDetectiveSeoSeed = (): DetectiveSeoHydrationSeed | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const rawSeed = ((window as any).SEO_DATA ?? (window as any).__SEO_DATA__) as Record<string, unknown> | undefined;
+  if (!rawSeed || typeof rawSeed !== "object") {
+    return null;
+  }
+
+  return {
+    title_tag: normalizeSeoSeedValue(rawSeed.title_tag ?? rawSeed.title),
+    meta_description: normalizeSeoSeedValue(rawSeed.meta_description ?? rawSeed.description),
+    h1: normalizeSeoSeedValue(rawSeed.h1),
+    routePath: typeof rawSeed.routePath === "string" ? rawSeed.routePath : null,
+    detectiveId: typeof rawSeed.detectiveId === "string" ? rawSeed.detectiveId : null,
+    authoritative: rawSeed.authoritative === true,
+  };
+};
+
+const hasSeoOverrideValues = (value: DetectiveSeoOverride | null | undefined) =>
+  !!(value?.title_tag || value?.meta_description || value?.h1);
+
 export default function DetectivePublicPage() {
   const [locationPath] = useLocation();
   const [, params] = useRoute("/detectives/:country/:state/:city/:slug");
@@ -44,17 +93,60 @@ export default function DetectivePublicPage() {
   const state = params?.state || null;
   const city = params?.city || null;
   const slug = params?.slug || null;
+  const [initialSeoSeed] = useState<DetectiveSeoHydrationSeed | null>(() => readInitialDetectiveSeoSeed());
+  const currentPathForSeo = typeof window !== "undefined" ? window.location.pathname : locationPath;
+  const seedMatchesRoute = !!(
+    initialSeoSeed?.routePath
+    && normalizeDetectiveRoutePath(initialSeoSeed.routePath) === normalizeDetectiveRoutePath(currentPathForSeo)
+  );
   
   const { data: detectiveData, isLoading: detectiveLoading } = useDetectiveBySlug(country, state, city, slug);
   const detective = detectiveData?.detective;
 
   // --- SEO OVERRIDE FETCH ---
-  const [seoOverride, setSeoOverride] = useState<{ title_tag: string | null, meta_description: string | null, h1: string | null } | null>(null);
+  const [seoOverride, setSeoOverride] = useState<DetectiveSeoOverride | null>(() =>
+    seedMatchesRoute && initialSeoSeed
+      ? {
+          title_tag: initialSeoSeed.title_tag,
+          meta_description: initialSeoSeed.meta_description,
+          h1: initialSeoSeed.h1,
+        }
+      : null
+  );
+
   useEffect(() => {
     if (!detective?.id) return;
+
+    const runtimeSeoSeed = initialSeoSeed ?? readInitialDetectiveSeoSeed();
+    const runtimeCurrentPath = typeof window !== "undefined" ? window.location.pathname : locationPath;
+    const runtimeSeedMatchesRoute = !!(
+      runtimeSeoSeed?.routePath
+      && normalizeDetectiveRoutePath(runtimeSeoSeed.routePath) === normalizeDetectiveRoutePath(runtimeCurrentPath)
+    );
+
+    const hasAuthoritativeSsrSeed = !!(
+      runtimeSeedMatchesRoute
+      && runtimeSeoSeed?.authoritative
+      && (!runtimeSeoSeed.detectiveId || runtimeSeoSeed.detectiveId === detective.id)
+    );
+
+    if (hasAuthoritativeSsrSeed) {
+      if (hasSeoOverrideValues(runtimeSeoSeed)) {
+        setSeoOverride({
+          title_tag: runtimeSeoSeed?.title_tag || null,
+          meta_description: runtimeSeoSeed?.meta_description || null,
+          h1: runtimeSeoSeed?.h1 || null,
+        });
+      }
+      return;
+    }
+
+    let isCancelled = false;
+
     fetch(`/api/detective-seo/${detective.id}`)
       .then(res => res.ok ? res.json() : null)
       .then(data => {
+        if (isCancelled) return;
         if (data && (data.title_tag || data.meta_description || data.h1)) {
           setSeoOverride({
             title_tag: data.title_tag || null,
@@ -65,8 +157,16 @@ export default function DetectivePublicPage() {
           setSeoOverride(null);
         }
       })
-      .catch(() => setSeoOverride(null));
-  }, [detective?.id]);
+      .catch(() => {
+        if (!isCancelled) {
+          setSeoOverride(null);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [detective?.id, initialSeoSeed, locationPath]);
   
   // For querying services, we need the detective ID - will be available once detective loads
   const { data: servicesData, isLoading: isLoadingServices } = useServicesByDetective(detective?.id || null);
@@ -82,22 +182,66 @@ export default function DetectivePublicPage() {
   useEffect(() => {
     if (!detective?.id) return;
 
+    let isCancelled = false;
+    let startTimer: number | null = null;
+    let idleHandle: number | null = null;
+    let fallbackTimer: number | null = null;
+
     const fetchFeaturedArticles = async () => {
       try {
         setArticlesLoading(true);
         const response = await fetch(`/api/case-studies?detectiveId=${detective.id}&limit=6`);
         if (!response.ok) throw new Error("Failed to fetch articles");
         const data = await response.json();
+        if (isCancelled) return;
         setFeaturedArticles(data.caseStudies || []);
       } catch (error) {
+        if (isCancelled) return;
         console.error("Error fetching featured articles:", error);
         setFeaturedArticles([]);
       } finally {
+        if (isCancelled) return;
         setArticlesLoading(false);
       }
     };
 
-    fetchFeaturedArticles();
+    const runDeferredFetch = () => {
+      void fetchFeaturedArticles();
+    };
+
+    // Defer non-critical below-the-fold article loading until after initial stabilization,
+    // then schedule on browser idle. Keep a timeout fallback so content still loads
+    // on busy devices/browsers.
+    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+      startTimer = window.setTimeout(() => {
+        if (isCancelled) return;
+        idleHandle = window.requestIdleCallback(runDeferredFetch, { timeout: 1200 });
+      }, 1000);
+
+      fallbackTimer = window.setTimeout(() => {
+        if (isCancelled) return;
+        if (idleHandle !== null && typeof window.cancelIdleCallback === "function") {
+          window.cancelIdleCallback(idleHandle);
+          idleHandle = null;
+        }
+        runDeferredFetch();
+      }, 2600);
+    } else {
+      fallbackTimer = window.setTimeout(runDeferredFetch, 1200);
+    }
+
+    return () => {
+      isCancelled = true;
+      if (startTimer !== null) {
+        window.clearTimeout(startTimer);
+      }
+      if (idleHandle !== null && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleHandle);
+      }
+      if (fallbackTimer !== null) {
+        window.clearTimeout(fallbackTimer);
+      }
+    };
   }, [detective?.id]);
 
   useEffect(() => {

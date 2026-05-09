@@ -4346,7 +4346,7 @@ Content-Signal: index=public; train=deny
       const detectiveRow = await pool.query(
         `SELECT d.city_id, d.country_id, sc.name as category
          FROM detectives d
-         LEFT JOIN services s ON s.detective_id = d.id AND s.status = 'active'
+         LEFT JOIN services s ON s.detective_id = d.id AND s.is_active = true
          LEFT JOIN service_categories sc ON sc.id = s.category_id
          WHERE d.id = $1
          LIMIT 1`,

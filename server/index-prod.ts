@@ -25,7 +25,6 @@ import {
   getLocationDetectivesForSEO,
   // injectLocationSeoTags,
   // injectDetectiveLocationAuthorityLink,
-  resolveLocationIds,
   generateDetectiveSeo,
   getServiceLocationSeo,
   generateServiceLocationSeo,
@@ -40,6 +39,7 @@ import { pool } from "../db/index.js";
 import { storage } from "./storage.js";
 import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
+import { resolveLocationHierarchyForSeo } from "./services/locationSeoResolutionService.js";
 
 const STATIC_CMS_SEO_SLUGS = new Set([
   "about",
@@ -336,10 +336,10 @@ function getPriceCurrencyFromCountrySlug(countrySlug: string): string {
   const map: Record<string, string> = {
     india: "INR",
     in: "INR",
-    united-kingdom: "GBP",
+    "united-kingdom": "GBP",
     uk: "GBP",
     gb: "GBP",
-    united-states: "USD",
+    "united-states": "USD",
     usa: "USD",
     us: "USD",
     australia: "AUD",
@@ -347,7 +347,7 @@ function getPriceCurrencyFromCountrySlug(countrySlug: string): string {
     canada: "CAD",
     ca: "CAD",
     uae: "AED",
-    united-arab-emirates: "AED",
+    "united-arab-emirates": "AED",
     singapore: "SGD",
     sg: "SGD",
     pakistan: "PKR",
@@ -701,11 +701,19 @@ export async function serveStatic(app: Express, _server: Server) {
       // ✅ OPTIMIZATION: Resolve location once to avoid duplicate queries
       // Prevents redundant lookups in both searchServices() and generateLocationSeoMetaTags()
       console.log("[SSR] Resolving location IDs...", { country: params.country, state: params.state, city: params.city });
-      const resolvedLocation = await resolveLocationIds({
+      const allowParentFallback = !!(params.state || params.city);
+      console.log("[SSR] Resolving location IDs...", {
         country: params.country,
         state: params.state,
         city: params.city,
+        allowParentFallback,
       });
+      const resolvedLocation = await resolveLocationHierarchyForSeo(
+        params.country,
+        params.state,
+        params.city,
+        allowParentFallback,
+      );
       console.log("[SSR] Location resolved", resolvedLocation);
 
 
@@ -715,7 +723,9 @@ export async function serveStatic(app: Express, _server: Server) {
       const [seoValues, locationSeoData] = await Promise.all([
         getDetectiveLocationSeo(params.country, params.state, params.city),
         getLocationDetectivesForSEO(params.country, params.state, params.city, 15, 0, {
+          allowParentFallback,
           includeTotalCount: true,
+          preResolvedHierarchy: resolvedLocation,
         }),
       ]);
       const detectives = locationSeoData.detectives;
@@ -1472,7 +1482,7 @@ export async function serveStatic(app: Express, _server: Server) {
 
       // Skip known non-CMS two-segment routes that have their own handlers
       const NON_CMS_PREFIXES = new Set([
-        "detectives", "locations", "service", "news", "api", "blog", "pages",
+        "detectives", "locations", "service", "news", "api", "blog", "pages", "assets",
         "about", "contact", "support", "privacy", "terms", "packages", "categories",
         "admin", "dashboard", "auth", "login", "register",
         "search", "verify", "reset-password",

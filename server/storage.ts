@@ -43,6 +43,15 @@ type TopLocationsResult = {
   cities: Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>;
 };
 
+export type PublicReviewerSnapshot = {
+  displayName: string | null;
+  avatarUrl: string | null;
+};
+
+export type PublicServiceReview = Review & {
+  reviewerSnapshot: PublicReviewerSnapshot | null;
+};
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
@@ -92,7 +101,7 @@ export interface IStorage {
 
   // Review operations
   getReview(id: string): Promise<Review | undefined>;
-  getReviewsByService(serviceId: string, limit?: number): Promise<Review[]>;
+  getReviewsByService(serviceId: string, limit?: number): Promise<PublicServiceReview[]>;
   getReviewsByDetective(detectiveId: string, limit?: number): Promise<Review[]>;
   createReview(review: InsertReview): Promise<Review>;
   updateReview(id: string, updates: Partial<Review>): Promise<Review | undefined>;
@@ -2394,12 +2403,28 @@ export class DatabaseStorage implements IStorage {
     return review;
   }
 
-  async getReviewsByService(serviceId: string, limit: number = 50): Promise<Review[]> {
-    return await db.select()
+  async getReviewsByService(serviceId: string, limit: number = 50): Promise<PublicServiceReview[]> {
+    const rows = await db
+      .select({
+        review: reviews,
+        reviewerDisplayName: users.name,
+        reviewerAvatarUrl: users.avatar,
+      })
       .from(reviews)
+      .leftJoin(users, eq(users.id, reviews.userId))
       .where(and(eq(reviews.serviceId, serviceId), eq(reviews.isPublished, true)))
       .orderBy(desc(reviews.createdAt))
       .limit(limit);
+
+    return rows.map(({ review, reviewerDisplayName, reviewerAvatarUrl }) => ({
+      ...review,
+      reviewerSnapshot: reviewerDisplayName || reviewerAvatarUrl
+        ? {
+            displayName: reviewerDisplayName ?? null,
+            avatarUrl: reviewerAvatarUrl ?? null,
+          }
+        : null,
+    }));
   }
 
   

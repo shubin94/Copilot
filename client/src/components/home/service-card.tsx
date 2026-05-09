@@ -93,20 +93,6 @@ const ServiceCardComponent = ({
     }
   }, [currentImageIndex, displayImages, id]);
 
-  // Preload adjacent images for smooth carousel navigation
-  useEffect(() => {
-    if (displayImages.length > 1) {
-      const prevIndex = (currentImageIndex - 1 + displayImages.length) % displayImages.length;
-      const nextIndex = (currentImageIndex + 1) % displayImages.length;
-
-      const prevImg = new Image();
-      const nextImg = new Image();
-
-      prevImg.src = displayImages[prevIndex];
-      nextImg.src = displayImages[nextIndex];
-    }
-  }, [currentImageIndex, displayImages]);
-
 
   // Build service URL using location and slug if available
   const serviceSlug = slug;
@@ -212,6 +198,7 @@ const ServiceCardComponent = ({
                   src={displayImages[currentImageIndex]}
                   width={320} height={240}
                   loading={isPriority ? "eager" : "lazy"}
+                  decoding="async"
                   {...(isPriority ? ({ fetchpriority: "high" } as React.ImgHTMLAttributes<HTMLImageElement>) : {})}
                   onLoad={() => setImageLoaded(true)}
                   onError={() => {
@@ -276,6 +263,8 @@ const ServiceCardComponent = ({
                   <AvatarImage 
                     src={detectiveAvatar}
                     alt={`${detectiveName} - Professional Private Investigator`}
+                    loading="lazy"
+                    decoding="async"
                     onError={() => {
                       console.error(`[Avatar ${detectiveId}] Failed to load: ${detectiveAvatar}`)
                     }}
