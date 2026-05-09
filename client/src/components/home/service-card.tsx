@@ -193,6 +193,9 @@ const ServiceCardComponent = ({
             )}
             {displayImages.length > 0 && displayImages[currentImageIndex] && !imageError ? (
               <>
+                {!imageLoaded && (
+                  <div className="absolute inset-0 animate-pulse bg-gray-200" aria-hidden="true" />
+                )}
                 <img
                   alt="Detective Service Image"
                   src={displayImages[currentImageIndex]}
@@ -205,13 +208,9 @@ const ServiceCardComponent = ({
                     console.error(`[ServiceCard ${id}] Image failed to load: ${displayImages[currentImageIndex]}`);
                     setImageError(true);
                   }}
-                  className={`object-cover w-full h-full ${isUnclaimed ? 'grayscale' : ''}`}
-                />
-                {/* Fade overlay */}
-                <div
-                  className={`absolute inset-0 bg-gray-100 transition-opacity duration-300 pointer-events-none ${
-                    imageLoaded ? 'opacity-0' : 'opacity-100'
-                  }`}
+                  className={`object-cover w-full h-full transition-opacity duration-300 ${
+                    imageLoaded ? "opacity-100" : "opacity-0"
+                  } ${isUnclaimed ? 'grayscale' : ''}`}
                 />
               </>
             ) : (
