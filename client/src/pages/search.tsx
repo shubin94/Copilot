@@ -376,13 +376,13 @@ export default function SearchPage() {
   );
 
   // Fetch services from backend with ALL filters applied server-side
-  const { data: servicesData, isLoading } = useSearchServices(searchRequestParams);
+  const { data: servicesData, isLoading, isError, refetch } = useSearchServices(searchRequestParams);
 
   // Accumulate results across Load More pages
   const [accumulatedServices, setAccumulatedServices] = useState<any[]>([]);
   const prevOffsetRef = useRef(filters.offset);
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || !servicesData) return;
     const newPage = servicesData?.services || [];
     if (filters.offset === 0) {
       // New search/filter — replace
@@ -932,7 +932,7 @@ export default function SearchPage() {
                 )}
                 <div className="flex justify-between items-center">
             <div className="flex items-center gap-2 text-gray-500 text-sm">
-               <span className="font-semibold text-gray-900" data-testid="text-results-count">{isLoading ? '...' : finalResults.length}</span> services available
+                 <span className="font-semibold text-gray-900" data-testid="text-results-count">{isLoading ? '...' : finalResults.length}</span> services available
                    </div>
                    
                    <div className="flex items-center gap-2 text-sm">
@@ -953,7 +953,28 @@ export default function SearchPage() {
                 </div>
               </div>
 
-              <ServiceCardGrid services={services} isLoading={isLoading} emptyMessage="No results yet." />
+              {isError && (
+                <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  We could not load services right now. Please try again.
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-3 border-red-300 bg-white text-red-700 hover:bg-red-100"
+                    onClick={() => {
+                      void refetch();
+                    }}
+                    data-testid="button-retry-services"
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+
+              <ServiceCardGrid
+                services={services}
+                isLoading={isLoading}
+                emptyMessage={isError ? "Unable to load services. Please retry." : "No results yet."}
+              />
 
                 {!isLoading && finalResults.length >= filters.limit && (
                  <div ref={loadMoreRef} className="mt-12 flex justify-center">
