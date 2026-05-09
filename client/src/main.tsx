@@ -132,5 +132,6 @@ if (hasServerRenderedMarkup(rootElement)) {
 } else {
   logDev('[App Startup] No pre-rendered HTML detected, using createRoot...');
   createRoot(rootElement).render(<App />);
+  cleanupSsrFragmentsAfterHydration();
 }
 logDev('[App Startup] React app mounted successfully');

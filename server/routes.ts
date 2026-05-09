@@ -4342,12 +4342,10 @@ Content-Signal: index=public; train=deny
       const { id } = req.params;
       const limit = Math.min(Number(req.query.limit) || 8, 12);
 
-      // Get the detective's city_id and a service category to match on
+      // Get the detective's location context
       const detectiveRow = await pool.query(
-        `SELECT d.city_id, d.country_id, sc.name as category
+        `SELECT d.city_id, d.country_id
          FROM detectives d
-         LEFT JOIN services s ON s.detective_id = d.id AND s.is_active = true
-         LEFT JOIN service_categories sc ON sc.id = s.category_id
          WHERE d.id = $1
          LIMIT 1`,
         [id]
