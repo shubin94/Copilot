@@ -131,6 +131,60 @@ function rotateCsrfToken(req: Request): string {
   return newToken;
 }
 
+const mediaUrlCache = new Map<string, string>();
+const mediaDataUrlCache = new Map<string, string>();
+const MAX_MEDIA_DATA_CACHE = 2000;
+
+function getDataUrlExtension(dataUrl: string): string {
+  const m = dataUrl.match(/^data:([^;]+);base64,/i);
+  const contentType = (m?.[1] || "").toLowerCase();
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  if (contentType === "application/pdf") return "pdf";
+  return "jpg";
+}
+
+async function normalizeSearchMediaUrl(value: string | null | undefined, kind: "service" | "avatar"): Promise<string | null | undefined> {
+  if (!value || typeof value !== "string") return value;
+  if (!value.startsWith("data:")) return value;
+
+  const cacheKey = createHash("sha256").update(value).digest("hex");
+  const cached = mediaUrlCache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const ext = getDataUrlExtension(value);
+    const path = `migrated/search/${kind}/${cacheKey}.${ext}`;
+    const url = await uploadDataUrl("service-images", path, value);
+    if (typeof url === "string" && !url.startsWith("data:")) {
+      mediaUrlCache.set(cacheKey, url);
+      return url;
+    }
+    // Fallback to a lightweight same-origin URL when external media storage is unavailable.
+    mediaDataUrlCache.set(cacheKey, value);
+    if (mediaDataUrlCache.size > MAX_MEDIA_DATA_CACHE) {
+      const oldest = mediaDataUrlCache.keys().next().value;
+      if (oldest) mediaDataUrlCache.delete(oldest);
+    }
+    const fallbackUrl = `/api/media-proxy/${kind}/${cacheKey}`;
+    mediaUrlCache.set(cacheKey, fallbackUrl);
+    return fallbackUrl;
+  } catch (error) {
+    console.warn("[search-media] Failed to normalize media URL, preserving original value", {
+      kind,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    mediaDataUrlCache.set(cacheKey, value);
+    if (mediaDataUrlCache.size > MAX_MEDIA_DATA_CACHE) {
+      const oldest = mediaDataUrlCache.keys().next().value;
+      if (oldest) mediaDataUrlCache.delete(oldest);
+    }
+    const fallbackUrl = `/api/media-proxy/${kind}/${cacheKey}`;
+    mediaUrlCache.set(cacheKey, fallbackUrl);
+    return fallbackUrl;
+  }
+}
+
 function getEmployeeAccessKeyFromAdminPath(path: string): string | null {
   const normalized = (path || "").toLowerCase();
 
@@ -5258,6 +5312,43 @@ Content-Signal: index=public; train=deny
   };
 
   // Search services (public)
+  app.get("/api/media-proxy/:kind/:cacheKey", async (req: Request, res: Response) => {
+    try {
+      const cacheKey = String(req.params.cacheKey || "").trim();
+      const kind = String(req.params.kind || "").trim();
+
+      if (!cacheKey || !/^[a-f0-9]{64}$/i.test(cacheKey)) {
+        return res.status(400).json({ message: "Invalid media key" });
+      }
+      if (kind !== "service" && kind !== "avatar") {
+        return res.status(400).json({ message: "Invalid media kind" });
+      }
+
+      const dataUrl = mediaDataUrlCache.get(cacheKey);
+      if (!dataUrl || typeof dataUrl !== "string") {
+        return res.status(404).json({ message: "Media not found" });
+      }
+
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/i);
+      if (!match) {
+        return res.status(400).json({ message: "Invalid media format" });
+      }
+
+      const mimeType = match[1] || "image/jpeg";
+      const base64Data = match[2] || "";
+      const buffer = Buffer.from(base64Data, "base64");
+
+      res.setHeader("Content-Type", mimeType);
+      res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+      res.status(200).send(buffer);
+    } catch (error) {
+      console.error("[media-proxy] Failed to serve media", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({ message: "Failed to serve media" });
+    }
+  });
+
   app.get("/api/services", async (req: Request, res: Response) => {
     try {
       const routeStartTime = Date.now();
@@ -5343,7 +5434,18 @@ Content-Signal: index=public; train=deny
       const masked = await Promise.all(allServices.map(async (s: any) => {
         const maskedDetective = await maskDetectiveContactsPublic(s.detective);
         const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage ?? null);
-        return { ...s, detective: { ...maskedDetective, effectiveBadges } };
+
+        const normalizedImages = Array.isArray(s.images)
+          ? (await Promise.all(s.images.map((u: string) => normalizeSearchMediaUrl(u, "service"))))
+              .filter((u): u is string => typeof u === "string" && u.length > 0)
+          : [];
+        const normalizedLogo = await normalizeSearchMediaUrl(maskedDetective?.logo, "avatar");
+
+        return {
+          ...s,
+          images: normalizedImages,
+          detective: { ...maskedDetective, logo: normalizedLogo, effectiveBadges },
+        };
       }));
 
       const servicesDtos = masked.map((service: any) =>
