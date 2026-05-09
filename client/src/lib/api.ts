@@ -617,17 +617,10 @@ export const api = {
       if (params?.limit !== undefined) queryParams.append("limit", params.limit.toString());
       if (params?.offset !== undefined) queryParams.append("offset", params.offset.toString());
 
-      try {
-        const response = await csrfFetch(`/api/services?${queryParams.toString()}`, {
-          credentials: "include",
-        });
-        return handleResponse(response);
-      } catch (err: any) {
-        if (err?.name === "AbortError" || /network|fetch|failed|suspend/i.test(String(err?.message || ""))) {
-          return { services: [] } as any;
-        }
-        throw err;
-      }
+      const response = await csrfFetch(`/api/services?${queryParams.toString()}`, {
+        credentials: "include",
+      });
+      return handleResponse(response);
     },
 
     getAll: async (limit = 50, offset = 0): Promise<{ services: Service[] }> => {
