@@ -5298,6 +5298,7 @@ Content-Signal: index=public; train=deny
   
   const SERVICES_POPULAR_TTL_MS = 30 * 1000;
   const servicesPopularCache = new Map<string, { expiresAt: number; data: any }>();
+  const servicesSearchInFlight = new Map<string, Promise<{ servicesDtos: any[]; queryTime: number; usedFallback: boolean }>>();
   const getServicesPopularCache = (key: string) => {
     const entry = servicesPopularCache.get(key);
     if (!entry) return undefined;
@@ -5401,62 +5402,87 @@ Content-Signal: index=public; train=deny
         console.debug("[cache MISS]", cacheKey);
       }
 
-      if (typeof search === 'string' && search.trim()) {
-        await storage.recordSearch(search as string);
+      const executeSearchMiss = async (): Promise<{ servicesDtos: any[]; queryTime: number; usedFallback: boolean }> => {
+        if (typeof search === 'string' && search.trim()) {
+          await storage.recordSearch(search as string);
+        }
+
+        console.time("[PERF:SERVICES] Database query execution");
+        const queryStartTime = Date.now();
+
+        // Get paginated services with all active filters applied
+        const allServices = await storage.searchServices({
+          category: category as string,
+          country: country as string,
+          state: state as string,
+          city: city as string,
+          searchQuery: search as string,
+          minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
+          maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
+          ratingMin: minRating ? parseFloat(minRating as string) : undefined,
+          planName: planName as string,
+          level: level as string,
+        }, limitNum, offsetNum, sortBy as string);
+
+        const usedFallback = false;
+
+        const queryTime = Date.now() - queryStartTime;
+        console.timeEnd("[PERF:SERVICES] Database query execution");
+        console.log(`[PERF:SERVICES] Query returned ${allServices.length} rows in ${queryTime}ms`);
+
+        // ✅ Image filtering is now done in SQL (searchServices), no post-filtering needed
+        // ✅ Sorting is done in SQL (storage.searchServices), no re-sorting needed
+        const masked = await Promise.all(allServices.map(async (s: any) => {
+          const maskedDetective = await maskDetectiveContactsPublic(s.detective);
+          const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage ?? null);
+
+          const normalizedImages = Array.isArray(s.images)
+            ? (await Promise.all(s.images.map((u: string) => normalizeSearchMediaUrl(u, "service"))))
+                .filter((u): u is string => typeof u === "string" && u.length > 0)
+            : [];
+          const normalizedLogo = await normalizeSearchMediaUrl(maskedDetective?.logo, "avatar");
+
+          return {
+            ...s,
+            images: normalizedImages,
+            detective: { ...maskedDetective, logo: normalizedLogo, effectiveBadges },
+          };
+        }));
+
+        const servicesDtos = masked.map((service: any) =>
+          buildServiceCardDTO({
+            service,
+            detective: service.detective,
+            avgRating: service.avgRating,
+            reviewCount: service.reviewCount,
+            maskContacts: true,
+          })
+        );
+
+        return { servicesDtos, queryTime, usedFallback };
+      };
+
+      let searchMissResult: { servicesDtos: any[]; queryTime: number; usedFallback: boolean };
+      if (!skipCache) {
+        const inFlight = servicesSearchInFlight.get(cacheKey);
+        if (inFlight) {
+          console.debug("[singleflight WAIT]", cacheKey);
+          searchMissResult = await inFlight;
+        } else {
+          console.debug("[singleflight LEADER]", cacheKey);
+          const leaderPromise = executeSearchMiss();
+          servicesSearchInFlight.set(cacheKey, leaderPromise);
+          try {
+            searchMissResult = await leaderPromise;
+          } finally {
+            servicesSearchInFlight.delete(cacheKey);
+          }
+        }
+      } else {
+        searchMissResult = await executeSearchMiss();
       }
 
-      console.time("[PERF:SERVICES] Database query execution");
-      const queryStartTime = Date.now();
-
-      // Get paginated services with all active filters applied
-      const allServices = await storage.searchServices({
-        category: category as string,
-        country: country as string,
-        state: state as string,
-        city: city as string,
-        searchQuery: search as string,
-        minPrice: minPrice ? parseFloat(minPrice as string) : undefined,
-        maxPrice: maxPrice ? parseFloat(maxPrice as string) : undefined,
-        ratingMin: minRating ? parseFloat(minRating as string) : undefined,
-        planName: planName as string,
-        level: level as string,
-      }, limitNum, offsetNum, sortBy as string);
-
-      const usedFallback = false;
-
-      const queryTime = Date.now() - queryStartTime;
-      console.timeEnd("[PERF:SERVICES] Database query execution");
-      console.log(`[PERF:SERVICES] Query returned ${allServices.length} rows in ${queryTime}ms`);
-
-      // ✅ Image filtering is now done in SQL (searchServices), no post-filtering needed
-      // ✅ Sorting is done in SQL (storage.searchServices), no re-sorting needed
-
-      const masked = await Promise.all(allServices.map(async (s: any) => {
-        const maskedDetective = await maskDetectiveContactsPublic(s.detective);
-        const effectiveBadges = computeEffectiveBadges(s.detective, (s.detective as any).subscriptionPackage ?? null);
-
-        const normalizedImages = Array.isArray(s.images)
-          ? (await Promise.all(s.images.map((u: string) => normalizeSearchMediaUrl(u, "service"))))
-              .filter((u): u is string => typeof u === "string" && u.length > 0)
-          : [];
-        const normalizedLogo = await normalizeSearchMediaUrl(maskedDetective?.logo, "avatar");
-
-        return {
-          ...s,
-          images: normalizedImages,
-          detective: { ...maskedDetective, logo: normalizedLogo, effectiveBadges },
-        };
-      }));
-
-      const servicesDtos = masked.map((service: any) =>
-        buildServiceCardDTO({
-          service,
-          detective: service.detective,
-          avgRating: service.avgRating,
-          reviewCount: service.reviewCount,
-          maskContacts: true,
-        })
-      );
+      const { servicesDtos, queryTime, usedFallback } = searchMissResult;
       
       // Only cache results that match the original request (don't cache fallback results)
       if (!skipCache && !usedFallback) {

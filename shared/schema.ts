@@ -177,6 +177,8 @@ export const services = pgTable("services", {
   isActive: boolean("is_active").notNull().default(true),
   viewCount: integer("view_count").notNull().default(0),
   orderCount: integer("order_count").notNull().default(0),
+  reviewAvg: decimal("review_avg", { precision: 4, scale: 2 }).notNull().default("0"),
+  reviewCount: integer("review_count").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -481,7 +483,7 @@ export const insertServiceSchema = createInsertSchema(services, {
   images: z.array(z.string().refine((val) => val.startsWith('data:') || val.startsWith('http'), {
     message: "Image must be a valid data URL or HTTP URL"
   })).optional(),
-}).omit({ id: true, createdAt: true, updatedAt: true, viewCount: true, orderCount: true });
+}).omit({ id: true, createdAt: true, updatedAt: true, viewCount: true, orderCount: true, reviewAvg: true, reviewCount: true });
 
 export const insertReviewSchema = createInsertSchema(reviews, {
   rating: z.number().int().min(1).max(5),
