@@ -1370,9 +1370,20 @@ export function generateWebPageSchema(
   type: 'CollectionPage' | 'ProfilePage' | 'WebPage',
   name: string,
   description: string,
-  canonicalUrl: string
+  canonicalUrl: string,
+  options?: {
+    dateModified?: string | Date;
+    mainEntity?: Record<string, any>;
+  }
 ): string {
-  return JSON.stringify({
+  const modifiedCandidate = options?.dateModified
+    ? new Date(options.dateModified)
+    : new Date();
+  const dateModified = Number.isNaN(modifiedCandidate.getTime())
+    ? new Date().toISOString()
+    : modifiedCandidate.toISOString();
+
+  const schema: Record<string, any> = {
     "@context": "https://schema.org",
     "@type": type,
     "@id": `${canonicalUrl}#webpage`,
@@ -1386,8 +1397,14 @@ export function generateWebPageSchema(
       "name": "Ask Detectives",
     },
     "inLanguage": "en-US",
-    "dateModified": new Date().toISOString().split('T')[0],
-  }, null, 2);
+    "dateModified": dateModified,
+  };
+
+  if (type === 'ProfilePage' && options?.mainEntity) {
+    schema.mainEntity = options.mainEntity;
+  }
+
+  return JSON.stringify(schema, null, 2);
 }
 
 /**
@@ -1444,7 +1461,12 @@ export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl:
   const detectiveDesc = detective?.seoOverride?.metaDescription?.trim()
     || detective.bio?.substring(0, 160)
     || `Professional private investigator services${detective.city ? ` in ${detective.city}` : ''}`;
-  const webPageSchema = generateWebPageSchema('ProfilePage', detectiveTitle, detectiveDesc, canonicalUrl);
+  const webPageSchema = generateWebPageSchema('ProfilePage', detectiveTitle, detectiveDesc, canonicalUrl, {
+    dateModified: detective.updatedAt || detective.createdAt,
+    mainEntity: {
+      "@id": `${canonicalUrl}#localbusiness`,
+    },
+  });
 
   // Phase 3: LocalBusiness — only emitted when required fields are present
   const localBusinessSchemaObj = buildPhase3LocalBusinessSchema(detective, canonicalUrl);
