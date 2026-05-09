@@ -25,7 +25,6 @@ import {
   getLocationDetectivesForSEO,
   // injectLocationSeoTags,
   // injectDetectiveLocationAuthorityLink,
-  resolveLocationIds,
   generateDetectiveSeo,
   getServiceLocationSeo,
   generateServiceLocationSeo,
@@ -40,6 +39,7 @@ import { pool } from "../db/index.js";
 import { storage } from "./storage.js";
 import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
+import { resolveLocationHierarchyForSeo } from "./services/locationSeoResolutionService.js";
 
 const STATIC_CMS_SEO_SLUGS = new Set([
   "about",
@@ -135,6 +135,333 @@ function injectScriptPayloads(
   return html.replace("</head>", `${scriptTag}\n</head>`);
 }
 
+type BreadcrumbItem = {
+  name: string;
+  url: string;
+};
+
+type PageSchemaType = "WebPage" | "CollectionPage" | "ProfilePage";
+
+const SSR_SCHEMA_META_NAME = "askdetectives:ssr-schema";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildBreadcrumbListSchema(items: BreadcrumbItem[]): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      item: item.url,
+    })),
+  };
+}
+
+function buildPageSchema(
+  pageType: PageSchemaType,
+  name: string,
+  description: string,
+  canonicalUrl: string,
+): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": pageType,
+    "@id": `${canonicalUrl}#webpage`,
+    url: canonicalUrl,
+    name,
+    description,
+    isPartOf: {
+      "@type": "WebSite",
+      "@id": "https://www.askdetectives.com/#website",
+      url: "https://www.askdetectives.com/",
+      name: "Ask Detectives",
+    },
+    inLanguage: "en-US",
+  };
+}
+
+function injectPhase1Schemas(
+  html: string,
+  input: {
+    canonicalUrl: string;
+    pageType: PageSchemaType;
+    pageName: string;
+    pageDescription: string;
+    breadcrumbs: BreadcrumbItem[];
+  },
+): string {
+  const breadcrumbSchema = buildBreadcrumbListSchema(input.breadcrumbs);
+  const pageSchema = buildPageSchema(
+    input.pageType,
+    input.pageName,
+    input.pageDescription,
+    input.canonicalUrl,
+  );
+
+  const markerTag = `<meta name="${SSR_SCHEMA_META_NAME}" content="authoritative" data-ssr-schema-owner="phase1" />`;
+  const scripts = [breadcrumbSchema, pageSchema]
+    .map((schema) => `<script type="application/ld+json" data-ssr-schema-owner="phase1">\n${toInlineJson(schema)}\n</script>`)
+    .join("\n");
+
+  const stripped = html
+    .replace(new RegExp(`<meta\\s+name=["']${SSR_SCHEMA_META_NAME}["'][^>]*>`, "gi"), "")
+    .replace(/<script\s+type=["']application\/ld\+json["'][^>]*data-ssr-schema-owner=["']phase1["'][^>]*>[\s\S]*?<\/script>/gi, "");
+
+  return stripped.replace("</head>", `${markerTag}\n${scripts}\n</head>`);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: Article / NewsArticle schema (news detail pages only)
+// ---------------------------------------------------------------------------
+
+type ArticleSchemaInput = {
+  canonicalUrl: string;
+  headline: string;
+  description: string;
+  publishedAt: string;           // ISO 8601
+  modifiedAt?: string;           // ISO 8601 — falls back to publishedAt
+  thumbnail?: string | null;
+  authorName?: string | null;
+  authorSlug?: string | null;    // used to build author URL when available
+  category?: string | null;
+};
+
+function buildArticleSchema(input: ArticleSchemaInput): Record<string, unknown> {
+  const authorUrl = input.authorSlug
+    ? `https://www.askdetectives.com/detectives/${input.authorSlug}/`
+    : "https://www.askdetectives.com/";
+
+  const author: Record<string, unknown> = {
+    "@type": "Person",
+    name: input.authorName || "Ask Detectives",
+    url: authorUrl,
+  };
+
+  const schema: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    "@id": `${input.canonicalUrl}#article`,
+    headline: input.headline,
+    description: input.description,
+    url: input.canonicalUrl,
+    datePublished: input.publishedAt,
+    dateModified: input.modifiedAt || input.publishedAt,
+    author,
+    publisher: {
+      "@type": "Organization",
+      name: "Ask Detectives",
+      url: "https://www.askdetectives.com/",
+      logo: {
+        "@type": "ImageObject",
+        url: "https://www.askdetectives.com/favicon.png",
+        width: 32,
+        height: 32,
+      },
+    },
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `${input.canonicalUrl}#webpage`,
+    },
+    inLanguage: "en-US",
+    isPartOf: {
+      "@type": "WebSite",
+      "@id": "https://www.askdetectives.com/#website",
+      url: "https://www.askdetectives.com/",
+      name: "Ask Detectives",
+    },
+  };
+
+  if (input.thumbnail) {
+    schema.image = {
+      "@type": "ImageObject",
+      url: input.thumbnail,
+    };
+  }
+
+  if (input.category) {
+    schema.articleSection = input.category;
+  }
+
+  return schema;
+}
+
+/**
+ * Injects a single NewsArticle JSON-LD script tagged with phase2 ownership.
+ * The SSR-authoritative meta marker is ALREADY set by injectPhase1Schemas on
+ * the same response — this function only appends the article schema block and
+ * MUST be called AFTER injectPhase1Schemas.
+ */
+function injectPhase2ArticleSchema(html: string, input: ArticleSchemaInput): string {
+  const articleSchema = buildArticleSchema(input);
+
+  // Strip any pre-existing phase2 article block (idempotent / re-render safe)
+  const stripped = html.replace(
+    /<script\s+type=["']application\/ld\+json["'][^>]*data-ssr-schema-owner=["']phase2["'][^>]*>[\s\S]*?<\/script>/gi,
+    "",
+  );
+
+  const scriptTag = `<script type="application/ld+json" data-ssr-schema-owner="phase2">\n${toInlineJson(articleSchema)}\n</script>`;
+
+  return stripped.replace("</head>", `${scriptTag}\n</head>`);
+}
+
+type ServiceSchemaInput = {
+  canonicalUrl: string;
+  serviceTitle: string;
+  description: string;
+  category: string;
+  detectiveName: string;
+  countryName: string;
+  cityName: string;
+  stateName: string;
+  countrySlug: string;
+  isOnEnquiry: boolean;
+  basePrice: number | null;
+  offerPrice: number | null;
+  avgRating: number;
+  reviewCount: number;
+};
+
+function getPriceCurrencyFromCountrySlug(countrySlug: string): string {
+  const key = (countrySlug || "").trim().toLowerCase();
+  const map: Record<string, string> = {
+    india: "INR",
+    in: "INR",
+    "united-kingdom": "GBP",
+    uk: "GBP",
+    gb: "GBP",
+    "united-states": "USD",
+    usa: "USD",
+    us: "USD",
+    australia: "AUD",
+    au: "AUD",
+    canada: "CAD",
+    ca: "CAD",
+    uae: "AED",
+    "united-arab-emirates": "AED",
+    singapore: "SGD",
+    sg: "SGD",
+    pakistan: "PKR",
+    pk: "PKR",
+  };
+  return map[key] || "USD";
+}
+
+function buildServiceDetailSchema(input: ServiceSchemaInput): Record<string, unknown> | null {
+  const serviceTitle = (input.serviceTitle || "").trim();
+  const description = (input.description || "").trim();
+  const detectiveName = (input.detectiveName || "").trim();
+  if (!serviceTitle || !description || !detectiveName) return null;
+
+  const schema: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    "@id": `${input.canonicalUrl}#service`,
+    name: serviceTitle,
+    description,
+    url: input.canonicalUrl,
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `${input.canonicalUrl}#webpage`,
+    },
+    provider: {
+      "@type": "Organization",
+      name: detectiveName,
+      areaServed: {
+        "@type": "Place",
+        name: [input.cityName, input.stateName, input.countryName].filter(Boolean).join(", "),
+      },
+    },
+    serviceType: (input.category || "").trim() || "Private Investigation",
+    areaServed: {
+      "@type": "Place",
+      name: [input.cityName, input.stateName, input.countryName].filter(Boolean).join(", "),
+    },
+    inLanguage: "en-US",
+  };
+
+  const basePrice = Number(input.basePrice);
+  const offerPrice = Number(input.offerPrice);
+  const hasBasePrice = Number.isFinite(basePrice) && basePrice > 0;
+  const hasOfferPrice = Number.isFinite(offerPrice) && offerPrice > 0;
+  if (!input.isOnEnquiry && (hasOfferPrice || hasBasePrice)) {
+    const finalPrice = hasOfferPrice ? offerPrice : basePrice;
+    schema.offers = {
+      "@type": "Offer",
+      url: input.canonicalUrl,
+      price: finalPrice,
+      priceCurrency: getPriceCurrencyFromCountrySlug(input.countrySlug),
+      availability: "https://schema.org/InStock",
+    };
+  }
+
+  const reviewCount = Math.round(Number(input.reviewCount));
+  const ratingValue = Math.round(Number(input.avgRating) * 10) / 10;
+  if (
+    Number.isFinite(reviewCount) &&
+    reviewCount > 0 &&
+    Number.isFinite(ratingValue) &&
+    ratingValue >= 1 &&
+    ratingValue <= 5
+  ) {
+    schema.aggregateRating = {
+      "@type": "AggregateRating",
+      ratingValue,
+      bestRating: 5,
+      worstRating: 1,
+      reviewCount,
+    };
+  }
+
+  return schema;
+}
+
+function injectPhase5ServiceSchema(html: string, input: ServiceSchemaInput): string {
+  const serviceSchema = buildServiceDetailSchema(input);
+  if (!serviceSchema) return html;
+
+  const stripped = html.replace(
+    /<script\s+type=["']application\/ld\+json["'][^>]*data-ssr-schema-owner=["']phase5-service["'][^>]*>[\s\S]*?<\/script>/gi,
+    "",
+  );
+
+  const scriptTag = `<script type="application/ld+json" data-ssr-schema-owner="phase5-service">\n${toInlineJson(serviceSchema)}\n</script>`;
+  return stripped.replace("</head>", `${scriptTag}\n</head>`);
+}
+
+function buildArchiveSsrFragment(input: {
+  heading: string;
+  subtitle: string;
+  breadcrumbs: BreadcrumbItem[];
+}): string {
+  const breadcrumbItems = input.breadcrumbs
+    .map((crumb, index) => {
+      const isLast = index === input.breadcrumbs.length - 1;
+      if (isLast) {
+        return `<li style="display:inline;"><span style="color:#374151;">${escapeHtml(crumb.name)}</span></li>`;
+      }
+      return `<li style="display:inline;"><a href="${escapeHtml(crumb.url)}" style="color:#1d4ed8;text-decoration:none;">${escapeHtml(crumb.name)}</a><span style="margin:0 6px;color:#9ca3af;">/</span></li>`;
+    })
+    .join("");
+
+  return [
+    `<section data-ssr-fragment="archive" style="max-width:960px;margin:16px auto 8px;padding:0 24px;">`,
+    `<nav aria-label="Breadcrumb" style="margin-bottom:10px;"><ol style="display:flex;gap:0;flex-wrap:wrap;list-style:none;padding:0;margin:0;font-size:0.875rem;">${breadcrumbItems}</ol></nav>`,
+    `<h1 style="margin:0 0 8px 0;font-size:2rem;line-height:1.25;color:#111827;">${escapeHtml(input.heading)}</h1>`,
+    `<p style="margin:0;color:#4b5563;line-height:1.6;">${escapeHtml(input.subtitle)}</p>`,
+    `</section>`,
+  ].join("\n");
+}
+
 function injectFragmentBeforeRoot(html: string, fragmentHtml: string): string {
   const markedFragmentHtml = /data-ssr-fragment\s*=/.test(fragmentHtml)
     ? fragmentHtml
@@ -223,7 +550,7 @@ async function getCategoryIdFromHierarchicalSlug(slugPath: string): Promise<stri
 // Sentry is optional. To enable, set sentry_dsn in app_secrets and restart.
 
 /**
- * Serves a properly structured 404 page with navigation links, noindex meta, and breadcrumb schema.
+ * Serves a properly structured 404 page with navigation links and noindex.
  * Replaces bare HTML 404 strings to improve crawl budget and site quality signals.
  */
 function serve404Page(res: Response, title: string, message: string): void {
@@ -238,7 +565,6 @@ function serve404Page(res: Response, title: string, message: string): void {
   <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://www.askdetectives.com"}]}</script>
 </head>
 <body style="font-family:Inter,sans-serif;max-width:800px;margin:60px auto;padding:0 24px;color:#1a1a1a;">
   <h1 style="font-size:2rem;font-weight:700;margin-bottom:16px;">${message}</h1>
@@ -375,11 +701,19 @@ export async function serveStatic(app: Express, _server: Server) {
       // ✅ OPTIMIZATION: Resolve location once to avoid duplicate queries
       // Prevents redundant lookups in both searchServices() and generateLocationSeoMetaTags()
       console.log("[SSR] Resolving location IDs...", { country: params.country, state: params.state, city: params.city });
-      const resolvedLocation = await resolveLocationIds({
+      const allowParentFallback = !!(params.state || params.city);
+      console.log("[SSR] Resolving location IDs...", {
         country: params.country,
         state: params.state,
         city: params.city,
+        allowParentFallback,
       });
+      const resolvedLocation = await resolveLocationHierarchyForSeo(
+        params.country,
+        params.state,
+        params.city,
+        allowParentFallback,
+      );
       console.log("[SSR] Location resolved", resolvedLocation);
 
 
@@ -389,7 +723,9 @@ export async function serveStatic(app: Express, _server: Server) {
       const [seoValues, locationSeoData] = await Promise.all([
         getDetectiveLocationSeo(params.country, params.state, params.city),
         getLocationDetectivesForSEO(params.country, params.state, params.city, 15, 0, {
+          allowParentFallback,
           includeTotalCount: true,
+          preResolvedHierarchy: resolvedLocation,
         }),
       ]);
       const detectives = locationSeoData.detectives;
@@ -463,6 +799,38 @@ export async function serveStatic(app: Express, _server: Server) {
       seoHtml = stripHiddenSeoH1(seoHtml);
       seoHtml = injectFragmentBeforeRoot(seoHtml, fragmentHtml);
 
+      if (detectiveCount > 0) {
+        const countryLabel = cityPagePayload.location.country || params.country.replace(/-/g, " ");
+        const stateLabel = cityPagePayload.location.state || params.state?.replace(/-/g, " ") || "";
+        const cityLabel = cityPagePayload.location.city || params.city?.replace(/-/g, " ") || "";
+        const breadcrumbs: BreadcrumbItem[] = [
+          { name: "Home", url: "https://www.askdetectives.com/" },
+          { name: countryLabel, url: `https://www.askdetectives.com/detectives/${params.country}/` },
+        ];
+
+        if (params.state && stateLabel) {
+          breadcrumbs.push({
+            name: stateLabel,
+            url: `https://www.askdetectives.com/detectives/${params.country}/${params.state}/`,
+          });
+        }
+
+        if (params.city && cityLabel) {
+          breadcrumbs.push({
+            name: cityLabel,
+            url: locationCanonicalUrl,
+          });
+        }
+
+        seoHtml = injectPhase1Schemas(seoHtml, {
+          canonicalUrl: locationCanonicalUrl,
+          pageType: "CollectionPage",
+          pageName: seoValues.h1,
+          pageDescription: seoValues.meta_description,
+          breadcrumbs,
+        });
+      }
+
       // Handle zero-detective pages
       if (detectiveCount === 0) {
         // Replace existing robots with authoritative SSR noindex to avoid conflicting tags.
@@ -519,7 +887,7 @@ export async function serveStatic(app: Express, _server: Server) {
       // Fetch individual detective with their SEO override from location_seo_overrides
       let detective: any = null;
       try {
-        detective = await getDetectiveBySlugForSEO(detectiveSlug, country, state, city);
+        detective = await getDetectiveBySlugForSEO(country, state, city, detectiveSlug);
       } catch (e) {
         // ignore — fall through to city-level SEO below
       }
@@ -563,12 +931,15 @@ export async function serveStatic(app: Express, _server: Server) {
       if (segments.length !== 6 || segments[0] !== 'service') return next();
 
       const [, country, state, city, detectiveSlug, serviceSlug] = segments;
-      const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
 
       const seoData = await getServiceBySlugForSEO(country, state, city, detectiveSlug, serviceSlug);
       if (!seoData) {
         return serve404Page(res, 'Service Not Found', 'This service could not be found');
       }
+
+      const canonicalUrl = `https://www.askdetectives.com${seoData.canonicalPath}`;
+      const categoryLabel = seoData.category || "Services";
+      const categoryUrl = `https://www.askdetectives.com/search?category=${encodeURIComponent(seoData.category || "")}`;
 
       const seoHtml = injectServiceSeoTags(await readIndexHtml(), {
         title: seoData.meta_title,
@@ -576,7 +947,36 @@ export async function serveStatic(app: Express, _server: Server) {
         meta_description: seoData.meta_description,
       }, canonicalUrl);
 
-      return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400");
+      const schemaHtml = injectPhase1Schemas(seoHtml, {
+        canonicalUrl,
+        pageType: "WebPage",
+        pageName: seoData.h1,
+        pageDescription: seoData.meta_description,
+        breadcrumbs: [
+          { name: "Home", url: "https://www.askdetectives.com/" },
+          { name: categoryLabel, url: categoryUrl },
+          { name: seoData.serviceTitle, url: canonicalUrl },
+        ],
+      });
+
+      const serviceSchemaHtml = injectPhase5ServiceSchema(schemaHtml, {
+        canonicalUrl,
+        serviceTitle: seoData.serviceTitle,
+        description: seoData.serviceDescription,
+        category: seoData.category,
+        detectiveName: seoData.detectiveName,
+        countryName: seoData.countryName,
+        cityName: seoData.cityName,
+        stateName: seoData.stateName,
+        countrySlug: seoData.countrySlug,
+        isOnEnquiry: seoData.isOnEnquiry,
+        basePrice: seoData.basePrice,
+        offerPrice: seoData.offerPrice,
+        avgRating: seoData.avgRating,
+        reviewCount: seoData.reviewCount,
+      });
+
+      return sendIndexHtmlResponse(req, res, serviceSchemaHtml, "public, max-age=3600, stale-while-revalidate=86400");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[Service Detail SEO] Error:', { url: req.originalUrl, message: errorMsg });
@@ -780,6 +1180,41 @@ export async function serveStatic(app: Express, _server: Server) {
       seoHtml = stripHiddenSeoH1(seoHtml);
       seoHtml = injectFragmentBeforeRoot(seoHtml, serviceFragmentHtml);
 
+      const categoryLabel = resolvedCategoryName || canonicalCategorySlug.replace(/-/g, " ");
+      const breadcrumbs: BreadcrumbItem[] = [
+        { name: "Home", url: "https://www.askdetectives.com/" },
+        {
+          name: categoryLabel,
+          url: `https://www.askdetectives.com/locations/${canonicalCategorySlug}/`,
+        },
+        {
+          name: location.countryName,
+          url: `https://www.askdetectives.com/locations/${canonicalCategorySlug}/${params.countrySlug}/`,
+        },
+      ];
+
+      if (params.stateSlug && location.stateName) {
+        breadcrumbs.push({
+          name: location.stateName,
+          url: `https://www.askdetectives.com/locations/${canonicalCategorySlug}/${params.countrySlug}/${params.stateSlug}/`,
+        });
+      }
+
+      if (params.citySlug && location.cityName) {
+        breadcrumbs.push({
+          name: location.cityName,
+          url: canonicalUrl,
+        });
+      }
+
+      seoHtml = injectPhase1Schemas(seoHtml, {
+        canonicalUrl,
+        pageType: "CollectionPage",
+        pageName: seoValues.h1,
+        pageDescription: seoValues.meta_description,
+        breadcrumbs,
+      });
+
       setSsrCache(serviceCacheKey, seoHtml);
       return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400", {
         "X-SSR-Cache": "MISS",
@@ -894,6 +1329,34 @@ export async function serveStatic(app: Express, _server: Server) {
 
       seoHtml = stripHiddenSeoH1(seoHtml);
       seoHtml = injectFragmentBeforeRoot(seoHtml, fragmentHtml);
+
+      const articleCanonicalUrl = `https://www.askdetectives.com/news/${row.slug}`;
+
+      // Phase 1: BreadcrumbList + WebPage schemas + SSR-authoritative marker
+      seoHtml = injectPhase1Schemas(seoHtml, {
+        canonicalUrl: articleCanonicalUrl,
+        pageType: "WebPage",
+        pageName: row.title,
+        pageDescription: seoDescription,
+        breadcrumbs: [
+          { name: "Home", url: "https://www.askdetectives.com/" },
+          { name: "News & Cases", url: "https://www.askdetectives.com/news" },
+          { name: row.title, url: articleCanonicalUrl },
+        ],
+      });
+
+      // Phase 2: NewsArticle schema — single entity, canonical URL, parity with visible fragment
+      seoHtml = injectPhase2ArticleSchema(seoHtml, {
+        canonicalUrl: articleCanonicalUrl,
+        headline: row.title,
+        description: seoDescription,
+        publishedAt: articlePagePayload.publishedAt,
+        modifiedAt: articlePagePayload.publishedAt,
+        thumbnail: row.thumbnail || null,
+        authorName: detective?.businessName || null,
+        authorSlug: detective?.slug || null,
+        category: row.category || null,
+      });
 
       return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400");
     } catch (error) {
@@ -1019,7 +1482,7 @@ export async function serveStatic(app: Express, _server: Server) {
 
       // Skip known non-CMS two-segment routes that have their own handlers
       const NON_CMS_PREFIXES = new Set([
-        "detectives", "locations", "service", "news", "api", "blog", "pages",
+        "detectives", "locations", "service", "news", "api", "blog", "pages", "assets",
         "about", "contact", "support", "privacy", "terms", "packages", "categories",
         "admin", "dashboard", "auth", "login", "register",
         "search", "verify", "reset-password",
@@ -1142,6 +1605,23 @@ export async function serveStatic(app: Express, _server: Server) {
       seoHtml = stripHiddenSeoH1(seoHtml);
       seoHtml = injectFragmentBeforeRoot(seoHtml, fragmentHtml);
 
+      const cmsBreadcrumbs: BreadcrumbItem[] = [{ name: "Home", url: "https://www.askdetectives.com/" }];
+      if (category?.name && category?.slug) {
+        cmsBreadcrumbs.push({
+          name: category.name,
+          url: `https://www.askdetectives.com/blog/category/${category.slug}`,
+        });
+      }
+      cmsBreadcrumbs.push({ name: row.title, url: canonicalUrl });
+
+      seoHtml = injectPhase1Schemas(seoHtml, {
+        canonicalUrl,
+        pageType: "WebPage",
+        pageName: row.h1 || row.title,
+        pageDescription: seoDescription,
+        breadcrumbs: cmsBreadcrumbs,
+      });
+
       return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -1240,9 +1720,27 @@ export async function serveStatic(app: Express, _server: Server) {
 
         html = stripHiddenSeoH1(html);
         html = injectFragmentBeforeRoot(html, fragmentHtml);
+
+        const staticBreadcrumbs: BreadcrumbItem[] = [{ name: "Home", url: "https://www.askdetectives.com/" }];
+        if (category?.name && category?.slug) {
+          staticBreadcrumbs.push({
+            name: category.name,
+            url: `https://www.askdetectives.com/blog/category/${category.slug}`,
+          });
+        }
+        staticBreadcrumbs.push({ name: row.title, url: canonicalUrl });
+
+        html = injectPhase1Schemas(html, {
+          canonicalUrl,
+          pageType: "WebPage",
+          pageName: row.h1 || row.title,
+          pageDescription: row.meta_description || plainExcerpt.substring(0, 160) || `Learn more about ${row.title} on Ask Detectives.`,
+          breadcrumbs: staticBreadcrumbs,
+        });
       }
 
       return sendIndexHtmlResponse(req, res, html, "no-store");
+
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error("[SEO] Static CMS page SEO injection failed:", {
@@ -1250,6 +1748,160 @@ export async function serveStatic(app: Express, _server: Server) {
         message: errorMsg,
       });
       return res.status(500).type("text/plain").send("Error loading page");
+    }
+  });
+
+  // BLOG CATEGORY ARCHIVE SSR (Phase 1 schema ownership)
+  app.get(/^\/blog\/category\/([^\/]+)(?:\/([^\/]+))?\/?$/, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const segments = req.path.replace(/\/+$/, "").split("/").filter(Boolean);
+      if (segments.length !== 3 && segments.length !== 4) return next();
+
+      const categoryPath = segments.length === 4
+        ? `${segments[2]}/${segments[3]}`
+        : segments[2];
+
+      const categoryResult = await pool.query(
+        `SELECT id, name, slug FROM categories WHERE slug = $1 AND status = 'published' LIMIT 1`,
+        [categoryPath],
+      );
+      if (categoryResult.rows.length === 0) {
+        return serve404Page(res, "Category Not Found", "This category could not be found");
+      }
+
+      const category = categoryResult.rows[0] as { id: string; name: string; slug: string };
+      const pageCountResult = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM pages WHERE status = 'published' AND category_id = $1`,
+        [category.id],
+      );
+      const pageCount = Number(pageCountResult.rows[0]?.count || 0);
+
+      const canonicalPath = `/blog/category/${categoryPath}`;
+      const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+      const title = `${category.name} | Pages`;
+      const description = `Browse all articles and insights in the ${category.name} category on AskDetectives.`;
+
+      let html = injectServiceSeoTags(await readIndexHtml(), {
+        title,
+        h1: category.name,
+        meta_description: description,
+      }, canonicalUrl);
+
+      const fragmentHtml = buildArchiveSsrFragment({
+        heading: category.name,
+        subtitle: `${pageCount} pages`,
+        breadcrumbs: [
+          { name: "Home", url: "https://www.askdetectives.com/" },
+          { name: "Blog", url: "https://www.askdetectives.com/blog" },
+          { name: category.name, url: canonicalUrl },
+        ],
+      });
+      html = stripHiddenSeoH1(html);
+      html = injectFragmentBeforeRoot(html, fragmentHtml);
+
+      if (pageCount > 0) {
+        html = injectPhase1Schemas(html, {
+          canonicalUrl,
+          pageType: "CollectionPage",
+          pageName: category.name,
+          pageDescription: description,
+          breadcrumbs: [
+            { name: "Home", url: "https://www.askdetectives.com/" },
+            { name: "Blog", url: "https://www.askdetectives.com/blog" },
+            { name: category.name, url: canonicalUrl },
+          ],
+        });
+      } else {
+        html = html.replace(
+          /<meta\s+name=["']robots["'][^>]*>/i,
+          '<meta name="robots" content="noindex, follow" data-ssr-robots="authoritative">',
+        );
+      }
+
+      return sendIndexHtmlResponse(req, res, html, "public, max-age=3600, stale-while-revalidate=86400");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[Category Archive SSR] Error:", { url: req.originalUrl, message: errorMsg });
+      return next();
+    }
+  });
+
+  // BLOG TAG ARCHIVE SSR (Phase 1 schema ownership)
+  app.get(/^\/blog\/tag\/([^\/]+)(?:\/([^\/]+))?\/?$/, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const segments = req.path.replace(/\/+$/, "").split("/").filter(Boolean);
+      if (segments.length !== 3 && segments.length !== 4) return next();
+
+      const tagPath = segments.length === 4
+        ? `${segments[2]}/${segments[3]}`
+        : segments[2];
+
+      const tagResult = await pool.query(
+        `SELECT id, name, slug FROM tags WHERE slug = $1 AND status = 'published' LIMIT 1`,
+        [tagPath],
+      );
+      if (tagResult.rows.length === 0) {
+        return serve404Page(res, "Tag Not Found", "This tag could not be found");
+      }
+
+      const tag = tagResult.rows[0] as { id: string; name: string; slug: string };
+      const pageCountResult = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM pages p
+         INNER JOIN page_tags pt ON pt.page_id = p.id
+         WHERE p.status = 'published' AND pt.tag_id = $1`,
+        [tag.id],
+      );
+      const pageCount = Number(pageCountResult.rows[0]?.count || 0);
+
+      const canonicalPath = `/blog/tag/${tagPath}`;
+      const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+      const heading = `#${tag.name}`;
+      const title = `${tag.name} | Pages`;
+      const description = `Explore all articles tagged "${tag.name}" on AskDetectives.`;
+
+      let html = injectServiceSeoTags(await readIndexHtml(), {
+        title,
+        h1: heading,
+        meta_description: description,
+      }, canonicalUrl);
+
+      const fragmentHtml = buildArchiveSsrFragment({
+        heading,
+        subtitle: `${pageCount} pages`,
+        breadcrumbs: [
+          { name: "Home", url: "https://www.askdetectives.com/" },
+          { name: "Blog", url: "https://www.askdetectives.com/blog" },
+          { name: heading, url: canonicalUrl },
+        ],
+      });
+      html = stripHiddenSeoH1(html);
+      html = injectFragmentBeforeRoot(html, fragmentHtml);
+
+      if (pageCount > 0) {
+        html = injectPhase1Schemas(html, {
+          canonicalUrl,
+          pageType: "CollectionPage",
+          pageName: heading,
+          pageDescription: description,
+          breadcrumbs: [
+            { name: "Home", url: "https://www.askdetectives.com/" },
+            { name: "Blog", url: "https://www.askdetectives.com/blog" },
+            { name: heading, url: canonicalUrl },
+          ],
+        });
+      } else {
+        html = html.replace(
+          /<meta\s+name=["']robots["'][^>]*>/i,
+          '<meta name="robots" content="noindex, follow" data-ssr-robots="authoritative">',
+        );
+      }
+
+      return sendIndexHtmlResponse(req, res, html, "public, max-age=3600, stale-while-revalidate=86400");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[Tag Archive SSR] Error:", { url: req.originalUrl, message: errorMsg });
+      return next();
     }
   });
 

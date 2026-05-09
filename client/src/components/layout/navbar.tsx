@@ -151,7 +151,7 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
       <div className="container mx-auto px-6 md:px-12 lg:px-16 h-20 flex items-center justify-between">
         {/* Logo */}
         <div className="flex items-center gap-8">
-          <Link href="/" className="text-2xl font-bold tracking-tight font-heading cursor-pointer flex items-center gap-2">
+          <Link href="/" className="text-2xl font-bold tracking-tight font-heading cursor-pointer flex items-center h-8">
             {(() => {
               // Use sticky logo when scrolled, header logo when not
               const logo = isScrolled 
@@ -159,12 +159,20 @@ export function Navbar({ transparentOnHome = true, overlayOnHome = true }: { tra
                 : (site?.headerLogoUrl || site?.logoUrl);
               
               return logo ? (
-                <img src={logo} alt="Logo" className="h-6 w-auto" />
+                <span className="inline-flex h-8 w-[180px] items-center">
+                  <img
+                    src={logo}
+                    alt="Logo"
+                    width={180}
+                    height={32}
+                    className="h-8 w-auto max-w-[180px] object-contain"
+                  />
+                </span>
               ) : (
-                <>
+                <span className="inline-flex h-8 w-[180px] items-center gap-2 whitespace-nowrap">
                   Find<span className="text-green-500">Detectives</span>
                   <span className="text-green-500 text-4xl leading-none">.</span>
-                </>
+                </span>
               );
             })()}
           </Link>

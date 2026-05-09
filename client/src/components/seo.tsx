@@ -168,15 +168,22 @@ export function SEO({
       if (nextLink) nextLink.remove();
     }
 
+    const ssrSchemaIsAuthoritative =
+      document.querySelector('meta[name="askdetectives:ssr-schema"][content="authoritative"]') !== null;
+
+    if (ssrSchemaIsAuthoritative) {
+      // SSR owns structured data for this route family; keep client from duplicating JSON-LD after hydration.
+      document.querySelectorAll('script[type="application/ld+json"][data-seo-schema="true"]').forEach(el => el.remove());
+    }
+
     // Build all schemas
     // Note: Organization and WebSite schemas are now static in index.html only
     const allSchemas: Record<string, any>[] = [];
-    
-    // Main schema(s) (if provided)
-    if (schema) {
+
+    if (!ssrSchemaIsAuthoritative && schema) {
       // Handle both single object and array of objects
       const schemas = Array.isArray(schema) ? schema : [schema];
-      
+
       schemas.forEach(schemaItem => {
         // Enhance service schema with additional data
         if (structuredData?.service) {
@@ -185,7 +192,7 @@ export function SEO({
             "@context": "https://schema.org",
             "@type": "ProfessionalService"
           };
-          
+
           // Add offers with proper price structure
           const getCurrency = (country?: string | null): string => {
             if (!country) return "USD";
@@ -205,6 +212,7 @@ export function SEO({
             };
             return map[key] || "USD";
           };
+
           if (structuredData.service.isOnEnquiry) {
             enhanced.offers = {
               "@type": "Offer",
@@ -222,7 +230,7 @@ export function SEO({
               "availability": "https://schema.org/InStock"
             };
           }
-          
+
           // Add provider information
           if (structuredData.service.detectiveName) {
             enhanced.provider = {
@@ -235,12 +243,12 @@ export function SEO({
               "name": structuredData.service.detectiveName
             };
           }
-          
+
           // Add service type and area served
           if (structuredData.service.category) {
             enhanced.serviceType = structuredData.service.category;
           }
-          
+
           if (structuredData.service.city || structuredData.service.country) {
             enhanced.areaServed = {
               "@type": "Place",
@@ -251,7 +259,7 @@ export function SEO({
               }
             };
           }
-          
+
           allSchemas.push(enhanced);
         } else {
           allSchemas.push(schemaItem);
@@ -260,7 +268,7 @@ export function SEO({
     }
     
     // Breadcrumb schema
-    if (breadcrumbs && breadcrumbs.length > 0) {
+    if (!ssrSchemaIsAuthoritative && breadcrumbs && breadcrumbs.length > 0) {
       const breadcrumbSchema = {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
@@ -275,7 +283,7 @@ export function SEO({
     }
     
     // FAQ schema
-    if (structuredData?.faqs && structuredData.faqs.length > 0) {
+    if (!ssrSchemaIsAuthoritative && structuredData?.faqs && structuredData.faqs.length > 0) {
       const faqSchema = {
         "@context": "https://schema.org",
         "@type": "FAQPage",
@@ -292,7 +300,7 @@ export function SEO({
     }
     
     // Offer schemas
-    if (structuredData?.offers && structuredData.offers.length > 0) {
+    if (!ssrSchemaIsAuthoritative && structuredData?.offers && structuredData.offers.length > 0) {
       structuredData.offers.forEach(offer => {
         allSchemas.push({
           "@context": "https://schema.org",
@@ -302,7 +310,7 @@ export function SEO({
     }
     
     // Article schema
-    if (structuredData?.article) {
+    if (!ssrSchemaIsAuthoritative && structuredData?.article) {
       const authorPerson = author ? {
         "@type": "Person",
         "name": author.name,

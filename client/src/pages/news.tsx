@@ -351,6 +351,7 @@ export default function ArticlePage() {
               alt={article.title}
               width={320}
               height={240}
+              decoding="async"
               className="w-full h-96 object-cover rounded-lg border border-gray-200"
             />
           </div>

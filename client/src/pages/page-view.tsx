@@ -230,7 +230,9 @@ export default function PageView() {
                     width={800}
                     height={320}
                     className="w-full h-64 md:h-80 lg:h-96 object-cover rounded-2xl shadow-xl"
-                    loading="lazy"
+                    loading="eager"
+                    decoding="async"
+                    fetchPriority="high"
                   />
               </div>
             </div>

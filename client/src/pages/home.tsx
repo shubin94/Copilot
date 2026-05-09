@@ -8,12 +8,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, CheckCircle2, Sparkles, Layers } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Link } from "wouter";
-import { useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices } from "@/lib/hooks";
+import { useServiceCategories, useSearchDetectives, useSiteSettings, useFeaturedHomeServices, useHomeTopLocations } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
 import { useCmsStaticPageSeo } from "@/lib/use-cms-static-page-seo";
 import type { ServiceCategory } from "@shared/schema";
-import { useEffect, useState, useRef } from "react";
-import { api } from "@/lib/api";
+import { useEffect, useRef } from "react";
 
 export default function Home() {
   const seo = useCmsStaticPageSeo("/", {
@@ -27,54 +26,24 @@ export default function Home() {
   const categories = (categoriesData?.categories || []) as ServiceCategory[];
 
   // Get selected country from context, but only use it if not GLOBAL and no manual filter applied
-  const { selectedCountry } = useCurrency();
+  const { selectedCountry, isCountrySelectionReady } = useCurrency();
   const countryForApi = selectedCountry && selectedCountry.code !== "GLOBAL" ? selectedCountry.code : undefined;
 
-  const { data: popularServicesData, isLoading: isLoadingPopular } = useFeaturedHomeServices(countryForApi);
+  const {
+    data: popularServicesData,
+    isLoading: isLoadingPopularQuery,
+  } = useFeaturedHomeServices(countryForApi, { enabled: isCountrySelectionReady });
+  const isLoadingPopular = !isCountrySelectionReady || isLoadingPopularQuery;
 
   const popularServices = popularServicesData?.services || [];
   const { data: featuredDetectivesData, isLoading: isLoadingDetectives } = useSearchDetectives({ status: "active", limit: 4 });
   const featuredDetectives = featuredDetectivesData?.detectives || [];
   const { data: siteData } = useSiteSettings();
   const featuresImage = siteData?.settings?.featuresImage;
-
-  const [topLocations, setTopLocations] = useState<{
-    countries: Array<{ name: string; slug: string; detectiveCount: number }>;
-    states: Array<{ name: string; slug: string; countrySlug: string; detectiveCount: number }>;
-    cities: Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>;
-  } | null>(null);
-  const [topLocationsLoading, setTopLocationsLoading] = useState(true);
+  const { data: topLocations, isLoading: topLocationsLoading } = useHomeTopLocations();
 
   // Ref for categories scroll container (auto-scroll)
   const categoriesScrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    const fetchTopLocations = async () => {
-      try {
-        setTopLocationsLoading(true);
-        const data = await api.get<{
-          countries: Array<{ name: string; slug: string; detectiveCount: number }>;
-          states: Array<{ name: string; slug: string; countrySlug: string; detectiveCount: number }>;
-          cities: Array<{ name: string; slug: string; stateSlug: string; countrySlug: string; detectiveCount: number }>;
-        }>("/api/locations/top?limitCountries=8&limitStates=8&limitCities=8");
-        if (!isMounted) return;
-        setTopLocations(data);
-      } catch (error) {
-        console.error("[Home] Failed to load top locations:", error);
-        if (!isMounted) return;
-        setTopLocations(null);
-      } finally {
-        if (!isMounted) return;
-        setTopLocationsLoading(false);
-      }
-    };
-
-    fetchTopLocations();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   // Auto-scroll categories container every 5 seconds
   useEffect(() => {
@@ -300,10 +269,31 @@ export default function Home() {
             <h2 className="text-3xl font-bold font-heading">Top Locations</h2>
           </div>
 
-          {topLocationsLoading ? (
-            <div className="text-sm text-gray-600">Loading top locations...</div>
-          ) : hasTopLocations ? (
-            <div className="space-y-10">
+          <div className="min-h-[520px]">
+            {topLocationsLoading ? (
+              <div className="space-y-10" aria-hidden="true">
+                {Array.from({ length: 3 }).map((_, sectionIndex) => (
+                  <div key={`top-locations-skeleton-${sectionIndex}`}>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="h-6 w-36 rounded bg-gray-200 animate-pulse" />
+                      <div className="h-9 w-32 rounded bg-gray-100 animate-pulse" />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {Array.from({ length: 6 }).map((__, cardIndex) => (
+                        <div
+                          key={`top-locations-skeleton-card-${sectionIndex}-${cardIndex}`}
+                          className="rounded-lg border border-green-100 bg-green-50 px-4 py-3"
+                        >
+                          <div className="h-4 w-3/4 rounded bg-green-100 animate-pulse" />
+                          <div className="mt-2 h-3 w-1/2 rounded bg-green-100/80 animate-pulse" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : hasTopLocations ? (
+              <div className="space-y-10">
                 {topCountries.length > 0 && (
                   <div>
                     <div className="flex items-center justify-between mb-4">
@@ -385,9 +375,10 @@ export default function Home() {
                   </div>
                 )}
               </div>
-          ) : (
-            <div className="text-sm text-gray-500">No locations data available.</div>
-          )}
+            ) : (
+              <div className="text-sm text-gray-500">No locations data available.</div>
+            )}
+          </div>
         </section>
 
         {/* ...removed location/feature section... */}

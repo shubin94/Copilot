@@ -99,7 +99,7 @@ export function buildServiceUrl(
   const detectiveSlug = detective.slug || (detective.businessName ? generateSlug(detective.businessName) : 'detective');
 
   // Remove UUID prefix from service slug if present
-  const cleanSlug = service.slug?.replace(/^[0-9a-fA-F-]{36}-/, "");
+  const cleanSlug = service.slug?.replace(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-/, "");
 
   if (!country) return '/service';
 

@@ -16,12 +16,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/user-context";
 import { useServiceBySlug, useReviewsByService, useServicesByDetective, useRelatedServices, useSimilarDetectives } from "@/lib/hooks";
 import { api } from "@/lib/api";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useLocation, useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
-import { ServiceFAQ, getServiceFAQs } from "@/components/service-faq";
+import { ServiceFAQ } from "@/components/service-faq";
 import { buildServiceUrl, getCountryName } from "@/lib/slug-utils";
 import { RelatedServices } from "@/components/related-services";
 import { getDetectiveProfileUrl } from "@/lib/utils";
@@ -52,6 +52,8 @@ export default function DetectiveProfile() {
   const city = params?.city;
   const [isPreview, setIsPreview] = useState(false);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [shouldLoadSimilarDetectives, setShouldLoadSimilarDetectives] = useState(false);
+  const [shouldLoadRelatedServices, setShouldLoadRelatedServices] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -69,13 +71,74 @@ export default function DetectiveProfile() {
 
   const { data: serviceData, isLoading: isLoadingService, error: serviceError } = useServiceBySlug(serviceSlug, detectiveSlug, isPreview, country, state, city);
   const detectiveIdForServices = serviceData?.detective?.id;
+  const serviceCategory = serviceData?.service?.category;
+  const serviceId = serviceData?.service?.id;
+
+  useEffect(() => {
+    setShouldLoadSimilarDetectives(false);
+    setShouldLoadRelatedServices(false);
+
+    if (typeof window === "undefined") {
+      setShouldLoadSimilarDetectives(true);
+      setShouldLoadRelatedServices(true);
+      return;
+    }
+
+    if (isLoadingService || !detectiveIdForServices) {
+      return;
+    }
+
+    let isCancelled = false;
+    let idleCallbackId: number | null = null;
+    let similarStageTimer: number | null = null;
+    let relatedStageTimer: number | null = null;
+    let relatedSafetyTimer: number | null = null;
+
+    const startStagedLoading = () => {
+      if (isCancelled) return;
+      setShouldLoadSimilarDetectives(true);
+
+      if (serviceCategory && serviceId) {
+        relatedStageTimer = window.setTimeout(() => {
+          if (!isCancelled) setShouldLoadRelatedServices(true);
+        }, 400);
+      }
+    };
+
+    if ("requestIdleCallback" in window) {
+      idleCallbackId = (window as any).requestIdleCallback(startStagedLoading, { timeout: 1200 });
+    } else {
+      similarStageTimer = window.setTimeout(startStagedLoading, 250);
+    }
+
+    if (serviceCategory && serviceId) {
+      relatedSafetyTimer = window.setTimeout(() => {
+        if (!isCancelled) setShouldLoadRelatedServices(true);
+      }, 1800);
+    }
+
+    return () => {
+      isCancelled = true;
+
+      if (idleCallbackId !== null && "cancelIdleCallback" in window) {
+        (window as any).cancelIdleCallback(idleCallbackId);
+      }
+      if (similarStageTimer !== null) window.clearTimeout(similarStageTimer);
+      if (relatedStageTimer !== null) window.clearTimeout(relatedStageTimer);
+      if (relatedSafetyTimer !== null) window.clearTimeout(relatedSafetyTimer);
+    };
+  }, [isLoadingService, detectiveIdForServices, serviceCategory, serviceId]);
+
   useServicesByDetective(detectiveIdForServices);
-  const { data: similarDetectives, isLoading: isLoadingSimilar } = useSimilarDetectives(detectiveIdForServices);
-  const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceData?.service?.id);
-  const { data: relatedServicesData, isLoading: isLoadingRelatedServices } = useRelatedServices(serviceData?.service?.category, serviceData?.service?.id, 3);
+  const { data: similarDetectives, isLoading: isLoadingSimilar } = useSimilarDetectives(detectiveIdForServices, 8, {
+    enabled: shouldLoadSimilarDetectives,
+  });
+  const { data: reviewsData, isLoading: isLoadingReviews } = useReviewsByService(serviceId);
+  const { data: relatedServicesData, isLoading: isLoadingRelatedServices } = useRelatedServices(serviceCategory, serviceId, 3, {
+    enabled: shouldLoadRelatedServices,
+  });
   
   let selectedCountry = null;
-  const serviceId = serviceData?.service?.id;
   let formatPriceFromTo = null;
   try {
     const currencyContext = useCurrency();
@@ -86,14 +149,34 @@ export default function DetectiveProfile() {
   }
   
   // Fallback country code if selectedCountry is not available
-  const selectedCountryCode = selectedCountry?.code || 'USD';
+  const selectedCountryCode = useMemo(() => selectedCountry?.code || 'USD', [selectedCountry?.code]);
   const { user, isFavorite, toggleFavorite } = useUser();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [rating, setRating] = useState<number>(5);
   const [comment, setComment] = useState<string>("");
-  const [reviewUsers, setReviewUsers] = useState<Record<string, { name?: string; avatar?: string }>>({});
-  const existingUserReview = (user ? (reviewsData?.reviews || []).find((r: any) => r.userId === user.id) : null) as any;
+  const existingUserReview = useMemo(() => {
+    if (!user) return null;
+    return (reviewsData?.reviews || []).find((r: any) => r.userId === user.id) || null;
+  }, [user?.id, reviewsData?.reviews]) as any;
+  const reviews = useMemo(() => reviewsData?.reviews || [], [reviewsData?.reviews]);
+  const getReviewerSnapshot = (review: any): { displayName?: string | null; avatarUrl?: string | null } | null => {
+    if (!review || typeof review !== "object") return null;
+    const snapshot = (review as any).reviewerSnapshot;
+    return snapshot && typeof snapshot === "object" ? snapshot : null;
+  };
+  const getReviewerDisplayName = (review: any): string => {
+    const snapshot = getReviewerSnapshot(review);
+    const snapshotName = typeof snapshot?.displayName === "string" ? snapshot.displayName.trim() : "";
+    if (snapshotName) return snapshotName;
+    return "Anonymous";
+  };
+  const getReviewerAvatarUrl = (review: any): string | undefined => {
+    const snapshot = getReviewerSnapshot(review);
+    const snapshotAvatar = typeof snapshot?.avatarUrl === "string" ? snapshot.avatarUrl.trim() : "";
+    if (snapshotAvatar) return snapshotAvatar;
+    return undefined;
+  };
   const hasReviewed = !!existingUserReview;
   const submitReview = useMutation({
     mutationFn: async () => {
@@ -130,24 +213,6 @@ export default function DetectiveProfile() {
       if (typeof existingUserReview.comment === 'string') setComment(existingUserReview.comment);
     }
   }, [existingUserReview?.id]);
-
-  // Load reviewer profiles (name & avatar) for display
-  useEffect(() => {
-    if (isLoadingReviews || !reviewsData?.reviews) return;
-    const ids = Array.from(new Set((reviewsData.reviews as any[]).map(r => r.userId).filter(Boolean)));
-    if (ids.length === 0) return;
-    Promise.all(ids.map(id => api.users.getById(id).catch(() => null))).then(results => {
-      const map: Record<string, { name?: string; avatar?: string }> = {};
-      results.forEach((res, idx) => {
-        const id = ids[idx];
-        if (res && (res as any).user) {
-          const u = (res as any).user;
-          map[id] = { name: u.name, avatar: u.avatar };
-        }
-      });
-      setReviewUsers(map);
-    });
-  }, [isLoadingReviews, reviewsData]);
 
   // Loading state
   if (isLoadingService) {
@@ -243,8 +308,6 @@ export default function DetectiveProfile() {
     );
   }
   
-  const reviews = reviewsData?.reviews || [];
-
   const isClaimable = detective.isClaimable && !detective.isClaimed;
   // Use actual subscription package name, not legacy subscriptionPlan field
   const recognitionAllowed = Array.isArray((detective as any)?.subscriptionPackage?.features)
@@ -255,16 +318,14 @@ export default function DetectiveProfile() {
     : false;
   const detectiveName = detective.businessName || "Unknown Detective";
   const badgeState = resolveDetectiveBadgeState(detective);
-  
+
   const memberSince = monthYearFormatter.format(new Date(detective.memberSince));
-  
+
   const displayCountryName = detective.country ? getCountryName(detective.country) : "India";
 
   // SEO: Generate keywords from service data
-  const locationText = detective.city && displayCountryName 
-    ? `${detective.city}, ${displayCountryName}` 
-    : displayCountryName || "India";
-  
+  const locationText = detective.city && displayCountryName ? `${detective.city}, ${displayCountryName}` : displayCountryName || "India";
+
   const seoKeywords = [
     service.category || "detective services",
     service.title,
@@ -273,7 +334,7 @@ export default function DetectiveProfile() {
     displayCountryName || "India",
     "private investigator",
     "investigation services",
-    detective.isVerified ? "verified detective" : ""
+    detective.isVerified ? "verified detective" : "",
   ].filter(Boolean);
   
   // SEO: Breadcrumbs for navigation and schema
@@ -281,7 +342,7 @@ export default function DetectiveProfile() {
   const breadcrumbs = [
     { name: "Home", url: "/" },
     { name: service.category || "Services", url: `/search?category=${encodeURIComponent(service.category || "")}` },
-    { name: service.title, url: serviceUrl }
+    { name: service.title, url: serviceUrl },
   ];
   
   // SEO: Canonical URL (always use production domain, strip query params)
@@ -313,29 +374,37 @@ export default function DetectiveProfile() {
     ? detective.state
     : displayCountryName;
   const seoH1 = `${serviceHeadingBase} by ${detectiveName} in ${serviceLocationText}`;
-  
-  // SEO: Generate FAQs for schema
-  const serviceFaqs = getServiceFAQs(
-    {
-      title: service.title,
-      category: service.category,
-      basePrice,
-      offerPrice,
-      isOnEnquiry: service.isOnEnquiry
-    },
-    {
-      businessName: detectiveName,
-      city: detective.city,
-      country: displayCountryName,
-      phone: detective.phone,
-      whatsapp: detective.whatsapp,
-      contactEmail: detective.contactEmail
-    },
-    (price) => formatPriceFromTo && formatPriceFromTo(price, detective.country, selectedCountryCode) || String(price)
-  );
+
   // Use actual detective logo and service images from database - NO MOCK DATA
   const detectiveLogo = detective.logo;
   const serviceImage = service.images && service.images.length > 0 ? service.images[0] : null;
+
+  const seoTitle = `${seoH1} | Ask Detectives`;
+  const seoDescription = `${service.title} in ${locationText}. ${service.description.slice(0, 140)}`;
+
+  const detectiveLevelLabel = (detective as any).level
+    ? (((detective as any).level === 'pro') ? 'Pro Level' : ((detective as any).level as string).replace('level', 'Level '))
+    : 'Level 1';
+
+  const faqServiceInput = {
+    title: service.title,
+    category: service.category,
+    basePrice,
+    offerPrice,
+    isOnEnquiry: service.isOnEnquiry,
+  };
+
+  const faqDetectiveInput = {
+    businessName: detectiveName,
+    city: detective.city,
+    country: detective.country,
+    phone: detective.phone,
+    whatsapp: detective.whatsapp,
+    contactEmail: detective.contactEmail,
+  };
+
+  const formatFaqPrice = (price: number) =>
+    (formatPriceFromTo && formatPriceFromTo(price, detective.country, selectedCountryCode)) || String(price);
 
   // Debug log for troubleshooting (can be removed after fix)
   if (basePrice === 0) {
@@ -361,84 +430,17 @@ export default function DetectiveProfile() {
     toggleFavorite(service.id);
   };
 
-  // Schema.org Structured Data
-  const schemaReviews = reviews
-    .filter((r: any) => r.comment && r.comment.trim().length > 20)
-    .slice(0, 5)
-    .map((r: any) => ({
-      "@type": "Review",
-      "reviewRating": {
-        "@type": "Rating",
-        "ratingValue": Number(r.rating),
-        "bestRating": 5,
-        "worstRating": 1,
-      },
-      "author": {
-        "@type": "Person",
-        "name": reviewUsers[r.userId]?.name || "Verified Client",
-      },
-      "datePublished": r.createdAt
-        ? new Date(r.createdAt).toISOString().split("T")[0]
-        : undefined,
-      "reviewBody": r.comment,
-    }));
-
-  const detectiveSchema = {
-    "@context": "https://schema.org",
-    "@type": ["LocalBusiness", "ProfessionalService"],
-    "name": detectiveName,
-    "image": serviceImage || detectiveLogo || "",
-    "description": service.description,
-    "url": canonicalUrl,
-    "serviceType": service.category || "Private Investigation",
-    "areaServed": locationText ? { "@type": "Place", "name": locationText } : undefined,
-    "provider": {
-      "@type": "Organization",
-      "name": detectiveName,
-      "url": `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`,
-    },
-    "address": {
-      "@type": "PostalAddress",
-      ...(detective.city ? { "addressLocality": detective.city } : {}),
-      ...(detective.state ? { "addressRegion": detective.state } : {}),
-      ...(displayCountryName ? { "addressCountry": displayCountryName } : {})
-    },
-    "aggregateRating": reviewCount > 0 ? {
-      "@type": "AggregateRating",
-      "ratingValue": Math.round(avgRating * 10) / 10,
-      "bestRating": 5,
-      "worstRating": 1,
-      "reviewCount": Math.round(reviewCount),
-    } : undefined,
-    ...(schemaReviews.length > 0 ? { "review": schemaReviews } : {}),
-    "priceRange": "$$"
-  };
-
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900">
       <SEO 
-        title={`${seoH1} | Ask Detectives`}
-        description={`${service.title} in ${locationText}. ${service.description.slice(0, 140)}`}
+        title={seoTitle}
+        description={seoDescription}
         image={serviceImage || detectiveLogo || ""}
         type="profile"
         keywords={seoKeywords}
         canonical={canonicalUrl}
         robots={isPreview ? "noindex, nofollow" : "index, follow"}
-        schema={detectiveSchema}
         breadcrumbs={breadcrumbs}
-        structuredData={{
-          service: {
-            price: basePrice,
-            offerPrice,
-            isOnEnquiry: service.isOnEnquiry,
-            category: service.category,
-            city: detective.city,
-            country: detective.country,
-            detectiveName,
-            detectiveLogo
-          },
-          faqs: serviceFaqs
-        }}
         publishedTime={service.createdAt instanceof Date ? service.createdAt.toISOString() : service.createdAt}
         modifiedTime={service.updatedAt instanceof Date ? service.updatedAt.toISOString() : service.updatedAt}
       />
@@ -447,27 +449,6 @@ export default function DetectiveProfile() {
       <main className="container mx-auto px-6 md:px-12 lg:px-24 py-8">
         {/* Breadcrumb Navigation */}
         <Breadcrumb items={breadcrumbs} />
-        
-        <div className="mb-4">
-          <Button variant="ghost" size="sm" className="gap-2" onClick={() => {
-            if (window.history.length > 1) {
-              window.history.back();
-            } else {
-              const params = new URLSearchParams(window.location.search);
-              const q = params.get("q");
-              const category = params.get("category");
-              if (category) {
-                window.location.href = `/search?category=${encodeURIComponent(category)}`;
-              } else if (q) {
-                window.location.href = `/search?q=${encodeURIComponent(q)}`;
-              } else {
-                window.location.href = "/search";
-              }
-            }
-          }} data-testid="button-back">
-            <ChevronLeft className="h-4 w-4" /> Back
-          </Button>
-        </div>
 
         <div className="flex flex-col lg:flex-row gap-12">
           
@@ -533,6 +514,9 @@ export default function DetectiveProfile() {
                 <img 
                   src={service.images[0]} 
                   alt="Service Preview" 
+                  width={1280}
+                  height={720}
+                  decoding="async"
                   className="w-full h-full object-cover"
                 />
               ) : (
@@ -585,7 +569,7 @@ export default function DetectiveProfile() {
                             </>
                           )}
                           <div className="text-xs text-gray-500 mt-1">
-                            {(detective as any).level ? (((detective as any).level === 'pro') ? 'Pro Level' : ((detective as any).level as string).replace('level', 'Level ')) : 'Level 1'}
+                            {detectiveLevelLabel}
                           </div>
                         </div>
                       </div>
@@ -642,22 +626,9 @@ export default function DetectiveProfile() {
 
             {/* FAQ Section - Important for SEO */}
             <ServiceFAQ 
-              service={{
-                title: service.title,
-                category: service.category,
-                basePrice,
-                offerPrice,
-                isOnEnquiry: service.isOnEnquiry
-              }}
-              detective={{
-                businessName: detectiveName,
-                city: detective.city,
-                country: detective.country,
-                phone: detective.phone,
-                whatsapp: detective.whatsapp,
-                contactEmail: detective.contactEmail
-              }}
-              formatPrice={(price) => formatPriceFromTo && formatPriceFromTo(price, detective.country, selectedCountryCode) || String(price)}
+              service={faqServiceInput}
+              detective={faqDetectiveInput}
+              formatPrice={formatFaqPrice}
             />
             
             <Separator className="my-8" />
@@ -718,6 +689,10 @@ export default function DetectiveProfile() {
                                       <img
                                         src={rec.image}
                                         alt={rec.title || "Recognition"}
+                                        width={40}
+                                        height={40}
+                                        loading="lazy"
+                                        decoding="async"
                                         className="h-10 w-10 object-cover rounded"
                                       />
                                     ) : (
@@ -806,17 +781,21 @@ export default function DetectiveProfile() {
               ) : reviews.length > 0 ? (
                 <div className="space-y-6">
                   {reviews.map((review) => (
+                    (() => {
+                      const reviewerName = getReviewerDisplayName(review);
+                      const reviewerAvatarUrl = getReviewerAvatarUrl(review);
+                      return (
                      <div key={review.id} className="border-b border-gray-100 pb-6" data-testid={`review-${review.id}`}>
                   <div className="flex items-center gap-3 mb-2">
                         <Avatar className="h-8 w-8">
-                          {reviewUsers[review.userId]?.avatar && (
-                            <AvatarImage src={reviewUsers[review.userId]!.avatar!} />
+                          {reviewerAvatarUrl && (
+                            <AvatarImage src={reviewerAvatarUrl} loading="lazy" decoding="async" />
                           )}
                           <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">
-                            {(reviewUsers[review.userId]?.name || "U").slice(0,1)}
+                            {(reviewerName || "U").slice(0,1)}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="font-bold text-sm">{reviewUsers[review.userId]?.name || "Anonymous"}</span>
+                        <span className="font-bold text-sm">{reviewerName}</span>
                         <span className="text-xs text-gray-500 ml-2">{reviewDateFormatter.format(new Date((review as any).createdAt))}</span>
                          <div className="flex text-yellow-500">
                            {[...Array(5)].map((_, i) => (
@@ -831,6 +810,8 @@ export default function DetectiveProfile() {
                          <p className="text-gray-600 text-sm" data-testid={`review-comment-${review.id}`}>{review.comment}</p>
                        )}
                      </div>
+                      );
+                    })()
                   ))}
                 </div>
               ) : (
@@ -886,7 +867,7 @@ export default function DetectiveProfile() {
             {/* Related Services Section - SEO Internal Linking */}
             <RelatedServices 
               services={relatedServicesData || []}
-              isLoading={isLoadingRelatedServices}
+              isLoading={!shouldLoadRelatedServices || isLoadingRelatedServices}
               currentServiceTitle={service.title}
             />
 
@@ -917,7 +898,7 @@ export default function DetectiveProfile() {
                         </>
                       )}
                       <div className="text-xs text-gray-500 mt-1">
-                        {(detective as any).level ? (((detective as any).level === 'pro') ? 'Pro Level' : ((detective as any).level as string).replace('level', 'Level ')) : 'Level 1'}
+                        {detectiveLevelLabel}
                       </div>
                     </div>
                   </div>
@@ -987,10 +968,10 @@ export default function DetectiveProfile() {
         </div>
 
         {/* Similar Detectives Section */}
-        {((similarDetectives && similarDetectives.length > 0) || isLoadingSimilar) && (
+        {((similarDetectives && similarDetectives.length > 0) || isLoadingSimilar || !shouldLoadSimilarDetectives) && (
           <section className="mt-12 pt-8 border-t border-gray-200">
             <h2 className="text-xl font-bold font-heading mb-6">Similar Detectives in This Area</h2>
-            {isLoadingSimilar ? (
+            {(!shouldLoadSimilarDetectives || isLoadingSimilar) ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {[...Array(4)].map((_, i) => (
                   <div key={i} className="h-64 bg-gray-100 rounded-xl animate-pulse" />

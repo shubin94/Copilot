@@ -4,7 +4,6 @@ import { useLocation } from "wouter";
 import { usePopularCategories, useSiteSettings } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 // @ts-ignore
 import heroBgPng from "@assets/generated_images/professional_modern_city_skyline_at_dusk_with_subtle_mystery_vibes.png";
 
@@ -26,6 +25,31 @@ export function Hero() {
   const { data: popularData } = usePopularCategories();
   const { data: siteData } = useSiteSettings();
   const heroImage = siteData?.settings?.heroBackgroundImage;
+
+  useEffect(() => {
+    // Home-only preload: inject while Hero is mounted, remove on unmount.
+    const preloadHref = heroImage || "/hero-bg.webp";
+    const existing = document.head.querySelector<HTMLLinkElement>(
+      `link[rel="preload"][as="image"][href="${preloadHref}"]`,
+    );
+    if (existing) return;
+
+    const preloadLink = document.createElement("link");
+    preloadLink.rel = "preload";
+    preloadLink.as = "image";
+    preloadLink.href = preloadHref;
+    if (!heroImage) {
+      preloadLink.type = "image/webp";
+    }
+
+    document.head.appendChild(preloadLink);
+
+    return () => {
+      if (preloadLink.parentNode) {
+        preloadLink.parentNode.removeChild(preloadLink);
+      }
+    };
+  }, [heroImage]);
 
   useEffect(() => {
     if (result && resultCardRef.current) {
@@ -143,26 +167,16 @@ export function Hero() {
 
       <div className="relative z-10 container mx-auto px-4 flex flex-col items-center max-w-3xl w-full py-8 md:py-12">
         {/* Page title and header text – above the card */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="w-full text-center mb-12 mt-8 md:mt-12"
-        >
+        <div className="w-full text-center mb-12 mt-8 md:mt-12 hero-fade-up hero-fade-up-delay-0">
           <h1 className="text-3xl md:text-5xl font-bold font-heading text-white leading-tight">
             Find the Perfect <i className="font-serif font-light text-green-400">Private Detectives</i>
             <br />
             Near You - AskDetectives
           </h1>
-        </motion.div>
+        </div>
 
         {/* Floating card – reference style */}
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="w-full bg-white rounded-2xl shadow-xl overflow-hidden"
-        >
+        <div className="w-full bg-white rounded-2xl shadow-xl overflow-hidden hero-fade-up hero-fade-up-delay-1">
           {/* Soft gradient strip at top */}
           <div className="h-1 w-full bg-gradient-to-r from-green-400 via-emerald-500 to-teal-500" />
 
@@ -220,16 +234,11 @@ export function Hero() {
               </button>
             </div>
           </div>
-        </motion.div>
+        </div>
 
         {/* Popular categories – chips; hidden when result is shown */}
         {!result && (popularData?.categories?.length ?? 0) > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-            className="w-full mt-4 flex flex-wrap justify-center gap-2"
-          >
+          <div className="w-full mt-4 flex flex-wrap justify-center gap-2 hero-fade-in hero-fade-in-delay-2">
             <span className="text-sm text-white/80 mr-1 self-center">Popular:</span>
             {((popularData?.categories || []).map((c: { category: string }) => c.category))
               .slice(0, 2)
@@ -242,18 +251,14 @@ export function Hero() {
                   {tag}
                 </button>
               ))}
-          </motion.div>
+          </div>
         )}
 
         {/* Result states – shown after "Find services"; replaces suggestions */}
-        <AnimatePresence mode="wait">
-          {result && (
-            <motion.div
+        {result && (
+            <div
               ref={resultCardRef}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="w-full mt-6 rounded-2xl overflow-hidden text-gray-900 bg-white/95 backdrop-blur-md border border-white/80 shadow-[0_8px_32px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.08),inset_0_1px_0_rgba(255,255,255,0.9)]"
+              className="w-full mt-6 rounded-2xl overflow-hidden text-gray-900 bg-white/95 backdrop-blur-md border border-white/80 shadow-[0_8px_32px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.08),inset_0_1px_0_rgba(255,255,255,0.9)] hero-fade-up hero-fade-up-fast"
             >
               <div className="h-1 w-full bg-gradient-to-r from-green-400 via-emerald-500 to-teal-500 shrink-0" />
               <div className="p-6 bg-gradient-to-b from-white/50 to-white/90">
@@ -437,9 +442,8 @@ export function Hero() {
                 </div>
               )}
               </div>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
       </div>
     </div>
   );

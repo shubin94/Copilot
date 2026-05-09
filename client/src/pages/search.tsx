@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Filter, ChevronDown, Star, Check, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useState, useEffect, useRef, useReducer } from "react";
+import { useState, useEffect, useRef, useReducer, useMemo } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +44,8 @@ const DEFAULT_FILTERS: FilterState = {
   offset: 0,
   limit: 15,
 };
+
+const SEARCH_SYNC_DEBOUNCE_MS = 120;
 
 function hasActiveSearchCriteria(params: URLSearchParams): boolean {
   return [
@@ -136,6 +138,63 @@ type FilterAction =
   | { type: 'RESET_FILTERS' }
   | { type: 'LOAD_MORE' };
 
+type SearchCriteria = {
+  search?: string;
+  country?: string;
+  state?: string;
+  city?: string;
+  category?: string;
+  minRating?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  planName?: string;
+  level?: string;
+  sortBy?: string;
+};
+
+function buildSearchCriteria(query: string, filters: FilterState, planName?: string, level?: string): SearchCriteria {
+  return {
+    search: filters.category ? undefined : (query !== "All Services" ? query : undefined),
+    country: filters.country,
+    state: filters.state || undefined,
+    city: filters.city || undefined,
+    category: filters.category,
+    minRating: filters.minRating,
+    minPrice: filters.minPrice,
+    maxPrice: filters.maxPrice,
+    planName,
+    level,
+    sortBy: filters.sortBy,
+  };
+}
+
+function buildSearchPageUrl(criteria: SearchCriteria, filters: FilterState, query: string) {
+  const params = new URLSearchParams();
+  if (!criteria.category && query !== "All Services") params.set("q", query);
+  if (criteria.country) params.set("country", criteria.country);
+  if (criteria.category) params.set("category", criteria.category);
+  if (criteria.minRating !== undefined) params.set("minRating", String(criteria.minRating));
+  if (criteria.minPrice !== undefined) params.set("minPrice", String(criteria.minPrice));
+  if (criteria.maxPrice !== undefined) params.set("maxPrice", String(criteria.maxPrice));
+  if (criteria.state?.trim()) params.set("state", criteria.state.trim());
+  if (criteria.city?.trim()) params.set("city", criteria.city.trim());
+  if (filters.proOnly) params.set("proOnly", "1");
+  if (filters.agencyOnly) params.set("agencyOnly", "1");
+  if (filters.level1Only) params.set("lvl1", "1");
+  if (filters.level2Only) params.set("lvl2", "1");
+  if (criteria.sortBy) params.set("sortBy", criteria.sortBy);
+  const search = params.toString();
+  return `/search${search ? `?${search}` : ""}`;
+}
+
+function getPlanName(filters: FilterState) {
+  return filters.proOnly ? "pro" : filters.agencyOnly ? "agency" : undefined;
+}
+
+function getLevel(filters: FilterState) {
+  return filters.level1Only ? "level1" : filters.level2Only ? "level2" : undefined;
+}
+
 function filterReducer(state: FilterState, action: FilterAction): FilterState {
   switch (action.type) {
     case 'SET_CATEGORY':
@@ -197,8 +256,15 @@ export default function SearchPage() {
     const urlCountry = currentParams.get("country") || undefined;
     const urlState = currentParams.get("state") || "";
     const nextState = getFiltersFromSearch(window.location.search);
+    const nextCriteria = buildSearchCriteria(
+      nextState.query,
+      nextState.filters,
+      getPlanName(nextState.filters),
+      getLevel(nextState.filters),
+    );
     setQuery(nextState.query);
     dispatch({ type: 'HYDRATE_FROM_URL', payload: nextState });
+    setCommittedSearchCriteria(nextCriteria);
     
     console.log("[search-page] URL changed, params:", { urlCategory, urlCountry, urlState });
     console.log("[search-page] Current filters:", filters);
@@ -219,27 +285,50 @@ export default function SearchPage() {
   const convertPriceFromTo = currencyContext?.convertPriceFromTo;
 
   // Determine plan filter for backend (pro or agency)
-  const planName = filters.proOnly ? "pro" : filters.agencyOnly ? "agency" : undefined;
+  const planName = getPlanName(filters);
   
   // Determine level filter for backend (level1 or level2)
-  const level = filters.level1Only ? "level1" : filters.level2Only ? "level2" : undefined;
+  const level = getLevel(filters);
+
+  const liveSearchCriteria = useMemo(
+    () => buildSearchCriteria(query, filters, planName, level),
+    [
+      query,
+      filters.category,
+      filters.country,
+      filters.state,
+      filters.city,
+      filters.minRating,
+      filters.minPrice,
+      filters.maxPrice,
+      filters.sortBy,
+      planName,
+      level,
+    ],
+  );
+  const [committedSearchCriteria, setCommittedSearchCriteria] = useState<SearchCriteria>(liveSearchCriteria);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setCommittedSearchCriteria(liveSearchCriteria);
+    }, SEARCH_SYNC_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [liveSearchCriteria]);
+
+  const searchRequestParams = useMemo(
+    () => ({
+      ...committedSearchCriteria,
+      limit: filters.limit,
+      offset: filters.offset,
+    }),
+    [committedSearchCriteria, filters.limit, filters.offset],
+  );
 
   // Fetch services from backend with ALL filters applied server-side
-  const { data: servicesData, isLoading } = useSearchServices({
-    search: filters.category ? undefined : (query !== "All Services" ? query : undefined),
-    country: filters.country,
-    state: filters.state || undefined,
-    city: filters.city || undefined,
-    category: filters.category,
-    minRating: filters.minRating,
-    minPrice: filters.minPrice,
-    maxPrice: filters.maxPrice,
-    planName,
-    level,
-    sortBy: filters.sortBy,
-    limit: filters.limit,
-    offset: filters.offset,
-  });
+  const { data: servicesData, isLoading } = useSearchServices(searchRequestParams);
 
   // Accumulate results across Load More pages
   const [accumulatedServices, setAccumulatedServices] = useState<any[]>([]);
@@ -287,17 +376,25 @@ export default function SearchPage() {
   const results = accumulatedServices;
   
   // Client-side price conversion filtering (since prices are stored in different currencies)
-  const finalResults = results.filter((s) => {
-    // If price filters set, check converted prices
-    if (filters.minPrice === undefined && filters.maxPrice === undefined) return true;
-    if (!selectedCountry || !convertPriceFromTo) return true;
-    const sPrice = typeof s.basePrice === 'number' ? s.basePrice : (s.offerPrice ? Number(s.offerPrice) : 0);
-    const sCountry = s.detective?.country || selectedCountry.code;
-    const converted = convertPriceFromTo(sPrice, sCountry, selectedCountry.code);
-    if (filters.minPrice !== undefined && converted < filters.minPrice) return false;
-    if (filters.maxPrice !== undefined && converted > filters.maxPrice) return false;
-    return true;
-  });
+  const finalResults = useMemo(() => {
+    return results.filter((s) => {
+      // If price filters set, check converted prices
+      if (filters.minPrice === undefined && filters.maxPrice === undefined) return true;
+      if (!selectedCountry || !convertPriceFromTo) return true;
+      const sPrice = typeof s.basePrice === 'number' ? s.basePrice : (s.offerPrice ? Number(s.offerPrice) : 0);
+      const sCountry = s.detective?.country || selectedCountry.code;
+      const converted = convertPriceFromTo(sPrice, sCountry, selectedCountry.code);
+      if (filters.minPrice !== undefined && converted < filters.minPrice) return false;
+      if (filters.maxPrice !== undefined && converted > filters.maxPrice) return false;
+      return true;
+    });
+  }, [
+    results,
+    filters.minPrice,
+    filters.maxPrice,
+    selectedCountry?.code,
+    convertPriceFromTo,
+  ]);
 
   const resultServicesComputed = finalResults;
   const services = finalResults;
@@ -322,23 +419,19 @@ export default function SearchPage() {
 
   // Persist filters to URL for shareable links
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (!filters.category && query !== "All Services") params.set("q", query);
-    if (filters.country) params.set("country", filters.country);
-    if (filters.category) params.set("category", filters.category);
-    if (filters.minRating !== undefined) params.set("minRating", String(filters.minRating));
-    if (filters.minPrice !== undefined) params.set("minPrice", String(filters.minPrice));
-    if (filters.maxPrice !== undefined) params.set("maxPrice", String(filters.maxPrice));
-    if (filters.state.trim()) params.set("state", filters.state.trim());
-    if (filters.city.trim()) params.set("city", filters.city.trim());
-    if (filters.proOnly) params.set("proOnly", "1");
-    if (filters.agencyOnly) params.set("agencyOnly", "1");
-    if (filters.level1Only) params.set("lvl1", "1");
-    if (filters.level2Only) params.set("lvl2", "1");
-    if (filters.sortBy) params.set("sortBy", filters.sortBy);
-    const url = `/search?${params.toString()}`;
-    window.history.replaceState(null, "", url);
-  }, [filters, query]);
+    const url = buildSearchPageUrl(committedSearchCriteria, filters, query);
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (currentUrl !== url) {
+      window.history.replaceState(null, "", url);
+    }
+  }, [
+    committedSearchCriteria,
+    filters.proOnly,
+    filters.agencyOnly,
+    filters.level1Only,
+    filters.level2Only,
+    query,
+  ]);
 
   // removed remote country fetch; using local COUNTRIES list
 

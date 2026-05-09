@@ -308,10 +308,15 @@ export default function CityDetectivesPage() {
 
   // Fetch contextual top locations based on page level
   useEffect(() => {
+    let cancelled = false;
+    let idleCallbackId: number | null = null;
+    let deferredTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
     const fetchTopLocations = async () => {
-      if (loading || !countrySlug) return;
+      if (cancelled || loading || !countrySlug) return;
 
       try {
+        if (cancelled) return;
         setTopLocationsLoading(true);
         let endpoint = "";
         
@@ -328,8 +333,10 @@ export default function CityDetectivesPage() {
 
         if (endpoint) {
           const response = await fetch(endpoint, { credentials: "include" });
+          if (cancelled) return;
           if (response.ok) {
             const data = await response.json();
+            if (cancelled) return;
             
             if (isCityLevel || isStateLevel) {
               setTopLocations(data.cities || []);
@@ -341,11 +348,49 @@ export default function CityDetectivesPage() {
       } catch (err) {
         console.error("Error fetching top locations:", err);
       } finally {
-        setTopLocationsLoading(false);
+        if (!cancelled) {
+          setTopLocationsLoading(false);
+        }
       }
     };
 
-    fetchTopLocations();
+    const scheduleTopLocationsFetch = () => {
+      if (cancelled) return;
+      fetchTopLocations();
+    };
+
+    if (typeof window !== "undefined") {
+      const win = window as Window & {
+        requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+        cancelIdleCallback?: (id: number) => void;
+      };
+
+      if (typeof win.requestIdleCallback === "function") {
+        idleCallbackId = win.requestIdleCallback(() => {
+          if (cancelled) return;
+          deferredTimeoutId = setTimeout(scheduleTopLocationsFetch, 120);
+        }, { timeout: 1200 });
+      } else {
+        deferredTimeoutId = setTimeout(scheduleTopLocationsFetch, 250);
+      }
+    } else {
+      scheduleTopLocationsFetch();
+    }
+
+    return () => {
+      cancelled = true;
+
+      if (deferredTimeoutId) {
+        clearTimeout(deferredTimeoutId);
+      }
+
+      if (typeof window !== "undefined") {
+        const win = window as Window & { cancelIdleCallback?: (id: number) => void };
+        if (idleCallbackId !== null && typeof win.cancelIdleCallback === "function") {
+          win.cancelIdleCallback(idleCallbackId);
+        }
+      }
+    };
   }, [loading, countrySlug, stateSlug, citySlug, isCountryLevel, isStateLevel, isCityLevel]);
 
   const handleLoadMore = async () => {
@@ -465,33 +510,40 @@ export default function CityDetectivesPage() {
     ? `/detectives/${countrySlug}/`
     : `/detectives/${countrySlug}/${stateSlug}/`;
 
-  const breadcrumbs = [{ name: "Home", url: "https://www.askdetectives.com/" }];
-  if (countryName && countrySlug) {
-    breadcrumbs.push({
-      name: countryName,
-      url: `https://www.askdetectives.com/detectives/${countrySlug}/`,
-    });
-  }
-  if (stateName && stateSlug) {
-    breadcrumbs.push({
-      name: stateName,
-      url: `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/`,
-    });
-  }
-  if (cityName && citySlug) {
-    breadcrumbs.push({
-      name: cityName,
-      url: canonicalUrl,
-    });
-  }
+  // Memoize breadcrumbs to prevent unnecessary array recreation on every render
+  const breadcrumbs = useMemo(() => {
+    const crumbs = [{ name: "Home", url: "https://www.askdetectives.com/" }];
+    if (countryName && countrySlug) {
+      crumbs.push({
+        name: countryName,
+        url: `https://www.askdetectives.com/detectives/${countrySlug}/`,
+      });
+    }
+    if (stateName && stateSlug) {
+      crumbs.push({
+        name: stateName,
+        url: `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/`,
+      });
+    }
+    if (cityName && citySlug) {
+      crumbs.push({
+        name: cityName,
+        url: canonicalUrl,
+      });
+    }
+    return crumbs;
+  }, [countryName, countrySlug, stateName, stateSlug, cityName, citySlug, canonicalUrl]);
 
-  // Get unique specialties from detectives in this city
-  const topSpecialties = getTopSpecialties(detectives, 3);
-  const verifiedCount = detectives.filter((d) => d.isVerified).length;
-  const verificationRate = detectives.length > 0 ? Math.round((verifiedCount / detectives.length) * 100) : 0;
+  // Memoize specialty extraction to prevent unnecessary filtering/sorting on every render
+  const topSpecialties = useMemo(() => getTopSpecialties(detectives, 3), [detectives]);
+  
+  // Memoize verification counts to prevent unnecessary filtering on every render
+  const verifiedCount = useMemo(() => detectives.filter((d) => d.isVerified).length, [detectives]);
+  const verificationRate = useMemo(() => detectives.length > 0 ? Math.round((verifiedCount / detectives.length) * 100) : 0, [verifiedCount, detectives.length]);
 
   // JSON-LD Schemas for SearchResultsPage + BreadcrumbList + FAQPage
-  const searchResultsSchema = {
+  // Memoize to prevent expensive object reconstruction on every render
+  const searchResultsSchema = useMemo(() => ({
     "@context": "https://schema.org",
     "@type": "SearchResultsPage",
     "name": seoTitle,
@@ -529,13 +581,13 @@ export default function CityDetectivesPage() {
       "name": detective.businessName || "Detective Service",
       "url": `https://www.askdetectives.com${getDetectiveProfileUrl(detective)}`,
     })),
-  };
+  }), [seoTitle, seoDescription, canonicalUrl, isCityLevel, isStateLevel, cityName, stateName, countryName, detectives]);
 
-  // BreadcrumbList Schema - Essential for site hierarchy recognition
-  const breadcrumbListSchema = generateBreadcrumbListSchema(breadcrumbs);
+  // BreadcrumbList Schema - Essential for site hierarchy recognition (memoized to prevent recreation)
+  const breadcrumbListSchema = useMemo(() => generateBreadcrumbListSchema(breadcrumbs), [breadcrumbs]);
 
-  // FAQ Schema for rich snippets
-  const faqSchema = generateFAQPageSchema([
+  // FAQ Schema for rich snippets (memoized to prevent expensive object recreation)
+  const faqSchema = useMemo(() => generateFAQPageSchema([
     {
       question: `What is the availability of private investigators in ${locationDisplayName}?`,
       answer: `There are currently ${detectives.length} licensed private investigators and detectives available in ${locationDisplayName}. ${verifiedCount} of them are verified professionals. Our network operates 24/7 for emergency and time-sensitive investigations.`
@@ -548,14 +600,14 @@ export default function CityDetectivesPage() {
       question: `How can I verify if a detective in ${locationDisplayName} is licensed and insured?`,
       answer: `${verificationRate}% of detectives in our ${locationDisplayName} network are verified with active, government-issued private investigator licenses. Look for the blue verification checkmark badge on detective profiles in ${locationDisplayName}. All verified detectives have passed background checks and maintain active state PI licenses.`
     }
-  ]);
+  ]), [locationDisplayName, detectives.length, verifiedCount, verificationRate, topSpecialties]);
 
-  // Combine all schemas into an array for rich snippet coverage
-  const allSchemas = [
+  // Combine all schemas into an array for rich snippet coverage (memoized to prevent array recreation)
+  const allSchemas = useMemo(() => [
     breadcrumbListSchema,
     searchResultsSchema,
     faqSchema
-  ];
+  ], [breadcrumbListSchema, searchResultsSchema, faqSchema]);
 
   if (error) {
     return (

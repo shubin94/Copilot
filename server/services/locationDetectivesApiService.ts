@@ -96,7 +96,7 @@ export async function fetchLocationDetectivesPage(
   try {
     const result = await Promise.race([
       getLocationDetectivesForSEO(countrySlug, stateSlug, citySlug, safeLimit, safeOffset, {
-        includeTotalCount: true,
+        includeTotalCount: safeOffset === 0,
       }),
       timeoutPromise,
     ]);
