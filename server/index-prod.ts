@@ -143,6 +143,7 @@ type BreadcrumbItem = {
 type PageSchemaType = "WebPage" | "CollectionPage" | "ProfilePage";
 
 const SSR_SCHEMA_META_NAME = "askdetectives:ssr-schema";
+const SITE_BASE_URL = "https://www.askdetectives.com";
 
 function escapeHtml(value: string): string {
   return value
@@ -153,6 +154,14 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+function toAbsoluteSiteUrl(url: string): string {
+  if (!url) return `${SITE_BASE_URL}/`;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("//")) return `https:${url}`;
+  if (url.startsWith("/")) return `${SITE_BASE_URL}${url}`;
+  return `${SITE_BASE_URL}/${url.replace(/^\/+/, "")}`;
+}
+
 function buildBreadcrumbListSchema(items: BreadcrumbItem[]): Record<string, unknown> {
   return {
     "@context": "https://schema.org",
@@ -161,7 +170,7 @@ function buildBreadcrumbListSchema(items: BreadcrumbItem[]): Record<string, unkn
       "@type": "ListItem",
       position: index + 1,
       name: item.name,
-      item: item.url,
+      item: toAbsoluteSiteUrl(item.url),
     })),
   };
 }
