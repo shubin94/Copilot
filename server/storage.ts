@@ -1039,6 +1039,27 @@ export class DatabaseStorage implements IStorage {
     // Images and detective status affect RANKING only, not VISIBILITY
     
     console.log('[searchServices] Base conditions (isActive only):', conditions.length);
+
+    const reviewStatsColumnsResult = await db.execute(sql`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'services' AND column_name = 'review_avg'
+        ) AS has_review_avg,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'services' AND column_name = 'review_count'
+        ) AS has_review_count
+    `);
+    const reviewStatsColumnsRow = (reviewStatsColumnsResult.rows?.[0] ?? {}) as { has_review_avg?: boolean | string; has_review_count?: boolean | string };
+    const hasReviewAvgColumn = reviewStatsColumnsRow.has_review_avg === true || reviewStatsColumnsRow.has_review_avg === 'true';
+    const hasReviewCountColumn = reviewStatsColumnsRow.has_review_count === true || reviewStatsColumnsRow.has_review_count === 'true';
+    const usePrecomputedReviewStats = hasReviewAvgColumn && hasReviewCountColumn;
+    if (!usePrecomputedReviewStats) {
+      console.warn('[searchServices] review_avg/review_count unavailable, using live review aggregation fallback');
+    }
     
     // ✅ RESOLVE LOCATION IDs (FK-based filtering with text fallback)
     // ✅ OPTIMIZATION: Skip if pre-resolved location IDs provided (avoids redundant queries)
@@ -1190,8 +1211,25 @@ export class DatabaseStorage implements IStorage {
       );
     }
 
+    const reviewsAgg = usePrecomputedReviewStats
+      ? null
+      : db
+          .select({
+            serviceId: reviews.serviceId,
+            avgRating: sql<number>`ROUND(COALESCE(AVG(${reviews.rating}), 0)::numeric, 2)`,
+            reviewCount: sql<number>`COUNT(${reviews.id})::int`,
+          })
+          .from(reviews)
+          .where(eq(reviews.isPublished, true))
+          .groupBy(reviews.serviceId)
+          .as('reviews_agg');
+
     if (filters.ratingMin !== undefined) {
-      conditions.push(sql`COALESCE(${services.reviewAvg}, 0) >= ${filters.ratingMin}`);
+      conditions.push(
+        usePrecomputedReviewStats
+          ? sql`COALESCE(${services.reviewAvg}, 0) >= ${filters.ratingMin}`
+          : sql`COALESCE(${reviewsAgg!.avgRating}, 0) >= ${filters.ratingMin}`
+      );
     }
 
     const baseSelect = {
@@ -1235,8 +1273,12 @@ export class DatabaseStorage implements IStorage {
       subscriptionPackageIsActive: subscriptionPlans.isActive,
       
       // Aggregated values
-      avgRating: services.reviewAvg,
-      reviewCount: services.reviewCount,
+      avgRating: usePrecomputedReviewStats
+        ? services.reviewAvg
+        : sql<number>`COALESCE(${reviewsAgg!.avgRating}, 0)`,
+      reviewCount: usePrecomputedReviewStats
+        ? services.reviewCount
+        : sql<number>`COALESCE(${reviewsAgg!.reviewCount}, 0)`,
     };
 
     let query: any;
@@ -1259,59 +1301,121 @@ export class DatabaseStorage implements IStorage {
 
     if (isDefaultUnfilteredRecent) {
       // Default /search landing page: show only one representative service per detective.
-      const representativeRows = await db.execute(sql`
-        SELECT *
-        FROM (
-          SELECT DISTINCT ON (s.detective_id)
-            s.id AS "serviceId",
-            s.slug AS "serviceSlug",
-            s.title AS "serviceTitle",
-            s.category AS "serviceCategory",
-            s.base_price AS "serviceBasePrice",
-            s.offer_price AS "serviceOfferPrice",
-            s.is_on_enquiry AS "serviceIsOnEnquiry",
-            s.images[1] AS "serviceMainImage",
-            s.order_count AS "serviceOrderCount",
-            d.id AS "detectiveId",
-            d.user_id AS "detectiveUserId",
-            d.business_name AS "detectiveBusinessName",
-            d.level AS "detectiveLevel",
-            d.logo AS "detectiveLogo",
-            d.country AS "detectiveCountry",
-            d.state AS "detectiveState",
-            d.city AS "detectiveCity",
-            c.slug AS "detectiveCountrySlug",
-            st.slug AS "detectiveStateSlug",
-            ci.slug AS "detectiveCitySlug",
-            d.slug AS "detectiveSlug",
-            d.phone AS "detectivePhone",
-            d.whatsapp AS "detectiveWhatsapp",
-            d.contact_email AS "detectiveContactEmail",
-            d.is_verified AS "detectiveIsVerified",
-            d.subscription_package_id AS "detectiveSubscriptionPackageId",
-            d.subscription_expires_at AS "detectiveSubscriptionExpiresAt",
-            d.has_blue_tick AS "detectiveHasBlueTick",
-            d.blue_tick_addon AS "detectiveBlueTickAddon",
-            sp.name AS "subscriptionPackageName",
-            sp.badges AS "subscriptionPackageBadges",
-            sp.features AS "subscriptionPackageFeatures",
-            sp.is_active AS "subscriptionPackageIsActive",
-            COALESCE(s.review_avg, 0) AS "avgRating",
-            COALESCE(s.review_count, 0) AS "reviewCount",
-            d.created_at AS "detectiveCreatedAt",
-            s.created_at AS "serviceCreatedAt"
-          FROM services s
-          INNER JOIN detectives d ON s.detective_id = d.id
-          LEFT JOIN countries c ON d.country_id = c.id
-          LEFT JOIN states st ON d.state_id = st.id
-          LEFT JOIN cities ci ON d.city_id = ci.id
-          LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
-          WHERE s.is_active = true
-          ORDER BY s.detective_id, s.created_at DESC, s.id DESC
-        ) representative_services
-        ORDER BY "serviceCreatedAt" DESC, "detectiveCreatedAt" DESC, "serviceId" DESC
-        LIMIT ${cappedLimit} OFFSET ${offset}
-      `);
+      const representativeRows = usePrecomputedReviewStats
+        ? await db.execute(sql`
+            SELECT *
+            FROM (
+              SELECT DISTINCT ON (s.detective_id)
+                s.id AS "serviceId",
+                s.slug AS "serviceSlug",
+                s.title AS "serviceTitle",
+                s.category AS "serviceCategory",
+                s.base_price AS "serviceBasePrice",
+                s.offer_price AS "serviceOfferPrice",
+                s.is_on_enquiry AS "serviceIsOnEnquiry",
+                s.images[1] AS "serviceMainImage",
+                s.order_count AS "serviceOrderCount",
+                d.id AS "detectiveId",
+                d.user_id AS "detectiveUserId",
+                d.business_name AS "detectiveBusinessName",
+                d.level AS "detectiveLevel",
+                d.logo AS "detectiveLogo",
+                d.country AS "detectiveCountry",
+                d.state AS "detectiveState",
+                d.city AS "detectiveCity",
+                c.slug AS "detectiveCountrySlug",
+                st.slug AS "detectiveStateSlug",
+                ci.slug AS "detectiveCitySlug",
+                d.slug AS "detectiveSlug",
+                d.phone AS "detectivePhone",
+                d.whatsapp AS "detectiveWhatsapp",
+                d.contact_email AS "detectiveContactEmail",
+                d.is_verified AS "detectiveIsVerified",
+                d.subscription_package_id AS "detectiveSubscriptionPackageId",
+                d.subscription_expires_at AS "detectiveSubscriptionExpiresAt",
+                d.has_blue_tick AS "detectiveHasBlueTick",
+                d.blue_tick_addon AS "detectiveBlueTickAddon",
+                sp.name AS "subscriptionPackageName",
+                sp.badges AS "subscriptionPackageBadges",
+                sp.features AS "subscriptionPackageFeatures",
+                sp.is_active AS "subscriptionPackageIsActive",
+                COALESCE(s.review_avg, 0) AS "avgRating",
+                COALESCE(s.review_count, 0) AS "reviewCount",
+                d.created_at AS "detectiveCreatedAt",
+                s.created_at AS "serviceCreatedAt"
+              FROM services s
+              INNER JOIN detectives d ON s.detective_id = d.id
+              LEFT JOIN countries c ON d.country_id = c.id
+              LEFT JOIN states st ON d.state_id = st.id
+              LEFT JOIN cities ci ON d.city_id = ci.id
+              LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
+              WHERE s.is_active = true
+              ORDER BY s.detective_id, s.created_at DESC, s.id DESC
+            ) representative_services
+            ORDER BY "serviceCreatedAt" DESC, "detectiveCreatedAt" DESC, "serviceId" DESC
+            LIMIT ${cappedLimit} OFFSET ${offset}
+          `)
+        : await db.execute(sql`
+            SELECT *
+            FROM (
+              SELECT DISTINCT ON (s.detective_id)
+                s.id AS "serviceId",
+                s.slug AS "serviceSlug",
+                s.title AS "serviceTitle",
+                s.category AS "serviceCategory",
+                s.base_price AS "serviceBasePrice",
+                s.offer_price AS "serviceOfferPrice",
+                s.is_on_enquiry AS "serviceIsOnEnquiry",
+                s.images[1] AS "serviceMainImage",
+                s.order_count AS "serviceOrderCount",
+                d.id AS "detectiveId",
+                d.user_id AS "detectiveUserId",
+                d.business_name AS "detectiveBusinessName",
+                d.level AS "detectiveLevel",
+                d.logo AS "detectiveLogo",
+                d.country AS "detectiveCountry",
+                d.state AS "detectiveState",
+                d.city AS "detectiveCity",
+                c.slug AS "detectiveCountrySlug",
+                st.slug AS "detectiveStateSlug",
+                ci.slug AS "detectiveCitySlug",
+                d.slug AS "detectiveSlug",
+                d.phone AS "detectivePhone",
+                d.whatsapp AS "detectiveWhatsapp",
+                d.contact_email AS "detectiveContactEmail",
+                d.is_verified AS "detectiveIsVerified",
+                d.subscription_package_id AS "detectiveSubscriptionPackageId",
+                d.subscription_expires_at AS "detectiveSubscriptionExpiresAt",
+                d.has_blue_tick AS "detectiveHasBlueTick",
+                d.blue_tick_addon AS "detectiveBlueTickAddon",
+                sp.name AS "subscriptionPackageName",
+                sp.badges AS "subscriptionPackageBadges",
+                sp.features AS "subscriptionPackageFeatures",
+                sp.is_active AS "subscriptionPackageIsActive",
+                COALESCE(ra.avg_rating, 0) AS "avgRating",
+                COALESCE(ra.review_count, 0) AS "reviewCount",
+                d.created_at AS "detectiveCreatedAt",
+                s.created_at AS "serviceCreatedAt"
+              FROM services s
+              INNER JOIN detectives d ON s.detective_id = d.id
+              LEFT JOIN countries c ON d.country_id = c.id
+              LEFT JOIN states st ON d.state_id = st.id
+              LEFT JOIN cities ci ON d.city_id = ci.id
+              LEFT JOIN subscription_plans sp ON d.subscription_package_id = sp.id
+              LEFT JOIN LATERAL (
+                SELECT
+                  ROUND(COALESCE(AVG(r.rating), 0)::numeric, 2) AS avg_rating,
+                  COUNT(r.id)::int AS review_count
+                FROM reviews r
+                WHERE r.service_id = s.id
+                  AND r.is_published = true
+              ) ra ON true
+              WHERE s.is_active = true
+              ORDER BY s.detective_id, s.created_at DESC, s.id DESC
+            ) representative_services
+            ORDER BY "serviceCreatedAt" DESC, "detectiveCreatedAt" DESC, "serviceId" DESC
+            LIMIT ${cappedLimit} OFFSET ${offset}
+          `);
 
       results = representativeRows.rows as any[];
     } else if (sortBy === 'popular') {
@@ -1323,7 +1427,11 @@ export class DatabaseStorage implements IStorage {
         .leftJoin(countries, eq(detectives.countryId, countries.id))
         .leftJoin(states, eq(detectives.stateId, states.id))
         .leftJoin(cities, eq(detectives.cityId, cities.id))
-        .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
+        .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id));
+      if (!usePrecomputedReviewStats) {
+        query = query.leftJoin(reviewsAgg!, eq(services.id, reviewsAgg!.serviceId));
+      }
+      query = query
         .where(and(...conditions) ?? sql`true`)
         .orderBy(desc(services.orderCount)) as any;
     } else {
@@ -1333,12 +1441,17 @@ export class DatabaseStorage implements IStorage {
         .leftJoin(countries, eq(detectives.countryId, countries.id))
         .leftJoin(states, eq(detectives.stateId, states.id))
         .leftJoin(cities, eq(detectives.cityId, cities.id))
-        .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id))
-        .where(and(...conditions) ?? sql`true`);
+        .leftJoin(subscriptionPlans, eq(detectives.subscriptionPackageId, subscriptionPlans.id));
+      if (!usePrecomputedReviewStats) {
+        query = query.leftJoin(reviewsAgg!, eq(services.id, reviewsAgg!.serviceId));
+      }
+      query = query.where(and(...conditions) ?? sql`true`);
 
       // Sort
       if (sortBy === 'rating') {
-        query = query.orderBy(desc(services.reviewAvg)) as any;
+        query = usePrecomputedReviewStats
+          ? query.orderBy(desc(services.reviewAvg)) as any
+          : query.orderBy(desc(sql`COALESCE(${reviewsAgg!.avgRating}, 0)`)) as any;
       } else if (sortBy === 'price_low') {
         query = query.orderBy(services.basePrice) as any;
       } else if (sortBy === 'price_high') {
