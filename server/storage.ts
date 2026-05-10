@@ -3195,6 +3195,7 @@ function createSafeStorage<T extends object>(raw: T): T {
             console.error(`[repository] ${String(prop)} failed`, err);
             // Never mask write failures; surface real error to API layer
             if (
+              prop.startsWith("search") ||
               prop.startsWith("delete") ||
               prop.startsWith("remove") ||
               prop.startsWith("create") ||
