@@ -363,24 +363,20 @@ async function generateDetectivesSitemap(): Promise<string> {
       d.city as city_name
     FROM detectives d
     INNER JOIN countries c ON d.country_id = c.id
-    WHERE d.status = 'active' AND d.slug IS NOT NULL AND d.slug != ''
+    WHERE d.status = 'active' 
+      AND d.slug IS NOT NULL AND d.slug != ''
+      AND d.state_id IS NOT NULL 
+      AND d.city_id IS NOT NULL
     ORDER BY d.updated_at DESC
   `);
 
   for (const profile of result.rows) {
     const lastmod = getValidLastmod(profile.updated_at);
     const countrySlug = toSlug(profile.country_name || profile.country_slug);
-    const stateSlug = profile.state_name ? toSlug(profile.state_name) : "";
-    const citySlug = profile.city_name ? toSlug(profile.city_name) : "";
+    const stateSlug = toSlug(profile.state_name);
+    const citySlug = toSlug(profile.city_name);
 
-    let url = `https://www.askdetectives.com/detectives/${countrySlug}/`;
-    if (stateSlug) {
-      url += `${stateSlug}/`;
-      if (citySlug) {
-        url += `${citySlug}/`;
-      }
-    }
-    url += `${profile.slug}/`;
+    let url = `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/${profile.slug}/`;
 
     xml += `  <url>
     <loc>${url}</loc>
@@ -647,12 +643,16 @@ async function getCmsSitemapCount(): Promise<number> {
       SELECT c.id, c.parent_id, c.slug::text AS path_slug
       FROM categories c
       WHERE c.parent_id IS NULL
+        AND c.status = 'published'
+        AND COALESCE(TRIM(c.slug), '') <> ''
 
       UNION ALL
 
       SELECT child.id, child.parent_id, (cp.path_slug || '/' || child.slug)::text AS path_slug
       FROM categories child
       INNER JOIN category_paths cp ON cp.id = child.parent_id
+      WHERE child.status = 'published'
+        AND COALESCE(TRIM(child.slug), '') <> ''
     ),
     canonical_pages AS (
       SELECT DISTINCT p.id
@@ -706,6 +706,8 @@ async function generateCmsSitemap(page: number = 1): Promise<string> {
       SELECT c.id, c.parent_id, c.slug::text AS path_slug, c.slug::text AS display_slug
       FROM categories c
       WHERE c.parent_id IS NULL
+        AND c.status = 'published'
+        AND COALESCE(TRIM(c.slug), '') <> ''
 
       UNION ALL
 
@@ -715,6 +717,8 @@ async function generateCmsSitemap(page: number = 1): Promise<string> {
              child.slug::text AS display_slug
       FROM categories child
       INNER JOIN category_paths cp ON cp.id = child.parent_id
+      WHERE child.status = 'published'
+        AND COALESCE(TRIM(child.slug), '') <> ''
     ),
     canonical_pages AS (
       SELECT

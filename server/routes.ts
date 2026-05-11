@@ -1621,9 +1621,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // middleware would fire again, creating a 2nd redirect hop (chain: /p/ → uppercase → lowercase).
       const businessSlug = (detective.slug || createSlug(`${detective.businessName || "detective"} ${detective.city || ""}`)).toLowerCase();
 
-      // Build canonical URL — filter empty segments to avoid double-slashes when state/city missing
-      const segments = [countrySlug, stateSlug, citySlug, businessSlug].filter(Boolean);
-      const newUrl = `/detectives/${segments.join("/")}/`;
+      // If detective is missing state or city, their profile cannot be rendered on the new system.
+      // Redirect them to the country listing to preserve link equity and avoid a 404 trap.
+      if (!stateSlug || !citySlug) {
+        return res.redirect(301, `/detectives/${countrySlug}/`);
+      }
+
+      const newUrl = `/detectives/${countrySlug}/${stateSlug}/${citySlug}/${businessSlug}/`;
 
       return res.redirect(301, newUrl);
     } catch (error) {

@@ -16,11 +16,14 @@ export function generateDetectiveSeo(
   country: string,
   state?: string,
   city?: string,
+  detectiveCount?: number,
 ): { h1: string; meta_title: string; meta_description: string } {
   const year         = new Date().getFullYear();
   const cityName     = city  ? toTitleFromSlug(city)  : undefined;
   const stateName    = state ? toTitleFromSlug(state) : undefined;
   const countryName  = toTitleFromSlug(country);
+
+  const countText = detectiveCount && detectiveCount > 0 ? `${detectiveCount} ` : '';
 
   if (cityName && stateName) {
     // City-level: /detectives/{country}/{state}/{city}/
@@ -29,28 +32,28 @@ export function generateDetectiveSeo(
     return {
       h1:               `Best Private Detectives in ${cityName}, ${stateName}, ${countryName}`,
       meta_title:       longTitle.length <= 65 ? longTitle : shortTitle,
-      meta_description: `Find verified private detectives in ${cityName}, ${stateName}. Licensed investigators for surveillance, matrimonial & corporate cases. Get free quotes today.`,
+      meta_description: `Connect with ${countText}verified private investigators in ${cityName}, ${stateName}. Specialized in surveillance, matrimonial & corporate cases. Trusted, licensed, and confidential. Compare profiles and reviews on AskDetectives.`,
     };
   } else if (cityName) {
     // City-level without state (country has no state layer)
     return {
       h1:               `Best Private Detectives in ${cityName}, ${countryName}`,
       meta_title:       `Top 10 Best Private Detectives in ${cityName} (${year})`,
-      meta_description: `Find verified private detectives in ${cityName}, ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`,
+      meta_description: `Connect with ${countText}verified private investigators in ${cityName}, ${countryName}. Specialized in all types of investigation cases. Trusted, licensed, and confidential. Compare profiles and reviews on AskDetectives.`,
     };
   } else if (stateName) {
     // State-level: /detectives/{country}/{state}/
     return {
       h1:               `Best Private Detectives in ${stateName}, ${countryName}`,
       meta_title:       `Top Private Detectives in ${stateName}, ${countryName} (${year})`,
-      meta_description: `Find verified private detectives in ${stateName}, ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`,
+      meta_description: `Connect with ${countText}verified private investigators in ${stateName}, ${countryName}. Specialized in all types of investigation cases. Trusted, licensed, and confidential. Compare profiles and reviews on AskDetectives.`,
     };
   } else {
     // Country-level: /detectives/{country}/
     return {
       h1:               `Best Private Detectives in ${countryName}`,
       meta_title:       `Top Private Detectives in ${countryName} (${year})`,
-      meta_description: `Find verified private detectives in ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`,
+      meta_description: `Connect with ${countText}verified private investigators in ${countryName}. Specialized in all types of investigation cases. Trusted, licensed, and confidential. Compare profiles and reviews on AskDetectives.`,
     };
   }
 }
@@ -58,23 +61,26 @@ export function generateDetectiveSeo(
 /**
  * Programmatic SEO generator for service location pages
  */
-export function generateServiceLocationSeo(service: string, country: string, city: string, area?: string, state?: string): { h1: string; meta_title: string; meta_description: string } {
+export function generateServiceLocationSeo(service: string, country: string, city: string, area?: string, state?: string, serviceCount?: number): { h1: string; meta_title: string; meta_description: string } {
   const serviceName = toTitleFromSlug(service);
   const countryName = toTitleFromSlug(country);
   const cityName = toTitleFromSlug(city);
   const stateName = state ? toTitleFromSlug(state) : '';
   const locationLabel = area ? toTitleFromSlug(area) : (cityName || stateName || countryName);
   const locationSuffix = cityName && stateName ? `${cityName}, ${stateName}` : (cityName || stateName || countryName);
+
+  const countText = serviceCount && serviceCount > 0 ? `${serviceCount} ` : '';
+
   return {
     h1: `${serviceName} Services in ${locationLabel}`,
     meta_title: `${serviceName} Services in ${locationLabel} | AskDetectives`,
-    meta_description: `Find trusted ${serviceName} services in ${locationSuffix}, ${countryName}. Compare investigators and hire professionals.`
+    meta_description: `Connect with ${countText}trusted ${serviceName} service providers in ${locationSuffix}, ${countryName}. Compare investigators and hire professionals. Confidential and reliable.`,
   };
 }
 /**
  * Fetches SEO for detective location with fallback
  */
-export async function getDetectiveLocationSeo(country_slug: string, state_slug?: string, city_slug?: string): Promise<{ h1: string; meta_title: string; meta_description: string }> {
+export async function getDetectiveLocationSeo(country_slug: string, state_slug?: string, city_slug?: string, detectiveCount?: number): Promise<{ h1: string; meta_title: string; meta_description: string }> {
   let result;
   if (city_slug) {
     result = await db
@@ -90,7 +96,7 @@ export async function getDetectiveLocationSeo(country_slug: string, state_slug?:
       };
     }
     // Fallback: programmatic SEO
-    return generateDetectiveSeo(country_slug, state_slug, city_slug);
+    return generateDetectiveSeo(country_slug, state_slug, city_slug, detectiveCount);
   } else if (state_slug) {
     result = await db
       .select({ h1: sql<string>`h1`, meta_title: sql<string>`meta_title`, meta_description: sql<string>`meta_description` })
@@ -104,7 +110,7 @@ export async function getDetectiveLocationSeo(country_slug: string, state_slug?:
         meta_description: result[0].meta_description,
       };
     }
-    return generateDetectiveSeo(country_slug, state_slug);
+    return generateDetectiveSeo(country_slug, state_slug, undefined, detectiveCount);
   } else {
     result = await db
       .select({ h1: sql<string>`h1`, meta_title: sql<string>`meta_title`, meta_description: sql<string>`meta_description` })
@@ -118,14 +124,14 @@ export async function getDetectiveLocationSeo(country_slug: string, state_slug?:
         meta_description: result[0].meta_description,
       };
     }
-    return generateDetectiveSeo(country_slug);
+    return generateDetectiveSeo(country_slug, undefined, undefined, detectiveCount);
   }
 }
 
 /**
  * Fetches SEO for service location with fallback
  */
-export async function getServiceLocationSeo(service_slug: string, country_slug: string, state_slug: string, city_slug: string): Promise<{ h1: string; meta_title: string; meta_description: string }> {
+export async function getServiceLocationSeo(service_slug: string, country_slug: string, state_slug: string, city_slug: string, serviceCount?: number): Promise<{ h1: string; meta_title: string; meta_description: string }> {
   // Build WHERE conditions — state_slug and city_slug may be NULL in DB
   const conditions: any[] = [
     eq(service_location_seo.service_slug, service_slug),
@@ -157,7 +163,7 @@ export async function getServiceLocationSeo(service_slug: string, country_slug: 
     };
   }
   // Fallback: programmatic SEO
-  return generateServiceLocationSeo(service_slug, country_slug, city_slug, undefined, state_slug);
+  return generateServiceLocationSeo(service_slug, country_slug, city_slug, undefined, state_slug, serviceCount);
 }
 // ...existing code...
 /**
