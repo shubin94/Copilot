@@ -85,10 +85,12 @@ export function buildStateLevelPayload(
   detectiveCount: number,
   detectives: Detective[]
 ): LocationIntelligencePayload | null {
-  if (!isStateEnabled(countrySlug, stateSlug)) return null;
-  
-  const stateContent = getStateContent(countrySlug, stateSlug);
-  if (!stateContent) return null;
+  const stateContent = isStateEnabled(countrySlug, stateSlug)
+    ? getStateContent(countrySlug, stateSlug)
+    : undefined;
+  const fallbackCountryContent = getCountryContent(countrySlug);
+  const content = stateContent ?? fallbackCountryContent;
+  if (!content) return null;
   
   const realLastUpdated = getLastUpdatedFromDetectives(detectives);
   
@@ -101,7 +103,7 @@ export function buildStateLevelPayload(
     detectiveCount,
     topServices: [],
     ...(realLastUpdated ? { lastUpdated: realLastUpdated } : {}),
-    content: stateContent,
+    content,
   };
 }
 

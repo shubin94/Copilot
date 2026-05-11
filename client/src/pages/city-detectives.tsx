@@ -847,7 +847,7 @@ export default function CityDetectivesPage() {
         )}
 
         {/* Location Intelligence Article - Country and State level pages */}
-        {locationIntelligence && (isCountryLevel || isStateLevel) && !loading && detectives.length > 0 && (
+        {locationIntelligence && (isCountryLevel || isStateLevel) && !loading && (
           <LocationIntelligenceBlock
             level={isCountryLevel ? "country" : "state"}
             countryName={countryName}

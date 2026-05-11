@@ -9997,10 +9997,7 @@ Content-Signal: index=public; train=deny
   app.get('/api/location-intelligence/:country/:state', (req: Request, res: Response) => {
     const country = (req.params.country || "").toLowerCase().trim();
     const state = (req.params.state || "").toLowerCase().trim();
-    if (!isStateEnabled(country, state)) {
-      return res.status(404).json({ error: "Not found" });
-    }
-    const content = getStateContent(country, state);
+    const content = getStateContent(country, state) ?? getCountryContent(country);
     if (!content) {
       return res.status(404).json({ error: "Not found" });
     }
