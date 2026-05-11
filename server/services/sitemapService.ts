@@ -647,12 +647,16 @@ async function getCmsSitemapCount(): Promise<number> {
       SELECT c.id, c.parent_id, c.slug::text AS path_slug
       FROM categories c
       WHERE c.parent_id IS NULL
+        AND c.status = 'published'
+        AND COALESCE(TRIM(c.slug), '') <> ''
 
       UNION ALL
 
       SELECT child.id, child.parent_id, (cp.path_slug || '/' || child.slug)::text AS path_slug
       FROM categories child
       INNER JOIN category_paths cp ON cp.id = child.parent_id
+      WHERE child.status = 'published'
+        AND COALESCE(TRIM(child.slug), '') <> ''
     ),
     canonical_pages AS (
       SELECT DISTINCT p.id
@@ -706,6 +710,8 @@ async function generateCmsSitemap(page: number = 1): Promise<string> {
       SELECT c.id, c.parent_id, c.slug::text AS path_slug, c.slug::text AS display_slug
       FROM categories c
       WHERE c.parent_id IS NULL
+        AND c.status = 'published'
+        AND COALESCE(TRIM(c.slug), '') <> ''
 
       UNION ALL
 
@@ -715,6 +721,8 @@ async function generateCmsSitemap(page: number = 1): Promise<string> {
              child.slug::text AS display_slug
       FROM categories child
       INNER JOIN category_paths cp ON cp.id = child.parent_id
+      WHERE child.status = 'published'
+        AND COALESCE(TRIM(child.slug), '') <> ''
     ),
     canonical_pages AS (
       SELECT
