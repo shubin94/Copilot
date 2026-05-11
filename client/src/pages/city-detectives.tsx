@@ -369,13 +369,13 @@ export default function CityDetectivesPage() {
         
         if (isCityLevel) {
           // City page: fetch other cities in the same state
-          endpoint = `/api/locations/other-cities/${encodeURIComponent(countrySlug)}/${encodeURIComponent(stateSlug)}/${encodeURIComponent(citySlug)}?limit=9`;
+          endpoint = `/api/locations/other-cities/${encodeURIComponent(countrySlug)}/${encodeURIComponent(stateSlug)}/${encodeURIComponent(citySlug)}?limit=6`;
         } else if (isStateLevel) {
           // State page: fetch top cities in the state
-          endpoint = `/api/locations/top-cities/${encodeURIComponent(countrySlug)}/${encodeURIComponent(stateSlug)}?limit=9`;
+          endpoint = `/api/locations/top-cities/${encodeURIComponent(countrySlug)}/${encodeURIComponent(stateSlug)}?limit=6`;
         } else if (isCountryLevel) {
           // Country page: fetch top states in the country
-          endpoint = `/api/locations/top-states/${encodeURIComponent(countrySlug)}?limit=9`;
+          endpoint = `/api/locations/top-states/${encodeURIComponent(countrySlug)}?limit=6`;
         }
 
         if (endpoint) {
@@ -441,15 +441,22 @@ export default function CityDetectivesPage() {
   }, [loading, countrySlug, stateSlug, citySlug, isCountryLevel, isStateLevel, isCityLevel]);
 
   // Client-side fallback: fetch location intelligence from API when SSR window global is absent.
-  // This fires on client-side navigation to country pages where window.LOCATION_INTELLIGENCE
+  // This fires on client-side navigation to country/state pages where window.LOCATION_INTELLIGENCE
   // was never injected (SSR only injects it on direct page loads).
   useEffect(() => {
-    if (!isCountryLevel || locationIntelligence) return; // already have data or not a country page
+    if ((!isCountryLevel && !isStateLevel) || locationIntelligence) return; // already have data or not applicable
     let cancelled = false;
-    const ENABLED_COUNTRIES = new Set(["india", "united-states", "united-kingdom"]);
-    if (!countrySlug || !ENABLED_COUNTRIES.has(countrySlug)) return;
 
-    fetch(`/api/location-intelligence/${encodeURIComponent(countrySlug)}`)
+    if (isCountryLevel) {
+      const ENABLED_COUNTRIES = new Set(["india", "united-states", "united-kingdom"]);
+      if (!countrySlug || !ENABLED_COUNTRIES.has(countrySlug)) return;
+    }
+
+    const fetchUrl = isCountryLevel
+      ? `/api/location-intelligence/${encodeURIComponent(countrySlug)}`
+      : `/api/location-intelligence/${encodeURIComponent(countrySlug)}/${encodeURIComponent(stateSlug)}`;
+
+    fetch(fetchUrl)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data) return;
@@ -458,7 +465,7 @@ export default function CityDetectivesPage() {
       .catch(() => { /* silent — block simply won't render */ });
 
     return () => { cancelled = true; };
-  }, [isCountryLevel, countrySlug, locationIntelligence]);
+  }, [isCountryLevel, isStateLevel, countrySlug, stateSlug, locationIntelligence]);
 
   const handleLoadMore = async () => {
     if (loadingMore || currentOffset >= totalCount) {
@@ -530,7 +537,7 @@ export default function CityDetectivesPage() {
     ? `Find verified private detectives in ${cityName}, ${stateName}. Licensed investigators for surveillance, matrimonial & corporate cases. Get free quotes today.`
     : isStateLevel && stateName && countryName
     ? `Find verified private detectives in ${stateName}, ${countryName}. Licensed investigators for all types of cases. Get free quotes today.`
-    : `Find verified private detectives in ${countryName || "India"}. Licensed investigators for all types of cases. Get free quotes today.`;
+    : `Explore verified private investigators across ${countryName || "India"}. Compare profiles and review investigation services to find the right fit for your case.`;
 
   const defaultH1Text = isCityLevel && cityName && stateName && countryName
     ? `Best Private Detectives in ${cityName}, ${stateName}, ${countryName}`
@@ -785,15 +792,6 @@ export default function CityDetectivesPage() {
           </p>
         </div>
 
-        {/* Dynamic City Description Section */}
-        {!loading && detectives.length > 0 && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
-            <p className="text-gray-700 leading-relaxed">
-              {generateLocationDescription(locationDisplayName, detectives.length)}
-            </p>
-          </div>
-        )}
-
         {/* Detectives Grid */}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
@@ -839,6 +837,29 @@ export default function CityDetectivesPage() {
           </div>
         )}
 
+        {/* Dynamic City Description Section - appears after listings */}
+        {!loading && detectives.length > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
+            <p className="text-gray-700 leading-relaxed">
+              {generateLocationDescription(locationDisplayName, detectives.length)}
+            </p>
+          </div>
+        )}
+
+        {/* Location Intelligence Article - Country and State level pages */}
+        {locationIntelligence && (isCountryLevel || isStateLevel) && !loading && detectives.length > 0 && (
+          <LocationIntelligenceBlock
+            level={isCountryLevel ? "country" : "state"}
+            countryName={countryName}
+            stateName={isStateLevel ? stateName : undefined}
+            countrySlug={isStateLevel ? countrySlug : undefined}
+            stateSlug={isStateLevel ? stateSlug : undefined}
+            detectiveCount={totalCount}
+            lastUpdated={locationIntelligence.lastUpdated}
+            content={locationIntelligence.content}
+          />
+        )}
+
         {!loading && detectives.length > 0 && (
           <RelatedInvestigationServices
             countrySlug={countrySlug}
@@ -846,6 +867,32 @@ export default function CityDetectivesPage() {
             citySlug={citySlug}
             locationDisplayName={locationDisplayName}
           />
+        )}
+
+        {/* FAQ Section with JSON-LD Schema */}
+        {!loading && detectives.length > 0 && (
+          <>
+            <div className="mt-12 pt-8 border-t border-gray-200">
+              <div className="max-w-2xl mx-auto">
+                <h2 className="text-2xl font-bold mb-2">
+                  Frequently Asked Questions
+                </h2>
+                <p className="text-gray-600 mb-6">
+                  Learn more about private detective services in {locationDisplayName}
+                </p>
+
+                {faqs.slice(0, 5).map((faq, idx) => (
+                  <FAQItem
+                    key={idx}
+                    question={faq.question}
+                    answer={faq.answer}
+                    isOpen={expandedFAQs[idx] || false}
+                    setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, [idx]: open })}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
         )}
 
         {/* Top Locations Section - Contextual internal linking */}
@@ -879,54 +926,8 @@ export default function CityDetectivesPage() {
           </div>
         )}
 
-        {/* Location Intelligence Article - PHASE 1: Country-level pages only */}
-        {locationIntelligence && isCountryLevel && !loading && detectives.length > 0 && (
-          <LocationIntelligenceBlock
-            level="country"
-            countryName={countryName}
-            detectiveCount={totalCount}
-            lastUpdated={locationIntelligence.lastUpdated}
-            content={locationIntelligence.content}
-          />
-        )}
-
-        {/* FAQ Section with JSON-LD Schema */}
-        {!loading && detectives.length > 0 && (
-          <>
-            <div className="mt-12 pt-8 border-t border-gray-200">
-              <div className="max-w-2xl mx-auto">
-                <h2 className="text-2xl font-bold mb-2">
-                  Frequently Asked Questions
-                </h2>
-                <p className="text-gray-600 mb-6">
-                  Learn more about private detective services in {locationDisplayName}
-                </p>
-
-                {faqs.slice(0, 5).map((faq, idx) => (
-                  <FAQItem
-                    key={idx}
-                    question={faq.question}
-                    answer={faq.answer}
-                    isOpen={expandedFAQs[idx] || false}
-                    setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, [idx]: open })}
-                  />
-                ))}
-              </div>
-
-              <div className="mt-8 bg-gray-50 rounded-lg p-6 text-center">
-                <p className="text-gray-700 mb-4">
-                  Have more questions? Our team is here to help.
-                </p>
-                <Button asChild className="bg-blue-600 hover:bg-blue-700">
-                  <a href="/contact">Contact Us</a>
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-
         {/* Related Locations Section */}
-        {relatedLocations.length > 0 && (
+        {relatedLocations.length > 0 && topLocations.length === 0 && (
           <div className="mt-12 pt-8 border-t border-gray-200">
             <h2 className="text-2xl font-bold mb-6">
               {relatedHeading}
@@ -961,6 +962,17 @@ export default function CityDetectivesPage() {
                 </a>
               </Button>
             </div>
+          </div>
+        )}
+
+        {!loading && detectives.length > 0 && (
+          <div className="mt-12 bg-gray-50 rounded-lg p-6 text-center">
+            <p className="text-gray-700 mb-4">
+              Have more questions? Our team is here to help.
+            </p>
+            <Button asChild className="bg-blue-600 hover:bg-blue-700">
+              <a href="/contact">Contact Us</a>
+            </Button>
           </div>
         )}
       </main>

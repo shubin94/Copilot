@@ -1,8 +1,11 @@
 import React, { useMemo } from "react";
 
 interface LocationIntelligenceBlockProps {
-  level: "country"; // PHASE 1: country only
+  level: "country" | "state";
   countryName: string;
+  stateName?: string;       // required when level="state"
+  countrySlug?: string;     // used for state-level service links
+  stateSlug?: string;       // used for state-level service links
   detectiveCount: number;
   topServices?: string[];
   lastUpdated?: string;
@@ -21,32 +24,42 @@ interface LocationIntelligenceBlockProps {
 /**
  * LocationIntelligenceBlock
  *
- * Reusable component for location-specific guidance and FAQs.
- * PHASE 1: Country-level content only (India, US, UK)
- *
- * Supports future scaling to state/city levels via the "level" prop.
+ * Reusable component for location-specific guidance.
+ * PHASE 1: Country-level content (India, US, UK)
+ * PHASE 2: State-level content (Karnataka, California, Greater London)
  *
  * Design:
  * - Rendered in page flow (full width of content area)
  * - Semantic article structure with h3 subheadings
  * - Readable paragraph spacing for guidance content
- * - FAQ is intentionally NOT rendered here (single FAQ source remains page template)
+ * - FAQ intentionally NOT rendered here (single FAQ source remains page template)
  */
 export const LocationIntelligenceBlock: React.FC<
   LocationIntelligenceBlockProps
 > = ({
   level,
   countryName,
+  stateName,
+  countrySlug: countrySlugProp,
+  stateSlug: stateSlugProp,
   detectiveCount,
   lastUpdated,
   content,
 }) => {
-  // Phase 1: Country level only
-  if (level !== "country" || !content) {
+  if (!content) {
     return null;
   }
 
-  const displayCountryName = useMemo(() => {
+  const displayLocationName = useMemo(() => {
+    if (level === "state" && stateName) {
+      return stateName
+        .replace(/[-_]+/g, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(" ");
+    }
+
     const aliases: Record<string, string> = {
       india: "India",
       in: "India",
@@ -73,13 +86,82 @@ export const LocationIntelligenceBlock: React.FC<
       .filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
       .join(" ");
-  }, [countryName]);
+  }, [level, countryName, stateName]);
+
+  const countrySlug = useMemo(() => {
+    if (countrySlugProp) return countrySlugProp;
+    const normalized = (countryName || "").trim().toLowerCase();
+    if (normalized === "india" || normalized === "in") return "india";
+    if (normalized === "usa" || normalized === "us" || normalized === "united states" || normalized === "united-states") {
+      return "united-states";
+    }
+    if (
+      normalized === "uk" ||
+      normalized === "gb" ||
+      normalized === "great britain" ||
+      normalized === "great-britain" ||
+      normalized === "united kingdom" ||
+      normalized === "united-kingdom"
+    ) {
+      return "united-kingdom";
+    }
+    return normalized.replace(/\s+/g, "-");
+  }, [countryName, countrySlugProp]);
+
+  const commonServiceLinks = useMemo(
+    () => [
+      { label: "Background Checks", slug: "background-checks" },
+      { label: "Surveillance", slug: "surveillance" },
+      { label: "Asset Searches", slug: "asset-search" },
+      { label: "Matrimonial Investigations", slug: "matrimonial-investigation" },
+      { label: "Fraud Investigations", slug: "fraud-investigation" },
+    ],
+    [],
+  );
+
+  const renderCommonServicesText = (text: string) => {
+    const escapedTerms = commonServiceLinks
+      .map((service) => service.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
+
+    if (!escapedTerms) {
+      return text;
+    }
+
+    const regex = new RegExp(`(${escapedTerms})`, "gi");
+    const segments = text.split(regex);
+
+    return segments.map((segment, index) => {
+      const service = commonServiceLinks.find(
+        (item) => item.label.toLowerCase() === segment.toLowerCase(),
+      );
+
+      if (!service) {
+        return <React.Fragment key={`segment-${index}`}>{segment}</React.Fragment>;
+      }
+
+      // State-level: link to service+state page; country-level: link to service+country page
+      const href = level === "state" && stateSlugProp
+        ? `/locations/${service.slug}/${countrySlug}/${stateSlugProp}/`
+        : `/locations/${service.slug}/${countrySlug}/`;
+
+      return (
+        <a
+          key={`segment-${index}`}
+          href={href}
+          className="text-blue-700 underline underline-offset-2 hover:text-blue-800"
+        >
+          {segment}
+        </a>
+      );
+    });
+  };
 
   return (
     <article className="my-12">
       <header className="mb-8 border-b border-slate-200 pb-5">
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Hiring a Private Detective in {displayCountryName}
+            Hiring a Private Detective in {displayLocationName}
           </h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
             Practical guidance to evaluate investigators, compare services, and
@@ -93,22 +175,22 @@ export const LocationIntelligenceBlock: React.FC<
       </header>
 
       <section className="mb-8">
-        <h3 className="text-lg font-semibold text-slate-900">Intro Overview</h3>
+        <h3 className="text-lg font-semibold text-slate-900">About the Market</h3>
         <p className="mt-3 text-[15px] leading-8 text-slate-700">{content.intro}</p>
       </section>
 
       <section className="mb-8">
         <h3 className="text-lg font-semibold text-slate-900">Common Investigation Services</h3>
-        <p className="mt-3 text-[15px] leading-8 text-slate-700">{content.commonServices}</p>
+        <p className="mt-3 text-[15px] leading-8 text-slate-700">{renderCommonServicesText(content.commonServices)}</p>
       </section>
 
       <section className="mb-8">
-        <h3 className="text-lg font-semibold text-slate-900">Hiring Guidance</h3>
+        <h3 className="text-lg font-semibold text-slate-900">How to Hire</h3>
         <p className="mt-3 text-[15px] leading-8 text-slate-700">{content.hiringGuidance}</p>
       </section>
 
       <section>
-        <h3 className="text-lg font-semibold text-slate-900">Trust & Confidentiality</h3>
+        <h3 className="text-lg font-semibold text-slate-900">Privacy & Confidentiality</h3>
         <p className="mt-3 text-[15px] leading-8 text-slate-700">{content.confidentiality}</p>
       </section>
 
@@ -137,3 +219,4 @@ export const LocationIntelligenceBlock: React.FC<
 };
 
 export default LocationIntelligenceBlock;
+

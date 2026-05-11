@@ -11,7 +11,7 @@ import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./servi
 import bcrypt from "bcrypt";
 import { db, pool } from "../db/index.js";
 import { eq, and, or, desc, avg, count, ilike, sql, isNotNull, inArray } from "drizzle-orm";
-import { getCountryContent, isCountryEnabled } from "./config/countryContent.js";
+import { getCountryContent, isCountryEnabled, getStateContent, isStateEnabled } from "./config/countryContent.js";
 import {
   detectives,
   countries,
@@ -9991,6 +9991,21 @@ Content-Signal: index=public; train=deny
     // Cache for 1 hour — content is config-based and rarely changes
     res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
     res.json({ level: "country", country, content });
+  });
+
+  // API: Location Intelligence — state level
+  app.get('/api/location-intelligence/:country/:state', (req: Request, res: Response) => {
+    const country = (req.params.country || "").toLowerCase().trim();
+    const state = (req.params.state || "").toLowerCase().trim();
+    if (!isStateEnabled(country, state)) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    const content = getStateContent(country, state);
+    if (!content) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+    res.json({ level: "state", country, state, content });
   });
 
   const httpServer = createServer(app);
