@@ -19,6 +19,65 @@ interface ServiceCategoryLink {
 const MAX_LINKS = 6;
 const REQUEST_TIMEOUT_MS = 15000;
 
+const RELEVANT_CATEGORY_TERMS = [
+  "background",
+  "surveillance",
+  "matrimonial",
+  "investigation",
+  "verification",
+  "verify",
+  "asset",
+  "fraud",
+  "skip tracing",
+  "skip-tracing",
+  "missing person",
+  "missing persons",
+  "infidelity",
+  "due diligence",
+  "employee",
+  "employment",
+  "litigation",
+  "tracing",
+  "corporate",
+];
+
+const BLOCKED_CATEGORY_TERMS = [
+  "cyber",
+  "security",
+  "technical",
+  "software",
+  "cloud",
+  "network",
+  "web",
+  "app",
+  "marketing",
+  "seo",
+  "enterprise",
+  "database",
+  "hosting",
+  "support",
+  "hardware",
+];
+
+const titleCase = (value: string): string => {
+  return value
+    .replace(/[-_]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+};
+
+const isRelevantInvestigationCategory = (categoryName: string): boolean => {
+  const normalized = categoryName.toLowerCase().trim();
+
+  if (BLOCKED_CATEGORY_TERMS.some((term) => normalized.includes(term))) {
+    return false;
+  }
+
+  return RELEVANT_CATEGORY_TERMS.some((term) => normalized.includes(term));
+};
+
 const buildServiceLocationUrl = (
   categorySlug: string,
   countrySlug: string,
@@ -97,6 +156,7 @@ export function RelatedInvestigationServices({
   const [links, setLinks] = useState<ServiceCategoryLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const displayLocationName = titleCase(locationDisplayName);
 
   const locationPath = useMemo(
     () => [countrySlug, stateSlug, citySlug].filter(Boolean).join("/"),
@@ -119,11 +179,15 @@ export function RelatedInvestigationServices({
         setError(null);
 
         const popularCategories = await fetchPopularServiceCategories(controller.signal);
-        const categoryCandidates = new Set<string>(popularCategories.filter(Boolean));
+        const categoryCandidates = new Set<string>(
+          popularCategories.filter((category) => category && isRelevantInvestigationCategory(category)),
+        );
 
         if (categoryCandidates.size < MAX_LINKS) {
           const allCategories = await fetchActiveServiceCategories(controller.signal);
-          allCategories.forEach((category) => categoryCandidates.add(category));
+          allCategories
+            .filter((category) => category && isRelevantInvestigationCategory(category))
+            .forEach((category) => categoryCandidates.add(category));
         }
 
         const candidates = Array.from(categoryCandidates).slice(0, 24);
@@ -173,7 +237,11 @@ export function RelatedInvestigationServices({
     return () => {
       active = false;
       clearTimeout(timeout);
-      controller.abort();
+      try {
+        controller.abort();
+      } catch (err) {
+        // Ignore abort errors (controller may already be aborted)
+      }
     };
   }, [countrySlug, stateSlug, citySlug, locationPath]);
 
@@ -187,13 +255,13 @@ export function RelatedInvestigationServices({
 
   return (
     <section className="mt-12 pt-8 border-t border-gray-200" aria-labelledby="related-investigation-services-heading">
-      <div className="max-w-6xl mx-auto">
+      <div>
         <div className="mb-6">
           <h2 id="related-investigation-services-heading" className="text-2xl font-bold text-gray-900">
-            Popular Investigation Services in {locationDisplayName}
+            Popular Investigation Services in {displayLocationName}
           </h2>
           <p className="text-gray-600 mt-2">
-            Explore specialized private investigation services available in {locationDisplayName}.
+            Explore specialized private investigation services available in {displayLocationName}.
           </p>
         </div>
 

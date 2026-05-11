@@ -11,6 +11,7 @@ import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./servi
 import bcrypt from "bcrypt";
 import { db, pool } from "../db/index.js";
 import { eq, and, or, desc, avg, count, ilike, sql, isNotNull, inArray } from "drizzle-orm";
+import { getCountryContent, isCountryEnabled } from "./config/countryContent.js";
 import {
   detectives,
   countries,
@@ -9975,6 +9976,22 @@ Content-Signal: index=public; train=deny
     res.set('ETag', tag);
     res.json(payload);
   };
+
+  // API: Location Intelligence — serves config-based country content for client-side navigation fallback
+  // This endpoint is the fallback for when window.LOCATION_INTELLIGENCE is not available (client nav)
+  app.get('/api/location-intelligence/:country', (req: Request, res: Response) => {
+    const country = (req.params.country || "").toLowerCase().trim();
+    if (!isCountryEnabled(country)) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    const content = getCountryContent(country);
+    if (!content) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    // Cache for 1 hour — content is config-based and rarely changes
+    res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+    res.json({ level: "country", country, content });
+  });
 
   const httpServer = createServer(app);
 

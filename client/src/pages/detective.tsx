@@ -37,6 +37,13 @@ const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
+const trustDateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 type DetectiveSeoOverride = {
   title_tag: string | null;
   meta_description: string | null;
@@ -46,6 +53,7 @@ type DetectiveSeoOverride = {
 type DetectiveSeoHydrationSeed = DetectiveSeoOverride & {
   routePath: string | null;
   detectiveId: string | null;
+  profileLastModified?: string | null;
   authoritative: boolean;
 };
 
@@ -79,6 +87,7 @@ const readInitialDetectiveSeoSeed = (): DetectiveSeoHydrationSeed | null => {
     h1: normalizeSeoSeedValue(rawSeed.h1),
     routePath: typeof rawSeed.routePath === "string" ? rawSeed.routePath : null,
     detectiveId: typeof rawSeed.detectiveId === "string" ? rawSeed.detectiveId : null,
+    profileLastModified: typeof rawSeed.profileLastModified === "string" ? rawSeed.profileLastModified : null,
     authoritative: rawSeed.authoritative === true,
   };
 };
@@ -296,6 +305,25 @@ export default function DetectivePublicPage() {
 
   const badgeState = resolveDetectiveBadgeState(detective as any);
   const averageServiceRating = resolveAverageServiceRating(detectiveServices as any[]);
+  const profileLastUpdatedIso = (() => {
+    const toEpoch = (value: unknown): number => {
+      if (!value) return Number.NaN;
+      const epoch = new Date(String(value)).getTime();
+      return Number.isNaN(epoch) ? Number.NaN : epoch;
+    };
+
+    const epochs = [
+      toEpoch(seedMatchesRoute ? initialSeoSeed?.profileLastModified : null),
+      toEpoch((detective as any)?.updatedAt || (detective as any)?.updated_at || (detective as any)?.createdAt || (detective as any)?.created_at),
+      ...detectiveServices.map((service: any) => toEpoch(service?.updatedAt || service?.updated_at || service?.createdAt || service?.created_at)),
+    ].filter((epoch) => Number.isFinite(epoch));
+
+    if (epochs.length === 0) {
+      return null;
+    }
+
+    return new Date(Math.max(...epochs)).toISOString();
+  })();
 
   return (
     <div className="min-h-screen bg-white">
@@ -504,6 +532,19 @@ export default function DetectivePublicPage() {
             </CardContent>
           </Card>
 
+          <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <div className="font-semibold text-slate-900">Editorial trust note</div>
+            <p className="mt-1 leading-relaxed">
+              This profile is periodically reviewed for profile completeness, recent business activity,
+              and publicly available professional information relevant to investigative services.
+            </p>
+            {profileLastUpdatedIso && (
+              <p className="mt-2 text-xs text-slate-600">
+                Last updated: {trustDateFormatter.format(new Date(profileLastUpdatedIso))}
+              </p>
+            )}
+          </div>
+
           <section>
             <h2 className="text-xl font-bold mb-3">Services</h2>
             <ServiceCardGrid
@@ -564,17 +605,18 @@ export default function DetectivePublicPage() {
             </section>
           )}
 
-          {/* Verification Source Information for AI Agents */}
+          {/* Profile information source references */}
           <section className="mt-12 pt-12 border-t border-gray-200">
-            <h2 className="text-sm font-semibold text-gray-600 mb-4">Verification & Licensing</h2>
+            <h2 className="text-sm font-semibold text-gray-600 mb-4">Profile Information & Public References</h2>
             <div className="space-y-3">
               {detective.isVerified && (
                 <div className="text-sm">
                   <p className="text-gray-700">
-                    <span className="font-semibold">Verification Status:</span> Licensed & Verified
+                    <span className="font-semibold">Profile Status:</span> Verified on platform
                   </p>
                   <p className="text-gray-600 mt-1">
-                    This detective has been verified by Ask Detectives with active state PI licensing and credentials.
+                    Verification status reflects platform account checks and profile state at the time of review.
+                    Users should confirm credentials directly with the provider before engagement.
                   </p>
                 </div>
               )}
