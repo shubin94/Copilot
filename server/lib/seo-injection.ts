@@ -767,7 +767,49 @@ export async function getDetectiveBySlugForSEO(
       fetchDetectiveReviews(detective.id),
     ]);
 
-    return { ...detective, avgRating, reviewCount, seoOverride, reviews };
+    const [serviceCategoriesResult, paymentMethodsResult] = await Promise.all([
+      pool.query(
+        `
+          SELECT category
+          FROM (
+            SELECT DISTINCT TRIM(category) AS category
+            FROM services
+            WHERE detective_id = $1
+              AND is_active = true
+              AND category IS NOT NULL
+              AND TRIM(category) <> ''
+          ) dedup_categories
+          ORDER BY LOWER(category)
+          LIMIT 12
+        `,
+        [detective.id]
+      ),
+      pool.query(
+        `
+          SELECT payment_method AS "paymentMethod"
+          FROM (
+            SELECT DISTINCT TRIM(payment_method) AS payment_method
+            FROM billing_history
+            WHERE detective_id = $1
+              AND payment_method IS NOT NULL
+              AND TRIM(payment_method) <> ''
+          ) dedup_payment_methods
+          ORDER BY LOWER(payment_method)
+          LIMIT 12
+        `,
+        [detective.id]
+      ),
+    ]);
+
+    return {
+      ...detective,
+      avgRating,
+      reviewCount,
+      seoOverride,
+      reviews,
+      seoServiceCategories: serviceCategoriesResult.rows.map((row: any) => row.category),
+      seoPaymentMethods: paymentMethodsResult.rows.map((row: any) => row.paymentMethod),
+    };
   } catch (error) {
     const errorDetails = error instanceof Error 
       ? { message: error.message, stack: error.stack }
@@ -941,8 +983,10 @@ function getCountryName(country: string): string {
  *
  * Scope: LocalBusiness core fields (Phase 3) + AggregateRating (Phase 4).
  * Deliberately excluded (future phases): Review schema, hasOfferCatalog,
- * paymentAccepted, currenciesAccepted, priceRange, sameAs, knowsAbout,
- * Service, ItemList, FAQPage.
+ * currenciesAccepted, priceRange, sameAs, Service, ItemList, FAQPage.
+ *
+ * Data-driven fields like paymentAccepted and knowsAbout are emitted only
+ * when real detective-specific data exists.
  *
  * Returns null when the profile lacks the minimum required fields
  * (business name) — prevents empty/placeholder entities in the index.
@@ -1014,6 +1058,31 @@ function buildPhase3LocalBusinessSchema(
   if (logo) {
     schema.image = logo;
     schema.logo = { "@type": "ImageObject", url: logo };
+  }
+
+  // knowsAbout — derived from real active service categories only
+  const knowsAbout = Array.from(new Set(
+    (Array.isArray(detective.seoServiceCategories) ? detective.seoServiceCategories : [])
+      .map((category: unknown) => {
+        if (typeof category !== 'string') return null;
+        const trimmed = category.trim();
+        if (!trimmed) return null;
+        return /[-_]/.test(trimmed) ? toTitleFromSlug(trimmed) : trimmed;
+      })
+      .filter((category: string | null): category is string => Boolean(category))
+  )).slice(0, 6);
+  if (knowsAbout.length > 0) {
+    schema.knowsAbout = knowsAbout;
+  }
+
+  // Payment methods — emit only when real payment history exists for this detective
+  const paymentAccepted = Array.from(new Set(
+    (Array.isArray(detective.seoPaymentMethods) ? detective.seoPaymentMethods : [])
+      .map((method: unknown) => typeof method === 'string' ? method.trim() : '')
+      .filter((method: string) => Boolean(method))
+  ));
+  if (paymentAccepted.length > 0) {
+    schema.paymentAccepted = paymentAccepted.length === 1 ? paymentAccepted[0] : paymentAccepted;
   }
 
   // ---------------------------------------------------------------------------
@@ -1177,9 +1246,30 @@ function generateDetectiveLocalBusinessSchema(detective: any, canonicalUrl: stri
     "description": `Investigation and detective services by ${name}`,
   };
 
-  // Payment methods
-  localBusiness.paymentAccepted = "Cash, Online Transfer, Bank Transfer, UPI";
-  localBusiness.currenciesAccepted = "INR, USD, GBP";
+  // knowsAbout — derived from real active service categories only
+  const knowsAbout = Array.from(new Set(
+    (Array.isArray(detective.seoServiceCategories) ? detective.seoServiceCategories : [])
+      .map((category: unknown) => {
+        if (typeof category !== 'string') return null;
+        const trimmed = category.trim();
+        if (!trimmed) return null;
+        return /[-_]/.test(trimmed) ? toTitleFromSlug(trimmed) : trimmed;
+      })
+      .filter((category: string | null): category is string => Boolean(category))
+  )).slice(0, 6);
+  if (knowsAbout.length > 0) {
+    localBusiness.knowsAbout = knowsAbout;
+  }
+
+  // Payment methods — emit only when real payment history exists for this detective
+  const paymentAccepted = Array.from(new Set(
+    (Array.isArray(detective.seoPaymentMethods) ? detective.seoPaymentMethods : [])
+      .map((method: unknown) => typeof method === 'string' ? method.trim() : '')
+      .filter((method: string) => Boolean(method))
+  ));
+  if (paymentAccepted.length > 0) {
+    localBusiness.paymentAccepted = paymentAccepted.length === 1 ? paymentAccepted[0] : paymentAccepted;
+  }
 
   // Area served with geo precision (override plain string set above)
   if (detective.city && detective.state) {
@@ -1211,18 +1301,6 @@ function generateDetectiveLocalBusinessSchema(detective: any, canonicalUrl: stri
     }
   }
   if (sameAsLinks.length > 0) localBusiness.sameAs = sameAsLinks;
-
-  // knowsAbout for verified detectives
-  if (detective.isVerified) {
-    localBusiness.knowsAbout = [
-      "Private Investigation",
-      "Surveillance",
-      "Background Checks",
-      "Fraud Investigation",
-      "Skip Tracing",
-      "Corporate Investigations",
-    ];
-  }
 
   return JSON.stringify(localBusiness, null, 2);
 }
@@ -1289,6 +1367,9 @@ function generateDetectiveBreadcrumbSchema(detective: any, canonicalUrl: string)
  */
 function generateDetectivePersonSchema(detective: any, canonicalUrl: string): string {
   const name = detective.businessName || `${detective.firstName || ''} ${detective.lastName || ''}`.trim() || 'Private Detective';
+  const licenseNumber = typeof detective.licenseNumber === 'string'
+    ? detective.licenseNumber.trim()
+    : detective.licenseNumber;
   const person: Record<string, any> = {
     "@context": "https://schema.org",
     "@type": "Person",
@@ -1297,7 +1378,7 @@ function generateDetectivePersonSchema(detective: any, canonicalUrl: string): st
     "jobTitle": "Private Detective",
     "worksFor": {
       "@type": ["LocalBusiness", "ProfessionalService"],
-      "@id": canonicalUrl,
+      "@id": `${canonicalUrl}#localbusiness`,
       "name": name,
     },
     "url": canonicalUrl,
@@ -1310,17 +1391,17 @@ function generateDetectivePersonSchema(detective: any, canonicalUrl: string): st
         "@type": "PostalAddress",
         "addressLocality": detective.city,
         "addressRegion": detective.state,
-        "addressCountry": detective.country || "",
+        ...(detective.country ? { "addressCountry": detective.country } : {}),
       },
     };
   }
 
-  if (detective.licenseNumber) {
+  if (licenseNumber) {
     person.hasCredential = {
       "@type": "EducationalOccupationalCredential",
       "name": "Private Detective License",
       "credentialCategory": "Professional License",
-      "identifier": detective.licenseNumber,
+      "identifier": licenseNumber,
     };
   }
 
@@ -1493,6 +1574,7 @@ export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl:
     `<meta name="askdetectives:ssr-schema" content="authoritative" data-ssr-schema-owner="phase1" />`,
     `<script type="application/ld+json" data-ssr-schema-owner="phase1">\n      ${jsonLd.breadcrumbs}\n    </script>`,
     `<script type="application/ld+json" data-ssr-schema-owner="phase1">\n      ${webPageSchema}\n    </script>`,
+    `<script type="application/ld+json" data-ssr-schema-owner="phase1">\n      ${jsonLd.person}\n    </script>`,
   ].join('\n    ') + phase3Script;
 
   modified = modified.replace(
@@ -1617,9 +1699,20 @@ interface DetectiveListingSsrItem {
   city: string;
   state: string;
   country?: string;
+  bio?: string | null;
+  primaryService?: string | null;
   avgRating?: number;
   reviewCount?: number;
   isVerified?: boolean;
+}
+
+interface DetectiveProfileSsrServiceItem {
+  title?: string | null;
+  category?: string | null;
+  description?: string | null;
+  isOnEnquiry?: boolean;
+  basePrice?: number | null;
+  offerPrice?: number | null;
 }
 
 interface ServiceListingSsrItem {
@@ -1705,8 +1798,13 @@ export function buildDetectiveListingSsrFragment(input: {
         ? `${avgRating.toFixed(1)} (${reviewCount} reviews)`
         : "No reviews yet";
       const verifiedText = detective.isVerified ? " · Verified" : "";
+      const snippet = detective.bio
+        ? detective.bio.replace(/\s+/g, " ").trim().slice(0, 120)
+        : detective.primaryService
+        ? `Specializes in ${detective.primaryService}`
+        : "Professional private investigation services.";
 
-      return `<li style="margin:0 0 8px 0;line-height:1.45;"><a href="${escapeHtml(href)}" style="color:#1f2937;text-decoration:none;font-weight:600;">${escapeHtml(detective.businessName || "Detective")}</a><span style="color:#6b7280;"> - ${escapeHtml(locationText || countryName)} - ${escapeHtml(ratingText)}${escapeHtml(verifiedText)}</span></li>`;
+      return `<li style="margin:0 0 10px 0;line-height:1.45;"><a href="${escapeHtml(href)}" style="color:#1f2937;text-decoration:none;font-weight:600;">${escapeHtml(detective.businessName || "Detective")}</a><span style="color:#6b7280;"> - ${escapeHtml(locationText || countryName)} - ${escapeHtml(ratingText)}${escapeHtml(verifiedText)}</span><p style="margin:3px 0 0;color:#4b5563;font-size:0.92rem;">${escapeHtml(snippet)}</p></li>`;
     })
     .filter(Boolean)
     .join("\n");
@@ -1733,10 +1831,95 @@ export function buildDetectiveListingSsrFragment(input: {
     `<h1 style="margin:0 0 8px 0;font-size:2rem;line-height:1.2;color:#111827;">${escapeHtml(input.h1)}</h1>`,
     `<p style="margin:0 0 6px 0;color:#4b5563;line-height:1.5;">Find licensed private investigators in ${escapeHtml(locationLabel)}. Compare ratings, reviews, and verified profiles before contacting a detective.</p>`,
     `<p style="margin:0 0 14px 0;color:#6b7280;font-size:0.95rem;">${escapeHtml(String(input.totalCount))} detectives listed${verifiedCount > 0 ? ` · ${escapeHtml(String(verifiedCount))} verified` : ""}</p>`,
+    `<section aria-label="Trust and freshness" style="margin:0 0 14px 0;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;"><p style="margin:0;color:#374151;font-size:0.9rem;line-height:1.45;">Listings include verified business identity, recent activity signals, and review-derived quality indicators where available.</p></section>`,
     topLinksSection,
     `<p style="margin:14px 0 0 0;display:flex;gap:14px;flex-wrap:wrap;font-size:0.95rem;">${exploreLinks.join("<span style=\"color:#9ca3af;\">|</span>")}</p>`,
     `</section>`,
   ].join("\n");
+}
+
+export function buildDetectiveProfileSsrFragment(input: {
+  canonicalUrl: string;
+  detective: {
+    businessName?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    bio?: string | null;
+    isVerified?: boolean;
+    level?: string | null;
+    avgRating?: number;
+    reviewCount?: number;
+    seoServiceCategories?: string[];
+    seoPaymentMethods?: string[];
+    updatedAt?: string | null;
+    updated_at?: string | null;
+    createdAt?: string | null;
+    created_at?: string | null;
+  };
+  services: DetectiveProfileSsrServiceItem[];
+}): string {
+  const detectiveName = (input.detective.businessName || "Detective").trim();
+  const city = (input.detective.city || "").trim();
+  const state = (input.detective.state || "").trim();
+  const country = getCountryName((input.detective.country || "").trim()) || (input.detective.country || "").trim();
+  const locationLabel = [city, state, country].filter(Boolean).join(", ") || "Location unavailable";
+  const reviewCount = Number.isFinite(input.detective.reviewCount) ? Number(input.detective.reviewCount) : 0;
+  const avgRating = Number.isFinite(input.detective.avgRating) ? Number(input.detective.avgRating) : 0;
+  const ratingLabel = reviewCount > 0 && avgRating > 0
+    ? `${avgRating.toFixed(1)} (${reviewCount} reviews)`
+    : "Not rated yet";
+  const aboutText = (input.detective.bio || "").replace(/\s+/g, " ").trim() || "Profile details and detective background are available on this page.";
+  const membershipLabel = input.detective.level ? `Level: ${input.detective.level}` : "Level: Standard";
+
+  const trustTimestamp =
+    input.detective.updatedAt ||
+    input.detective.updated_at ||
+    input.detective.createdAt ||
+    input.detective.created_at ||
+    null;
+
+  const trustDate = (() => {
+    if (!trustTimestamp) return null;
+    const parsed = new Date(trustTimestamp);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+  })();
+
+  const services = input.services.slice(0, 8);
+  const serviceList = services.length
+    ? `<ul style="margin:0;padding-left:18px;">${services
+        .map((service) => {
+          const title = (service.title || "Detective Service").trim();
+          const category = (service.category || "General Investigation").trim();
+          const serviceSnippet = (service.description || "").replace(/\s+/g, " ").trim().slice(0, 110);
+          const pricing = service.isOnEnquiry
+            ? "On enquiry"
+            : Number.isFinite(service.offerPrice)
+            ? `From ${service.offerPrice}`
+            : Number.isFinite(service.basePrice)
+            ? `From ${service.basePrice}`
+            : "Pricing on request";
+          return `<li style="margin:0 0 10px 0;"><strong style="color:#111827;">${escapeHtml(title)}</strong><span style="color:#6b7280;"> · ${escapeHtml(category)} · ${escapeHtml(pricing)}</span>${serviceSnippet ? `<p style="margin:3px 0 0;color:#4b5563;font-size:0.92rem;">${escapeHtml(serviceSnippet)}</p>` : ""}</li>`;
+        })
+        .join("")}</ul>`
+    : `<p style="margin:0;color:#4b5563;">Service catalogue will appear as soon as services are published.</p>`;
+
+  const expertise = (input.detective.seoServiceCategories || []).slice(0, 6);
+  const paymentMethods = (input.detective.seoPaymentMethods || []).slice(0, 6);
+
+  return [
+    `<section id="seo-detective-profile-ssr" data-ssr-fragment="detective-profile" style="max-width:980px;margin:16px auto 8px;padding:0 24px;">`,
+    `<h1 style="margin:0 0 8px 0;font-size:2rem;line-height:1.2;color:#111827;">${escapeHtml(detectiveName)}${city ? ` - Private Investigator in ${escapeHtml(city)}` : ""}</h1>`,
+    `<p style="margin:0 0 10px 0;color:#4b5563;line-height:1.5;">${escapeHtml(locationLabel)} · ${escapeHtml(ratingLabel)}${input.detective.isVerified ? " · Verified profile" : ""} · ${escapeHtml(membershipLabel)}</p>`,
+    `<section aria-label="Profile summary" style="margin:0 0 14px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;"><p style="margin:0;color:#374151;line-height:1.55;">${escapeHtml(aboutText)}</p></section>`,
+    `<section aria-label="Services" style="margin:0 0 14px;"><h2 style="font-size:1.1rem;font-weight:700;margin:0 0 8px;">Services</h2>${serviceList}</section>`,
+    `<section aria-label="Trust and freshness" style="margin:0 0 14px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;"><h2 style="font-size:1.05rem;font-weight:700;margin:0 0 6px;">Trust and freshness</h2><p style="margin:0 0 6px;color:#4b5563;line-height:1.5;">This profile is periodically reviewed for profile completeness, business activity, and publicly visible professional details.</p>${trustDate ? `<p style="margin:0;color:#6b7280;font-size:0.9rem;">Last updated: ${escapeHtml(trustDate)}</p>` : ""}</section>`,
+    expertise.length ? `<section aria-label="Expertise" style="margin:0 0 14px;"><h2 style="font-size:1.05rem;font-weight:700;margin:0 0 8px;">Expertise</h2><p style="margin:0;color:#374151;">${escapeHtml(expertise.join(" · "))}</p></section>` : "",
+    paymentMethods.length ? `<section aria-label="Payment methods" style="margin:0 0 14px;"><h2 style="font-size:1.05rem;font-weight:700;margin:0 0 8px;">Payment methods</h2><p style="margin:0;color:#374151;">${escapeHtml(paymentMethods.join(" · "))}</p></section>` : "",
+    `<p style="margin:0 0 2px;color:#1d4ed8;"><a href="${escapeHtml(input.canonicalUrl)}" style="color:#1d4ed8;text-decoration:none;">View canonical profile URL</a></p>`,
+    `</section>`,
+  ].filter(Boolean).join("\n");
 }
 
 export function buildServiceLocationSsrFragment(input: {
