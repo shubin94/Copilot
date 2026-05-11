@@ -42,9 +42,12 @@ import { buildServiceCardDTO } from "../utils/buildServiceCardDTO.js";
 import { isKnownSpaPath, isStaticAssetPath } from "./lib/spa-route-manifest.js";
 import { resolveLocationHierarchyForSeo } from "./services/locationSeoResolutionService.js";
 import {
-  getCountryContent,
-  isCountryEnabled,
-} from "./config/countryContent.js";
+  buildCountryLevelPayload,
+  buildStateLevelPayload,
+  getPageLevel,
+  generateLocationIntelligenceScript,
+  type LocationIntelligencePayload,
+} from "./lib/location-intelligence-injection.js";
 
 const STATIC_CMS_SEO_SLUGS = new Set([
   "about",
@@ -798,45 +801,42 @@ export async function serveStatic(app: Express, _server: Server) {
       };
 
       // Build payload array dynamically
-      // PHASE 1: Only add LocationIntelligence for country-level pages (India, US, UK)
       const payloads: Array<{ globalName: string; data: any }> = [
         { globalName: "CITY_PAGE_DATA", data: cityPagePayload },
         { globalName: "SEO_DATA", data: seoDataPayload },
       ];
 
-      // Inject country-level location intelligence (PHASE 1)
-      const isCountryLevel = !params.state && !params.city;
-      if (isCountryLevel && isCountryEnabled(params.country) && !isEmptyLocationPage) {
-        const countryContent = getCountryContent(params.country);
-        if (countryContent) {
-          // Derive real lastUpdated from most recently updated detective (if available)
-          // DO NOT use new Date() — no synthetic freshness timestamps
-          const mostRecentDetective = detectives.reduce<{ updatedAt?: string | null } | null>(
-            (latest, d) => {
-              if (!latest) return d as any;
-              const dTime = (d as any).updatedAt ? new Date((d as any).updatedAt).getTime() : 0;
-              const lTime = latest.updatedAt ? new Date(latest.updatedAt).getTime() : 0;
-              return dTime > lTime ? (d as any) : latest;
-            },
-            null
-          );
-          const realLastUpdated: string | undefined =
-            mostRecentDetective?.updatedAt
-              ? new Date(mostRecentDetective.updatedAt).toISOString()
-              : undefined;
-
-          const locationIntelligencePayload = {
-            level: "country",
-            country: params.country,
-            countryName: locationSeoData.location.country || params.country.replace(/-/g, " "),
-            detectiveCount: locationSeoData.totalCount,
-            topServices: [], // PHASE 1: Not using topServices yet
-            ...(realLastUpdated ? { lastUpdated: realLastUpdated } : {}),
-            content: countryContent,
-          };
+      // Inject location intelligence (country or state level)
+      const pageLevel = getPageLevel({ state: params.state, city: params.city });
+      
+      if (pageLevel === "country" && !isEmptyLocationPage) {
+        const countryLevelPayload = buildCountryLevelPayload(
+          params.country,
+          locationSeoData.location.country || params.country.replace(/-/g, " "),
+          locationSeoData.totalCount,
+          detectives as any
+        );
+        
+        if (countryLevelPayload) {
           payloads.push({
             globalName: "LOCATION_INTELLIGENCE",
-            data: locationIntelligencePayload,
+            data: countryLevelPayload,
+          });
+        }
+      } else if (pageLevel === "state" && !isEmptyLocationPage) {
+        const stateLevelPayload = buildStateLevelPayload(
+          params.country,
+          params.state!,
+          locationSeoData.location.country || params.country.replace(/-/g, " "),
+          locationSeoData.location.state || params.state!.replace(/-/g, " "),
+          locationSeoData.totalCount,
+          detectives as any
+        );
+        
+        if (stateLevelPayload) {
+          payloads.push({
+            globalName: "LOCATION_INTELLIGENCE",
+            data: stateLevelPayload,
           });
         }
       }

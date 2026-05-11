@@ -17,6 +17,26 @@ export interface CountryContent {
   }>;
 }
 
+export interface StateContent {
+  stateOverview: string;
+  commonCasesInState: string;
+  coverageAndRegionalNotes: string;
+  stateVsCityGuide: string;
+  hiringAdvice: string;
+  relatedServices: Array<{
+    name: string;
+    description: string;
+  }>;
+  topCitiesInState: Array<{
+    name: string;
+    description?: string;
+  }>;
+  faq: Array<{
+    question: string;
+    answer: string;
+  }>;
+}
+
 export const COUNTRY_CONTENT: Record<string, CountryContent> = {
   india: {
     intro:
@@ -179,123 +199,249 @@ export function isCountryEnabled(countrySlug: string): boolean {
 // ==============================================================
 // STATE-LEVEL CONTENT — PHASE 2
 // Karnataka (India), California (USA), Greater London (UK)
-// Same shape as CountryContent — reuses the same interface.
+// Dedicated state-template structure with operational & regional focus
 // ==============================================================
 
-export const STATE_CONTENT: Record<string, Record<string, CountryContent>> = {
+export const STATE_CONTENT: Record<string, Record<string, StateContent>> = {
   india: {
     karnataka: {
-      intro:
-        "Karnataka has one of India's most active private investigation markets, driven by Bengaluru's large corporate and technology sector. Most agencies handle both personal and corporate cases, with strong demand for background verification and due diligence work. Service quality varies — use this page to compare investigators who can clearly explain their experience and process.",
-      commonServices:
-        "Common requests in Karnataka include Background Checks, Surveillance, Matrimonial Investigations, Fraud Investigations, and Corporate Due Diligence. Bengaluru-based agencies typically cover the whole state, with field staff or partners in Mysuru, Mangaluru, and Hubballi.",
-      hiringGuidance:
-        "Before hiring, clarify whether the investigator covers your specific area and how they handle travel for cases outside Bengaluru. Ask for a written scope of work before any fieldwork begins. Investigators who give specific, direct answers about similar cases are generally a better choice than those who rely on broad claims.",
-      confidentiality:
-        "Karnataka investigators should explain how digital evidence, photographs, and case reports are stored and who has access. Ask what happens to your data after the case closes. A professional will answer these questions clearly before any payment is discussed.",
+      stateOverview:
+        "Karnataka's investigation market is concentrated in Bengaluru, where corporate demand from the IT sector drives service innovation. Outside the capital, investigators operate across tier-2 cities like Mysuru, Mangaluru, and Hubballi, typically managing cases through local networks or field associates. Service quality varies significantly based on an agency's scale, infrastructure, and case experience.",
+      commonCasesInState:
+        "In Karnataka, the most frequent assignments are Background Checks (especially for IT hiring), Corporate Due Diligence, Matrimonial Investigations, and Fraud Detection. Bengaluru dominates corporate work, while smaller cities see more personal investigations. Asset searches and surveillance are also common, particularly for finance-sector clients.",
+      coverageAndRegionalNotes:
+        "Most Bengaluru agencies operate statewide, though coverage outside the capital requires local contacts or field partners. Investigators in Mysuru, Mangaluru, and Hubballi typically handle regional cases independently. For multi-city assignments, confirm how costs are structured — travel time and logistics can vary significantly between metros and regional towns.",
+      stateVsCityGuide:
+        "If your case is limited to a specific city like Bengaluru or Mysuru, a local investigator may offer faster response and lower costs. For statewide or multi-city work, a Bengaluru-based agency with established field networks is often more reliable. If you need immediate on-the-ground presence in a smaller city, verify the investigator's local contacts before engaging.",
+      hiringAdvice:
+        "Ask specifically how the investigator will operate in your location — whether they have direct staff, established partners, or rely on case-by-case subcontracting. For cases outside Bengaluru, get written confirmation of coverage and timelines before work begins. Corporate clients should request agency credentials, insurance details, and compliance certifications.",
+      relatedServices: [
+        {
+          name: "Background Checks",
+          description: "High-volume service in Karnataka, especially for IT sector hiring and vendor screening",
+        },
+        {
+          name: "Corporate Due Diligence",
+          description: "Bengaluru-based demand for business verification, mergers, and financial audits",
+        },
+        {
+          name: "Matrimonial Investigations",
+          description: "Common service across all regions; typically handled by local investigators",
+        },
+        {
+          name: "Fraud Detection",
+          description: "Growing segment for finance, insurance, and corporate clients",
+        },
+        {
+          name: "Surveillance",
+          description: "Available but operationally challenging outside major metros; confirm logistics first",
+        },
+      ],
+      topCitiesInState: [
+        {
+          name: "Bengaluru",
+          description: "Largest market; home to most agencies and corporate work",
+        },
+        {
+          name: "Mysuru",
+          description: "Second-largest city; independent investigators serve regional clientele",
+        },
+        {
+          name: "Mangaluru",
+          description: "Coastal city with distinct business community and regional investigations",
+        },
+        {
+          name: "Hubballi",
+          description: "Northern region center; smaller investigation market but growing",
+        },
+      ],
       faq: [
         {
-          question: "What types of cases do detectives in Karnataka usually handle?",
+          question: "Will a Bengaluru investigator actually cover my case outside the capital?",
           answer:
-            "Most clients in Karnataka use investigators for background checks, matrimonial matters, corporate due diligence, surveillance assignments, and fraud-related inquiries. Bengaluru agencies often handle IT-sector employee screening and vendor verification as well.",
+            "Many will, but their approach varies. Some have established field partners, others subcontract to local investigators. Get the details in writing before engaging — clarity on who does the actual work and how costs are managed matters more than the agency's base location.",
         },
         {
-          question: "Do Karnataka investigators cover areas outside Bengaluru?",
+          question: "How much should I budget for travel costs in Karnataka investigations?",
           answer:
-            "Many Bengaluru-based agencies operate statewide, with field staff or partners in Mysuru, Mangaluru, Hubballi, and other cities. Confirm geographic coverage before engaging — especially for cases requiring on-the-ground presence outside the capital.",
+            "For cases in Bengaluru or Mysuru, travel is minimal. For Mangaluru or Hubballi, factor in travel time, logistics, and per-diem costs — these can add 30–50% to project costs. Ask the investigator to provide a transparent breakdown before work starts.",
         },
         {
-          question: "How are fees typically structured for detective work in Karnataka?",
+          question: "Which cities in Karnataka have the strongest investigator networks?",
           answer:
-            "Most investigators use daily rates, fixed project fees, or a combination. Ask for a written breakdown that covers travel, reporting, and any additional expenses before the work begins. Clarity on billing matters more than a low headline rate.",
+            "Bengaluru has the most agencies and infrastructure. Mysuru has reliable independent investigators. Mangaluru and Hubballi have smaller but active markets — you may need to engage local specialists rather than larger Bengaluru firms.",
         },
         {
-          question: "What should I ask before sharing case details with a Karnataka detective?",
+          question: "What should I confirm before hiring an investigator for a regional case?",
           answer:
-            "Confirm how they store client information, who within the agency will have access to your case, and how results and evidence are delivered. A credible investigator will answer these questions before any payment is discussed.",
+            "Confirm how they operate in your specific location (direct staff, partners, or subcontracting), what their local experience is, how communication and reporting will work, and what the total cost — including travel and logistics — will be.",
         },
         {
-          question: "How do I know if a Karnataka detective has the right experience for my case?",
+          question: "Do investigation rules differ between Bengaluru and other Karnataka cities?",
           answer:
-            "Ask directly about similar cases and what outcomes they can realistically deliver. Relevant experience shows up in how specifically they describe past work — not in broad professional claims.",
+            "Rules are statewide, but enforcement and professional standards vary. Bengaluru's large market drives higher professionalization. In smaller cities, fewer agencies mean less competition and potentially less experience with diverse case types.",
         },
       ],
     },
   },
   usa: {
     california: {
-      intro:
-        "California has one of the most tightly regulated private investigation markets in the US. All licensed investigators must hold a California Bureau of Security and Investigative Services (BSIS) licence. The market is large and concentrated in Los Angeles, San Francisco, and San Diego, with strong demand for corporate, legal support, and insurance-related work.",
-      commonServices:
-        "Common requests in California include Background Checks, Surveillance, Asset Searches, Corporate Due Diligence, and Fraud Investigations. Legal support — including witness location and evidence gathering for civil litigation — is also widely requested across the state's major metro areas.",
-      hiringGuidance:
-        "Before hiring, verify the investigator's BSIS licence number on the California Department of Consumer Affairs website. Ask how they handle California Privacy Rights Act (CPRA) compliance if your case involves personal data. A written engagement letter is standard practice in California, and any credible investigator will provide one before work begins.",
-      confidentiality:
-        "California has some of the strongest data privacy laws in the US. Ask any investigator how they handle personal information, how long they retain case files, and whether their data handling complies with CPRA requirements. Reputable investigators should answer this directly and without hesitation.",
+      stateOverview:
+        "California's investigation market is the largest and most regulated in the US, with strict BSIS licensing requirements ensuring baseline professionalism. The market concentrates in three metros — Los Angeles (largest), San Francisco (tech and finance focus), and San Diego (commercial and legal support) — each with distinct specializations. Outside these metros, investigations are handled by smaller firms or solo practitioners, typically with regional focus and lower regulatory oversight in practice.",
+      commonCasesInState:
+        "Corporate due diligence and legal support work dominate California's investigation market, driven by the state's large business, tech, and finance sectors. Background checks, surveillance, and asset searches are consistently requested across all regions. Insurance fraud investigation is particularly active. Litigation support — witness location, evidence gathering, deposition preparation — is a major revenue stream for experienced investigators.",
+      coverageAndRegionalNotes:
+        "LA, San Francisco, and San Diego each have concentrated investigation markets. Regional coverage from these metros is possible but involves travel logistics and per-diem costs. For cases in smaller cities or rural areas, local investigators may be less experienced but more cost-effective for on-the-ground presence. Multi-location cases require clear agreement on which investigator handles which geography.",
+      stateVsCityGuide:
+        "If your case involves litigation or complex corporate work, a metro-based investigator with BSIS experience and professional connections is usually necessary. For straightforward background checks or local surveillance, a regional investigator may be sufficient and more affordable. If you need work in multiple metros, consider whether to engage separate specialists in each location or negotiate a statewide scope with a larger firm.",
+      hiringAdvice:
+        "Always verify BSIS licence before engaging. Ask how the investigator handles multi-location assignments, whether they have insurance and errors & omissions coverage, and how they manage CPRA compliance for personal data handling. For legal work, confirm they understand California rules of evidence and have experience with litigation support. Get all terms in a written engagement letter.",
+      relatedServices: [
+        {
+          name: "Background Checks",
+          description: "High-volume service across California; regulated by BSIS licensing",
+        },
+        {
+          name: "Litigation Support",
+          description: "Major service line in metros; includes witness location, evidence gathering, deposition prep",
+        },
+        {
+          name: "Corporate Due Diligence",
+          description: "Strong demand in SF Bay Area and LA; requires sophisticated financial analysis",
+        },
+        {
+          name: "Surveillance",
+          description: "Fully licensed service with strict CPRA compliance requirements",
+        },
+        {
+          name: "Asset Searches",
+          description: "Common for legal and corporate clients; limited public record availability in CA",
+        },
+      ],
+      topCitiesInState: [
+        {
+          name: "Los Angeles",
+          description: "Largest market; diverse specializations including entertainment, business, legal work",
+        },
+        {
+          name: "San Francisco",
+          description: "Tech and finance hub; sophisticated corporate due diligence and compliance work",
+        },
+        {
+          name: "San Diego",
+          description: "Commercial and legal support focus; military and government contractor presence",
+        },
+        {
+          name: "Sacramento",
+          description: "State capital; smaller but specialized market for government and compliance work",
+        },
+      ],
       faq: [
         {
-          question: "Do private detectives in California need to be licensed?",
+          question: "How do I verify a California investigator's BSIS license?",
           answer:
-            "Yes. California requires all private investigators to hold a licence issued by the Bureau of Security and Investigative Services (BSIS). You can verify a licence at no cost through the California Department of Consumer Affairs website before engaging anyone.",
+            "Visit the California Department of Consumer Affairs website (dca.ca.gov), search the Investigator License Database, and confirm the license is current and has no disciplinary actions. This is free and takes 2 minutes — it's non-negotiable before engaging any investigator in California.",
         },
         {
-          question: "What kinds of cases do California investigators typically handle?",
+          question: "What does CPRA compliance mean for my investigation?",
           answer:
-            "Background checks, surveillance, asset tracing, corporate due diligence, insurance fraud investigation, and litigation support are all common. The Los Angeles, San Francisco, and San Diego markets are particularly active for corporate and legal support work.",
+            "CPRA is California's data privacy law. Investigators must handle personal information carefully — limiting collection, explaining use, and protecting storage. If your case involves personal data (addresses, phone numbers, financial info), confirm the investigator documents their CPRA compliance process in writing.",
         },
         {
-          question: "How are private investigator fees structured in California?",
+          question: "Should I hire separate investigators in different California metros?",
           answer:
-            "Most California investigators bill hourly, with rates varying by case type, location, and the investigator's experience. For complex or multi-city assignments, a retainer arrangement is common. Always get a written estimate confirming what is included before work begins.",
+            "For straightforward cases, one investigator can coordinate multi-location work. For complex litigation or highly specialized corporate work, separate metro specialists with local networks may be more effective — and often more cost-efficient than one firm traveling statewide.",
         },
         {
-          question: "What privacy rules apply to California investigations?",
+          question: "What should a written engagement letter include?",
           answer:
-            "California has strict data privacy protections. Investigators cannot access certain records without authorisation and must handle personal data in compliance with CPRA. Confirm your investigator's data practices in writing before sharing any sensitive information.",
+            "Scope of work, rate structure (hourly or fixed), expenses covered, how communication/reporting works, timeline, confidentiality terms, and CPRA/compliance practices. California investigators routinely provide this — if they resist, that's a red flag.",
         },
         {
-          question: "How do I evaluate whether a California PI is the right fit?",
+          question: "How much more expensive is a metro investigator vs. a regional one?",
           answer:
-            "Verify the BSIS licence, check for any disciplinary history on the DCA website, and ask for examples of similar cases. A straightforward investigator will explain their process, limitations, and realistic outcomes without overpromising.",
+            "Metro investigators typically charge 15–40% more than regional specialists, reflecting market concentration, specialization, and overhead. For simple work, a regional investigator may be sufficient. For legal support or complex corporate cases, the metro rate is usually worth it for quality and network access.",
         },
       ],
     },
   },
   "united-kingdom": {
     "greater-london": {
-      intro:
-        "London has a well-established private investigation market with a large number of agencies and independent investigators. The strongest firms tend to hold membership of professional bodies such as the Association of British Investigators (ABI) and are registered with the Information Commissioner's Office (ICO) for data protection compliance. Many investigators have backgrounds in law enforcement, military intelligence, or corporate security.",
-      commonServices:
-        "Common requests in London include Background Checks, Surveillance, Asset Searches, Matrimonial Investigations, and Corporate Due Diligence. Legal support work — including process serving, witness location, and evidence gathering for civil proceedings — is also widely available.",
-      hiringGuidance:
-        "Before hiring, ask whether the investigator is registered with the ICO and whether they hold professional indemnity insurance. A written contract is standard in London and any credible investigator will provide one before work begins. Membership of the ABI or a similar professional body is a useful indicator of professional standards.",
-      confidentiality:
-        "UK investigators are required to handle personal data in line with UK GDPR and the Data Protection Act 2018. Ask how case files, surveillance footage, and personal data will be stored, shared, and deleted after the case closes. ICO registration is a baseline requirement for any reputable London firm.",
+      stateOverview:
+        "London's investigation market is the UK's largest and most sophisticated, dominated by agencies with professional body memberships (ABI, PRIVA) and ICO registration. The market serves corporate, legal, and personal clients with distinct specializations by firm size and experience. Investigation standards are high, though the absence of mandatory licensing means quality varies more than in regulated jurisdictions. Outside central London, investigators operate through local networks or with regional partners.",
+      commonCasesInState:
+        "London dominates UK litigation support work — witness location, evidence gathering, and deposition preparation are major revenue streams. Background checks and corporate due diligence are consistent, driven by financial, legal, and business sectors. Matrimonial investigations and asset tracing are common personal client work. Workplace investigations for HR and compliance teams are a growing segment, particularly in financial services.",
+      coverageAndRegionalNotes:
+        "Central London (City, West End, South Bank) has the highest concentration of agencies. Greater London boroughs are served by central firms or local investigators, typically through partnerships. For cases requiring presence across multiple boroughs, confirm whether the investigator has direct staff, established local contacts, or will subcontract — costs and response times vary accordingly.",
+      stateVsCityGuide:
+        "For central London cases (law firms, financial institutions, corporate HQs), a west-end or city-based investigator with professional connections is usually necessary. For suburban or borough-specific work, a local investigator may be faster and more cost-effective. If you need multi-borough coverage, clarify whether the investigator operates independently or through a network.",
+      hiringAdvice:
+        "Verify ICO registration and ask about professional body membership (ABI, PRIVA, IPHA). For legal work, confirm understanding of UK law and evidence rules. Ask how personal data is handled under UK GDPR and the Data Protection Act 2018 — reputable investigators will have clear written processes. Request professional indemnity insurance details and references from similar past cases.",
+      relatedServices: [
+        {
+          name: "Litigation Support",
+          description: "Major London specialization; includes witness location, evidence prep, deposition support",
+        },
+        {
+          name: "Background Checks",
+          description: "High-volume service; regulated by ICO compliance and GDPR rules",
+        },
+        {
+          name: "Corporate Due Diligence",
+          description: "Strong service line for M&A, vendor verification, and business risk assessment",
+        },
+        {
+          name: "Asset Tracing",
+          description: "Specialized service often linked to litigation or financial investigation work",
+        },
+        {
+          name: "Workplace Investigations",
+          description: "Growing segment for HR compliance and employment law support",
+        },
+      ],
+      topCitiesInState: [
+        {
+          name: "Central London (City of London)",
+          description: "Financial and legal epicenter; agencies here handle high-value corporate and litigation work",
+        },
+        {
+          name: "Westminster",
+          description: "Government and law firm hub; strong litigation support and political/corporate investigation focus",
+        },
+        {
+          name: "Canary Wharf",
+          description: "Financial district; agencies serve banking, insurance, and corporate clients",
+        },
+        {
+          name: "South London (Brixton, Croydon)",
+          description: "Larger coverage area; mix of corporate and personal investigations with lower rates",
+        },
+      ],
       faq: [
         {
-          question: "What kinds of cases do London private investigators usually handle?",
+          question: "Is there a licensing body for London investigators?",
           answer:
-            "Background checks, surveillance, matrimonial matters, asset tracing, and corporate due diligence are all common. Legal support work — including process serving and evidence gathering for civil litigation — is also widely requested across the London market.",
+            "No mandatory license in England and Wales. However, reputable London investigators typically hold ICO registration (required for handling personal data) and membership in professional bodies like the Association of British Investigators (ABI), PRIVA, or IPHA. These are strong quality signals.",
         },
         {
-          question: "Do London investigators need to be licensed?",
+          question: "What does ICO registration mean for my investigation?",
           answer:
-            "There is currently no mandatory licensing regime for private investigators in England and Wales. However, reputable London investigators typically hold membership of professional bodies such as the ABI, and are registered with the ICO for data protection compliance.",
+            "ICO registration shows the investigator is registered to handle personal data under UK GDPR and Data Protection Act rules. Reputable London firms hold this. It's evidence they follow legal data handling practices — you can verify registration on the ICO website.",
         },
         {
-          question: "How are investigator fees structured in London?",
+          question: "How much should professional indemnity insurance cost?",
           answer:
-            "Most London investigators charge by the day or by the hour, with rates varying by case complexity and the seniority of the investigator assigned. For longer or multi-phase cases, a retainer arrangement is common. Always confirm the full billing scope in writing before work begins.",
+            "Most reputable London investigators carry professional indemnity insurance covering errors or omissions. This shouldn't directly cost you, but it's a sign of professional standards. Ask for proof of coverage — it shows they're serious about liability.",
         },
         {
-          question: "What data protection rules apply to London investigations?",
+          question: "What's the difference between a central London firm and a local investigator?",
           answer:
-            "UK investigators must comply with UK GDPR and the Data Protection Act 2018. Ask how the investigator handles personal data, how long they retain case records, and how evidence will be delivered and stored at the end of the engagement.",
+            "Central London firms (City, West End) have more infrastructure, broader networks, and higher rates — they're optimized for complex litigation and corporate work. Local investigators have lower overhead, may offer faster response for local cases, and typically charge less. The right choice depends on case complexity and location.",
         },
         {
-          question: "How do I assess whether a London investigator has relevant experience?",
+          question: "Can a London investigator work on cases across multiple UK cities?",
           answer:
-            "Ask directly about similar cases and what results they can realistically deliver. Membership of a professional body, ICO registration, and clear answers to practical questions about process and timeline are usually better indicators than broad claims of experience.",
+            "Yes, but clarify how. Most operate primarily in London and use partner networks for regional work. Confirm coverage, cost structure, and who actually performs the work in other locations before engaging.",
         },
       ],
     },
@@ -322,7 +468,7 @@ const STATE_SLUG_ALIASES: Record<string, Record<string, string>> = {
 export function getStateContent(
   countrySlug: string,
   stateSlug: string
-): CountryContent | undefined {
+): StateContent | undefined {
   const normalizedCountry = COUNTRY_SLUG_ALIASES[countrySlug] ?? countrySlug;
   const normalizedState =
     (STATE_SLUG_ALIASES[normalizedCountry] ?? {})[stateSlug] ?? stateSlug;

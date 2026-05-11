@@ -37,6 +37,12 @@ import {
 import { getPublishedCmsPageSeo, injectCmsPageSeoTags } from "./lib/cms-page-seo.js";
 import { storage } from "./storage.js";
 import { generateSlug } from "./storage.js";
+import {
+  buildCountryLevelPayload,
+  buildStateLevelPayload,
+  getPageLevel,
+  generateLocationIntelligenceScript,
+} from "./lib/location-intelligence-injection.js";
 
 const viteLogger = createLogger();
 const STATIC_CMS_SEO_SLUGS = new Set([
@@ -231,12 +237,66 @@ export async function setupVite(app: Express, server: Server) {
         hasMore: hasMore,
       };
 
+      // Helper to derive real lastUpdated from most recently updated detective
+      const getLastUpdatedFromDetectives = (): string | undefined => {
+        const mostRecentDetective = detectives.reduce<{ updatedAt?: string | null } | null>(
+          (latest, d) => {
+            if (!latest) return d as any;
+            const dTime = (d as any).updatedAt ? new Date((d as any).updatedAt).getTime() : 0;
+            const lTime = latest.updatedAt ? new Date(latest.updatedAt).getTime() : 0;
+            return dTime > lTime ? (d as any) : latest;
+          },
+          null
+        );
+        return mostRecentDetective?.updatedAt
+          ? new Date(mostRecentDetective.updatedAt).toISOString()
+          : undefined;
+      };
+
+      // Inject location intelligence (country or state level)
+      const pageLevel = getPageLevel({ state: params.state, city: params.city });
+      const isEmptyLocationPage = (locationSeoData.totalCount ?? detectives.length) === 0;
+
+      let locationIntelligenceScript = "";
+
+      if (!isEmptyLocationPage) {
+        if (pageLevel === "country") {
+          const countryLevelPayload = buildCountryLevelPayload(
+            params.country,
+            locationSeoData.location.country || params.country.replace(/-/g, " "),
+            locationSeoData.totalCount,
+            detectives as any
+          );
+          
+          if (countryLevelPayload) {
+            locationIntelligenceScript = generateLocationIntelligenceScript(countryLevelPayload, "dev");
+          }
+        } else if (pageLevel === "state") {
+          const stateLevelPayload = buildStateLevelPayload(
+            params.country,
+            params.state!,
+            locationSeoData.location.country || params.country.replace(/-/g, " "),
+            locationSeoData.location.state || params.state!.replace(/-/g, " "),
+            locationSeoData.totalCount,
+            detectives as any
+          );
+          
+          if (stateLevelPayload) {
+            locationIntelligenceScript = generateLocationIntelligenceScript(stateLevelPayload, "dev");
+          }
+        }
+      }
+
       const dataScript = `<script>
   window.__CITY_PAGE_DATA__ = ${JSON.stringify(cityPageData)};
 </script>`;
 
-      transformedHtml = transformedHtml.replace('</head>', `${dataScript}</head>`);
+      let scriptInjection = `${locationIntelligenceScript}\n${dataScript}`;
+      transformedHtml = transformedHtml.replace('</head>', `${scriptInjection}</head>`);
       console.log(`[DEV-SEO] Injected city page data for ${detectives.length} detectives into window.__CITY_PAGE_DATA__`);
+      if (locationIntelligenceScript) {
+        console.log(`[DEV-SEO] Injected location intelligence (${pageLevel} level) for ${params.country}${params.state ? "/" + params.state : ""}`);
+      }
 
       const listingFragment = buildDetectiveListingSsrFragment({
         countrySlug: params.country,
