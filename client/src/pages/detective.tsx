@@ -13,7 +13,6 @@ import { useToast } from "@/hooks/use-toast";
 import { SEO } from "@/components/seo";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { generateCompleteDetectiveSchema } from "@/lib/structured-data";
 import { DetectiveBadges } from "@/components/detectives/DetectiveBadges";
 import {
   buildDetectiveSeoContext,
@@ -290,18 +289,15 @@ export default function DetectivePublicPage() {
     : seoOverride?.meta_description?.trim() || fallbackDescription;
   // h1Text is now inlined where needed
 
-  // SEO: Generate comprehensive JSON-LD schemas
-  // Includes LocalBusiness, AggregateRating, BreadcrumbList, and Speakable for AI/voice assistants
-  const detectiveSchemas = detective ? generateCompleteDetectiveSchema(
-    detective,
-    detectiveServices as any[],
-    [],
-    breadcrumbs,
-    canonicalUrl,
-    countrySlug,
-    stateSlug,
-    citySlug
-  ) : undefined;
+  // SEO: Client owns SpeakableSpecification; SSR owns LocalBusiness, BreadcrumbList, WebPage, AggregateRating.
+  // Only pass client-side schemas here — the SSR authority marker suppresses everything else.
+  const detectiveSchemas = detective
+    ? [{
+        "@context": "https://schema.org",
+        "@type": "SpeakableSpecification",
+        "cssSelector": [".detective-bio", ".detective-about", ".detective-summary"]
+      }]
+    : undefined;
 
   const badgeState = resolveDetectiveBadgeState(detective as any);
   const averageServiceRating = resolveAverageServiceRating(detectiveServices as any[]);

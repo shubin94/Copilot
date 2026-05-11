@@ -190,11 +190,24 @@ export function SEO({
     const effectiveRobots = preserveSsrNoindex ? (existingRobotsRaw || 'noindex, follow') : robots;
     const isIndexable = !effectiveRobots.toLowerCase().includes('noindex');
 
-    if (!ssrSchemaIsAuthoritative && schema) {
+    if (schema) {
       // Handle both single object and array of objects
       const schemas = Array.isArray(schema) ? schema : [schema];
 
       schemas.forEach(schemaItem => {
+        // SpeakableSpecification is always client-owned; inject regardless of SSR authority
+        const schemaType = schemaItem?.["@type"];
+        const isSpeakable =
+          schemaType === "SpeakableSpecification" ||
+          (Array.isArray(schemaType) && schemaType.includes("SpeakableSpecification"));
+        if (isSpeakable) {
+          allSchemas.push(schemaItem);
+          return;
+        }
+
+        // All other schemas are deferred to SSR when it is authoritative
+        if (ssrSchemaIsAuthoritative) return;
+
         // Enhance service schema with additional data
         if (structuredData?.service) {
           const enhanced = {

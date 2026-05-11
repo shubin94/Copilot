@@ -29,9 +29,14 @@ import {
   resolveLocationIds,
   getServiceLocationSeo,
   generateServiceLocationSeo,
+  buildDetectiveListingSsrFragment,
+  buildServiceLocationSsrFragment,
+  buildDetectiveProfileSsrFragment,
+  stripHiddenSeoH1,
 } from "./lib/seo-injection.js";
 import { getPublishedCmsPageSeo, injectCmsPageSeoTags } from "./lib/cms-page-seo.js";
 import { storage } from "./storage.js";
+import { generateSlug } from "./storage.js";
 
 const viteLogger = createLogger();
 const STATIC_CMS_SEO_SLUGS = new Set([
@@ -43,6 +48,41 @@ const STATIC_CMS_SEO_SLUGS = new Set([
   "packages",
   "categories",
 ]);
+
+function injectFragmentBeforeRoot(html: string, fragmentHtml: string): string {
+  const markedFragmentHtml = /data-ssr-fragment\s*=/.test(fragmentHtml)
+    ? fragmentHtml
+    : `<section data-ssr-fragment="generic">${fragmentHtml}</section>`;
+
+  const rootMarker = '<div id="root"><!--app-html--></div>';
+  if (html.includes(rootMarker)) {
+    return html.replace(rootMarker, `${markedFragmentHtml}\n${rootMarker}`);
+  }
+
+  return html.replace("<body>", `<body>\n${markedFragmentHtml}`);
+}
+
+async function resolveCanonicalCategorySlugDev(requestedSlug: string): Promise<string | null> {
+  const normalizedRequested = generateSlug(requestedSlug || "");
+  if (!normalizedRequested) return null;
+
+  const categories = await storage.getAllServiceCategories(false);
+  for (const category of categories) {
+    const canonicalSlug = generateSlug(category.name);
+    const variants = new Set([
+      canonicalSlug,
+      `${canonicalSlug}s`,
+      generateSlug(category.name.replace(/&/g, "and")),
+      generateSlug(category.name.replace(/and/gi, "&")),
+    ]);
+
+    if (variants.has(normalizedRequested)) {
+      return canonicalSlug;
+    }
+  }
+
+  return null;
+}
 
 function serveDev404Page(res: Response, title: string, message: string): void {
   const html = `<!DOCTYPE html>
@@ -198,6 +238,38 @@ export async function setupVite(app: Express, server: Server) {
       transformedHtml = transformedHtml.replace('</head>', `${dataScript}</head>`);
       console.log(`[DEV-SEO] Injected city page data for ${detectives.length} detectives into window.__CITY_PAGE_DATA__`);
 
+      const listingFragment = buildDetectiveListingSsrFragment({
+        countrySlug: params.country,
+        stateSlug: params.state,
+        citySlug: params.city,
+        location: {
+          country: locationSeoData.location.country,
+          state: locationSeoData.location.state,
+          city: locationSeoData.location.city,
+        },
+        h1: locationSeoData.location.city
+          ? `Best Private Detectives in ${locationSeoData.location.city}, ${locationSeoData.location.state}, ${locationSeoData.location.country}`
+          : locationSeoData.location.state
+          ? `Best Private Detectives in ${locationSeoData.location.state}, ${locationSeoData.location.country}`
+          : `Best Private Detectives in ${locationSeoData.location.country}`,
+        totalCount: locationSeoData.totalCount,
+        detectives: detectives.map((detective) => ({
+          businessName: detective.businessName ?? null,
+          slug: detective.slug ?? null,
+          city: detective.city || "",
+          state: detective.state || "",
+          country: detective.country,
+          bio: detective.bio ?? null,
+          primaryService: detective.level ? `Level ${detective.level}` : null,
+          avgRating: detective.avgRating,
+          reviewCount: detective.reviewCount,
+          isVerified: detective.isVerified,
+        })),
+      });
+
+      transformedHtml = stripHiddenSeoH1(transformedHtml);
+      transformedHtml = injectFragmentBeforeRoot(transformedHtml, listingFragment);
+
       // CHECK IF CITY LEVEL: Inject detective → service authority link for city-level pages only
       const pathSegments = requestPath.replace(/\/+$/, '').split('/').filter(s => s);
       if (pathSegments.length === 4) { // /detectives/:country/:state/:city
@@ -309,6 +381,25 @@ export async function setupVite(app: Express, server: Server) {
       let page = await vite.transformIndexHtml(req.originalUrl, template);
       page = injectSeoTags(page, detective, canonicalUrl);
       console.log(`[DEV-SEO] Successfully injected meta tags for detective: ${detective.businessName || 'Unknown'}`);
+
+      const detectiveServices = await storage.getServicesByDetective(detective.id);
+      const profileFragment = buildDetectiveProfileSsrFragment({
+        canonicalUrl,
+        detective,
+        services: detectiveServices
+          .filter((service) => service.isActive)
+          .slice(0, 8)
+          .map((service) => ({
+            title: service.title,
+            category: service.category,
+            description: service.description,
+            isOnEnquiry: service.isOnEnquiry,
+            basePrice: service.basePrice != null ? Number(service.basePrice) : null,
+            offerPrice: service.offerPrice != null ? Number(service.offerPrice) : null,
+          })),
+      });
+      page = stripHiddenSeoH1(page);
+      page = injectFragmentBeforeRoot(page, profileFragment);
 
       res.setHeader("Cache-Control", "no-store");
       res.set({ "Content-Type": "text/html" }).end(page);
@@ -495,8 +586,15 @@ export async function setupVite(app: Express, server: Server) {
         );
       }
 
+      const canonicalCategorySlug = await resolveCanonicalCategorySlugDev(params.categorySlug);
+      if (!canonicalCategorySlug) {
+        return res.status(404).set({ "Content-Type": "text/html" }).send(
+          "<html><head><title>Service Not Found</title></head><body><h1>404 - Service category not found</h1></body></html>"
+        );
+      }
+
       const serviceResults = await storage.searchServices(
-        { categorySlug: params.categorySlug },
+        { categorySlug: canonicalCategorySlug },
         50, 0, "popular", false,
         {
           countryId: location.countryId,
@@ -522,9 +620,9 @@ export async function setupVite(app: Express, server: Server) {
 
       let seoValues;
       try {
-        seoValues = await getServiceLocationSeo(params.categorySlug, params.countrySlug, params.stateSlug || '', params.citySlug || '');
+        seoValues = await getServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.stateSlug || '', params.citySlug || '');
       } catch (e) {
-        seoValues = generateServiceLocationSeo(params.categorySlug, params.countrySlug, params.citySlug || '', undefined, params.stateSlug || '');
+        seoValues = generateServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.citySlug || '', undefined, params.stateSlug || '');
       }
 
       let page = await vite.transformIndexHtml(req.originalUrl, template);
@@ -533,6 +631,83 @@ export async function setupVite(app: Express, server: Server) {
         h1: seoValues.h1,
         meta_description: seoValues.meta_description,
       }, canonicalUrl);
+
+      const resolvedCategoryName = serviceResults[0]?.category || canonicalCategorySlug.replace(/-/g, " ");
+      const serviceSeedPayload = {
+        meta: {
+          country: location.countryName,
+          countryCode: location.countryCode,
+          state: location.stateName || null,
+          city: location.cityName || null,
+          category: resolvedCategoryName,
+          categorySlug: canonicalCategorySlug,
+          countrySlug: params.countrySlug,
+          stateSlug: params.stateSlug || null,
+          citySlug: params.citySlug || null,
+          total: serviceResults.length,
+          hasMore: serviceResults.length === 50,
+          offset: 0,
+          found: true,
+          seo: {
+            h1: seoValues.h1,
+            meta_title: seoValues.meta_title,
+            meta_description: seoValues.meta_description,
+          },
+        },
+        services: serviceResults,
+        pagination: {
+          limit: 50,
+          offset: 0,
+          nextOffset: serviceResults.length === 50 ? serviceResults.length : null,
+          prevOffset: null,
+        },
+      };
+
+      const seoSeedPayload = {
+        title: seoValues.meta_title,
+        description: seoValues.meta_description,
+        h1: seoValues.h1,
+      };
+
+      const serviceSeedScript = `<script>\nwindow.__SERVICE_LOCATION_DATA__ = ${JSON.stringify(serviceSeedPayload)};\nwindow.__SERVICE_LOCATION_SEO_DATA__ = ${JSON.stringify(seoSeedPayload)};\n</script>`;
+      page = page.replace("</head>", `${serviceSeedScript}\n</head>`);
+
+      const serviceFragment = buildServiceLocationSsrFragment({
+        categoryName: resolvedCategoryName,
+        categorySlug: canonicalCategorySlug,
+        countrySlug: params.countrySlug,
+        stateSlug: params.stateSlug,
+        citySlug: params.citySlug,
+        location: {
+          country: location.countryName,
+          state: location.stateName,
+          city: location.cityName,
+        },
+        h1: seoValues.h1,
+        totalCount: serviceResults.length,
+        services: serviceResults.slice(0, 12).map((service: any) => ({
+          id: service.id,
+          title: service.title,
+          slug: service.slug,
+          detectiveBusinessName: service.detective?.businessName,
+          detectiveSlug: service.detective?.slug,
+          detectiveCountry: service.detective?.country,
+          detectiveState: service.detective?.state,
+          detectiveCity: service.detective?.city,
+          avgRating: service.avgRating,
+          reviewCount: service.reviewCount,
+          badgeState: service.detective?.effectiveBadges
+            ? {
+                showBlueTick: Boolean(service.detective.effectiveBadges.blueTick),
+                showPro: Boolean(service.detective.effectiveBadges.pro),
+                showRecommended: Boolean(service.detective.effectiveBadges.recommended),
+              }
+            : undefined,
+        })),
+      });
+
+      page = stripHiddenSeoH1(page);
+      page = injectFragmentBeforeRoot(page, serviceFragment);
 
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).set({ "Content-Type": "text/html; charset=utf-8" }).end(page);

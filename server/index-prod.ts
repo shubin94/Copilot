@@ -29,6 +29,7 @@ import {
   getServiceLocationSeo,
   generateServiceLocationSeo,
   buildDetectiveListingSsrFragment,
+  buildDetectiveProfileSsrFragment,
   buildServiceLocationSsrFragment,
   buildArticleSsrFragment,
   buildCmsPageSsrFragment,
@@ -849,7 +850,14 @@ export async function serveStatic(app: Express, _server: Server) {
         location: cityPagePayload.location,
         h1: seoValues.h1,
         totalCount: locationSeoData.totalCount,
-        detectives,
+        detectives: detectives.map((detective) => ({
+          ...detective,
+          primaryService: detective.effectiveBadges?.pro
+            ? "Professional investigations"
+            : detective.effectiveBadges?.recommended
+            ? "Recommended investigations"
+            : null,
+        })),
       });
 
       seoHtml = stripHiddenSeoH1(seoHtml);
@@ -953,7 +961,28 @@ export async function serveStatic(app: Express, _server: Server) {
       }
 
       // Use detective-specific SEO (respects seoOverride from location_seo_overrides)
-      const seoHtml = injectSeoTags(await readIndexHtml(), detective, canonicalUrl);
+      let seoHtml = injectSeoTags(await readIndexHtml(), detective, canonicalUrl);
+
+      const detectiveServices = await storage.getServicesByDetective(detective.id);
+      const profileFragmentHtml = buildDetectiveProfileSsrFragment({
+        canonicalUrl,
+        detective,
+        services: detectiveServices
+          .filter((service) => service.isActive)
+          .slice(0, 8)
+          .map((service) => ({
+            title: service.title,
+            category: service.category,
+            description: service.description,
+            isOnEnquiry: service.isOnEnquiry,
+            basePrice: service.basePrice != null ? Number(service.basePrice) : null,
+            offerPrice: service.offerPrice != null ? Number(service.offerPrice) : null,
+          })),
+      });
+
+      seoHtml = stripHiddenSeoH1(seoHtml);
+      seoHtml = injectFragmentBeforeRoot(seoHtml, profileFragmentHtml);
+
       return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400");
 
     } catch (error) {
@@ -1135,9 +1164,22 @@ export async function serveStatic(app: Express, _server: Server) {
       // Fetch SEO values
       let seoValues;
       try {
-        seoValues = await getServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.stateSlug || '', params.citySlug || '', serviceCards.length);
+        seoValues = await getServiceLocationSeo(
+          canonicalCategorySlug,
+          params.countrySlug,
+          params.stateSlug || '',
+          params.citySlug || '',
+          serviceResults.length,
+        );
       } catch (e) {
-        seoValues = generateServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.citySlug || '', undefined, params.stateSlug || '', serviceCards.length);
+        seoValues = generateServiceLocationSeo(
+          canonicalCategorySlug,
+          params.countrySlug,
+          params.citySlug || '',
+          undefined,
+          params.stateSlug || '',
+          serviceResults.length,
+        );
       }
       let seoHtml = injectServiceSeoTags(await readIndexHtml(), {
         title: seoValues.meta_title,

@@ -221,6 +221,32 @@ export default function DetectiveProfile() {
     }
   }, [existingUserReview?.id]);
 
+  // IMPORTANT: Move hooks before early returns to satisfy React hooks rules
+  // This useMemo will be used only if we pass all early returns, but must be declared here
+  const lastUpdatedIso = useMemo(() => {
+    if (!serviceData?.service || !serviceData?.detective) return null;
+    
+    const service = serviceData.service;
+    const detective = serviceData.detective;
+    
+    const toEpoch = (value: unknown): number => {
+      if (!value) return Number.NaN;
+      const epoch = new Date(String(value)).getTime();
+      return Number.isNaN(epoch) ? Number.NaN : epoch;
+    };
+
+    const epochs = [
+      toEpoch((service as any)?.updatedAt || (service as any)?.updated_at || (service as any)?.createdAt || (service as any)?.created_at),
+      toEpoch((detective as any)?.updatedAt || (detective as any)?.updated_at || (detective as any)?.createdAt || (detective as any)?.created_at),
+    ].filter((epoch) => Number.isFinite(epoch));
+
+    if (epochs.length === 0) {
+      return null;
+    }
+
+    return new Date(Math.max(...epochs)).toISOString();
+  }, [serviceData?.service, serviceData?.detective]);
+
   // Loading state
   if (isLoadingService) {
     return (
@@ -325,24 +351,6 @@ export default function DetectiveProfile() {
     : false;
   const detectiveName = detective.businessName || "Unknown Detective";
   const badgeState = resolveDetectiveBadgeState(detective);
-  const lastUpdatedIso = useMemo(() => {
-    const toEpoch = (value: unknown): number => {
-      if (!value) return Number.NaN;
-      const epoch = new Date(String(value)).getTime();
-      return Number.isNaN(epoch) ? Number.NaN : epoch;
-    };
-
-    const epochs = [
-      toEpoch((service as any)?.updatedAt || (service as any)?.updated_at || (service as any)?.createdAt || (service as any)?.created_at),
-      toEpoch((detective as any)?.updatedAt || (detective as any)?.updated_at || (detective as any)?.createdAt || (detective as any)?.created_at),
-    ].filter((epoch) => Number.isFinite(epoch));
-
-    if (epochs.length === 0) {
-      return null;
-    }
-
-    return new Date(Math.max(...epochs)).toISOString();
-  }, [detective, service]);
 
   const memberSince = monthYearFormatter.format(new Date(detective.memberSince));
 
