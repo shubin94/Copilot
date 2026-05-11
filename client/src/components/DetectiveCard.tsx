@@ -75,6 +75,12 @@ interface DetectiveCardProps {
 export function DetectiveCard({ detective, variant = "city", isPriority = false }: DetectiveCardProps) {
   const detectiveUrl = getDetectiveProfileUrl(detective);
 
+  const detectiveLogoAlt = detective.businessName
+    ? detective.city || detective.state
+      ? `${detective.businessName} – Private Investigator in ${[detective.city, detective.state].filter(Boolean).join(", ")}`
+      : `${detective.businessName} – Private Investigator`
+    : "Private Investigator Profile – AskDetectives";
+
   const initials = detective.businessName
     ? detective.businessName
         .split(" ")
@@ -128,7 +134,7 @@ export function DetectiveCard({ detective, variant = "city", isPriority = false 
           <div className="flex gap-3 items-start">
             <div className="h-14 w-14 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
               {detective.logo ? (
-                <img src={detective.logo} alt="Detective logo" width={56} height={56} loading="lazy" decoding="async" className="h-14 w-14 object-cover" />
+                <img src={detective.logo} alt={detectiveLogoAlt} width={56} height={56} loading="lazy" decoding="async" className="h-14 w-14 object-cover" />
               ) : (
                 <div className="h-10 w-10 rounded-full bg-gray-200" />
               )}
@@ -151,7 +157,7 @@ export function DetectiveCard({ detective, variant = "city", isPriority = false 
         <div className="flex gap-4 mb-4">
           <img
             src={detective.logo || "/placeholder-avatar.png"}
-            alt="Detective logo"
+            alt={detectiveLogoAlt}
             width={64}
             height={64}
             loading="lazy"
@@ -200,7 +206,7 @@ export function DetectiveCard({ detective, variant = "city", isPriority = false 
           {detective.logo ? (
             <img
               src={detective.logo}
-              alt="Detective logo"
+              alt={detectiveLogoAlt}
               width={80}
               height={80}
               loading={isPriority ? "eager" : "lazy"}

@@ -18,7 +18,6 @@ export function generateDetectiveSeo(
   city?: string,
   detectiveCount?: number,
 ): { h1: string; meta_title: string; meta_description: string } {
-  const year         = new Date().getFullYear();
   const cityName     = city  ? toTitleFromSlug(city)  : undefined;
   const stateName    = state ? toTitleFromSlug(state) : undefined;
   const countryName  = toTitleFromSlug(country);
@@ -27,32 +26,30 @@ export function generateDetectiveSeo(
 
   if (cityName && stateName) {
     // City-level: /detectives/{country}/{state}/{city}/
-    const longTitle  = `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${year})`;
-    const shortTitle = `Best Private Detectives in ${cityName}, ${stateName} (${year})`;
     return {
       h1:               `Best Private Detectives in ${cityName}, ${stateName}, ${countryName}`,
-      meta_title:       longTitle.length <= 65 ? longTitle : shortTitle,
+      meta_title:       `Best Private Detectives in ${cityName}, ${stateName}`,
       meta_description: `Connect with ${countText}verified private investigators in ${cityName}, ${stateName}. Specialized in surveillance, matrimonial & corporate cases. Trusted, licensed, and confidential. Compare profiles and reviews on AskDetectives.`,
     };
   } else if (cityName) {
     // City-level without state (country has no state layer)
     return {
       h1:               `Best Private Detectives in ${cityName}, ${countryName}`,
-      meta_title:       `Top 10 Best Private Detectives in ${cityName} (${year})`,
+      meta_title:       `Best Private Detectives in ${cityName}`,
       meta_description: `Connect with ${countText}verified private investigators in ${cityName}, ${countryName}. Specialized in all types of investigation cases. Trusted, licensed, and confidential. Compare profiles and reviews on AskDetectives.`,
     };
   } else if (stateName) {
     // State-level: /detectives/{country}/{state}/
     return {
       h1:               `Best Private Detectives in ${stateName}, ${countryName}`,
-      meta_title:       `Top Private Detectives in ${stateName}, ${countryName} (${year})`,
+      meta_title:       `Best Private Detectives in ${stateName}`,
       meta_description: `Connect with ${countText}verified private investigators in ${stateName}, ${countryName}. Specialized in all types of investigation cases. Trusted, licensed, and confidential. Compare profiles and reviews on AskDetectives.`,
     };
   } else {
     // Country-level: /detectives/{country}/
     return {
       h1:               `Best Private Detectives in ${countryName}`,
-      meta_title:       `Top Private Detectives in ${countryName} (${year})`,
+      meta_title:       `Best Private Detectives in ${countryName}`,
       meta_description: `Connect with ${countText}verified private investigators in ${countryName}. Specialized in all types of investigation cases. Trusted, licensed, and confidential. Compare profiles and reviews on AskDetectives.`,
     };
   }
@@ -1379,15 +1376,18 @@ export function generateWebPageSchema(
   canonicalUrl: string,
   options?: {
     dateModified?: string | Date;
+    datePublished?: string | Date;
     mainEntity?: Record<string, any>;
   }
 ): string {
-  const modifiedCandidate = options?.dateModified
-    ? new Date(options.dateModified)
-    : new Date();
-  const dateModified = Number.isNaN(modifiedCandidate.getTime())
-    ? new Date().toISOString()
-    : modifiedCandidate.toISOString();
+  const toIsoOrNull = (value?: string | Date): string | null => {
+    if (!value) return null;
+    const candidate = new Date(value);
+    return Number.isNaN(candidate.getTime()) ? null : candidate.toISOString();
+  };
+
+  const dateModified = toIsoOrNull(options?.dateModified);
+  const datePublished = toIsoOrNull(options?.datePublished);
 
   const schema: Record<string, any> = {
     "@context": "https://schema.org",
@@ -1403,8 +1403,15 @@ export function generateWebPageSchema(
       "name": "Ask Detectives",
     },
     "inLanguage": "en-US",
-    "dateModified": dateModified,
   };
+
+  if (dateModified) {
+    schema.dateModified = dateModified;
+  }
+
+  if (datePublished) {
+    schema.datePublished = datePublished;
+  }
 
   if (type === 'ProfilePage' && options?.mainEntity) {
     schema.mainEntity = options.mainEntity;
@@ -1467,8 +1474,9 @@ export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl:
   const detectiveDesc = detective?.seoOverride?.metaDescription?.trim()
     || detective.bio?.substring(0, 160)
     || `Professional private investigator services${detective.city ? ` in ${detective.city}` : ''}`;
+  const profileDateModified = detective.updatedAt || detective.updated_at || detective.createdAt || detective.created_at || null;
   const webPageSchema = generateWebPageSchema('ProfilePage', detectiveTitle, detectiveDesc, canonicalUrl, {
-    dateModified: detective.updatedAt || detective.createdAt,
+    dateModified: profileDateModified || undefined,
     mainEntity: {
       "@id": `${canonicalUrl}#localbusiness`,
     },
@@ -1497,6 +1505,7 @@ export function injectSeoTags(htmlContent: string, detective: any, canonicalUrl:
         description: ${JSON.stringify(detective?.seoOverride?.metaDescription || "")},
         h1: ${JSON.stringify(detective?.seoOverride?.h1 || "")},
         detectiveId: ${JSON.stringify(detective?.id || null)},
+        profileLastModified: ${JSON.stringify(profileDateModified)},
         routePath: ${JSON.stringify(routePath)},
         authoritative: true
       };
@@ -2614,6 +2623,22 @@ export function generateRichLocationFaqSchema(
     })),
   }, null, 2);
 }
+
+function getLocationFaqEntries(
+  locationName: string,
+  locationType: 'city' | 'state' | 'country',
+  detectiveCount: number
+): Array<{ question: string; answer: string }> {
+  const schema = JSON.parse(generateRichLocationFaqSchema(locationName, locationType, detectiveCount));
+  const entities = Array.isArray(schema?.mainEntity) ? schema.mainEntity : [];
+  return entities
+    .map((entry: any) => ({
+      question: String(entry?.name || "").trim(),
+      answer: String(entry?.acceptedAnswer?.text || "").trim(),
+    }))
+    .filter((faq: { question: string; answer: string }) => faq.question.length > 0 && faq.answer.length > 0)
+    .slice(0, 5);
+}
 export async function injectLocationSeoTags(
   htmlContent: string,
   location: { country: string; state?: string; city?: string },
@@ -2658,20 +2683,52 @@ export async function injectLocationSeoTags(
     detectives,
     canonicalUrl
   );
-  const locationWebPageSchema = generateWebPageSchema('CollectionPage', seoData.title, seoData.description, canonicalUrl);
+  const toEpoch = (value: unknown): number => {
+    if (!value) return Number.NaN;
+    const epoch = new Date(String(value)).getTime();
+    return Number.isNaN(epoch) ? Number.NaN : epoch;
+  };
+  const detectiveModifiedEpochs = detectives
+    .map((d: any) => toEpoch(d?.updatedAt || d?.updated_at || d?.createdAt || d?.created_at))
+    .filter((epoch) => Number.isFinite(epoch));
+  const locationLastModified = detectiveModifiedEpochs.length > 0
+    ? new Date(Math.max(...detectiveModifiedEpochs)).toISOString()
+    : null;
+  const locationWebPageSchema = generateWebPageSchema('CollectionPage', seoData.title, seoData.description, canonicalUrl, {
+    dateModified: locationLastModified || undefined,
+  });
   const locationType = location.city ? 'city' : location.state ? 'state' : 'country';
   const locationDisplayName = seoData.h1.replace(/^(Top |Best )?(Private Detectives? in |Detectives? in )/i, '').trim() || location.city || location.state || location.country;
-  const faqSchema = generateRichLocationFaqSchema(locationDisplayName, locationType, totalCount);
+  const locationFaqs = getLocationFaqEntries(locationDisplayName, locationType, totalCount);
+  const canEmitFaqSchema = locationFaqs.length >= 3 && totalCount > 0;
+  const faqSchema = canEmitFaqSchema
+    ? JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": locationFaqs.map((faq) => ({
+          "@type": "Question",
+          "name": faq.question,
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": faq.answer,
+          },
+        })),
+      }, null, 2)
+    : "";
   const jsonLdScripts = [
+    `<meta name="askdetectives:ssr-schema" content="authoritative" data-ssr-schema-owner="phase1" />`,
     `<script type="application/ld+json">\n      ${jsonLd.itemList}\n    </script>`,
     `<script type="application/ld+json">\n      ${jsonLd.breadcrumbs}\n    </script>`,
     `<script type="application/ld+json">\n      ${locationWebPageSchema}\n    </script>`,
-    `<script type="application/ld+json">\n      ${faqSchema}\n    </script>`,
+    ...(canEmitFaqSchema ? [`<script type="application/ld+json">\n      ${faqSchema}\n    </script>`] : []),
   ].join('\n    ');
   modified = modified.replace(
     /<!-- SEO_JSON_LD_INJECTION_POINT -->/,
     `<!-- SEO_JSON_LD_INJECTION_POINT -->\n    ${jsonLdScripts}`
   );
+
+  const faqSeedScript = `<script>\n      window.__LOCATION_FAQS__ = ${JSON.stringify(locationFaqs)};\n    </script>`;
+  const freshnessSeedScript = `<script>\n      window.__LOCATION_LAST_MODIFIED__ = ${JSON.stringify(locationLastModified)};\n    </script>`;
 
   // STEP 3: Inject SEO data as window.__SEO_DATA__ for React to consume
   // Includes title, description, and H1 from database overrides or system-generated values
@@ -2685,7 +2742,7 @@ export async function injectLocationSeoTags(
       };
     </script>`;
   
-  modified = modified.replace('</head>', `${seoDataScript}\n  </head>`);
+  modified = modified.replace('</head>', `${seoDataScript}\n  ${faqSeedScript}\n  ${freshnessSeedScript}\n  </head>`);
 
   return modified;
 }
@@ -3256,6 +3313,22 @@ function generateServiceLocationFaqSchema(
   }, null, 2);
 }
 
+function getServiceLocationFaqEntries(
+  locationName: string,
+  categoryName: string,
+  serviceCount: number
+): Array<{ question: string; answer: string }> {
+  const schema = JSON.parse(generateServiceLocationFaqSchema(locationName, categoryName, serviceCount));
+  const entities = Array.isArray(schema?.mainEntity) ? schema.mainEntity : [];
+  return entities
+    .map((entry: any) => ({
+      question: String(entry?.name || "").trim(),
+      answer: String(entry?.acceptedAnswer?.text || "").trim(),
+    }))
+    .filter((faq: { question: string; answer: string }) => faq.question.length > 0 && faq.answer.length > 0)
+    .slice(0, 5);
+}
+
 /**
  * Injects service location SEO tags into HTML template
  */
@@ -3326,18 +3399,51 @@ export async function injectServiceLocationSeoTags(
     : location.stateName || location.countryName;
   const serviceTitle = `${categoryName} in ${locationDisplay} | Verified Detectives`;
   const serviceDesc = `Compare ${services.length} verified ${categoryName.toLowerCase()} providers in ${locationDisplay}.`;
-  const serviceWebPageSchema = generateWebPageSchema('CollectionPage', serviceTitle, serviceDesc, canonicalUrl);
-  const serviceFaqSchema = generateServiceLocationFaqSchema(locationDisplay, categoryName, services.length);
+  const toEpoch = (value: unknown): number => {
+    if (!value) return Number.NaN;
+    const epoch = new Date(String(value)).getTime();
+    return Number.isNaN(epoch) ? Number.NaN : epoch;
+  };
+  const serviceModifiedEpochs = services
+    .map((s: any) => toEpoch(s?.updatedAt || s?.updated_at || s?.createdAt || s?.created_at))
+    .filter((epoch) => Number.isFinite(epoch));
+  const serviceLastModified = serviceModifiedEpochs.length > 0
+    ? new Date(Math.max(...serviceModifiedEpochs)).toISOString()
+    : null;
+  const serviceWebPageSchema = generateWebPageSchema('CollectionPage', serviceTitle, serviceDesc, canonicalUrl, {
+    dateModified: serviceLastModified || undefined,
+  });
+  const serviceFaqs = getServiceLocationFaqEntries(locationDisplay, categoryName, services.length);
+  const canEmitFaqSchema = serviceFaqs.length >= 3 && services.length > 0;
+  const serviceFaqSchema = canEmitFaqSchema
+    ? JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": serviceFaqs.map((faq) => ({
+          "@type": "Question",
+          "name": faq.question,
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": faq.answer,
+          },
+        })),
+      }, null, 2)
+    : "";
   const jsonLdScripts = [
+    `<meta name="askdetectives:ssr-schema" content="authoritative" data-ssr-schema-owner="phase1" />`,
     `<script type="application/ld+json">\n      ${jsonLd.itemList}\n    </script>`,
     `<script type="application/ld+json">\n      ${jsonLd.breadcrumbs}\n    </script>`,
     `<script type="application/ld+json">\n      ${serviceWebPageSchema}\n    </script>`,
-    `<script type="application/ld+json">\n      ${serviceFaqSchema}\n    </script>`,
+    ...(canEmitFaqSchema ? [`<script type="application/ld+json">\n      ${serviceFaqSchema}\n    </script>`] : []),
   ].join('\n    ');
   modified = modified.replace(
     /<!-- SEO_JSON_LD_INJECTION_POINT -->/,
     `<!-- SEO_JSON_LD_INJECTION_POINT -->\n    ${jsonLdScripts}`
   );
+
+  const faqSeedScript = `<script>\n      window.__SERVICE_LOCATION_FAQS__ = ${JSON.stringify(serviceFaqs)};\n    </script>`;
+  const freshnessSeedScript = `<script>\n      window.__SERVICE_LOCATION_LAST_MODIFIED__ = ${JSON.stringify(serviceLastModified)};\n    </script>`;
+  modified = modified.replace('</head>', `${faqSeedScript}\n  ${freshnessSeedScript}\n  </head>`);
 
   return modified;
 }

@@ -42,6 +42,13 @@ const reviewDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
+const trustDateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 export default function DetectiveProfile() {
   const [locationPath] = useLocation();
   const [, params] = useRoute("/service/:country/:state/:city/:detectiveSlug/:serviceSlug");
@@ -318,6 +325,24 @@ export default function DetectiveProfile() {
     : false;
   const detectiveName = detective.businessName || "Unknown Detective";
   const badgeState = resolveDetectiveBadgeState(detective);
+  const lastUpdatedIso = useMemo(() => {
+    const toEpoch = (value: unknown): number => {
+      if (!value) return Number.NaN;
+      const epoch = new Date(String(value)).getTime();
+      return Number.isNaN(epoch) ? Number.NaN : epoch;
+    };
+
+    const epochs = [
+      toEpoch((service as any)?.updatedAt || (service as any)?.updated_at || (service as any)?.createdAt || (service as any)?.created_at),
+      toEpoch((detective as any)?.updatedAt || (detective as any)?.updated_at || (detective as any)?.createdAt || (detective as any)?.created_at),
+    ].filter((epoch) => Number.isFinite(epoch));
+
+    if (epochs.length === 0) {
+      return null;
+    }
+
+    return new Date(Math.max(...epochs)).toISOString();
+  }, [detective, service]);
 
   const memberSince = monthYearFormatter.format(new Date(detective.memberSince));
 
@@ -721,6 +746,19 @@ export default function DetectiveProfile() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <div className="font-semibold text-slate-900">Editorial trust note</div>
+                <p className="mt-1 leading-relaxed">
+                  This page is periodically reviewed for profile completeness, recent business activity,
+                  and publicly available professional information relevant to investigative services.
+                </p>
+                {lastUpdatedIso && (
+                  <p className="mt-2 text-xs text-slate-600">
+                    Last updated: {trustDateFormatter.format(new Date(lastUpdatedIso))}
+                  </p>
+                )}
               </div>
 
               {isClaimable && (

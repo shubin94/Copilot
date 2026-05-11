@@ -8,13 +8,14 @@ interface ServiceCardGridProps {
   services: ServiceCardGridItem[] | any[];
   isLoading: boolean;
   emptyMessage: string;
+  priorityCount?: number;
 }
 
 const SERVICE_CARD_SKELETON_ITEMS = [1, 2, 3, 4, 5, 6];
 
 const renderServiceCardSkeleton = (item: number) => <ServiceCardSkeleton key={item} />;
 
-export function ServiceCardGrid({ services, isLoading, emptyMessage }: ServiceCardGridProps) {
+export function ServiceCardGrid({ services, isLoading, emptyMessage, priorityCount = 1 }: ServiceCardGridProps) {
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -33,8 +34,8 @@ export function ServiceCardGrid({ services, isLoading, emptyMessage }: ServiceCa
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-      {services.map((service: any) => (
-        <ServiceCard key={service.id} {...service} />
+      {services.map((service: any, index: number) => (
+        <ServiceCard key={service.id} {...service} isPriority={index < priorityCount} />
       ))}
     </div>
   );

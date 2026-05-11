@@ -13,6 +13,7 @@ import { getDetectiveProfileUrl } from "@/lib/utils";
 import { LocationContent } from "../components/LocationContent";
 import { CityFAQ } from "../components/CityFAQ";
 import { RelatedInvestigationServices } from "@/components/RelatedInvestigationServices";
+import { LocationIntelligenceBlock } from "@/components/LocationIntelligenceBlock";
 
 interface Detective {
   id: string;
@@ -63,6 +64,9 @@ let initialHydrationSeoData: { title?: string; description?: string; h1?: string
       ?? ((window as any).__SEO_DATA__ as { title?: string; description?: string; h1?: string } | undefined)
       ?? null))
   : null;
+let initialLocationIntelligence: any = typeof window !== "undefined"
+  ? ((window as any).LOCATION_INTELLIGENCE as any | undefined) ?? null
+  : null;
 let initialHydrationOffset = typeof window !== "undefined"
   ? Number(new URLSearchParams(window.location.search).get("offset") || 0)
   : 0;
@@ -79,10 +83,51 @@ const consumeInitialSeoData = () => {
   return data;
 };
 
+const consumeInitialLocationIntelligence = () => {
+  const data = initialLocationIntelligence;
+  initialLocationIntelligence = null;
+  return data;
+};
+
 const consumeInitialOffset = () => {
   const offset = initialHydrationOffset;
   initialHydrationOffset = 0;
   return offset;
+};
+
+const COUNTRY_NAME_ALIASES: Record<string, string> = {
+  india: "India",
+  in: "India",
+  usa: "United States",
+  "united states": "United States",
+  "united-states": "United States",
+  us: "United States",
+  uk: "United Kingdom",
+  gb: "United Kingdom",
+  "great britain": "United Kingdom",
+  "great-britain": "United Kingdom",
+  "united kingdom": "United Kingdom",
+  "united-kingdom": "United Kingdom",
+};
+
+const formatDisplayName = (value?: string | null): string => {
+  if (!value) {
+    return "";
+  }
+
+  const normalized = value.trim().toLowerCase();
+  const aliased = COUNTRY_NAME_ALIASES[normalized];
+
+  if (aliased) {
+    return aliased;
+  }
+
+  return value
+    .replace(/[-_]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
 };
 
 interface RelatedLocation {
@@ -196,6 +241,7 @@ export default function CityDetectivesPage() {
 
   const [ssrData] = useState<CityPageData | null>(() => consumeInitialCityPageData());
   const [initialSeoSeed] = useState<{ title?: string; description?: string; h1?: string } | null>(() => consumeInitialSeoData());
+  const [locationIntelligence, setLocationIntelligence] = useState<any>(() => consumeInitialLocationIntelligence());
 
   const seedMatchesRoute = !!(
     ssrData
@@ -394,6 +440,26 @@ export default function CityDetectivesPage() {
     };
   }, [loading, countrySlug, stateSlug, citySlug, isCountryLevel, isStateLevel, isCityLevel]);
 
+  // Client-side fallback: fetch location intelligence from API when SSR window global is absent.
+  // This fires on client-side navigation to country pages where window.LOCATION_INTELLIGENCE
+  // was never injected (SSR only injects it on direct page loads).
+  useEffect(() => {
+    if (!isCountryLevel || locationIntelligence) return; // already have data or not a country page
+    let cancelled = false;
+    const ENABLED_COUNTRIES = new Set(["india", "united-states", "united-kingdom"]);
+    if (!countrySlug || !ENABLED_COUNTRIES.has(countrySlug)) return;
+
+    fetch(`/api/location-intelligence/${encodeURIComponent(countrySlug)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setLocationIntelligence(data);
+      })
+      .catch(() => { /* silent — block simply won't render */ });
+
+    return () => { cancelled = true; };
+  }, [isCountryLevel, countrySlug, locationIntelligence]);
+
   const handleLoadMore = async () => {
     if (loadingMore || currentOffset >= totalCount) {
       return;
@@ -434,9 +500,9 @@ export default function CityDetectivesPage() {
   };
 
   // SEO Metadata - Ensure non-empty fallbacks
-  const cityName = locationMeta?.city || (citySlug ? citySlug.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()) : "");
-  const stateName = locationMeta?.state || (stateSlug ? stateSlug.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()) : "");
-  const countryName = locationMeta?.country || (countrySlug ? countrySlug.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()) : "India");
+  const cityName = formatDisplayName(locationMeta?.city || citySlug);
+  const stateName = formatDisplayName(locationMeta?.state || stateSlug);
+  const countryName = formatDisplayName(locationIntelligence?.countryName || locationMeta?.country || countrySlug || "India") || "India";
   
   const locationLabel = isCityLevel && cityName && stateName
     ? `${cityName}, ${stateName}`
@@ -454,12 +520,11 @@ export default function CityDetectivesPage() {
   // (e.g. client-side navigation after initial SSR load).
   // MUST stay in sync with generateDetectiveSeo() and generateLocationSeoMetaTags()
   // in server/lib/seo-injection.ts so Google and users always see identical content.
-  const currentYear = new Date().getUTCFullYear();
   const defaultSeoTitle = isCityLevel && cityName && stateName
-    ? `Top 10 Best Private Detectives in ${cityName}, ${stateName} (${currentYear})`
+    ? `Best Private Detectives in ${cityName}, ${stateName}`
     : isStateLevel && stateName && countryName
-    ? `Top Private Detectives in ${stateName}, ${countryName} (${currentYear})`
-    : `Top Private Detectives in ${countryName || "India"} (${currentYear})`;
+    ? `Best Private Detectives in ${stateName}, ${countryName}`
+    : `Best Private Detectives in ${countryName || "India"}`;
 
   const defaultSeoDescription = isCityLevel && cityName && stateName && countryName
     ? `Find verified private detectives in ${cityName}, ${stateName}. Licensed investigators for surveillance, matrimonial & corporate cases. Get free quotes today.`
@@ -542,6 +607,39 @@ export default function CityDetectivesPage() {
   const verifiedCount = useMemo(() => detectives.filter((d) => d.isVerified).length, [detectives]);
   const verificationRate = useMemo(() => detectives.length > 0 ? Math.round((verifiedCount / detectives.length) * 100) : 0, [verifiedCount, detectives.length]);
 
+  const faqs = useMemo(() => {
+    const countryFaqs = isCountryLevel && locationIntelligence?.content?.faq && Array.isArray(locationIntelligence.content.faq)
+      ? locationIntelligence.content.faq
+      : undefined;
+
+    if (countryFaqs && countryFaqs.length >= 3) {
+      return countryFaqs.slice(0, 5);
+    }
+
+    const seeded = typeof window !== "undefined"
+      ? (window as any).__LOCATION_FAQS__ as Array<{ question: string; answer: string }> | undefined
+      : undefined;
+
+    if (seeded && seeded.length >= 3) {
+      return seeded.slice(0, 5);
+    }
+
+    return [
+      {
+        question: `How many detectives are in ${locationDisplayName}?`,
+        answer: `There are currently ${detectives.length} licensed detectives available in ${locationDisplayName} on Ask Detectives. Our network continues to grow with verified professionals offering specialized investigation services. All detectives are screened for credentials and professional standing.`
+      },
+      {
+        question: `What services do detectives in ${locationDisplayName} provide?`,
+        answer: `Detectives in ${locationDisplayName} specialize in various services including: ${topSpecialties.length > 0 ? topSpecialties.join(", ") + "," : ""} background checks, surveillance, skip tracing, legal discovery, fraud investigation, worker's compensation investigation, and corporate intelligence gathering. All services are confidential and conducted by licensed professionals with years of experience.`
+      },
+      {
+        question: `Are detectives in ${locationDisplayName} verified?`,
+        answer: `Yes, ${verificationRate}% of detectives in our ${locationDisplayName} network are verified professionals with proper licensing and credentials. We verify all detectives to ensure you're working with trusted, insured, and qualified investigators. Check the blue checkmark icon on each profile to confirm verification status. All verified detectives have passed background checks and maintain professional liability insurance.`
+      }
+    ];
+  }, [isCountryLevel, locationIntelligence, locationDisplayName, detectives.length, topSpecialties, verificationRate]);
+
   // JSON-LD Schemas for SearchResultsPage + BreadcrumbList + FAQPage
   // Memoize to prevent expensive object reconstruction on every render
   const searchResultsSchema = useMemo(() => ({
@@ -587,28 +685,15 @@ export default function CityDetectivesPage() {
   // BreadcrumbList Schema - Essential for site hierarchy recognition (memoized to prevent recreation)
   const breadcrumbListSchema = useMemo(() => generateBreadcrumbListSchema(breadcrumbs), [breadcrumbs]);
 
-  // FAQ Schema for rich snippets (memoized to prevent expensive object recreation)
-  const faqSchema = useMemo(() => generateFAQPageSchema([
-    {
-      question: `What is the availability of private investigators in ${locationDisplayName}?`,
-      answer: `There are currently ${detectives.length} licensed private investigators and detectives available in ${locationDisplayName}. ${verifiedCount} of them are verified professionals. Our network operates 24/7 for emergency and time-sensitive investigations.`
-    },
-    {
-      question: `Which investigation services are offered by detectives in ${locationDisplayName}?`,
-      answer: `Licensed detectives in ${locationDisplayName} offer comprehensive investigation services including: ${topSpecialties.length > 0 ? topSpecialties.join(", ") + "," : ""} background checks, surveillance, asset searches, skip tracing, legal discovery, fraud investigation, infidelity investigations, corporate investigations, and more. All services are confidential and fully licensed.`
-    },
-    {
-      question: `How can I verify if a detective in ${locationDisplayName} is licensed and insured?`,
-      answer: `${verificationRate}% of detectives in our ${locationDisplayName} network are verified with active, government-issued private investigator licenses. Look for the blue verification checkmark badge on detective profiles in ${locationDisplayName}. All verified detectives have passed background checks and maintain active state PI licenses.`
-    }
-  ]), [locationDisplayName, detectives.length, verifiedCount, verificationRate, topSpecialties]);
+  // FAQ Schema for rich snippets (single source = visible FAQ content)
+  const faqSchema = useMemo(() => generateFAQPageSchema(faqs), [faqs]);
 
   // Combine all schemas into an array for rich snippet coverage (memoized to prevent array recreation)
   const allSchemas = useMemo(() => [
     breadcrumbListSchema,
     searchResultsSchema,
-    faqSchema
-  ], [breadcrumbListSchema, searchResultsSchema, faqSchema]);
+    ...(faqs.length >= 3 ? [faqSchema] : [])
+  ], [breadcrumbListSchema, searchResultsSchema, faqSchema, faqs.length]);
 
   if (error) {
     return (
@@ -754,6 +839,15 @@ export default function CityDetectivesPage() {
           </div>
         )}
 
+        {!loading && detectives.length > 0 && (
+          <RelatedInvestigationServices
+            countrySlug={countrySlug}
+            stateSlug={stateSlug}
+            citySlug={citySlug}
+            locationDisplayName={locationDisplayName}
+          />
+        )}
+
         {/* Top Locations Section - Contextual internal linking */}
         {!loading && detectives.length > 0 && topLocations.length > 0 && (
           <div className="mt-12 pt-8 border-t border-gray-200">
@@ -785,13 +879,50 @@ export default function CityDetectivesPage() {
           </div>
         )}
 
-        {!loading && detectives.length > 0 && (
-          <RelatedInvestigationServices
-            countrySlug={countrySlug}
-            stateSlug={stateSlug}
-            citySlug={citySlug}
-            locationDisplayName={locationDisplayName}
+        {/* Location Intelligence Article - PHASE 1: Country-level pages only */}
+        {locationIntelligence && isCountryLevel && !loading && detectives.length > 0 && (
+          <LocationIntelligenceBlock
+            level="country"
+            countryName={countryName}
+            detectiveCount={totalCount}
+            lastUpdated={locationIntelligence.lastUpdated}
+            content={locationIntelligence.content}
           />
+        )}
+
+        {/* FAQ Section with JSON-LD Schema */}
+        {!loading && detectives.length > 0 && (
+          <>
+            <div className="mt-12 pt-8 border-t border-gray-200">
+              <div className="max-w-2xl mx-auto">
+                <h2 className="text-2xl font-bold mb-2">
+                  Frequently Asked Questions
+                </h2>
+                <p className="text-gray-600 mb-6">
+                  Learn more about private detective services in {locationDisplayName}
+                </p>
+
+                {faqs.slice(0, 5).map((faq, idx) => (
+                  <FAQItem
+                    key={idx}
+                    question={faq.question}
+                    answer={faq.answer}
+                    isOpen={expandedFAQs[idx] || false}
+                    setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, [idx]: open })}
+                  />
+                ))}
+              </div>
+
+              <div className="mt-8 bg-gray-50 rounded-lg p-6 text-center">
+                <p className="text-gray-700 mb-4">
+                  Have more questions? Our team is here to help.
+                </p>
+                <Button asChild className="bg-blue-600 hover:bg-blue-700">
+                  <a href="/contact">Contact Us</a>
+                </Button>
+              </div>
+            </div>
+          </>
         )}
 
         {/* Related Locations Section */}
@@ -831,52 +962,6 @@ export default function CityDetectivesPage() {
               </Button>
             </div>
           </div>
-        )}
-
-        {/* FAQ Section with JSON-LD Schema */}
-        {!loading && detectives.length > 0 && (
-          <>
-            <div className="mt-12 pt-8 border-t border-gray-200">
-              <div className="max-w-2xl mx-auto">
-                <h2 className="text-2xl font-bold mb-2">
-                  Frequently Asked Questions
-                </h2>
-                <p className="text-gray-600 mb-6">
-                  Learn more about private detective services in {locationDisplayName}
-                </p>
-
-                <FAQItem
-                  question={`How many detectives are in ${locationDisplayName}?`}
-                  answer={`There are currently ${detectives.length} licensed detectives available in ${locationDisplayName} on Ask Detectives. Our network continues to grow with verified professionals offering specialized investigation services. All detectives are screened for credentials and professional standing.`}
-                  isOpen={expandedFAQs[0]}
-                  setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, 0: open })}
-                />
-
-                <FAQItem
-                  question={`What services do detectives in ${locationDisplayName} provide?`}
-                  answer={`Detectives in ${locationDisplayName} specialize in various services including: ${topSpecialties.length > 0 ? topSpecialties.join(", ") + "," : ""} background checks, surveillance, skip tracing, legal discovery, fraud investigation, worker's compensation investigation, and corporate intelligence gathering. All services are confidential and conducted by licensed professionals with years of experience.`}
-                  isOpen={expandedFAQs[1]}
-                  setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, 1: open })}
-                />
-
-                <FAQItem
-                  question={`Are detectives in ${locationDisplayName} verified?`}
-                  answer={`Yes, ${verificationRate}% of detectives in our ${locationDisplayName} network are verified professionals with proper licensing and credentials. We verify all detectives to ensure you're working with trusted, insured, and qualified investigators. Check the blue checkmark icon on each profile to confirm verification status. All verified detectives have passed background checks and maintain professional liability insurance.`}
-                  isOpen={expandedFAQs[2]}
-                  setIsOpen={(open) => setExpandedFAQs({ ...expandedFAQs, 2: open })}
-                />
-              </div>
-
-              <div className="mt-8 bg-gray-50 rounded-lg p-6 text-center">
-                <p className="text-gray-700 mb-4">
-                  Have more questions? Our team is here to help.
-                </p>
-                <Button asChild className="bg-blue-600 hover:bg-blue-700">
-                  <a href="/contact">Contact Us</a>
-                </Button>
-              </div>
-            </div>
-          </>
         )}
       </main>
       <Footer />

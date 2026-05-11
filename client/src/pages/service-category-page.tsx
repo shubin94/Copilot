@@ -504,6 +504,12 @@ export default function ServiceCategoryPage() {
   const [expandedFAQs, setExpandedFAQs] = useState<Record<number, boolean>>({ 0: false, 1: false, 2: false });
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const trustDateFormatter = useMemo(() => new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }), []);
 
   const apiPath = useMemo(
     () => `/api/services/${encodeURIComponent(categorySlug)}/${[countrySlug, stateSlug, citySlug].filter(Boolean).map(encodeURIComponent).join("/")}`,
@@ -635,13 +641,48 @@ export default function ServiceCategoryPage() {
     ...(citySlug  ? [{ name: cityName,  url: canonicalUrl }] : []),
   ] : [];
 
-  const faqs = config ? config.faqs(locationLabel, stateName || countryName, services.length) : [];
+  const faqs = useMemo(() => {
+    const seeded = typeof window !== "undefined"
+      ? (window as any).__SERVICE_LOCATION_FAQS__ as Array<{ question: string; answer: string }> | undefined
+      : undefined;
+
+    if (seeded && seeded.length >= 3) {
+      return seeded.slice(0, 5);
+    }
+
+    return config ? config.faqs(locationLabel, stateName || countryName, services.length) : [];
+  }, [config, locationLabel, stateName, countryName, services.length]);
   const keywords = config ? config.keywords(locationLabel, stateName || countryName) : [];
+
+  const lastUpdatedIso = useMemo(() => {
+    const seeded = typeof window !== "undefined"
+      ? (window as any).__SERVICE_LOCATION_LAST_MODIFIED__ as string | null | undefined
+      : null;
+
+    const toEpoch = (value: unknown): number => {
+      if (!value) return Number.NaN;
+      const epoch = new Date(String(value)).getTime();
+      return Number.isNaN(epoch) ? Number.NaN : epoch;
+    };
+
+    const epochs = [
+      toEpoch(seeded),
+      ...services.map((service: any) => toEpoch(service?.updatedAt || service?.updated_at || service?.createdAt || service?.created_at)),
+      toEpoch((locationMeta as any)?.seo?.updated_at),
+      toEpoch((locationMeta as any)?.seo?.updatedAt),
+    ].filter((epoch) => Number.isFinite(epoch));
+
+    if (epochs.length === 0) {
+      return null;
+    }
+
+    return new Date(Math.max(...epochs)).toISOString();
+  }, [services, locationMeta]);
 
   const allSchemas = config ? [
     generateBreadcrumbListSchema(breadcrumbs),
     generateItemListSchema(services, config.pluralName),
-    {
+    ...(faqs.length >= 3 && services.length > 0 ? [{
       "@context": "https://schema.org",
       "@type": "FAQPage",
       "mainEntity": faqs.map(faq => ({
@@ -649,7 +690,7 @@ export default function ServiceCategoryPage() {
         "name": faq.question,
         "acceptedAnswer": { "@type": "Answer", "text": faq.answer },
       })),
-    },
+    }] : []),
   ] : [];
 
   if (loading) {
@@ -813,6 +854,20 @@ export default function ServiceCategoryPage() {
             View All Available Detectives
             <ExternalLink className="h-4 w-4" />
           </a>
+        </div>
+
+        {/* Editorial trust & freshness signal */}
+        <div className="mb-8 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <div className="font-semibold text-slate-900">Editorial trust note</div>
+          <p className="mt-1 leading-relaxed">
+            Listings in this section are periodically reviewed for profile completeness, business activity,
+            and publicly available professional information relevant to investigative services.
+          </p>
+          {lastUpdatedIso && (
+            <p className="mt-2 text-xs text-slate-600">
+              Last updated: {trustDateFormatter.format(new Date(lastUpdatedIso))}
+            </p>
+          )}
         </div>
 
         {/* FAQ Section */}

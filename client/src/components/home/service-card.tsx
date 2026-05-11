@@ -84,6 +84,20 @@ const ServiceCardComponent = ({
   const { toast } = useToast();
   // const [, setLocation] = useLocation(); // Removed unused setLocation
 
+  const serviceImageAlt = (() => {
+    if (title && detectiveBusinessName) {
+      return detectiveCity
+        ? `${title} by ${detectiveBusinessName} in ${detectiveCity}`
+        : `${title} by ${detectiveBusinessName}`;
+    }
+
+    if (title) {
+      return `${title} – AskDetectives`;
+    }
+
+    return "Private Investigator Profile – AskDetectives";
+  })();
+
   // Reset image loaded state when image changes
   useEffect(() => {
     setImageLoaded(false);
@@ -197,7 +211,7 @@ const ServiceCardComponent = ({
                   <div className="absolute inset-0 animate-pulse bg-gray-200" aria-hidden="true" />
                 )}
                 <img
-                  alt="Detective Service Image"
+                  alt={serviceImageAlt}
                   src={displayImages[currentImageIndex]}
                   width={320} height={240}
                   loading={isPriority ? "eager" : "lazy"}

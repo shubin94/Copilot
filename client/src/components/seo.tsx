@@ -179,6 +179,16 @@ export function SEO({
     // Build all schemas
     // Note: Organization and WebSite schemas are now static in index.html only
     const allSchemas: Record<string, any>[] = [];
+    const hasSchemaType = (schemas: Record<string, any>[], type: string): boolean => {
+      return schemas.some((item) => {
+        const t = item?.["@type"];
+        if (Array.isArray(t)) return t.includes(type);
+        return t === type;
+      });
+    };
+
+    const effectiveRobots = preserveSsrNoindex ? (existingRobotsRaw || 'noindex, follow') : robots;
+    const isIndexable = !effectiveRobots.toLowerCase().includes('noindex');
 
     if (!ssrSchemaIsAuthoritative && schema) {
       // Handle both single object and array of objects
@@ -283,7 +293,14 @@ export function SEO({
     }
     
     // FAQ schema
-    if (!ssrSchemaIsAuthoritative && structuredData?.faqs && structuredData.faqs.length > 0) {
+    if (
+      !ssrSchemaIsAuthoritative &&
+      isIndexable &&
+      structuredData?.faqs &&
+      structuredData.faqs.length >= 3 &&
+      structuredData.faqs.length <= 5 &&
+      !hasSchemaType(allSchemas, "FAQPage")
+    ) {
       const faqSchema = {
         "@context": "https://schema.org",
         "@type": "FAQPage",
