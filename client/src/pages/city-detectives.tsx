@@ -12,6 +12,7 @@ import { generateBreadcrumbListSchema, generateFAQPageSchema } from "@/lib/struc
 import { getDetectiveProfileUrl } from "@/lib/utils";
 import { LocationContent } from "../components/LocationContent";
 import { CityFAQ } from "../components/CityFAQ";
+import { RelatedInvestigationServices } from "@/components/RelatedInvestigationServices";
 
 interface Detective {
   id: string;
@@ -782,6 +783,15 @@ export default function CityDetectivesPage() {
               })}
             </div>
           </div>
+        )}
+
+        {!loading && detectives.length > 0 && (
+          <RelatedInvestigationServices
+            countrySlug={countrySlug}
+            stateSlug={stateSlug}
+            citySlug={citySlug}
+            locationDisplayName={locationDisplayName}
+          />
         )}
 
         {/* Related Locations Section */}

@@ -730,7 +730,7 @@ export async function serveStatic(app: Express, _server: Server) {
       console.log("[SSR] Fetching detectives...", { countrySlug: params.country, stateSlug: params.state, citySlug: params.city });
       // Fetch SEO values and detective listings in parallel
       const [seoValues, locationSeoData] = await Promise.all([
-        getDetectiveLocationSeo(params.country, params.state, params.city),
+        getDetectiveLocationSeo(params.country, params.state, params.city, locationSeoData.totalCount),
         getLocationDetectivesForSEO(params.country, params.state, params.city, 15, 0, {
           allowParentFallback,
           includeTotalCount: true,
@@ -740,6 +740,7 @@ export async function serveStatic(app: Express, _server: Server) {
       const detectives = locationSeoData.detectives;
       // const hasMore = locationSeoData.hasMore;
       const detectiveCount = detectives ? detectives.length : 0;
+      const isEmptyLocationPage = (locationSeoData.totalCount ?? detectiveCount) === 0;
 
       // Generate canonical URL
       // const canonicalUrl = `https://www.askdetectives.com${requestPath.replace(/\/$/, '')}/`;
@@ -808,7 +809,7 @@ export async function serveStatic(app: Express, _server: Server) {
       seoHtml = stripHiddenSeoH1(seoHtml);
       seoHtml = injectFragmentBeforeRoot(seoHtml, fragmentHtml);
 
-      if (detectiveCount > 0) {
+      if (!isEmptyLocationPage) {
         const countryLabel = cityPagePayload.location.country || params.country.replace(/-/g, " ");
         const stateLabel = cityPagePayload.location.state || params.state?.replace(/-/g, " ") || "";
         const cityLabel = cityPagePayload.location.city || params.city?.replace(/-/g, " ") || "";
@@ -841,7 +842,7 @@ export async function serveStatic(app: Express, _server: Server) {
       }
 
       // Handle zero-detective pages
-      if (detectiveCount === 0) {
+      if (isEmptyLocationPage) {
         // Replace existing robots with authoritative SSR noindex to avoid conflicting tags.
         const ssrNoindexTag = '<meta name="robots" content="noindex, follow" data-ssr-robots="authoritative">';
         if (/<meta\s+name=["']robots["'][^>]*>/i.test(seoHtml)) {
@@ -898,27 +899,15 @@ export async function serveStatic(app: Express, _server: Server) {
       try {
         detective = await getDetectiveBySlugForSEO(country, state, city, detectiveSlug);
       } catch (e) {
-        // ignore — fall through to city-level SEO below
+        // ignore — but do not fallback to city-level SEO for invalid detective slugs
       }
 
-      let seoHtml: string;
-      if (detective) {
-        // Use detective-specific SEO (respects seoOverride from location_seo_overrides)
-        seoHtml = injectSeoTags(await readIndexHtml(), detective, canonicalUrl);
-      } else {
-        // Fallback: use city-level SEO from detective_location_seo
-        let citySeo;
-        try {
-          citySeo = await getDetectiveLocationSeo(country, state, city);
-        } catch (e) {
-          citySeo = generateDetectiveSeo(country, state, city);
-        }
-        seoHtml = injectServiceSeoTags(await readIndexHtml(), {
-          title: citySeo.meta_title,
-          h1: citySeo.h1,
-          meta_description: citySeo.meta_description,
-        }, canonicalUrl);
+      if (!detective) {
+        return serve404Page(res, 'Detective Not Found', 'This detective could not be found');
       }
+
+      // Use detective-specific SEO (respects seoOverride from location_seo_overrides)
+      const seoHtml = injectSeoTags(await readIndexHtml(), detective, canonicalUrl);
       return sendIndexHtmlResponse(req, res, seoHtml, "public, max-age=3600, stale-while-revalidate=86400");
 
     } catch (error) {
@@ -1100,9 +1089,9 @@ export async function serveStatic(app: Express, _server: Server) {
       // Fetch SEO values
       let seoValues;
       try {
-        seoValues = await getServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.stateSlug || '', params.citySlug || '');
+        seoValues = await getServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.stateSlug || '', params.citySlug || '', serviceCards.length);
       } catch (e) {
-        seoValues = generateServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.citySlug || '', undefined, params.stateSlug || '');
+        seoValues = generateServiceLocationSeo(canonicalCategorySlug, params.countrySlug, params.citySlug || '', undefined, params.stateSlug || '', serviceCards.length);
       }
       let seoHtml = injectServiceSeoTags(await readIndexHtml(), {
         title: seoValues.meta_title,
@@ -1265,8 +1254,8 @@ export async function serveStatic(app: Express, _server: Server) {
       );
 
       if (articleResult.rows.length === 0) {
-        // Not found — fall through to SPA which will show 404
-        return next();
+        // Hard 404 for missing article to prevent indexable soft-404 SPA responses.
+        return serve404Page(res, "Article Not Found", "This article could not be found");
       }
 
       const row = articleResult.rows[0];
@@ -1372,6 +1361,35 @@ export async function serveStatic(app: Express, _server: Server) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error("[News Article SSR] Error:", { url: req.originalUrl, message: errorMsg });
       return next();
+    }
+  });
+
+  // SHORT CMS PAGE ROUTE GUARD
+  // Prevent indexable SPA 200 on missing /p/:slug URLs.
+  app.get(/^\/p\/([^/]+)\/?$/, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const segments = req.path.replace(/\/+$/, "").split("/").filter(Boolean);
+      if (segments.length !== 2 || segments[0] !== "p") return next();
+
+      const pageSlug = segments[1];
+      const pageResult = await pool.query(
+        `SELECT id
+         FROM pages
+         WHERE slug = $1 AND status = 'published'
+         LIMIT 1`,
+        [pageSlug],
+      );
+
+      if (pageResult.rows.length === 0) {
+        return serve404Page(res, "Page Not Found", "This page could not be found");
+      }
+
+      // Let existing SPA/CMS page rendering flow handle valid slugs.
+      return next();
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("[Short CMS Route Guard] Error:", { url: req.originalUrl, message: errorMsg });
+      return serve404Page(res, "Page Not Found", "This page could not be found");
     }
   });
 
@@ -1648,28 +1666,90 @@ export async function serveStatic(app: Express, _server: Server) {
         return res.status(404).type("text/plain").send("Not Found");
       }
 
-      const seo = await getPublishedCmsPageSeo(slug);
-      let html = await readIndexHtml();
       const canonicalPath = req.path.replace(/\/$/, "") || `/${slug}`;
       const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
+      const fallbackTitle = `${slug.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase())} | Ask Detectives`;
 
-      const pageResult = await pool.query(
-        `SELECT p.id, p.title, p.slug, p.content, p.banner_image, p.status,
-                p.meta_title, p.meta_description, p.h1, p.created_at, p.updated_at,
-                p.author_name, p.author_email, c.id as category_id,
-                c.name as category_name, c.slug as category_slug
-         FROM pages p
-         LEFT JOIN categories c ON p.category_id = c.id
-         WHERE p.slug = $1 AND p.status = 'published'
-         LIMIT 1`,
-        [slug],
-      );
+      let seo: Awaited<ReturnType<typeof getPublishedCmsPageSeo>> | null = null;
+      try {
+        seo = await getPublishedCmsPageSeo(slug);
+      } catch (seoError) {
+        const seoErrorMsg = seoError instanceof Error ? seoError.message : String(seoError);
+        console.error("[SEO] Static CMS SEO lookup failed, continuing with defaults:", {
+          url: req.originalUrl,
+          slug,
+          message: seoErrorMsg,
+        });
+      }
+
+      let html: string;
+      try {
+        html = await readIndexHtml();
+      } catch (indexReadError) {
+        const indexReadErrorMsg = indexReadError instanceof Error ? indexReadError.message : String(indexReadError);
+        console.error("[SEO] Static CMS index.html read failed, serving controlled fallback:", {
+          url: req.originalUrl,
+          message: indexReadErrorMsg,
+        });
+
+        const fallbackSeoTitle = seo?.title || fallbackTitle;
+        const fallbackSeoDescription = seo?.description || `Learn more about ${slug.replace(/-/g, " ")} on Ask Detectives.`;
+        const fallbackSeoH1 = seo?.h1 || slug.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+
+        const fallbackHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${fallbackSeoTitle}</title>
+  <meta name="description" content="${fallbackSeoDescription}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="${canonicalUrl}">
+</head>
+<body>
+  <main style="max-width:900px;margin:40px auto;padding:0 20px;font-family:Inter,system-ui,sans-serif;">
+    <h1>${fallbackSeoH1}</h1>
+    <p>This page is temporarily operating in fallback mode. Please refresh shortly.</p>
+  </main>
+</body>
+</html>`;
+
+        return res.status(200).type("text/html; charset=utf-8").send(fallbackHtml);
+      }
+
+      let pageResult: Awaited<ReturnType<typeof pool.query>> | null = null;
+      try {
+        pageResult = await pool.query(
+          `SELECT p.id, p.title, p.slug, p.content, p.banner_image, p.status,
+                  p.meta_title, p.meta_description, p.h1, p.created_at, p.updated_at,
+                  p.author_name, p.author_email, c.id as category_id,
+                  c.name as category_name, c.slug as category_slug
+           FROM pages p
+           LEFT JOIN categories c ON p.category_id = c.id
+           WHERE p.slug = $1 AND p.status = 'published'
+           LIMIT 1`,
+          [slug],
+        );
+      } catch (pageQueryError) {
+        const pageQueryErrorMsg = pageQueryError instanceof Error ? pageQueryError.message : String(pageQueryError);
+        console.error("[SEO] Static CMS DB query failed, serving index fallback:", {
+          url: req.originalUrl,
+          slug,
+          message: pageQueryErrorMsg,
+        });
+      }
 
       if (seo) {
         html = injectCmsPageSeoTags(html, seo, canonicalUrl);
+      } else {
+        html = injectCmsPageSeoTags(html, {
+          title: fallbackTitle,
+          description: `Learn more about ${slug.replace(/-/g, " ")} on Ask Detectives.`,
+          h1: slug.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase()),
+        }, canonicalUrl);
       }
 
-      if (pageResult.rows.length > 0) {
+      if (pageResult && pageResult.rows.length > 0) {
         const row = pageResult.rows[0];
         const category = row.category_id
           ? { id: row.category_id, name: row.category_name, slug: row.category_slug }

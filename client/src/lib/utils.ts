@@ -47,15 +47,11 @@ export function getDetectiveProfileUrl(detective: DetectiveProfileData): string 
   const detectiveSlug = detective.slug;
 
   // Build hierarchical URL
-  if (citySlug && stateSlug) {
-    // Full path: country/state/city/detective
-    return `/detectives/${countrySlug}/${stateSlug}/${citySlug}/${detectiveSlug}/`;
-  } else if (stateSlug) {
-    // State-level: country/state/detective (city missing)
-    return `/detectives/${countrySlug}/${stateSlug}/${detectiveSlug}/`;
-  } else {
-    // Country-level: country/detective (state & city missing)
-    return `/detectives/${countrySlug}/${detectiveSlug}/`;
+  // We must output exactly 4 location segments to match the routing regex
+  if (!stateSlug || !citySlug) {
+    return `/p/${detective.id}`;
   }
+
+  return `/detectives/${countrySlug}/${stateSlug}/${citySlug}/${detectiveSlug}/`;
 }
 

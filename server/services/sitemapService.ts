@@ -363,24 +363,20 @@ async function generateDetectivesSitemap(): Promise<string> {
       d.city as city_name
     FROM detectives d
     INNER JOIN countries c ON d.country_id = c.id
-    WHERE d.status = 'active' AND d.slug IS NOT NULL AND d.slug != ''
+    WHERE d.status = 'active' 
+      AND d.slug IS NOT NULL AND d.slug != ''
+      AND d.state_id IS NOT NULL 
+      AND d.city_id IS NOT NULL
     ORDER BY d.updated_at DESC
   `);
 
   for (const profile of result.rows) {
     const lastmod = getValidLastmod(profile.updated_at);
     const countrySlug = toSlug(profile.country_name || profile.country_slug);
-    const stateSlug = profile.state_name ? toSlug(profile.state_name) : "";
-    const citySlug = profile.city_name ? toSlug(profile.city_name) : "";
+    const stateSlug = toSlug(profile.state_name);
+    const citySlug = toSlug(profile.city_name);
 
-    let url = `https://www.askdetectives.com/detectives/${countrySlug}/`;
-    if (stateSlug) {
-      url += `${stateSlug}/`;
-      if (citySlug) {
-        url += `${citySlug}/`;
-      }
-    }
-    url += `${profile.slug}/`;
+    let url = `https://www.askdetectives.com/detectives/${countrySlug}/${stateSlug}/${citySlug}/${profile.slug}/`;
 
     xml += `  <url>
     <loc>${url}</loc>
