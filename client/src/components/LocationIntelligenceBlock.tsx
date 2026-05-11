@@ -423,6 +423,10 @@ export const LocationIntelligenceBlock: React.FC<LocationIntelligenceBlockProps>
     return <StateIntelligenceView content={content} metadata={metadata} />;
   }
 
+  if (isStateLevel && isCountryContent(content)) {
+    return <CountryIntelligenceView content={content} metadata={metadata} />;
+  }
+
   if (!isStateLevel && isCountryContent(content)) {
     return <CountryIntelligenceView content={content} metadata={metadata} />;
   }
