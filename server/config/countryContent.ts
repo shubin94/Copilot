@@ -22,7 +22,7 @@ export const COUNTRY_CONTENT: Record<string, CountryContent> = {
     intro:
       "India has a mature private investigation market, but the quality of service can vary from one firm to another. Use this page to compare investigators who clearly explain their experience, their approach, and the types of cases they actually handle.",
     commonServices:
-      "In India, common requests include background checks, matrimonial investigations, surveillance, corporate due diligence, employee misconduct checks, and missing-person searches. Many investigators focus on a few core services rather than trying to cover everything.",
+      "In India, common requests include Background Checks, Surveillance, Asset Searches, Matrimonial Investigations, and Fraud Investigations. Many investigators focus on a few core services rather than trying to cover everything.",
     hiringGuidance:
       "Before you hire, ask what similar cases they have handled, how they keep you updated, and what the quoted fee includes. A clear scope and communication plan matter more than broad promises.",
     confidentiality:
@@ -60,7 +60,7 @@ export const COUNTRY_CONTENT: Record<string, CountryContent> = {
     intro:
       "The US private investigation market varies by state, so the strongest choice is usually an investigator who is licensed where you need the work done and who is clear about their process from the start.",
     commonServices:
-      "Common requests in the US include background checks, surveillance, workers' compensation cases, infidelity investigations, asset searches, skip tracing, and litigation support. Many investigators focus on a few core specialties.",
+      "Common requests in the US include Background Checks, Surveillance, Asset Searches, Matrimonial Investigations, and Fraud Investigations, alongside litigation support where needed. Many investigators focus on a few core specialties.",
     hiringGuidance:
       "Before hiring, confirm the state license, ask how billing works, and get the scope in writing. It is also worth checking how they handle communication, evidence, and deadlines.",
     confidentiality:
@@ -98,7 +98,7 @@ export const COUNTRY_CONTENT: Record<string, CountryContent> = {
     intro:
       "The UK has a professional private investigation market, and the best results usually come from investigators who can explain their experience, their limitations, and how they handle sensitive information.",
     commonServices:
-      "In the UK, common work includes background checks, surveillance, matrimonial matters, corporate investigations, legal support, asset tracing, and employee vetting. Many investigators build their practice around a few specialties.",
+      "In the UK, common work includes Background Checks, Surveillance, Asset Searches, Matrimonial Investigations, and Fraud Investigations, with legal support where required. Many investigators build their practice around a few specialties.",
     hiringGuidance:
       "Before you hire, confirm licensing or membership details, ask how the work will be handled, and request a written scope of engagement. A clear quote and clear communication are both important.",
     confidentiality:
@@ -174,4 +174,164 @@ export const COUNTRY_INTELLIGENCE_ENABLED = new Set([
 
 export function isCountryEnabled(countrySlug: string): boolean {
   return COUNTRY_INTELLIGENCE_ENABLED.has(countrySlug);
+}
+
+// ==============================================================
+// STATE-LEVEL CONTENT — PHASE 2
+// Karnataka (India), California (USA), Greater London (UK)
+// Same shape as CountryContent — reuses the same interface.
+// ==============================================================
+
+export const STATE_CONTENT: Record<string, Record<string, CountryContent>> = {
+  india: {
+    karnataka: {
+      intro:
+        "Karnataka has one of India's most active private investigation markets, driven by Bengaluru's large corporate and technology sector. Most agencies handle both personal and corporate cases, with strong demand for background verification and due diligence work. Service quality varies — use this page to compare investigators who can clearly explain their experience and process.",
+      commonServices:
+        "Common requests in Karnataka include Background Checks, Surveillance, Matrimonial Investigations, Fraud Investigations, and Corporate Due Diligence. Bengaluru-based agencies typically cover the whole state, with field staff or partners in Mysuru, Mangaluru, and Hubballi.",
+      hiringGuidance:
+        "Before hiring, clarify whether the investigator covers your specific area and how they handle travel for cases outside Bengaluru. Ask for a written scope of work before any fieldwork begins. Investigators who give specific, direct answers about similar cases are generally a better choice than those who rely on broad claims.",
+      confidentiality:
+        "Karnataka investigators should explain how digital evidence, photographs, and case reports are stored and who has access. Ask what happens to your data after the case closes. A professional will answer these questions clearly before any payment is discussed.",
+      faq: [
+        {
+          question: "What types of cases do detectives in Karnataka usually handle?",
+          answer:
+            "Most clients in Karnataka use investigators for background checks, matrimonial matters, corporate due diligence, surveillance assignments, and fraud-related inquiries. Bengaluru agencies often handle IT-sector employee screening and vendor verification as well.",
+        },
+        {
+          question: "Do Karnataka investigators cover areas outside Bengaluru?",
+          answer:
+            "Many Bengaluru-based agencies operate statewide, with field staff or partners in Mysuru, Mangaluru, Hubballi, and other cities. Confirm geographic coverage before engaging — especially for cases requiring on-the-ground presence outside the capital.",
+        },
+        {
+          question: "How are fees typically structured for detective work in Karnataka?",
+          answer:
+            "Most investigators use daily rates, fixed project fees, or a combination. Ask for a written breakdown that covers travel, reporting, and any additional expenses before the work begins. Clarity on billing matters more than a low headline rate.",
+        },
+        {
+          question: "What should I ask before sharing case details with a Karnataka detective?",
+          answer:
+            "Confirm how they store client information, who within the agency will have access to your case, and how results and evidence are delivered. A credible investigator will answer these questions before any payment is discussed.",
+        },
+        {
+          question: "How do I know if a Karnataka detective has the right experience for my case?",
+          answer:
+            "Ask directly about similar cases and what outcomes they can realistically deliver. Relevant experience shows up in how specifically they describe past work — not in broad professional claims.",
+        },
+      ],
+    },
+  },
+  usa: {
+    california: {
+      intro:
+        "California has one of the most tightly regulated private investigation markets in the US. All licensed investigators must hold a California Bureau of Security and Investigative Services (BSIS) licence. The market is large and concentrated in Los Angeles, San Francisco, and San Diego, with strong demand for corporate, legal support, and insurance-related work.",
+      commonServices:
+        "Common requests in California include Background Checks, Surveillance, Asset Searches, Corporate Due Diligence, and Fraud Investigations. Legal support — including witness location and evidence gathering for civil litigation — is also widely requested across the state's major metro areas.",
+      hiringGuidance:
+        "Before hiring, verify the investigator's BSIS licence number on the California Department of Consumer Affairs website. Ask how they handle California Privacy Rights Act (CPRA) compliance if your case involves personal data. A written engagement letter is standard practice in California, and any credible investigator will provide one before work begins.",
+      confidentiality:
+        "California has some of the strongest data privacy laws in the US. Ask any investigator how they handle personal information, how long they retain case files, and whether their data handling complies with CPRA requirements. Reputable investigators should answer this directly and without hesitation.",
+      faq: [
+        {
+          question: "Do private detectives in California need to be licensed?",
+          answer:
+            "Yes. California requires all private investigators to hold a licence issued by the Bureau of Security and Investigative Services (BSIS). You can verify a licence at no cost through the California Department of Consumer Affairs website before engaging anyone.",
+        },
+        {
+          question: "What kinds of cases do California investigators typically handle?",
+          answer:
+            "Background checks, surveillance, asset tracing, corporate due diligence, insurance fraud investigation, and litigation support are all common. The Los Angeles, San Francisco, and San Diego markets are particularly active for corporate and legal support work.",
+        },
+        {
+          question: "How are private investigator fees structured in California?",
+          answer:
+            "Most California investigators bill hourly, with rates varying by case type, location, and the investigator's experience. For complex or multi-city assignments, a retainer arrangement is common. Always get a written estimate confirming what is included before work begins.",
+        },
+        {
+          question: "What privacy rules apply to California investigations?",
+          answer:
+            "California has strict data privacy protections. Investigators cannot access certain records without authorisation and must handle personal data in compliance with CPRA. Confirm your investigator's data practices in writing before sharing any sensitive information.",
+        },
+        {
+          question: "How do I evaluate whether a California PI is the right fit?",
+          answer:
+            "Verify the BSIS licence, check for any disciplinary history on the DCA website, and ask for examples of similar cases. A straightforward investigator will explain their process, limitations, and realistic outcomes without overpromising.",
+        },
+      ],
+    },
+  },
+  "united-kingdom": {
+    "greater-london": {
+      intro:
+        "London has a well-established private investigation market with a large number of agencies and independent investigators. The strongest firms tend to hold membership of professional bodies such as the Association of British Investigators (ABI) and are registered with the Information Commissioner's Office (ICO) for data protection compliance. Many investigators have backgrounds in law enforcement, military intelligence, or corporate security.",
+      commonServices:
+        "Common requests in London include Background Checks, Surveillance, Asset Searches, Matrimonial Investigations, and Corporate Due Diligence. Legal support work — including process serving, witness location, and evidence gathering for civil proceedings — is also widely available.",
+      hiringGuidance:
+        "Before hiring, ask whether the investigator is registered with the ICO and whether they hold professional indemnity insurance. A written contract is standard in London and any credible investigator will provide one before work begins. Membership of the ABI or a similar professional body is a useful indicator of professional standards.",
+      confidentiality:
+        "UK investigators are required to handle personal data in line with UK GDPR and the Data Protection Act 2018. Ask how case files, surveillance footage, and personal data will be stored, shared, and deleted after the case closes. ICO registration is a baseline requirement for any reputable London firm.",
+      faq: [
+        {
+          question: "What kinds of cases do London private investigators usually handle?",
+          answer:
+            "Background checks, surveillance, matrimonial matters, asset tracing, and corporate due diligence are all common. Legal support work — including process serving and evidence gathering for civil litigation — is also widely requested across the London market.",
+        },
+        {
+          question: "Do London investigators need to be licensed?",
+          answer:
+            "There is currently no mandatory licensing regime for private investigators in England and Wales. However, reputable London investigators typically hold membership of professional bodies such as the ABI, and are registered with the ICO for data protection compliance.",
+        },
+        {
+          question: "How are investigator fees structured in London?",
+          answer:
+            "Most London investigators charge by the day or by the hour, with rates varying by case complexity and the seniority of the investigator assigned. For longer or multi-phase cases, a retainer arrangement is common. Always confirm the full billing scope in writing before work begins.",
+        },
+        {
+          question: "What data protection rules apply to London investigations?",
+          answer:
+            "UK investigators must comply with UK GDPR and the Data Protection Act 2018. Ask how the investigator handles personal data, how long they retain case records, and how evidence will be delivered and stored at the end of the engagement.",
+        },
+        {
+          question: "How do I assess whether a London investigator has relevant experience?",
+          answer:
+            "Ask directly about similar cases and what results they can realistically deliver. Membership of a professional body, ICO registration, and clear answers to practical questions about process and timeline are usually better indicators than broad claims of experience.",
+        },
+      ],
+    },
+  },
+};
+
+/**
+ * State slug aliases — resolve alternative URL slugs to canonical state keys
+ */
+const STATE_SLUG_ALIASES: Record<string, Record<string, string>> = {
+  "united-kingdom": {
+    london: "greater-london",
+    "city-of-london": "greater-london",
+  },
+  usa: {
+    ca: "california",
+  },
+};
+
+/**
+ * Get content for a specific state
+ * Returns undefined if state not configured for this phase
+ */
+export function getStateContent(
+  countrySlug: string,
+  stateSlug: string
+): CountryContent | undefined {
+  const normalizedCountry = COUNTRY_SLUG_ALIASES[countrySlug] ?? countrySlug;
+  const normalizedState =
+    (STATE_SLUG_ALIASES[normalizedCountry] ?? {})[stateSlug] ?? stateSlug;
+  return STATE_CONTENT[normalizedCountry]?.[normalizedState];
+}
+
+/**
+ * Check if a state is enabled for LocationIntelligenceBlock
+ */
+export function isStateEnabled(countrySlug: string, stateSlug: string): boolean {
+  return !!getStateContent(countrySlug, stateSlug);
 }

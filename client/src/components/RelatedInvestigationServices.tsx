@@ -18,6 +18,7 @@ interface ServiceCategoryLink {
 
 const MAX_LINKS = 6;
 const REQUEST_TIMEOUT_MS = 15000;
+const MAX_CANDIDATES_TO_CHECK = 12;
 
 const RELEVANT_CATEGORY_TERMS = [
   "background",
@@ -77,6 +78,14 @@ const isRelevantInvestigationCategory = (categoryName: string): boolean => {
 
   return RELEVANT_CATEGORY_TERMS.some((term) => normalized.includes(term));
 };
+
+const STABLE_FALLBACK_CATEGORIES = [
+  "Background Checks",
+  "Surveillance",
+  "Asset Search",
+  "Matrimonial Investigation",
+  "Fraud Investigation",
+];
 
 const buildServiceLocationUrl = (
   categorySlug: string,
@@ -163,6 +172,18 @@ export function RelatedInvestigationServices({
     [countrySlug, stateSlug, citySlug],
   );
 
+  const fallbackLinks = useMemo<ServiceCategoryLink[]>(() => {
+    return STABLE_FALLBACK_CATEGORIES.map((categoryName) => {
+      const categorySlug = generateSlug(categoryName);
+      return {
+        categoryName,
+        categorySlug,
+        count: 0,
+        url: buildServiceLocationUrl(categorySlug, countrySlug, stateSlug, citySlug),
+      };
+    });
+  }, [countrySlug, stateSlug, citySlug]);
+
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -190,29 +211,34 @@ export function RelatedInvestigationServices({
             .forEach((category) => categoryCandidates.add(category));
         }
 
-        const candidates = Array.from(categoryCandidates).slice(0, 24);
-        const validLinks: ServiceCategoryLink[] = [];
+        const candidates = Array.from(categoryCandidates).slice(0, MAX_CANDIDATES_TO_CHECK);
+        const counted = await Promise.all(
+          candidates.map(async (categoryName) => {
+            const count = await fetchServiceLocationCategoryCount(
+              categoryName,
+              countrySlug,
+              stateSlug,
+              citySlug,
+              controller.signal,
+            );
 
-        for (const categoryName of candidates) {
-          if (validLinks.length >= MAX_LINKS) break;
-          const count = await fetchServiceLocationCategoryCount(
-            categoryName,
-            countrySlug,
-            stateSlug,
-            citySlug,
-            controller.signal,
-          );
+            return { categoryName, count };
+          }),
+        );
 
-          if (count > 0) {
+        const validLinks: ServiceCategoryLink[] = counted
+          .filter((entry) => entry.count > 0)
+          .sort((a, b) => b.count - a.count)
+          .slice(0, MAX_LINKS)
+          .map(({ categoryName, count }) => {
             const categorySlug = generateSlug(categoryName);
-            validLinks.push({
+            return {
               categoryName,
               categorySlug,
               count,
               url: buildServiceLocationUrl(categorySlug, countrySlug, stateSlug, citySlug),
-            });
-          }
-        }
+            };
+          });
 
         if (active) {
           setLinks(validLinks);
@@ -249,9 +275,7 @@ export function RelatedInvestigationServices({
     return null;
   }
 
-  if (!loading && links.length === 0) {
-    return null;
-  }
+  const displayLinks = links.length > 0 ? links : fallbackLinks;
 
   return (
     <section className="mt-12 pt-8 border-t border-gray-200" aria-labelledby="related-investigation-services-heading">
@@ -266,30 +290,28 @@ export function RelatedInvestigationServices({
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {Array.from({ length: 3 }).map((_, idx) => (
-              <div key={idx} className="animate-pulse rounded-2xl border border-gray-200 bg-white p-5 h-32" />
+              <div key={idx} className="animate-pulse rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 h-20" />
             ))}
           </div>
-        ) : error ? (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-900">
-            {error}
-          </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {links.map((link) => (
-              <Link key={link.categorySlug} href={link.url}>
-                <a className="group block rounded-2xl border border-gray-200 bg-white p-5 transition hover:border-blue-300 hover:bg-blue-50">
-                  <div className="text-lg font-semibold text-gray-900 group-hover:text-blue-700">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {displayLinks.map((link) => (
+              <Link
+                key={link.categorySlug}
+                href={link.url}
+                className="group block rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 transition-colors hover:bg-gray-100"
+              >
+                  <div className="text-sm font-semibold text-gray-900">
                     {link.categoryName}
                   </div>
-                  <div className="mt-2 text-sm text-gray-600">
-                    {link.count.toLocaleString()} services available
+                  <div className="mt-1 text-xs text-gray-600">
+                    {link.count > 0 ? `${link.count.toLocaleString()} services available` : ""}
                   </div>
-                  <div className="mt-4 inline-flex items-center text-sm font-medium text-blue-600 group-hover:text-blue-800">
+                  <div className="mt-2 inline-flex items-center text-xs font-medium text-gray-700">
                     Explore {link.categoryName}
                   </div>
-                </a>
               </Link>
             ))}
           </div>

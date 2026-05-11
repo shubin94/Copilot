@@ -50,7 +50,7 @@ export function generateDetectiveSeo(
     return {
       h1:               `Best Private Detectives in ${countryName}`,
       meta_title:       `Best Private Detectives in ${countryName}`,
-      meta_description: `Connect with ${countText}verified private investigators in ${countryName}. Specialized in all types of investigation cases. Trusted, licensed, and confidential. Compare profiles and reviews on AskDetectives.`,
+      meta_description: `Explore ${countText}verified private investigators across ${countryName}. Compare profiles and review investigation services to find the right fit for your case.`,
     };
   }
 }
@@ -363,6 +363,7 @@ import { detectives, services, countries, states, cities, detective_location_seo
 import { eq, and, or, ilike, desc, sql, isNull } from "drizzle-orm";
 import { computeEffectiveBadges } from "../services/entitlements.js";
 import { resolveLocationHierarchyForSeo, type ResolvedLocationHierarchyForSeo } from "../services/locationSeoResolutionService.js";
+import { getCountryContent, getStateContent } from "../config/countryContent.js";
 
 /**
  * ✅ OPTIMIZATION: In-memory cache for location resolution (country/state/city IDs)
@@ -2543,7 +2544,7 @@ export function generateRichLocationFaqSchema(
     faqs.push(
       {
         q: `How much does a private detective cost in ${locationName}?`,
-        a: `Private detective fees in ${locationName} vary based on case complexity and type. Surveillance typically costs ₹2,000–₹15,000 per day, while background checks start from ₹500. Ask Detectives lists ${detectiveCount} verified investigators in ${locationName} with transparent pricing — compare quotes directly before hiring.`,
+        a: `Private detective fees in ${locationName} vary based on case complexity and type. Rates differ by case category, investigator experience, and geographic coverage. Ask Detectives lists ${detectiveCount} verified investigators in ${locationName} — compare quotes and service scope directly before committing to any one investigator.`,
       },
       {
         q: `Are private detectives legal in ${locationName}?`,
@@ -2699,7 +2700,26 @@ export async function injectLocationSeoTags(
   });
   const locationType = location.city ? 'city' : location.state ? 'state' : 'country';
   const locationDisplayName = seoData.h1.replace(/^(Top |Best )?(Private Detectives? in |Detectives? in )/i, '').trim() || location.city || location.state || location.country;
-  const locationFaqs = getLocationFaqEntries(locationDisplayName, locationType, totalCount);
+  // For country pages: use countryContent.ts FAQ to match the client UI FAQ source exactly
+  // For state pages: use stateContent.ts FAQ when available
+  let locationFaqs: Array<{ question: string; answer: string }>;
+  if (locationType === 'country') {
+    const countryFaqContent = getCountryContent(location.country);
+    if (countryFaqContent?.faq && countryFaqContent.faq.length >= 3) {
+      locationFaqs = countryFaqContent.faq.slice(0, 5);
+    } else {
+      locationFaqs = getLocationFaqEntries(locationDisplayName, locationType, totalCount);
+    }
+  } else if (locationType === 'state' && location.state) {
+    const stateFaqContent = getStateContent(location.country, location.state);
+    if (stateFaqContent?.faq && stateFaqContent.faq.length >= 3) {
+      locationFaqs = stateFaqContent.faq.slice(0, 5);
+    } else {
+      locationFaqs = getLocationFaqEntries(locationDisplayName, locationType, totalCount);
+    }
+  } else {
+    locationFaqs = getLocationFaqEntries(locationDisplayName, locationType, totalCount);
+  }
   const canEmitFaqSchema = locationFaqs.length >= 3 && totalCount > 0;
   const faqSchema = canEmitFaqSchema
     ? JSON.stringify({
