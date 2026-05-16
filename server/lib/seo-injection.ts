@@ -3823,7 +3823,7 @@ export interface CmsPageSsrInput {
 export function buildCmsPageSsrFragment(input: CmsPageSsrInput): string {
   const {
     title, h1, createdAt, excerpt, bannerImage,
-    author, category, tags, canonicalPath,
+    author, category, tags,
   } = input;
 
   const displayH1 = escapeHtml(h1 || title);
