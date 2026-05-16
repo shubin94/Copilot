@@ -156,6 +156,61 @@ CREATE OR REPLACE FUNCTION "public"."detectives_iso_enforce"() RETURNS "trigger"
 ALTER FUNCTION "public"."detectives_iso_enforce"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."refresh_service_review_stats"("target_service_id" "text") RETURNS "void"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  UPDATE services s
+  SET
+    review_avg = COALESCE(stats.avg_rating, 0),
+    review_count = COALESCE(stats.review_count, 0)
+  FROM (
+    SELECT
+      ROUND(COALESCE(AVG(r.rating), 0)::numeric, 2) AS avg_rating,
+      COUNT(r.id)::int AS review_count
+    FROM reviews r
+    WHERE r.service_id = target_service_id
+      AND r.is_published = true
+  ) stats
+  WHERE s.id = target_service_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."refresh_service_review_stats"("target_service_id" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."reviews_refresh_service_stats_trigger"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    PERFORM refresh_service_review_stats(NEW.service_id);
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.service_id IS DISTINCT FROM NEW.service_id THEN
+      PERFORM refresh_service_review_stats(OLD.service_id);
+    END IF;
+
+    PERFORM refresh_service_review_stats(NEW.service_id);
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    PERFORM refresh_service_review_stats(OLD.service_id);
+    RETURN OLD;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."reviews_refresh_service_stats_trigger"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."rls_auto_enable"() RETURNS "event_trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'pg_catalog'
@@ -789,7 +844,9 @@ CREATE TABLE IF NOT EXISTS "public"."services" (
     "created_at" timestamp without time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
     "is_on_enquiry" boolean DEFAULT false NOT NULL,
-    "slug" "text"
+    "slug" "text",
+    "review_avg" numeric(4,2) DEFAULT 0 NOT NULL,
+    "review_count" integer DEFAULT 0 NOT NULL
 );
 
 
@@ -1981,6 +2038,10 @@ ALTER TABLE "public"."payment_gateways" DISABLE TRIGGER "payment_gateways_update
 
 
 
+CREATE OR REPLACE TRIGGER "reviews_refresh_service_stats" AFTER INSERT OR DELETE OR UPDATE OF "rating", "is_published", "service_id" ON "public"."reviews" FOR EACH ROW EXECUTE FUNCTION "public"."reviews_refresh_service_stats_trigger"();
+
+
+
 CREATE OR REPLACE TRIGGER "tags_update_timestamp" BEFORE UPDATE ON "public"."tags" FOR EACH ROW EXECUTE FUNCTION "public"."update_timestamp"();
 
 ALTER TABLE "public"."tags" DISABLE TRIGGER "tags_update_timestamp";
@@ -2400,6 +2461,18 @@ GRANT USAGE ON SCHEMA "public" TO "service_role";
 GRANT ALL ON FUNCTION "public"."detectives_iso_enforce"() TO "anon";
 GRANT ALL ON FUNCTION "public"."detectives_iso_enforce"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."detectives_iso_enforce"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."refresh_service_review_stats"("target_service_id" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."refresh_service_review_stats"("target_service_id" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."refresh_service_review_stats"("target_service_id" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."reviews_refresh_service_stats_trigger"() TO "anon";
+GRANT ALL ON FUNCTION "public"."reviews_refresh_service_stats_trigger"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reviews_refresh_service_stats_trigger"() TO "service_role";
 
 
 

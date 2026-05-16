@@ -737,7 +737,9 @@ export default function CityDetectivesPage() {
       : undefined
   };
 
-  const robotsDirective = !loading && detectives.length === 0
+  // Noindex thin pages: city needs ≥3, state needs ≥5, country needs ≥3 detectives
+  const minDetectivesForIndex = citySlug ? 3 : stateSlug ? 5 : 3;
+  const robotsDirective = !loading && totalCount < minDetectivesForIndex
     ? "noindex, follow"
     : "index, follow";
 

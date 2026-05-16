@@ -189,7 +189,7 @@ async function generateCountriesSitemap(): Promise<string> {
     INNER JOIN detectives d ON d.country_id = c.id
     WHERE d.status = 'active'
     GROUP BY c.name, c.slug
-    HAVING COUNT(d.id) > 0
+    HAVING COUNT(d.id) >= 3
     ORDER BY c.name
   `);
 
@@ -239,6 +239,7 @@ async function generateStatesSitemap(page: number = 1): Promise<string> {
     INNER JOIN detectives d ON d.state_id = s.id
     WHERE d.status = 'active'
     GROUP BY c.name, c.slug, s.name, s.slug
+    HAVING COUNT(d.id) >= 5
     ORDER BY c.name, s.name
     LIMIT $1 OFFSET $2
   `,
@@ -293,6 +294,7 @@ async function generateCitiesSitemap(page: number = 1): Promise<string> {
     INNER JOIN detectives d ON d.city_id = ci.id
     WHERE d.status = 'active'
     GROUP BY c.name, c.slug, s.name, s.slug, ci.name, ci.slug
+    HAVING COUNT(d.id) >= 3
     ORDER BY c.name, s.name, ci.name
     LIMIT $1 OFFSET $2
   `,

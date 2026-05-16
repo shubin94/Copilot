@@ -239,7 +239,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
       styleSrcElem: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "https://*.supabase.co"],
-      connectSrc: ["'self'", "https://api.askdetectives.com", "https://www.askdetectives.com", "https://*.supabase.co", "wss:"],
+      connectSrc: ["'self'", "https://www.askdetectives.com", "https://*.supabase.co", "wss:"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
