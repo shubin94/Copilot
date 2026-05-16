@@ -80,6 +80,15 @@ const localDevOrigins = [
   "http://127.0.0.1:5000",
 ];
 
+function isLocalhostOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    return u.hostname === "localhost" || u.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
 function getAllowedOrigins(): string[] {
   const configuredOrigins = config.csrf.allowedOrigins || [];
 
@@ -226,11 +235,11 @@ app.use(helmet({
   contentSecurityPolicy: config.env.isProd ? {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://fonts.googleapis.com", "https://fonts.gstatic.com", "https://*.paypal.com", "https://www.googletagmanager.com", "https://vercel.live"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
       styleSrcElem: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "https://*.supabase.co"],
-      connectSrc: ["'self'", "https://www.askdetectives.com", "https://*.supabase.co", "wss:"],
+      connectSrc: ["'self'", "https://www.askdetectives.com", "https://api.askdetectives.com", "https://*.supabase.co", "https://*.paypal.com", "https://www.google-analytics.com", "https://region1.google-analytics.com", "https://vercel.live", "wss:"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],

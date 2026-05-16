@@ -12,8 +12,8 @@ export const CSP_POLICY = [
   // Default: Only allow from self
   "default-src 'self'",
   
-  // Scripts: Allow self, inline, eval (for Radix UI), Google services
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://fonts.gstatic.com",
+  // Scripts: Allow self, inline, eval (for Radix UI), GTM, Vercel Live, and payment scripts
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://fonts.gstatic.com https://*.paypal.com https://www.googletagmanager.com https://vercel.live",
   
   // Styles: Allow self, inline, and Google Fonts
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com",
@@ -27,8 +27,8 @@ export const CSP_POLICY = [
   // Images: Allow self, data URLs, HTTPS, and Supabase storage
   "img-src 'self' data: https: https://*.supabase.co",
   
-  // API connections: Allow askdetectives domains, Supabase, and WebSocket
-  "connect-src 'self' https://www.askdetectives.com https://*.supabase.co wss:",
+  // API connections: Allow API origin plus analytics, payments, Supabase, Vercel Live, and WebSocket
+  "connect-src 'self' https://www.askdetectives.com https://api.askdetectives.com https://*.supabase.co https://*.paypal.com https://www.google-analytics.com https://region1.google-analytics.com https://vercel.live wss:",
   
   // Framing: Only allow same origin
   "frame-ancestors 'self'",

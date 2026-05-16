@@ -1305,7 +1305,7 @@ export class DatabaseStorage implements IStorage {
       !filters.planName &&
       !filters.level;
 
-    let results: any[];
+    let results: any[] = [];
 
     if (isDefaultUnfilteredRecent) {
       // Default /search landing page: show only one representative service per detective.

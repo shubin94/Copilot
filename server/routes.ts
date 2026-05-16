@@ -11,7 +11,7 @@ import { generateClaimToken, calculateTokenExpiry, buildClaimUrl } from "./servi
 import bcrypt from "bcrypt";
 import { db, pool } from "../db/index.js";
 import { eq, and, or, desc, avg, count, ilike, sql, isNotNull, inArray } from "drizzle-orm";
-import { getCountryContent, isCountryEnabled, getStateContent } from "./config/countryContent.js";
+import { getCountryContent, isCountryEnabled, getStateContent, isStateEnabled } from "./config/countryContent.js";
 import {
   detectives,
   countries,
@@ -8406,7 +8406,7 @@ Content-Signal: index=public; train=deny
 
   // Returns distinct categories that have at least one active service with images
   // Used by admin service-location SEO pages to populate the category dropdown
-  app.get("/api/service-categories/active-with-services", requireRole("admin", "employee"), async (_req: Request, res: Response) => {
+  app.get("/api/service-categories/active-with-services", requireRole("admin", "employee"), async (req: Request, res: Response) => {
     try {
       const rows = await pool.query(`
         SELECT MIN(TRIM(category)) AS category_name

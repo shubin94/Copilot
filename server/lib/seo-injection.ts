@@ -1434,7 +1434,7 @@ export function generateDetectiveJsonLd(detective: any, canonicalUrl: string): {
  * Generates SpeakableSpecification schema for voice search optimization
  * Tells Google Assistant/Alexa which CSS selectors to read aloud for detective queries
  */
-function generateSpeakableSchema(): string {
+export function generateSpeakableSchema(): string {
   return JSON.stringify({
     "@context": "https://schema.org",
     "@type": "SpeakableSpecification",
@@ -3738,7 +3738,6 @@ export function buildArticleSsrFragment(input: ArticleSsrInput): string {
   const displayH1 = escapeHtml(h1 || title);
   const displayCategory = escapeHtml(category);
   const canonicalUrl = `https://www.askdetectives.com/news/${encodeURIComponent(slug)}`;
-  const categoryUrl = `https://www.askdetectives.com/news`;
 
   // Breadcrumb
   const breadcrumbItems = [
@@ -3828,7 +3827,6 @@ export function buildCmsPageSsrFragment(input: CmsPageSsrInput): string {
   } = input;
 
   const displayH1 = escapeHtml(h1 || title);
-  const canonicalUrl = `https://www.askdetectives.com${canonicalPath}`;
 
   // Breadcrumb
   const breadcrumbItems: string[] = [

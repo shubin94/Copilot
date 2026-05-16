@@ -771,7 +771,7 @@ export function registerLocationRoutes(app: Express): void {
    * Data audit: detectives whose state/city text doesn't match their FK
    * GET /api/admin/location-audit
    */
-  app.get("/api/admin/location-audit", requireRole("admin", "employee"), async (req: Request, res: Response) => {
+  app.get("/api/admin/location-audit", requireRole("admin", "employee"), async (_req: Request, res: Response) => {
     try {
       const result = await pool.query(`
         SELECT
