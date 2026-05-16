@@ -2543,10 +2543,21 @@ export async function generateLocationSeoMetaTags(
     'south-africa': 'en_ZA', 'united-arab-emirates': 'en_AE', 'pakistan': 'en_PK',
   };
   const ogLocale = ogLocaleMap[location.country.toLowerCase()] || 'en_US';
+
+  // Noindex thin pages: city needs ≥3 detectives, state needs ≥5, country needs ≥3
+  const isCityLevel = !!cityId;
+  const isStateLevel = !cityId && !!stateId;
+  const robotsContent =
+    (isCityLevel && totalCount < 3) ||
+    (isStateLevel && totalCount < 5) ||
+    (!isCityLevel && !isStateLevel && totalCount < 3)
+      ? 'noindex, follow'
+      : 'index, follow';
+
   const metaTags = [
     `<title>${escapeHtml(title)}</title>`,
     `<meta name="description" content="${escapeHtml(description)}">`,
-    `<meta name="robots" content="index, follow">`,
+    `<meta name="robots" content="${robotsContent}">`,
     `<meta property="og:type" content="website">`,
     `<meta property="og:url" content="${escapeHtml(canonicalUrl)}">`,
     `<meta property="og:title" content="${escapeHtml(h1 || title)}">`,

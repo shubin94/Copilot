@@ -24,6 +24,7 @@ import { SEO } from "@/components/seo";
 import { useSearchServices, useServiceCategories, useCountries, useStates, useCities } from "@/lib/hooks";
 import { useCurrency } from "@/lib/currency-context";
 import { WORLD_COUNTRIES } from "@/lib/world-countries";
+import { buildServiceUrl } from "@/lib/slug-utils";
 import { getCountryName } from "@/lib/slug-utils";
 
 const DEFAULT_FILTERS: FilterState = {
@@ -779,13 +780,10 @@ export default function SearchPage() {
     ? `Private Investigators in ${displayCountryName}${filters.city ? `, ${filters.city}` : ''}`
     : 'Find Professional Private Investigators';
   
-  // SEO: Clean canonical URL (keep only primary landing dimensions)
-  const canonicalParams = new URLSearchParams();
-  if (filters.category) canonicalParams.set('category', filters.category);
-  if (filters.country) canonicalParams.set('country', filters.country);
-  if (filters.state) canonicalParams.set('state', filters.state);
-  if (filters.city) canonicalParams.set('city', filters.city);
-  const canonicalUrl = `https://www.askdetectives.com/search${canonicalParams.toString() ? `?${canonicalParams.toString()}` : ''}`;
+  // SEO: Canonical always points to the base search page.
+  // Filter/location variants are UX features, not standalone SEO pages — the
+  // dedicated /detectives/<country>/<state>/<city>/ pages handle location SEO.
+  const canonicalUrl = `https://www.askdetectives.com/search`;
 
   // SEO: Prevent faceted/filter combinations from bloating the index.
   const hasFreeTextQuery = query !== "All Services";
@@ -799,7 +797,8 @@ export default function SearchPage() {
     filters.level2Only ||
     filters.sortBy !== "popular";
   const isPaginated = filters.offset > 0;
-  const searchRobots = !hasFreeTextQuery && !hasFacetedFilters && !isPaginated
+  const hasLocationOrCategoryFilter = !!(filters.category || filters.country || filters.state || filters.city);
+  const searchRobots = !hasFreeTextQuery && !hasFacetedFilters && !isPaginated && !hasLocationOrCategoryFilter
     ? "index, follow"
     : "noindex, follow";
 
@@ -808,14 +807,17 @@ export default function SearchPage() {
     "@context": "https://schema.org",
     "@type": "ItemList",
     "numberOfItems": resultServicesComputed.length,
-    "itemListElement": resultServicesComputed.slice(0, 20).map((service, index) => ({
+    "itemListElement": resultServicesComputed.slice(0, 20)
+      .map((service) => ({ service, path: buildServiceUrl(service.detective ?? null, service) }))
+      .filter(({ path }) => path !== '/service')
+      .map(({ service, path }, index) => ({
       "@type": "ListItem",
       "position": index + 1,
       "item": {
         "@type": "Service",
-        "@id": `https://www.askdetectives.com/service/${service.detective?.country}/${service.detective?.state}/${service.detective?.city}/${service.detective?.slug}/${service.slug}`,
+        "@id": `https://www.askdetectives.com${path}`,
         "name": service.title,
-        "url": `https://www.askdetectives.com/service/${service.detective?.country}/${service.detective?.state}/${service.detective?.city}/${service.detective?.slug}/${service.slug}`,
+        "url": `https://www.askdetectives.com${path}`,
         "provider": {
           "@type": "Organization",
           "name": service.detective?.businessName || service.title

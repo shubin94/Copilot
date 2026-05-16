@@ -16,17 +16,9 @@ Disallow: /claim-account
 Disallow: /claim-profile
 Disallow: /application-under-review
 
-# Crawl-budget controls for low-value faceted URLs
-Disallow: /search?*q=
-Disallow: /search?*minRating=
-Disallow: /search?*minPrice=
-Disallow: /search?*maxPrice=
-Disallow: /search?*sortBy=
-Disallow: /search?*proOnly=1
-Disallow: /search?*agencyOnly=1
-Disallow: /search?*lvl1=1
-Disallow: /search?*lvl2=1
-Disallow: /search?*offset=
+# Block all parameterised /search URLs - location/category filter pages are not
+# standalone SEO pages; dedicated /detectives/<country>/... pages handle location SEO.
+Disallow: /search?
 
 # Tracking parameter cleanup
 Disallow: /*?*utm_

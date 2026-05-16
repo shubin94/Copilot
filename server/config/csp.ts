@@ -28,7 +28,7 @@ export const CSP_POLICY = [
   "img-src 'self' data: https: https://*.supabase.co",
   
   // API connections: Allow askdetectives domains, Supabase, and WebSocket
-  "connect-src 'self' https://api.askdetectives.com https://www.askdetectives.com https://*.supabase.co wss:",
+  "connect-src 'self' https://www.askdetectives.com https://*.supabase.co wss:",
   
   // Framing: Only allow same origin
   "frame-ancestors 'self'",

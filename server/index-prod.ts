@@ -647,6 +647,26 @@ export async function serveStatic(app: Express, _server: Server) {
   });
 
 
+  // CANONICAL HOST REDIRECT
+  // api.askdetectives.com is the Render backend — it also serves the full React SPA, which
+  // causes Google to treat every api.askdetectives.com/* page as an "Alternate page with
+  // proper canonical" (the canonical tags all point to www.askdetectives.com).
+  // Solution: 301-redirect any non-API, non-asset request from api.* to www.*
+  // API calls from the Vercel proxy (/api/*) pass through untouched.
+  app.use((req: Request, res: Response, next: Function) => {
+    const host = req.hostname || '';
+    if (
+      host === 'api.askdetectives.com' &&
+      !req.path.startsWith('/api/') &&
+      !req.path.startsWith('/assets/') &&
+      !/\.[a-zA-Z0-9]+$/.test(req.path)
+    ) {
+      return res.redirect(301, `https://www.askdetectives.com${req.url}`);
+    }
+    next();
+  });
+
+
   // GLOBAL URL NORMALIZATION MIDDLEWARE (production-safe)
   app.use((req: Request, res: Response, next: Function) => {
     const originalPath = req.path;
@@ -895,19 +915,12 @@ export async function serveStatic(app: Express, _server: Server) {
         });
       }
 
-      // Handle zero-detective pages
+      // Soft 404 fix: location pages with 0 detectives must return HTTP 404, not 200.
+      // Returning 200 with "no detectives" content is a Soft 404 — Google sees this,
+      // marks the page as unindexable, and reports it in Search Console.
       if (isEmptyLocationPage) {
-        // Replace existing robots with authoritative SSR noindex to avoid conflicting tags.
-        const ssrNoindexTag = '<meta name="robots" content="noindex, follow" data-ssr-robots="authoritative">';
-        if (/<meta\s+name=["']robots["'][^>]*>/i.test(seoHtml)) {
-          seoHtml = seoHtml.replace(/<meta\s+name=["']robots["'][^>]*>/i, ssrNoindexTag);
-        } else {
-          seoHtml = seoHtml.replace('<head>', `<head>\n${ssrNoindexTag}`);
-        }
-        // Show special message
-        const cityName = params.city ? params.city.replace(/-/g, ' ') : 'this location';
-        const noDetectiveHtml = `<section style="margin-top:32px"><h2 style="font-size:1.5rem;font-weight:700;margin-bottom:16px">No detectives available in ${cityName} yet.</h2><p style="color:#6b7280;margin-bottom:24px;">We are expanding our network. Please check back soon.</p></section>`;
-        seoHtml = seoHtml.replace('</body>', `${noDetectiveHtml}</body>`);
+        const locationName = (params.city || params.state || params.country).replace(/-/g, ' ');
+        return serve404Page(res, 'No Detectives Found', `No detectives are listed in ${locationName} yet`);
       }
 
       setSsrCache(cacheKey, seoHtml);

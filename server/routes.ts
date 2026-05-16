@@ -3019,7 +3019,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public/tags", publicTagsRouter);
 
   // robots.txt - explicit route to prevent SPA HTML fallback on serverless/proxy setups
-  app.get("/robots.txt", (_req: Request, res: Response) => {
+  app.get("/robots.txt", (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+
+    // api.askdetectives.com is the Render backend — block all crawlers from it so Google
+    // never indexes it as a duplicate of www.askdetectives.com.
+    const host = req.hostname || '';
+    if (host === 'api.askdetectives.com' || host.endsWith('.onrender.com')) {
+      return res.status(200).send(`User-agent: *\nDisallow: /\n`);
+    }
+
     // Serve robots.txt directly with hardcoded content (reliable in serverless environments)
     // Content is sourced from client/public/robots.txt
     const robotsTxt = `Sitemap: https://www.askdetectives.com/sitemap.xml
@@ -3030,23 +3040,19 @@ Allow: /
 Disallow: /admin/
 Disallow: /user/
 Disallow: /detective/dashboard
+Disallow: /detective/login
+Disallow: /employee/
+Disallow: /auth/
+Disallow: /reset-password
 Disallow: /login
 Disallow: /signup
 Disallow: /claim-account
 Disallow: /claim-profile
 Disallow: /application-under-review
 
-# Crawl-budget controls for low-value faceted URLs
-Disallow: /search?*q=
-Disallow: /search?*minRating=
-Disallow: /search?*minPrice=
-Disallow: /search?*maxPrice=
-Disallow: /search?*sortBy=
-Disallow: /search?*proOnly=1
-Disallow: /search?*agencyOnly=1
-Disallow: /search?*lvl1=1
-Disallow: /search?*lvl2=1
-Disallow: /search?*offset=
+# Block all parameterised /search URLs - location/category filter pages are not
+# standalone SEO pages; dedicated /detectives/<country>/... pages handle location SEO.
+Disallow: /search?
 
 # Tracking parameter cleanup
 Disallow: /*?*utm_
@@ -6882,6 +6888,83 @@ Content-Signal: index=public; train=deny
           const phone = application.phoneCountryCode && application.phoneNumber
             ? `${application.phoneCountryCode}${application.phoneNumber}`
             : undefined;
+          const normalizeStringArray = (value: unknown): string[] => {
+            if (Array.isArray(value)) {
+              return value
+                .map((item) => (typeof item === "string" ? item.trim() : ""))
+                .filter(Boolean);
+            }
+
+            if (typeof value !== "string") return [];
+
+            const raw = value.trim();
+            if (!raw) return [];
+
+            // Handle JSON string payloads and postgres-like array literals.
+            try {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                return parsed
+                  .map((item) => (typeof item === "string" ? item.trim() : ""))
+                  .filter(Boolean);
+              }
+            } catch {
+              // no-op: not JSON
+            }
+
+            if (raw.startsWith("{") && raw.endsWith("}")) {
+              return raw
+                .slice(1, -1)
+                .split(",")
+                .map((item) => item.replace(/^"|"$/g, "").trim())
+                .filter(Boolean);
+            }
+
+            return raw
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean);
+          };
+          const normalizePricingArray = (
+            value: unknown
+          ): Array<{ category: string; price?: string; currency?: string; isOnEnquiry?: boolean }> => {
+            const parseArray = (input: unknown) => {
+              if (!Array.isArray(input)) return [];
+              return input
+                .map((item: any) => ({
+                  category: typeof item?.category === "string"
+                    ? item.category.trim()
+                    : typeof item?.serviceCategory === "string"
+                      ? item.serviceCategory.trim()
+                      : "",
+                  price: typeof item?.price === "string" ? item.price : undefined,
+                  currency: typeof item?.currency === "string" ? item.currency : undefined,
+                  isOnEnquiry: item?.isOnEnquiry === true,
+                }))
+                .filter((item) => !!item.category);
+            };
+
+            if (Array.isArray(value)) return parseArray(value);
+            if (typeof value !== "string") return [];
+
+            const raw = value.trim();
+            if (!raw) return [];
+
+            try {
+              const parsed = JSON.parse(raw);
+              return parseArray(parsed);
+            } catch {
+              return [];
+            }
+          };
+          const normalizedPricingData = normalizePricingArray(application.categoryPricing);
+          const normalizedServiceCategoriesRaw = normalizeStringArray(application.serviceCategories);
+          const normalizedServiceCategories = Array.from(
+            new Set([
+              ...normalizedServiceCategoriesRaw,
+              ...normalizedPricingData.map((p) => p.category),
+            ])
+          );
           const agencyBusinessDocuments = Array.isArray(application.businessDocuments)
             ? application.businessDocuments
             : [];
@@ -6911,6 +6994,14 @@ Content-Signal: index=public; train=deny
             postApprovalStatusPolicy === "pending" || postApprovalStatusPolicy === "active" || postApprovalStatusPolicy === "suspended" || postApprovalStatusPolicy === "inactive"
               ? postApprovalStatusPolicy
               : "active";
+
+          if (normalizedServiceCategories.length < 1) {
+            return res.status(400).json({
+              error: "At least one service category is required. Detective profile cannot be approved without creating at least one service.",
+            });
+          }
+
+          let detectiveCreatedInApproval = false;
           
           let detective = await storage.getDetectiveByUserId(user!.id);
           if (!detective) {
@@ -6967,9 +7058,10 @@ Content-Signal: index=public; train=deny
               businessType: application.businessType || undefined,
               businessDocuments: application.businessType === 'agency' ? JSON.stringify(agencyBusinessDocuments) : undefined,
               identityDocuments: application.businessType === 'individual' ? JSON.stringify(individualIdentityDocuments) : undefined,
-              mustCompleteOnboarding: !(application.serviceCategories && application.categoryPricing && application.serviceCategories.length > 0),
+              mustCompleteOnboarding: normalizedServiceCategories.length === 0,
               onboardingPlanSelected: false,
             });
+            detectiveCreatedInApproval = true;
           } else {
             await storage.updateDetectiveAdmin(detective.id, {
               defaultServiceBanner: (application as any).banner || detective.defaultServiceBanner || undefined,
@@ -6986,23 +7078,25 @@ Content-Signal: index=public; train=deny
           }
 
           // 🔴 AUTO-CREATE SERVICES: Only if application has valid service categories
-          if (application.serviceCategories && Array.isArray(application.serviceCategories) && application.serviceCategories.length > 0) {
+          if (normalizedServiceCategories.length > 0) {
             const existingServices = await storage.getAllServicesByDetective(detective.id);
+            let totalServicesAfter = existingServices.length;
             if (existingServices.length > 0) {
               console.log(`[AUTO-SERVICE-CREATE] ℹ️  Detective already has ${existingServices.length} service(s). Skipping auto-create.`);
             } else {
-              const pricingData = (application.categoryPricing || []) as Array<{category: string; price?: string; currency: string; isOnEnquiry?: boolean}>;
+              const pricingData = normalizedPricingData;
               
               // Log for debugging
               console.log(`[AUTO-SERVICE-CREATE] Detective: ${detective.id} (${application.fullName})`);
-              console.log(`[AUTO-SERVICE-CREATE] serviceCategories: ${JSON.stringify(application.serviceCategories)}`);
+              console.log(`[AUTO-SERVICE-CREATE] serviceCategories(raw): ${JSON.stringify(application.serviceCategories)}`);
+              console.log(`[AUTO-SERVICE-CREATE] serviceCategories(normalized): ${JSON.stringify(normalizedServiceCategories)}`);
               console.log(`[AUTO-SERVICE-CREATE] categoryPricing: ${JSON.stringify(pricingData)}`);
-              console.log(`[AUTO-SERVICE-CREATE] Total categories to process: ${application.serviceCategories.length}`);
+              console.log(`[AUTO-SERVICE-CREATE] Total categories to process: ${normalizedServiceCategories.length}`);
               
               // Deduplicate categories (prevent same category from being processed twice)
-              const uniqueCategories = [...new Set(application.serviceCategories)];
-              if (uniqueCategories.length !== application.serviceCategories.length) {
-                console.warn(`[AUTO-SERVICE-CREATE] ⚠️  Duplicates detected in serviceCategories! Original: ${application.serviceCategories.length}, Unique: ${uniqueCategories.length}`);
+              const uniqueCategories = [...new Set(normalizedServiceCategories)];
+              if (uniqueCategories.length !== normalizedServiceCategories.length) {
+                console.warn(`[AUTO-SERVICE-CREATE] ⚠️  Duplicates detected in serviceCategories! Original: ${normalizedServiceCategories.length}, Unique: ${uniqueCategories.length}`);
               }
               
               let servicesCreated = 0;
@@ -7061,9 +7155,27 @@ Content-Signal: index=public; train=deny
               }
               
               console.log(`[AUTO-SERVICE-CREATE] 📊 SUMMARY: ${servicesCreated} service(s) created out of ${uniqueCategories.length} unique categories`);
+              totalServicesAfter = servicesCreated;
+            }
+
+            if (totalServicesAfter < 1) {
+              if (detectiveCreatedInApproval) {
+                try {
+                  await storage.deleteDetectiveAccount(detective.id);
+                  console.error(`[AUTO-SERVICE-CREATE] Rolled back detective profile ${detective.id} because no services were created.`);
+                } catch (rollbackError: any) {
+                  console.error(`[AUTO-SERVICE-CREATE] Failed to rollback detective profile ${detective.id}:`, rollbackError?.message || rollbackError);
+                }
+              }
+
+              return res.status(500).json({
+                error: "Approval failed: at least one service must be created before detective profile can be approved.",
+              });
             }
           } else {
-            console.log(`[AUTO-SERVICE-CREATE] ℹ️  No service categories to auto-create (serviceCategories: ${JSON.stringify(application.serviceCategories)})`);
+            return res.status(400).json({
+              error: "At least one service category is required. Detective profile cannot be approved without creating at least one service.",
+            });
           }
 
           console.log(`Detective account ${user ? "linked/created" : "unknown"} for: ${normalizedEmail} with ${application.serviceCategories?.length || 0} services.`);
