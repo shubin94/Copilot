@@ -25,7 +25,6 @@ import {
   getLocationDetectivesForSEO,
   // injectLocationSeoTags,
   // injectDetectiveLocationAuthorityLink,
-  generateDetectiveSeo,
   getServiceLocationSeo,
   generateServiceLocationSeo,
   buildDetectiveListingSsrFragment,
@@ -45,8 +44,6 @@ import {
   buildCountryLevelPayload,
   buildStateLevelPayload,
   getPageLevel,
-  generateLocationIntelligenceScript,
-  type LocationIntelligencePayload,
 } from "./lib/location-intelligence-injection.js";
 
 const STATIC_CMS_SEO_SLUGS = new Set([
@@ -1200,19 +1197,23 @@ export async function serveStatic(app: Express, _server: Server) {
         meta_description: seoValues.meta_description,
       }, canonicalUrl);
 
-      const serviceCards = serviceResults.map((service: any) => ({
-        ...buildServiceCardDTO({
+      const serviceCards = serviceResults.map((service: any) => {
+        const card = buildServiceCardDTO({
           service,
           detective: service.detective,
           avgRating: service.avgRating,
           reviewCount: service.reviewCount,
-        }),
-        isOnEnquiry: service.isOnEnquiry,
-        basePrice: service.basePrice,
-        offerPrice: service.offerPrice,
-        category: service.category,
-        description: service.description,
-      }));
+        });
+        return {
+          ...card,
+          slug: card.slug ?? undefined,
+          isOnEnquiry: service.isOnEnquiry,
+          basePrice: service.basePrice,
+          offerPrice: service.offerPrice,
+          category: service.category,
+          description: service.description,
+        };
+      });
 
       const resolvedCategoryName = serviceCards[0]?.category || params.category.replace(/-/g, " ");
       const hasMoreResults = serviceCards.length === 50;

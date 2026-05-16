@@ -80,15 +80,6 @@ const localDevOrigins = [
   "http://127.0.0.1:5000",
 ];
 
-function isLocalhostOrigin(origin: string): boolean {
-  try {
-    const u = new URL(origin);
-    return u.hostname === "localhost" || u.hostname === "127.0.0.1";
-  } catch {
-    return false;
-  }
-}
-
 function getAllowedOrigins(): string[] {
   const configuredOrigins = config.csrf.allowedOrigins || [];
 
