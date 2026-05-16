@@ -930,6 +930,8 @@ export class DatabaseStorage implements IStorage {
       isActive: services.isActive,
       viewCount: services.viewCount,
       orderCount: services.orderCount,
+      reviewAvg: services.reviewAvg,
+      reviewCount: services.reviewCount,
       createdAt: services.createdAt,
       updatedAt: services.updatedAt,
     })
@@ -956,6 +958,8 @@ export class DatabaseStorage implements IStorage {
       isActive: services.isActive,
       viewCount: services.viewCount,
       orderCount: services.orderCount,
+      reviewAvg: services.reviewAvg,
+      reviewCount: services.reviewCount,
       createdAt: services.createdAt,
       updatedAt: services.updatedAt,
     })
@@ -1305,7 +1309,7 @@ export class DatabaseStorage implements IStorage {
       !filters.planName &&
       !filters.level;
 
-    let results: any[];
+    let results: any[] = [];
 
     if (isDefaultUnfilteredRecent) {
       // Default /search landing page: show only one representative service per detective.

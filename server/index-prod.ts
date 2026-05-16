@@ -1818,7 +1818,7 @@ export async function serveStatic(app: Express, _server: Server) {
         return res.status(200).type("text/html; charset=utf-8").send(fallbackHtml);
       }
 
-      let pageResult: Awaited<ReturnType<typeof pool.query>> | null = null;
+      let pageResult: { rows: any[] } | null = null;
       try {
         pageResult = await pool.query(
           `SELECT p.id, p.title, p.slug, p.content, p.banner_image, p.status,
@@ -1830,7 +1830,7 @@ export async function serveStatic(app: Express, _server: Server) {
            WHERE p.slug = $1 AND p.status = 'published'
            LIMIT 1`,
           [slug],
-        );
+        ) as { rows: any[] };
       } catch (pageQueryError) {
         const pageQueryErrorMsg = pageQueryError instanceof Error ? pageQueryError.message : String(pageQueryError);
         console.error("[SEO] Static CMS DB query failed, serving index fallback:", {
@@ -1852,7 +1852,7 @@ export async function serveStatic(app: Express, _server: Server) {
 
       if (pageResult && pageResult.rows.length > 0) {
         const row = pageResult.rows[0];
-        const category = row.category_id
+        const category = row.category_id && row.category_name && row.category_slug
           ? { id: row.category_id, name: row.category_name, slug: row.category_slug }
           : null;
         const author = row.author_name
@@ -1884,7 +1884,7 @@ export async function serveStatic(app: Express, _server: Server) {
           description: row.meta_description || plainExcerpt.substring(0, 160) || `Learn more about ${row.title} on Ask Detectives.`,
           h1: row.h1 || row.title,
           slug: row.slug,
-          categorySlug: category?.slug || null,
+          categorySlug: category?.slug || undefined,
         };
 
         html = injectScriptPayloads(html, [

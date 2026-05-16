@@ -120,7 +120,7 @@ async function fetchPage(
 
   const params: any[] = [slug];
   let where = "p.slug = $1 AND p.status = 'published'";
-  let pageResult;
+  let pageResult: { rows: any[] } | null = null;
 
   if (category) {
     // Resolve the hierarchical category slug to get the category ID
@@ -140,11 +140,15 @@ async function fetchPage(
     }
   }
 
+  if (!category) {
+    pageResult = await runQuery(where, params);
+  }
+
   if ((!pageResult || pageResult.rows.length === 0) && !strictCategoryPath) {
     pageResult = await runQuery("p.slug = $1 AND p.status = 'published'", [slug]);
   }
 
-  if (pageResult.rows.length === 0) return null;
+  if (!pageResult || pageResult.rows.length === 0) return null;
 
   const pageRow = pageResult.rows[0];
   const tagsResult = await pool.query(
